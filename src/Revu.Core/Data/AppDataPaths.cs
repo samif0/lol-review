@@ -66,6 +66,18 @@ public static class AppDataPaths
     public static string SidecarHandshakeDirectory => Path.Combine(LocalAppDataRoot, "Revu");
     public static string RecordingsDirectory => Path.Combine(SidecarHandshakeDirectory, "Recordings");
 
+    /// <summary>
+    /// 3.14 narrated clips: raw voice tracks (<c>&lt;narrationId&gt;.webm</c>) written by the
+    /// Electron host. The only folder a narration audio file may be deleted from.
+    /// </summary>
+    public static string NarrationDirectory => Path.Combine(SidecarHandshakeDirectory, "Narration");
+
+    /// <summary>
+    /// Remote clip ids still to DELETE on the share proxy (abandoned multipart uploads and
+    /// deletes deferred while signed out), as <c>{ "slugs": [...] }</c>.
+    /// </summary>
+    public static string RemoteClipCleanupPath => Path.Combine(SidecarHandshakeDirectory, "remote-clip-cleanup.json");
+
     private static string GetLocalAppDataRoot()
     {
         // Dev/e2e override: point ALL app data (DB, config, clips, backups, and

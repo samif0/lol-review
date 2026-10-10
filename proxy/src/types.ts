@@ -25,4 +25,8 @@ export interface Env {
   // isolates (see src/ratelimit.ts). Optional so test envs that don't exercise
   // the limiter (and the per-isolate fail-open path) can omit it.
   RATE_LIMITER?: DurableObjectNamespace;
+  // Workers AI binding ([ai] in wrangler.toml). Powers POST /transcribe
+  // (Whisper). Optional so test envs and an unbound deployment degrade to a
+  // clean 503 transcribe_unavailable instead of crashing.
+  AI?: Ai;
 }

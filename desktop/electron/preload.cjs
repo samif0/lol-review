@@ -13,9 +13,10 @@ if (process.isMainFrame && location.protocol === 'revu-app:' && location.host ==
   contextBridge.exposeInMainWorld('revuDesktop', Object.freeze({
     version: 1, kind: 'electron',
     capabilities: Object.freeze({ commands: true, events: true, media: true, windows: true,
-      dialogs: true, updates: !isolated, externalLinks: !isolated, recorder: !isolated }),
+      dialogs: true, updates: !isolated, externalLinks: !isolated, recorder: !isolated, narration: !isolated }),
     invoke,
     openExternal: url => ipcRenderer.invoke('revu:open-external', url),
+    saveNarration: (bytes, meta) => ipcRenderer.invoke('revu:narration-save', bytes, meta),
     listen: async (event, callback) => {
       if (event !== 'lcu-event' || typeof callback !== 'function') throw new Error('Invalid event subscription');
       const listener = (_event, payload) => callback({ payload });

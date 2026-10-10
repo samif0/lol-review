@@ -48,20 +48,28 @@ public interface IVodRepository
     /// </summary>
     Task SetBookmarkTagAsync(long bookmarkId, long? objectiveId, long? promptId);
 
-    /// <summary>Persist the public share URL (revu.lol/&lt;id&gt;) for a clip bookmark.</summary>
-    Task SetBookmarkShareUrlAsync(long bookmarkId, string shareUrl);
+    /// <summary>
+    /// Persist the public share URL (revu.lol/&lt;id&gt;) for a clip bookmark. False when
+    /// the bookmark no longer exists (nothing was stored).
+    /// </summary>
+    Task<bool> SetBookmarkShareUrlAsync(long bookmarkId, string shareUrl);
 
     Task DeleteBookmarkAsync(long bookmarkId);
 
     /// <summary>
-    /// Fully delete a saved clip: in one transaction, remove the clip bookmark row AND
-    /// any evidence_items row that referenced it (source_kind='clip', source_id=bookmark),
-    /// so the clip vanishes from both the timeline and the objective ledger. Returns the
-    /// clip's on-disk path + share URL (read before deletion) so the caller can finish the
-    /// cleanup — delete the file and the uploaded copy — which live outside the DB layer.
-    /// Returns null when the bookmark doesn't exist.
+    /// Fully delete a saved clip: in one transaction, remove the clip bookmark row, any
+    /// evidence_items row that referenced it (source_kind='clip', source_id=bookmark) and
+    /// its clip_narrations row, so the clip vanishes from both the timeline and the
+    /// objective ledger. Returns the clip's on-disk path, share URL and narration file
+    /// paths (read before deletion) so the caller can finish the cleanup (files and the
+    /// uploaded copy live outside the DB layer). Returns null when the bookmark doesn't exist.
     /// </summary>
     Task<ClipDeletionInfo?> DeleteClipFullAsync(long bookmarkId);
+
+    /// <summary>
+    /// 3.14 eviction protection: the clip_path of every bookmark that has a share URL.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSharedClipPathsAsync();
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);
 

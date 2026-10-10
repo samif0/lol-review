@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Revu</title>
+  <desc>An off-white rounded review loop and right-facing play symbol on a charcoal tile.</desc>
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#242424" stroke="#484848" stroke-width="4"/>
+  <g transform="translate(82 90) scale(3.4)" fill="#f4f2ed">
+    <path d="M20 0h59c12 0 20 8 20 20v40c0 3-2 4-4.5 2.5l-8.5-5c-2.5-1.5-4-3-4-6V26c0-5.5-3-8.5-8.5-8.5h-47c-6 0-9 3-9 9v44c0 6 3 9 9 9H58a8.5 8.5 0 0 1 0 17H20C8 96.5 0 88.5 0 76.5V20C0 8 8 0 20 0Z"/>
+    <path d="M74 63c0-3.5 2.5-5 5.5-3.2L99 72.5c4 2.6 4 5.8 0 8.4L79.5 93.6C76.5 95.4 74 94 74 90.5Z"/>
+  </g>
+</svg>

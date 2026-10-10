@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
+import vm from 'node:vm';
 import { COMMANDS, validateCommand } from '../ui/platform/commands.mjs';
 import { createPlatform, trustedTop, resolveAssetUrl } from '../ui/platform/index.mjs';
 
@@ -226,7 +227,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 109);
+  assert.equal(Object.keys(COMMANDS).length, 115);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);
@@ -255,11 +256,68 @@ test('command declarations keep immutable envelopes, required arguments and exce
   assert.equal(COMMANDS.scan_vods.route, '/api/settings/scan-vods');
   assert.equal(COMMANDS.scan_vods.method, 'POST');
   assert.equal(COMMANDS.scan_vods.timeoutMs, 120_000);
-  assert.equal(COMMANDS.share_clip.timeoutMs, 300_000);
-  assert.equal(COMMANDS.run_backfill.timeoutMs, 3_600_000);
+  assert.equal(COMMANDS.share_clip.timeoutMs, 60_000);
+  assert.equal(COMMANDS.extract_clip.timeoutMs, 280_000);
+  assert.equal(COMMANDS.mix_clip_narration.timeoutMs, 280_000);
+  assert.equal(COMMANDS.run_backfill.timeoutMs, 290_000);
+  // C0.7: Node fetch gives up waiting for response headers after 300 s.
+  for (const [name, definition] of Object.entries(COMMANDS)) {
+    if (definition.timeoutMs !== undefined) assert.ok(definition.timeoutMs <= 290_000, name);
+  }
+  assert.equal(COMMANDS.get_clip_share_status.route, '/api/clip/share-status');
+  assert.deepEqual(COMMANDS.get_clip_share_status.args, { bookmarkId: 'integer' });
+  assert.equal(COMMANDS.get_clip_share_status.method, 'GET');
+  for (const name of ['mix_clip_narration', 'delete_clip_narration', 'transcribe_clip_narration']) {
+    assert.equal(COMMANDS[name].method, 'POST', name);
+    assert.deepEqual(COMMANDS[name].args, { payload: 'object' }, name);
+  }
+  assert.equal(COMMANDS.delete_clip_narration.route, '/api/clip/narration/delete');
+  assert.equal(COMMANDS.transcribe_clip_narration.route, '/api/clip/narration/transcribe');
+  for (const name of ['get_microphone_access', 'open_microphone_settings']) {
+    assert.equal(COMMANDS[name].method, 'NATIVE', name);
+    assert.deepEqual(COMMANDS[name].args, {}, name);
+  }
+  // The voice upload is host-only: it never becomes a renderer command.
+  assert.ok(!Object.values(COMMANDS).some(definition => definition.route === '/api/clip/narration/save'));
   assert.equal(COMMANDS.reset_all_data.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.restore_backup.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.apply_update.sideEffect, 'apply-update-stop-sidecar-exit');
+});
+
+test('narration saves require the host capability and accept only bounded byte views', async () => {
+  const saved = [];
+  const meta = { gameId: 4, bookmarkId: 9, mimeType: 'audio/webm', offsetMs: 0, durationMs: 1500,
+    gameVolume: 0.8, narrationVolume: 1, duck: true };
+  const without = createPlatform({ scope: page(), adapterFactory: () => host() });
+  await assert.rejects(without.saveNarration(new Uint8Array(4), meta), /capability unavailable: narration/);
+  assert.equal(await without.narrationAvailable(), false);
+  without.dispose();
+  const client = createPlatform({ scope: page(), adapterFactory: () => host({
+    capabilities: { commands: true, narration: true },
+    saveNarration: async (bytes, value) => { saved.push([bytes, value]); return { ok: true }; },
+  }) });
+  assert.equal(await client.narrationAvailable(), true);
+  for (const bad of [new Float32Array(4), new Uint16Array(4), [1, 2, 3], 'bytes', null, undefined, {},
+    { byteLength: 4 }, new SharedArrayBuffer(4), ArrayBuffer, new Uint8Array(33554433),
+    new ArrayBuffer(33554433), vm.runInNewContext('new ArrayBuffer(33554433)')]) {
+    await assert.rejects(client.saveNarration(bad, meta), /at most 32 MiB/);
+  }
+  assert.equal(saved.length, 0);
+  // A page iframe hands over its own realm's Uint8Array.
+  const foreign = vm.runInNewContext('new Uint8Array([26, 69, 223, 163])');
+  assert.deepEqual(await client.saveNarration(foreign, meta), { ok: true });
+  const view = new Uint8Array(33554432);
+  assert.deepEqual(await client.saveNarration(view, meta), { ok: true });
+  // The context-bridge fallback passes the backing ArrayBuffer, from either realm.
+  const buffer = new ArrayBuffer(4);
+  assert.deepEqual(await client.saveNarration(buffer, meta), { ok: true });
+  const foreignBuffer = vm.runInNewContext('new Uint8Array([26, 69, 223, 163]).buffer');
+  assert.deepEqual(await client.saveNarration(foreignBuffer, meta), { ok: true });
+  assert.deepEqual(await client.saveNarration(new ArrayBuffer(33554432), meta), { ok: true });
+  assert.equal(saved[0][0], foreign); assert.equal(saved[1][0], view); assert.equal(saved[0][1], meta);
+  assert.equal(saved[2][0], buffer); assert.equal(saved[3][0], foreignBuffer); assert.equal(saved.length, 5);
+  client.dispose();
+  await assert.rejects(client.saveNarration(foreign, meta), /disposed/);
 });
 
 test('UI modules stay behind the Electron boundary and contain no removed host dependency', async () => {

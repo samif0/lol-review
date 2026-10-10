@@ -176,13 +176,42 @@ public static partial class SidecarEndpoints
         // mutation (returns the backup path). We ALSO take the session-first-write
         // safety backup (belt-and-suspenders). The frontend confirms before calling.
         // ─────────────────────────────────────────────────────────────────────────────
-        app.MapPost("/api/game/delete", async (GameIdBody body, WriteServices w, ILogger<Program> log) =>
+        app.MapPost("/api/game/delete", async (GameIdBody body, WriteServices w, ClipShareWorker share,
+            RemoteClipCleanupStore cleanup, SidecarBackgroundWork work, ILogger<Program> log) =>
         {
             if (body is null || body.GameId <= 0)
                 return Results.BadRequest(new { error = "gameId required" });
             await w.BackupGuard.EnsureBackedUpAsync();
+
+            // 3.14: the game's shared clips go too. Read their links before the rows are gone
+            // and stop any share still running for them.
+            var bookmarks = await w.Vod.GetBookmarksAsync(body.GameId);
+            foreach (var bm in bookmarks) share.Cancel(bm.Id);
+            var slugs = bookmarks.Select(bm => ClipShareLinks.SlugFromUrl(bm.ShareUrl))
+                .Where(slug => slug.Length > 0).Distinct().ToList();
+
             var backupPath = await w.Games.DeleteAsync(body.GameId);
             log.LogInformation("Game {GameId} deleted (backup at {BackupPath})", body.GameId, backupPath);
+
+            // Remote deletes are best effort and off the request path (10 s each); signed out,
+            // they wait in the cleanup queue for the next sign-in. Every slug is queued first,
+            // so shutdown just stops here: the next signed-in start sends the rest.
+            if (slugs.Count > 0)
+            {
+                foreach (var slug in slugs) cleanup.Add(slug);
+                if (!work.TryRun("game delete remote clips", async () =>
+                    {
+                        foreach (var slug in slugs)
+                        {
+                            if (work.Stopping.IsCancellationRequested) break;
+                            if (await ClipShareLinks.DeleteOrQueueAsync(slug, w.Config, w.ClipUpload, cleanup, log, work.Stopping))
+                                cleanup.Remove(slug);
+                        }
+                    }))
+                {
+                    log.LogInformation("Game {GameId}: remote clip deletes queued for the next start", body.GameId);
+                }
+            }
             return Results.Json(new { ok = true, backupPath }, jsonOptions);
         });
 

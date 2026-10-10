@@ -213,6 +213,34 @@ public static class GameConstants
     /// <summary>Timeout for re-encode fallback (seconds).</summary>
     public const int FfmpegReEncodeTimeoutS = 180;
 
+    /// <summary>Longest clip the clip tool, extract and share accept (10 minutes).</summary>
+    public const int MaxClipSeconds = 600;
+
+    /// <summary>Extract only tries the slow re-encode fallback at or below this duration.</summary>
+    public const int ReencodeFallbackMaxClipSeconds = 90;
+
+    /// <summary>Hard cap on any single ffmpeg run started by a synchronous request.</summary>
+    public const int FfmpegMaxStepSeconds = 240;
+
+    /// <summary>Stream-copy extract timeout: 0.4 s per clip second, 60..240 s.</summary>
+    public static int CopyTimeoutSeconds(double durationSeconds) =>
+        ClampTimeout(durationSeconds * 0.4, 60);
+
+    /// <summary>Narration mix timeout: 0.4 s per clip second, 120..240 s.</summary>
+    public static int MixTimeoutSeconds(double durationSeconds) =>
+        ClampTimeout(durationSeconds * 0.4, 120);
+
+    /// <summary>Transcription export step timeout: 0.3 s per audio second, 60..240 s.</summary>
+    public static int TranscribeExportTimeoutSeconds(double durationSeconds) =>
+        ClampTimeout(durationSeconds * 0.3, 60);
+
+    private static int ClampTimeout(double seconds, int min)
+    {
+        if (double.IsNaN(seconds) || seconds < 0) seconds = 0;
+        var whole = seconds >= FfmpegMaxStepSeconds ? FfmpegMaxStepSeconds : (int)seconds;
+        return Math.Clamp(whole, min, FfmpegMaxStepSeconds);
+    }
+
     // ── Auto-clip objective events ────────────────────────────────────────
     // The VOD player's "Auto-clip objectives" button buffers each objective-tied
     // event into a ~45s clip: PreRoll before the event, PostRoll after.

@@ -123,6 +123,8 @@ public static partial class SidecarEndpoints
             var endS = Math.Max(0, Math.Max(body.StartTimeS, body.EndTimeS));
             if (endS - startS < 1)
                 return Results.BadRequest(new { error = "clip range must be at least 1s" });
+            if (NarrationRequestValidator.ExtractRangeError(startS, endS) is { } tooLong)
+                return Results.Json(new { ok = false, error = tooLong }, jsonOptions, statusCode: 422);
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
@@ -140,7 +142,24 @@ public static partial class SidecarEndpoints
             }
 
             var clipsFolder = w.Config.ClipsFolder;
-            var clipPath = await w.Clips.ExtractClipAsync(body.VodPath, startS, endS, champion, clipsFolder);
+            // The request-aborted token kills ffmpeg and deletes partial output; nothing is
+            // persisted for an aborted request. ExtractClipAsync runs the folder eviction with
+            // the new file exempt and the protected set (narrated, shared, pinned) applied.
+            string? clipPath;
+            try
+            {
+                clipPath = await w.Clips.ExtractClipAsync(body.VodPath, startS, endS, champion, clipsFolder, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                log.LogInformation("Clip extract for game {GameId} cancelled by the caller; nothing saved", body.GameId);
+                return Results.Json(new { ok = false, error = "The request was cancelled." }, jsonOptions, statusCode: 499);
+            }
+            catch (ClipExtractionException ex)
+            {
+                log.LogWarning("Clip extract failed for game {GameId} ({StartS}-{EndS}s): {Reason}", body.GameId, startS, endS, ex.Reason);
+                return Results.Json(new { ok = false, error = NarrationRequestValidator.ExtractLongFailed }, jsonOptions, statusCode: 422);
+            }
             if (string.IsNullOrEmpty(clipPath))
             {
                 log.LogWarning("Clip extract failed for game {GameId} ({StartS}-{EndS}s) — ffmpeg returned no output", body.GameId, startS, endS);
@@ -194,98 +213,12 @@ public static partial class SidecarEndpoints
             }
         });
 
-        app.MapPost("/api/clip/upload", async (ShareClipBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
-        {
-            if (body is null || body.GameId <= 0 || body.BookmarkId <= 0)
-                return Results.BadRequest(new { error = "gameId and bookmarkId required" });
-
-            // Resolve the bookmark server-side: its clip path, share URL, and clip window.
-            VodBookmarkRecord? bm;
-            try
-            {
-                var marks = await w.Vod.GetBookmarksAsync(body.GameId);
-                bm = marks.FirstOrDefault(m => m.Id == body.BookmarkId);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Share: bookmark lookup failed for game {GameId} bm {BookmarkId}", body.GameId, body.BookmarkId);
-                return Results.Json(new { ok = false, error = "Couldn't load that clip." }, jsonOptions, statusCode: 422);
-            }
-            if (bm is null)
-                return Results.Json(new { ok = false, error = "Clip not found." }, jsonOptions, statusCode: 404);
-
-            // Already shared → return the existing URL (mirror the VM: no re-upload).
-            if (!string.IsNullOrWhiteSpace(bm.ShareUrl))
-                return Results.Json(new { ok = true, shareUrl = bm.ShareUrl, alreadyShared = true }, jsonOptions);
-
-            if (string.IsNullOrWhiteSpace(bm.ClipPath) || !File.Exists(bm.ClipPath))
-                return Results.Json(new { ok = false, error = "Clip file not found on disk." }, jsonOptions, statusCode: 422);
-
-            // Duration cap (mirror MaxShareDurationSeconds=90). Use the stored clip window.
-            var durationSeconds = (bm.ClipEndSeconds.HasValue && bm.ClipStartSeconds.HasValue)
-                ? Math.Max(0, bm.ClipEndSeconds.Value - bm.ClipStartSeconds.Value)
-                : 0;
-            if (durationSeconds > MaxShareDurationSeconds)
-                return Results.Json(new { ok = false, error = "Clips can be up to 90s — trim and re-clip." }, jsonOptions, statusCode: 422);
-
-            // Logged-in check (the upload also enforces this, but we want the clear-session
-            // + re-prompt behavior on a missing/expired token, not a generic error).
-            var cfg = await w.Config.LoadAsync();
-            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var signedIn = !string.IsNullOrWhiteSpace(cfg.RiotSessionToken) && cfg.RiotSessionExpiresAt > now;
-            if (!signedIn)
-                return Results.Json(new { ok = false, error = "You need to be logged in to share clips.", needsLogin = true }, jsonOptions, statusCode: 401);
-
-            await w.BackupGuard.EnsureBackedUpAsync();
-
-            // champion for the watch page: prefer the body, else the game row.
-            var champion = (body.ChampionName ?? "").Trim();
-            if (champion.Length == 0)
-            {
-                var game = await w.Games.GetAsync(body.GameId);
-                champion = game?.ChampionName ?? "";
-            }
-            var title = string.IsNullOrWhiteSpace(body.Title) ? (bm.Note ?? "") : body.Title!.Trim();
-
-            try
-            {
-                var result = await w.ClipUpload.UploadAsync(
-                    filePath: bm.ClipPath,
-                    sessionToken: cfg.RiotSessionToken,
-                    title: title,
-                    champion: champion,
-                    durationSeconds: durationSeconds > 0 ? durationSeconds : (int?)null,
-                    progress: null,
-                    ct: ct);
-
-                await w.Vod.SetBookmarkShareUrlAsync(body.BookmarkId, result.Url);
-                log.LogInformation("Clip shared: bm {BookmarkId} -> {Url}", body.BookmarkId, result.Url);
-                return Results.Json(new { ok = true, shareUrl = result.Url, alreadyShared = false }, jsonOptions);
-            }
-            catch (ClipUploadException ex)
-            {
-                if (ex.Unauthorized)
-                {
-                    // Proxy rejected the token (401/403). Do NOT wipe the local session here:
-                    // a SINGLE share 401 — which can be transient (a proxy hiccup, a 5xx that
-                    // surfaced as unauthorized, brief clock skew on the expiry check) — used to
-                    // blank RiotSessionToken + RiotSessionExpiresAt, destroying an otherwise
-                    // valid multi-week session and locking the user out of sharing entirely
-                    // (every retry then sent an empty token -> guaranteed 401 -> re-wipe loop).
-                    // Tell the frontend to re-prompt login, but leave the stored session intact
-                    // so a retry (or a genuine re-login) can succeed. Deliberate sign-out
-                    // (POST /api/auth/logout) remains the only path that clears the session.
-                    log.LogInformation("Share: proxy returned unauthorized; prompting re-login WITHOUT clearing the stored session.");
-                    return Results.Json(new { ok = false, error = ex.Message, needsLogin = true }, jsonOptions, statusCode: 401);
-                }
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions, statusCode: 422);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Share: upload failed for bm {BookmarkId}", body.BookmarkId);
-                return Results.Json(new { ok = false, error = "Couldn't upload the clip. Try again." }, jsonOptions, statusCode: 502);
-            }
-        });
+        // POST /api/clip/upload  { gameId, bookmarkId, championName? }: validates and queues a
+        // background share (ClipShareWorker), returning at once. Progress and the result go
+        // out as clipShareProgress SSE events; GET /api/clip/share-status is the poll fallback.
+        app.MapPost("/api/clip/upload", async (ShareClipBody body, WriteServices w, ClipShareWorker share, ILogger<Program> log) =>
+            (await ClipShareRequests.UploadAsync(body, w.Vod, w.ClipNarrations, w.Games, w.Config, share, log))
+                .ToResult(jsonOptions));
 
         // ─────────────────────────────────────────────────────────────────────────────
         // POST /api/clip/delete  { gameId, bookmarkId }  — TRULY delete a saved clip:
@@ -296,10 +229,15 @@ public static partial class SidecarEndpoints
         // is gone), then DB, then the local file. Remote delete is best-effort: a logged-
         // out / offline user can still purge their local copy. Backup-guarded.
         // ─────────────────────────────────────────────────────────────────────────────
-        app.MapPost("/api/clip/delete", async (DeleteClipBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
+        app.MapPost("/api/clip/delete", async (DeleteClipBody body, WriteServices w, ClipShareWorker share,
+            RemoteClipCleanupStore cleanup, ILogger<Program> log) =>
         {
             if (body is null || body.GameId <= 0 || body.BookmarkId <= 0)
                 return Results.BadRequest(new { error = "gameId and bookmarkId required" });
+
+            // 0) A queued or running share of this clip stops first (the upload client drops
+            //    its remote copy).
+            share.Cancel(body.BookmarkId);
 
             // Resolve the bookmark server-side (the frontend never sees the file path).
             VodBookmarkRecord? bm;
@@ -322,26 +260,11 @@ public static partial class SidecarEndpoints
             //    URL (revu.lol/<slug>) and ask the proxy to delete it. Owner-only on the
             //    server; failures (offline / logged-out / expired) are logged, NOT fatal —
             //    the user still gets their local clip removed.
-            var remoteDeleted = false;
+            //    A delete that cannot go through now (signed out, offline) is queued for the
+            //    next signed-in start.
             var slug = ExtractClipSlug(bm.ShareUrl);
-            if (slug.Length > 0)
-            {
-                var cfg = await w.Config.LoadAsync();
-                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                var signedIn = !string.IsNullOrWhiteSpace(cfg.RiotSessionToken) && cfg.RiotSessionExpiresAt > now;
-                if (signedIn)
-                {
-                    try
-                    {
-                        await w.ClipUpload.DeleteAsync(slug, cfg.RiotSessionToken, ct);
-                        remoteDeleted = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        log.LogDebug(ex, "Clip delete: remote delete of {Slug} failed (continuing local cleanup)", slug);
-                    }
-                }
-            }
+            var remoteDeleted = slug.Length > 0
+                && await ClipShareLinks.DeleteOrQueueAsync(slug, w.Config, w.ClipUpload, cleanup, log);
 
             // 2) DB rows (clip bookmark + evidence tie), one transaction.
             ClipDeletionInfo? info;
@@ -353,6 +276,15 @@ public static partial class SidecarEndpoints
             {
                 log.LogWarning(ex, "Clip delete: DB delete failed for bm {BookmarkId}", body.BookmarkId);
                 return Results.Json(new { ok = false, error = "Couldn't delete the clip." }, jsonOptions, statusCode: 500);
+            }
+
+            // A share that finished between the read above and the row delete stored a link
+            // the first step never saw: remove that copy too.
+            if (slug.Length == 0)
+            {
+                var lateSlug = ExtractClipSlug(info?.ShareUrl);
+                if (lateSlug.Length > 0)
+                    remoteDeleted = await ClipShareLinks.DeleteOrQueueAsync(lateSlug, w.Config, w.ClipUpload, cleanup, log);
             }
 
             // 3) Local file (best-effort, path-guarded). Skip a non-video path — a tampered
@@ -371,38 +303,21 @@ public static partial class SidecarEndpoints
                 }
             }
 
+            // 4) Narration voice track (narration folder only) + narrated render (clip guard).
+            NarrationFileGuard.DeleteNarrationFiles(info?.NarrationAudioPath, info?.NarratedClipPath, log);
+
             log.LogInformation("Clip deleted: bm {BookmarkId} (file={FileDeleted}, remote={RemoteDeleted})",
                 body.BookmarkId, fileDeleted, remoteDeleted);
             return Results.Json(new { ok = true, fileDeleted, remoteDeleted }, jsonOptions);
         });
     }
 
-    private const int MaxShareDurationSeconds = 90;
     // The public slug in a revu.lol/<slug> share URL (the last non-empty path segment),
     // or "" when the URL is empty / unparseable. Used to target the remote clip delete.
-    static string ExtractClipSlug(string? shareUrl)
-    {
-        if (string.IsNullOrWhiteSpace(shareUrl)) return "";
-        var s = shareUrl.Trim().TrimEnd('/');
-        var slash = s.LastIndexOf('/');
-        var slug = slash >= 0 ? s[(slash + 1)..] : s;
-        // Strip any query/fragment the URL might carry.
-        var cut = slug.IndexOfAny(['?', '#']);
-        if (cut >= 0) slug = slug[..cut];
-        return slug.Trim();
-    }
+    static string ExtractClipSlug(string? shareUrl) => ClipShareLinks.SlugFromUrl(shareUrl);
 
     // True only when the path is well-formed and ends in a known clip video extension.
     // Same guard GameRepository's cascade-delete uses: a clip is always a video container,
     // so this blocks a tampered clip_path from deleting a non-clip file.
-    static bool IsDeletableClipFile(string clipPath)
-    {
-        if (string.IsNullOrWhiteSpace(clipPath)) return false;
-        string full;
-        try { full = Path.GetFullPath(clipPath); }
-        catch { return false; }
-        var ext = Path.GetExtension(full);
-        string[] allowed = [".mp4", ".webm", ".mkv", ".mov"];
-        return Array.FindIndex(allowed, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)) >= 0;
-    }
+    static bool IsDeletableClipFile(string clipPath) => NarrationFileGuard.IsDeletableClipPath(clipPath);
 }

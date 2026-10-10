@@ -31,6 +31,8 @@ test('preload installs only in the trusted top document and exposes no raw IPC m
   assert.equal(bridge.version, 1);
   assert.equal(bridge.capabilities.recorder, false);
   assert.equal(bridge.capabilities.updates, false);
+  assert.equal(bridge.capabilities.narration, false);
+  assert.ok(Object.isFrozen(bridge.capabilities));
   assert.equal(bridge.send, undefined);
   assert.equal(bridge.ipcRenderer, undefined);
   assert.equal(bridge.readFile, undefined);
@@ -86,6 +88,27 @@ test('normal host advertises migrated capabilities and external links use a dedi
   assert.equal(bridge.capabilities.recorder, true); // API support; native readiness is get_recording_status.
   await bridge.openExternal('https://revu.gg');
   assert.deepEqual(calls, [['revu:open-external', 'https://revu.gg']]);
+});
+
+test('narration saves use only their dedicated channel and pass bytes and details through unchanged', async () => {
+  const { bridge, calls } = loadPreload({ isolated: false, invoke: async () => ({ ok: true, shareCleared: false }) });
+  assert.equal(bridge.capabilities.narration, true);
+  assert.equal(typeof bridge.saveNarration, 'function');
+  assert.ok(Object.isFrozen(bridge));
+  assert.throws(() => { bridge.saveNarration = () => {}; });
+  const bytes = new Uint8Array([0x1A, 0x45, 0xDF, 0xA3]);
+  const meta = { gameId: 1, bookmarkId: 2, mimeType: 'audio/webm', offsetMs: 0, durationMs: 1000,
+    gameVolume: 0.8, narrationVolume: 1, duck: true };
+  assert.deepEqual(await bridge.saveNarration(bytes, meta), { ok: true, shareCleared: false });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], 'revu:narration-save');
+  assert.equal(calls[0][1], bytes);
+  assert.equal(calls[0][2], meta);
+  assert.equal(calls[0].length, 3);
+  // The narration path adds no raw IPC surface.
+  assert.equal(bridge.send, undefined);
+  assert.equal(bridge.ipcRenderer, undefined);
+  assert.equal(bridge.writeFile, undefined);
 });
 
 test('sender validation rejects frame replacement, other windows, credentials and lookalike origins', () => {

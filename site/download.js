@@ -25,7 +25,7 @@
       btn.href = asset.browser_download_url;
       if (sizeLabel && typeof asset.size === 'number') {
         const mb = Math.round(asset.size / (1024 * 1024));
-        sizeLabel.textContent = ` / ~${mb} MB`;
+        sizeLabel.textContent = ` · ~${mb} MB`;
       }
     }
     if (data.tag_name) {

@@ -12,7 +12,9 @@
  */
 
 import { Env } from "./types";
-import { jsonResponse, badRequest } from "./http";
+import { jsonResponse, badRequest, mediaTypeOf } from "./http";
+
+export { purgeExpiredClips } from "./clip-purge";
 
 // 3-day retention (changed from 30d 2026-06-19). Kept here so the upload path and
 // the daily purge job agree. TRADE-OFF: a shared link only lives 3 days, after which
@@ -33,22 +35,42 @@ export const CLIP_TTL_SECONDS = 3 * 24 * 60 * 60;
 // must transcode down first.
 export const MAX_CLIP_BYTES = 100 * 1024 * 1024;
 
-const ALLOWED_CONTENT_TYPES = new Set(["video/mp4", "video/webm"]);
+export const ALLOWED_CONTENT_TYPES = new Set(["video/mp4", "video/webm"]);
 
 // Per-user ceilings on *active* (unexpired) clips. Uploads are authed, but
 // without a quota a single account could park unbounded R2 storage (100 MB
 // per request) on our bill. Raised 50 -> 150 (2026-06-19) for heavy reviewers
 // who share most of a game's clips; the byte ceiling scales with it (~22 MB
-// avg observed, so 150 fits comfortably under 6 GB).
+// avg observed, so 150 fits comfortably under 6 GB). Raised 6 -> 12 GiB for
+// 3.14.0 10-minute clips (375 to 900 MB each); pending multipart reservations
+// count toward it.
 export const MAX_ACTIVE_CLIPS_PER_USER = 150;
-export const MAX_ACTIVE_CLIP_BYTES_PER_USER = 6 * 1024 * 1024 * 1024; // 6 GB
+export const MAX_ACTIVE_CLIP_BYTES_PER_USER = 12 * 1024 * 1024 * 1024; // 12 GiB
+
+export const QUOTA_EXCEEDED_MESSAGE = "Active clip quota reached. Delete old clips or let them expire.";
+
+// ── Multipart (long clip) limits, shared with clip-uploads.ts ──
+// Proxy-side duration ceiling: the desktop caps clips at 600 s; 610 s allows
+// keyframe slack from stream-copy extraction.
+export const SERVER_MAX_CLIP_SECONDS = 610;
+export const MAX_MULTIPART_CLIP_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
+// Chosen by the proxy and returned as part_size; R2 needs equal non-last parts
+// of at least 5 MiB.
+export const PART_SIZE_BYTES = 16 * 1024 * 1024;
+export const MAX_PENDING_UPLOADS_PER_USER = 2;
+// A pending upload row lives at most this long before the cron purges it; the
+// finished clip's TTL (CLIP_TTL_SECONDS) starts at complete.
+export const UPLOAD_WINDOW_SECONDS = 6 * 3600;
+// A pending upload with no part activity for this long is auto-aborted by the
+// owner's next init.
+export const UPLOAD_IDLE_ABORT_SECONDS = 900;
 
 /**
  * Cheap container sniff so the stored object is at least shaped like the
  * declared type — Content-Type alone is caller-asserted. mp4 (ISO BMFF)
  * leads with a size-prefixed "ftyp" box; webm leads with the EBML magic.
  */
-function hasVideoMagicBytes(bytes: Uint8Array, contentType: string): boolean {
+export function hasVideoMagicBytes(bytes: Uint8Array, contentType: string): boolean {
   if (contentType === "video/webm") {
     return bytes.length >= 4
       && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
@@ -124,14 +146,42 @@ export interface ClipRow {
   expires_at: number;
   view_count: number;
   status: string;
+  // Added by migration 0003. Legacy rows read back with the column defaults.
+  narrated?: number;
+  has_transcript?: number;
+  upload_id?: string | null;
+  part_size?: number | null;
+  part_count?: number | null;
+  last_activity_at?: number | null;
+}
+
+/** Public share URL for a clip slug (what POST /clips and complete return). */
+export function clipPublicUrl(env: Env, id: string): string {
+  const base = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
+  return `${base}/${id}`;
+}
+
+/**
+ * Active (unexpired) clip usage for a user: COUNT and SUM(size_bytes) over every
+ * live row, pending multipart reservations included (no status filter).
+ */
+export async function activeClipUsage(
+  db: D1Database,
+  userId: number,
+  now: number,
+): Promise<{ n: number; total: number } | null> {
+  return db
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
+    .bind(userId, now)
+    .first<{ n: number; total: number }>();
 }
 
 async function insertClip(db: D1Database, row: ClipRow): Promise<void> {
   await db
     .prepare(
       `INSERT INTO clips
-        (id, user_id, r2_key, content_type, size_bytes, duration_s, title, champion, created_at, expires_at, view_count, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+        (id, user_id, r2_key, content_type, size_bytes, duration_s, title, champion, created_at, expires_at, view_count, status, narrated)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
     )
     .bind(
       row.id,
@@ -146,15 +196,19 @@ async function insertClip(db: D1Database, row: ClipRow): Promise<void> {
       row.expires_at,
       row.view_count,
       row.status,
+      row.narrated ? 1 : 0,
     )
     .run();
 }
 
-/** Look up a clip by slug. Returns null if missing OR expired. */
+/**
+ * Look up a PUBLIC clip by slug. Returns null if missing, expired, or still a
+ * pending multipart upload (status 'uploading'), so every public route 404s it.
+ */
 export async function findClip(db: D1Database, id: string): Promise<ClipRow | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = await db
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND expires_at > ?2 LIMIT 1")
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND expires_at > ?2 AND status = 'ready' LIMIT 1")
     .bind(id, now)
     .first<ClipRow>();
   return row ?? null;
@@ -213,6 +267,8 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="dark" />
+<style>html,body{background:#212121;color:#ececec;font-family:'Segoe UI',system-ui,sans-serif}</style>
 <title>${title} - Revu</title>
 <meta name="description" content="${desc}" />
 
@@ -261,7 +317,7 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 }
 
 /** Generate a slug not already taken. A few tries is overwhelmingly enough. */
-async function uniqueSlug(db: D1Database): Promise<string> {
+export async function uniqueSlug(db: D1Database): Promise<string> {
   for (let attempt = 0; attempt < 6; attempt++) {
     const slug = randomSlug();
     const existing = await db.prepare("SELECT id FROM clips WHERE id = ?1 LIMIT 1").bind(slug).first();
@@ -287,7 +343,7 @@ export async function handleUploadClip(
     return jsonResponse({ error: "login_required" }, 403);
   }
 
-  const contentType = (request.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+  const contentType = mediaTypeOf(request);
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
     return jsonResponse({ error: "unsupported_media_type", message: "clip must be video/mp4 or video/webm" }, 415);
   }
@@ -314,14 +370,11 @@ export async function handleUploadClip(
   // the byte total. The honest desktop always sends Content-Length, so the byte
   // ceiling is enforced here before a single byte is streamed; a missing length
   // still gets the COUNT gate now and the precise byte recount after the stream.
-  const usage = await env.DB
-    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
-    .bind(userId, now)
-    .first<{ n: number; total: number }>();
+  const usage = await activeClipUsage(env.DB, userId, now);
   const declaredAddsBytes = Number.isFinite(declaredLen) ? declaredLen : 0;
   if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + declaredAddsBytes > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
     return jsonResponse(
-      { error: "quota_exceeded", message: "active clip quota reached — delete old clips or let them expire" },
+      { error: "quota_exceeded", message: QUOTA_EXCEEDED_MESSAGE },
       403,
     );
   }
@@ -332,6 +385,7 @@ export async function handleUploadClip(
   const durationRaw = url.searchParams.get("duration");
   const durationParsed = durationRaw ? parseInt(durationRaw, 10) : NaN;
   const duration = Number.isFinite(durationParsed) && durationParsed > 0 ? durationParsed : null;
+  const narrated = url.searchParams.get("narrated") === "1" ? 1 : 0;
 
   const id = await uniqueSlug(env.DB);
   const ext = contentType === "video/webm" ? "webm" : "mp4";
@@ -412,6 +466,7 @@ export async function handleUploadClip(
       expires_at: expiresAt,
       view_count: 0,
       status: "ready",
+      narrated,
     });
   } catch (err) {
     // Roll back the orphaned object if the row insert fails.
@@ -425,21 +480,17 @@ export async function handleUploadClip(
   // committed sibling row, so a parallel flood that slipped past the first
   // check is caught here and rolled back — the cap can be momentarily reached
   // but not exceeded.
-  const postUsage = await env.DB
-    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
-    .bind(userId, now)
-    .first<{ n: number; total: number }>();
+  const postUsage = await activeClipUsage(env.DB, userId, now);
   if (postUsage && (postUsage.n > MAX_ACTIVE_CLIPS_PER_USER || postUsage.total > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
     try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
     try { await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run(); } catch { /* best effort */ }
     return jsonResponse(
-      { error: "quota_exceeded", message: "active clip quota reached — delete old clips or let them expire" },
+      { error: "quota_exceeded", message: QUOTA_EXCEEDED_MESSAGE },
       403,
     );
   }
 
-  const base = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
-  return jsonResponse({ id, url: `${base}/${id}`, expires_at: expiresAt }, 201);
+  return jsonResponse({ id, url: clipPublicUrl(env, id), expires_at: expiresAt }, 201);
 }
 
 /** GET /clip-meta/:id — public JSON for the watch page. 404 if missing/expired. */
@@ -447,6 +498,16 @@ export async function handleClipMeta(env: Env, id: string): Promise<Response> {
   if (!SLUG_REGEX.test(id)) return jsonResponse({ error: "not_found" }, 404);
   const clip = await findClip(env.DB, id);
   if (!clip) return jsonResponse({ error: "not_found" }, 404);
+  const hasTranscript = !!clip.has_transcript;
+  let transcriptLanguage: string | null = null;
+  if (hasTranscript) {
+    const t = await env.DB
+      .prepare("SELECT language FROM clip_transcripts WHERE clip_id = ?1")
+      .bind(id)
+      .first<{ language: string | null }>();
+    transcriptLanguage = t ? (t.language ?? "") : null;
+  }
+  // Never expose status, upload_id, last_activity_at or user_id.
   return jsonResponse(
     {
       id: clip.id,
@@ -457,6 +518,9 @@ export async function handleClipMeta(env: Env, id: string): Promise<Response> {
       expires_at: clip.expires_at,
       view_count: clip.view_count,
       content_type: clip.content_type,
+      narrated: !!clip.narrated,
+      has_transcript: hasTranscript,
+      transcript_language: transcriptLanguage,
     },
     200,
   );
@@ -526,7 +590,14 @@ export async function handleDeleteClip(env: Env, id: string, userId: number | un
   if (!clip) return jsonResponse({ error: "not_found" }, 404);
   if (clip.user_id !== userId) return jsonResponse({ error: "forbidden" }, 403);
 
+  // A pending multipart upload is aborted first (it may already be completed or
+  // gone, so this is best effort), then the key is ALWAYS deleted: that removes
+  // a completed-but-unfinalized object as well as a normal ready clip.
+  if (clip.upload_id) {
+    try { await env.CLIPS.resumeMultipartUpload(clip.r2_key, clip.upload_id).abort(); } catch { /* best effort */ }
+  }
   try { await env.CLIPS.delete(clip.r2_key); } catch { /* best effort; row removal is the source of truth */ }
+  await env.DB.prepare("DELETE FROM clip_transcripts WHERE clip_id = ?1").bind(id).run();
   await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run();
   return jsonResponse({ ok: true }, 200);
 }
@@ -535,14 +606,13 @@ export async function handleDeleteClip(env: Env, id: string, userId: number | un
 export async function handleListMyClips(env: Env, userId: number | undefined): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
   const now = Math.floor(Date.now() / 1000);
-  const base = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
   const res = await env.DB
     .prepare("SELECT * FROM clips WHERE user_id = ?1 AND expires_at > ?2 ORDER BY created_at DESC LIMIT 200")
     .bind(userId, now)
     .all<ClipRow>();
   const clips = (res.results ?? []).map((c) => ({
     id: c.id,
-    url: `${base}/${c.id}`,
+    url: clipPublicUrl(env, c.id),
     title: c.title,
     champion: c.champion,
     duration_s: c.duration_s,
@@ -550,28 +620,11 @@ export async function handleListMyClips(env: Env, userId: number | undefined): P
     created_at: c.created_at,
     expires_at: c.expires_at,
     view_count: c.view_count,
+    status: c.status,
+    narrated: !!c.narrated,
+    has_transcript: !!c.has_transcript,
   }));
   return jsonResponse({ clips }, 200);
-}
-
-/**
- * Purge clips whose retention window has passed. Called from the Worker's
- * scheduled (cron) handler. Deletes R2 objects first, then the rows.
- */
-export async function purgeExpiredClips(env: Env): Promise<number> {
-  const now = Math.floor(Date.now() / 1000);
-  const res = await env.DB
-    .prepare("SELECT id, r2_key FROM clips WHERE expires_at <= ?1 LIMIT 1000")
-    .bind(now)
-    .all<{ id: string; r2_key: string }>();
-  const rows = res.results ?? [];
-  for (const row of rows) {
-    try { await env.CLIPS.delete(row.r2_key); } catch { /* keep going; row delete below */ }
-  }
-  if (rows.length > 0) {
-    await env.DB.prepare("DELETE FROM clips WHERE expires_at <= ?1").bind(now).run();
-  }
-  return rows.length;
 }
 
 // ── small utils ────────────────────────────────────────────────────────────
@@ -680,7 +733,7 @@ async function readGuardedToBuffer(stream: ReadableStream<Uint8Array>): Promise<
   return out.buffer;
 }
 
-function clampText(value: string | null, max: number): string | null {
+export function clampText(value: string | null, max: number): string | null {
   if (value === null) return null;
   const t = value.trim();
   if (!t) return null;

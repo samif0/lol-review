@@ -68,6 +68,17 @@ database_id = "cfdaaa55-8443-480f-96e5-04eb3eb8c6ff"
 [[r2_buckets]]
 binding = "CLIPS"
 bucket_name = "revu-clips"
+# Long clips (over 95 MiB) upload through R2 multipart (POST /clips/uploads,
+# PUT /clips/:id/parts/:n, POST /clips/:id/complete). The Worker auto-aborts idle
+# uploads and the hourly cron aborts expired ones. OPTIONAL extra safety net: an
+# R2 lifecycle rule on revu-clips that aborts incomplete multipart uploads after
+# 1 day. The integrator may add it with `wrangler r2 bucket lifecycle add`; it is
+# not required.
+
+# Workers AI. Powers POST /transcribe (Whisper large-v3-turbo) for narrated clip
+# transcripts. Daily audio caps live in D1 (transcribe_usage).
+[ai]
+binding = "AI"
 
 # Global rate limiter. A single Durable Object instance (addressed by the fixed
 # name "global") holds the TRUE aggregate request counter across every Worker
@@ -89,6 +100,8 @@ class_name = "GlobalRateLimiter"
 tag = "v1"
 new_sqlite_classes = ["GlobalRateLimiter"]
 
-# Daily cleanup of expired clips (30-day retention). Purges R2 objects + D1 rows.
+# Hourly cleanup of expired clips (3-day retention) and expired pending uploads.
+# Purges R2 objects + D1 rows, then expired sessions, then transcribe_usage rows
+# older than 7 days.
 [triggers]
-crons = ["0 4 * * *"]
+crons = ["0 * * * *"]

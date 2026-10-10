@@ -17,7 +17,7 @@ export function updaterPath(executable, packaged) {
   return path.join(path.dirname(current), 'Update.exe');
 }
 
-export function nativeCommands({ app, clipboard, dialog, screen, shell, window, dataRoot, isolated, quit }) {
+export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPreferences, window, dataRoot, isolated, quit }) {
   return async (command, args) => {
     switch (command) {
       case 'app_version': return app.getVersion();
@@ -37,6 +37,12 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, window, 
         clipboard.writeText(args.text);
         return { ok: true };
       }
+      case 'get_microphone_access':
+        return { status: process.platform === 'win32' ? systemPreferences.getMediaAccessStatus('microphone') : 'unknown' };
+      case 'open_microphone_settings':
+        // Fixed Windows privacy page; never a caller-provided URL.
+        await shell.openExternal('ms-settings:privacy-microphone');
+        return { ok: true };
       case 'open_log_folder': {
         const folder = path.join(dataRoot, 'Revu');
         await mkdir(folder, { recursive: true });

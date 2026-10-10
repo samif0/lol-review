@@ -136,6 +136,7 @@ public sealed class SidecarEndpointContractTests
         GET /api/tiltcheck
         GET /api/update/check
         GET /api/vod
+        GET /api/clip/share-status
         POST /api/auth/clear-partial
         POST /api/auth/login
         POST /api/auth/logout
@@ -154,6 +155,10 @@ public sealed class SidecarEndpointContractTests
         POST /api/clip/auto-objectives
         POST /api/clip/delete
         POST /api/clip/extract
+        POST /api/clip/narration/delete
+        POST /api/clip/narration/mix
+        POST /api/clip/narration/save
+        POST /api/clip/narration/transcribe
         POST /api/clip/upload
         POST /api/config/save
         POST /api/correction/revert

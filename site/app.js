@@ -385,9 +385,9 @@
       el.vodPlayIcon.innerHTML = '&#9654;';
     });
     el.video.addEventListener('volumechange', () => {
-      el.vodMuteIcon.innerHTML = el.video.muted || el.video.volume === 0
-        ? '&#x1F507;'
-        : '&#x1F50A;';
+      el.vodMuteIcon.textContent = el.video.muted || el.video.volume === 0
+        ? 'Unmute'
+        : 'Mute';
     });
     el.video.addEventListener('ratechange', updateSpeedLabel);
     el.video.addEventListener('loadedmetadata', () => {
@@ -816,7 +816,7 @@
     champ.textContent = match.champion;
     const role = document.createElement('span');
     role.className = 'match-role';
-    role.textContent = `${match.role} // ${match.queue}`;
+    role.textContent = `${match.role} · ${match.queue}`;
     identity.append(champ, role);
     card.append(identity);
 
@@ -828,7 +828,7 @@
     const kdaDetail = document.createElement('span');
     kdaDetail.className = 'kda-detail';
     const kdaRatio = ((match.kills + match.assists) / Math.max(1, match.deaths)).toFixed(2);
-    kdaDetail.textContent = `${kdaRatio} KDA // ${match.cs} CS`;
+    kdaDetail.textContent = `${kdaRatio} KDA · ${match.cs} CS`;
     stats.append(kda, kdaDetail);
     card.append(stats);
 
@@ -844,20 +844,13 @@
 
     const tag = document.createElement('span');
     tag.className = `result-tag ${match.result}`;
-    tag.textContent = match.result === 'win' ? 'WIN' : 'LOSS';
+    tag.textContent = match.result === 'win' ? 'Win' : 'Loss';
     card.append(tag);
 
     const chev = document.createElement('span');
     chev.className = 'match-chevron';
     chev.textContent = '>';
     card.append(chev);
-
-    const brackets = ['tl', 'tr', 'bl', 'br'];
-    for (const corner of brackets) {
-      const b = document.createElement('span');
-      b.className = `bracket bracket-${corner}`;
-      card.append(b);
-    }
 
     return card;
   }
@@ -870,10 +863,10 @@
       return;
     }
 
-    el.reviewEyebrow.textContent = `${match.queue} // ${match.playedAt}`;
+    el.reviewEyebrow.textContent = `${match.queue} · ${match.playedAt}`;
     el.reviewTitle.textContent = match.champion;
-    el.reviewMeta.textContent = `${match.role} // ${match.kills}/${match.deaths}/${match.assists} // ${formatTime(match.durationSeconds)} // ${match.id}`;
-    el.reviewResult.textContent = match.result === 'win' ? 'WIN' : 'LOSS';
+    el.reviewMeta.textContent = `${match.role} · ${match.kills}/${match.deaths}/${match.assists} · ${formatTime(match.durationSeconds)} · ${match.id}`;
+    el.reviewResult.textContent = match.result === 'win' ? 'Win' : 'Loss';
     el.reviewResult.className = `result-tag ${match.result}`;
     el.notes.value = state.notes;
     renderMedia();

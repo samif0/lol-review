@@ -150,6 +150,11 @@ public static class SidecarStartup
                 .CreateLogger("Startup")
                 .LogError(ex, "First-run DB creation / additive schema upgrade failed at startup");
         }
+
+        // 3.14 narrated clips: crash recovery + orphan/stale-file sweeps, then the share and
+        // transcription workers, then the signed-in catch-up. Best effort, after storage init,
+        // never in isolated host mode.
+        if (!isolatedHostTest) app.StartNarrationServices();
     }
 
     public static void PublishWhenStarted(this WebApplication app, SidecarHostSession hostSession,

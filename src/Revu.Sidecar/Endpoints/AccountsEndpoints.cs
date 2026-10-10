@@ -81,7 +81,8 @@ public static partial class SidecarEndpoints
         // stamp is the one the verify call was issued for — the frontend passes it back so
         // we record the right RiotSessionEmail (the proxy's verify response carries only
         // the token + expiry). Code is trimmed + upper-cased (mirror the VM).
-        app.MapPost("/api/auth/verify", async (AuthVerifyBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
+        app.MapPost("/api/auth/verify", async (AuthVerifyBody body, WriteServices w, SidecarBackgroundWork work,
+            IServiceProvider services, ILogger<Program> log, CancellationToken ct) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Code))
                 return Results.BadRequest(new { error = "Paste the code from your email." });
@@ -99,6 +100,10 @@ public static partial class SidecarEndpoints
                 await w.Config.SaveAsync(cfg);
 
                 log.LogInformation("Auth: session verified + persisted (expires {ExpiresAt}).", result.ExpiresAt);
+
+                // 3.14: signed in now, so narrations waiting on sign-in get transcribed and
+                // deferred remote clip deletes go out. The renderer never calls transcribe itself.
+                work.TryRun("narration sign-in sweep", () => NarrationStartup.OnSignedInAsync(services, log));
                 return Results.Json(new { ok = true, email = cfg.RiotSessionEmail }, jsonOptions);
             }
             catch (RiotAuthException ex)

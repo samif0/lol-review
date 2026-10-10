@@ -65,6 +65,9 @@ test('UI protocol serves approved assets with CSP and rejects arbitrary files an
   assert.equal(response.status, 200);
   assert.equal(await response.text(), '<h1>Revu</h1>');
   assert.match(response.headers.get('content-security-policy'), /object-src 'none'/);
+  // Narration records the microphone but adds no preview source: media stays revu-media only.
+  assert.match(response.headers.get('content-security-policy'), /(?:^|; )media-src revu-media:;/);
+  assert.equal(response.headers.get('content-security-policy').match(/media-src[^;]*/g).join('|'), 'media-src revu-media:');
   assert.equal((await appResponse(new Request('revu-app://ui/index.html', { method: 'HEAD' }), ui)).headers.get('content-type'), 'text/html');
   for (const url of ['revu-app://ui/secret.txt', 'revu-app://ui/%2e%2e%5csecret.txt', 'revu-app://evil/index.html'])
     assert.equal((await appResponse(new Request(url), ui)).status, 403);

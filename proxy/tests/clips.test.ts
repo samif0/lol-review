@@ -1,239 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
-import { Env } from "../src/types";
 import { MAX_ACTIVE_CLIPS_PER_USER } from "../src/clips";
+import { clip, json, makeEnv, makeFakeDb, makeFakeR2, makeRequest, mp4Bytes, sha256Hex } from "./fakes";
 
-// ── FixedLengthStream shim ──────────────────────────────────────────────────
-//
-// The Workers runtime requires R2.put to receive a stream with a KNOWN length
-// (a request/response body or the readable half of a FixedLengthStream); a bare
-// ReadableStream is rejected. The upload handler wraps the guarded stream in
-// FixedLengthStream(len) for exactly that reason — but plain Node (where these
-// tests run) has no FixedLengthStream, so we shim it: an identity transform
-// whose readable is TAGGED with the declared length. makeFakeR2().put checks for
-// that tag and rejects an untagged (unknown-length) stream, so the
-// "must have a known length" production failure is reproducible under test.
-const KNOWN_LENGTH = Symbol.for("revu.test.knownLength");
-if (typeof (globalThis as Record<string, unknown>).FixedLengthStream === "undefined") {
-  (globalThis as Record<string, unknown>).FixedLengthStream = class {
-    readable: ReadableStream<Uint8Array>;
-    writable: WritableStream<Uint8Array>;
-    constructor(length: number) {
-      const ts = new TransformStream<Uint8Array, Uint8Array>();
-      this.writable = ts.writable;
-      this.readable = ts.readable;
-      (this.readable as unknown as Record<symbol, unknown>)[KNOWN_LENGTH] = length;
-    }
-  };
-}
-
-// ── In-memory fakes for D1 + R2 ─────────────────────────────────────────────
-//
-// The clip handlers actually read/write D1 and R2 (unlike the Riot passthrough
-// tests, which stub global fetch), so we need working fakes. These implement
-// just the surface the handlers touch.
-
-interface FakeClip {
-  id: string;
-  user_id: number;
-  r2_key: string;
-  content_type: string;
-  size_bytes: number;
-  duration_s: number | null;
-  title: string | null;
-  champion: string | null;
-  created_at: number;
-  expires_at: number;
-  view_count: number;
-  status: string;
-}
-
-function makeFakeDb(seedClips: FakeClip[] = [], sessions: Record<string, number> = {}) {
-  const clips = new Map<string, FakeClip>();
-  for (const c of seedClips) clips.set(c.id, c);
-
-  function prepare(sql: string) {
-    let args: unknown[] = [];
-    const api = {
-      bind(...a: unknown[]) {
-        args = a;
-        return api;
-      },
-      async first<T>(): Promise<T | null> {
-        // session lookup (auth Path B)
-        if (sql.includes("FROM sessions")) {
-          const tokenHash = args[0] as string;
-          const userId = sessions[tokenHash];
-          if (userId === undefined) return null;
-          return { token_hash: tokenHash, user_id: userId, created_at: 0, expires_at: 9e9 } as T;
-        }
-        // per-user quota usage (upload path)
-        if (sql.includes("COALESCE(SUM(size_bytes)")) {
-          const userId = args[0] as number;
-          const now = args[1] as number;
-          const mine = [...clips.values()].filter((c) => c.user_id === userId && c.expires_at > now);
-          return { n: mine.length, total: mine.reduce((s, c) => s + c.size_bytes, 0) } as T;
-        }
-        // unique-slug existence probe
-        if (sql.startsWith("SELECT id FROM clips WHERE id")) {
-          const id = args[0] as string;
-          return (clips.has(id) ? ({ id } as T) : null);
-        }
-        // clip lookup with expiry filter
-        if (sql.includes("FROM clips WHERE id = ?1 AND expires_at >")) {
-          const id = args[0] as string;
-          const now = args[1] as number;
-          const c = clips.get(id);
-          if (!c || c.expires_at <= now) return null;
-          return c as T;
-        }
-        // clip lookup without expiry (delete path)
-        if (sql.startsWith("SELECT * FROM clips WHERE id = ?1 LIMIT")) {
-          const id = args[0] as string;
-          return (clips.get(id) as T) ?? null;
-        }
-        return null;
-      },
-      async run() {
-        if (sql.startsWith("INSERT INTO clips")) {
-          const [
-            id, user_id, r2_key, content_type, size_bytes, duration_s,
-            title, champion, created_at, expires_at, view_count, status,
-          ] = args as [string, number, string, string, number, number | null, string | null, string | null, number, number, number, string];
-          clips.set(id, { id, user_id, r2_key, content_type, size_bytes, duration_s, title, champion, created_at, expires_at, view_count, status });
-          return { meta: { changes: 1 } };
-        }
-        if (sql.startsWith("UPDATE clips SET view_count")) {
-          const id = args[0] as string;
-          const c = clips.get(id);
-          if (c) c.view_count += 1;
-          return { meta: { changes: c ? 1 : 0 } };
-        }
-        if (sql.startsWith("DELETE FROM clips WHERE id")) {
-          const id = args[0] as string;
-          const had = clips.delete(id);
-          return { meta: { changes: had ? 1 : 0 } };
-        }
-        if (sql.startsWith("DELETE FROM clips WHERE expires_at")) {
-          const now = args[0] as number;
-          let n = 0;
-          for (const [id, c] of clips) if (c.expires_at <= now) { clips.delete(id); n++; }
-          return { meta: { changes: n } };
-        }
-        return { meta: { changes: 0 } };
-      },
-      async all<T>(): Promise<{ results: T[] }> {
-        if (sql.includes("FROM clips WHERE user_id")) {
-          const userId = args[0] as number;
-          const now = args[1] as number;
-          const results = [...clips.values()].filter((c) => c.user_id === userId && c.expires_at > now);
-          return { results: results as T[] };
-        }
-        if (sql.includes("FROM clips WHERE expires_at")) {
-          const now = args[0] as number;
-          const results = [...clips.values()].filter((c) => c.expires_at <= now).map((c) => ({ id: c.id, r2_key: c.r2_key }));
-          return { results: results as T[] };
-        }
-        return { results: [] };
-      },
-    };
-    return api;
-  }
-
-  return { prepare, _clips: clips } as unknown as D1Database & { _clips: Map<string, FakeClip> };
-}
-
-function makeFakeR2() {
-  const store = new Map<string, Uint8Array>();
-  const bucket = {
-    async put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array>) {
-      // Real R2 consumes a piped ReadableStream — DRAIN it here. The upload handler
-      // now hands R2 `request.body` directly on the known-length path (R2 uses the
-      // request's Content-Length), so a request-body stream is accepted. Only a bare
-      // ReadableStream created WITHOUT a known length would be rejected by real R2;
-      // request.body and FixedLengthStream.readable both carry one. The test Request
-      // bodies below stand in for that known-length request body.
-      if (value instanceof ReadableStream) {
-        const reader = value.getReader();
-        const chunks: Uint8Array[] = [];
-        let total = 0;
-        for (;;) {
-          const { done, value: chunk } = await reader.read();
-          if (done) break;
-          if (chunk) { chunks.push(chunk); total += chunk.byteLength; }
-        }
-        const merged = new Uint8Array(total);
-        let off = 0;
-        for (const c of chunks) { merged.set(c, off); off += c.byteLength; }
-        store.set(key, merged);
-        return {};
-      }
-      const bytes = value instanceof ArrayBuffer ? new Uint8Array(value) : new Uint8Array((value as ArrayBufferView).buffer);
-      store.set(key, bytes);
-      return {};
-    },
-    async get(key: string, opts?: { range?: { offset: number; length: number } }) {
-      const bytes = store.get(key);
-      if (!bytes) return null;
-      const slice = opts?.range ? bytes.slice(opts.range.offset, opts.range.offset + opts.range.length) : bytes;
-      return {
-        body: new Blob([slice]).stream(),
-        httpEtag: `"etag-${key}"`,
-        size: bytes.length,
-      };
-    },
-    async delete(key: string) {
-      store.delete(key);
-    },
-  };
-  return { bucket: bucket as unknown as R2Bucket, store };
-}
-
-function env(overrides: Partial<Env> = {}): Env {
-  return {
-    RIOT_API_KEY: "riot-key",
-    ALLOWED_TOKENS: "static-op-token",
-    RESEND_API_KEY: "",
-    AGGREGATE_RPS: "100",
-    PER_TOKEN_RPS: "20",
-    MAGIC_LINK_FROM: "noreply@example.com",
-    APP_NAME: "Revu",
-    PUBLIC_BASE: "https://clips.revu.lol",
-    WATCH_BASE: "https://revu.lol",
-    DB: makeFakeDb(),
-    CLIPS: makeFakeR2().bucket,
-    ...overrides,
-  };
-}
-
-async function json(response: Response): Promise<Record<string, unknown>> {
-  return (await response.json()) as Record<string, unknown>;
-}
-
-/** Minimal bytes that pass the mp4 (ISO BMFF "ftyp") magic-byte sniff. */
-function mp4Bytes(extra = 0): Uint8Array {
-  const head = [0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 0, 1];
-  return new Uint8Array([...head, ...new Array(extra).fill(0)]);
-}
-
-function clip(over: Partial<FakeClip> = {}): FakeClip {
-  const now = Math.floor(Date.now() / 1000);
-  return {
-    id: "abc1234",
-    user_id: 1,
-    r2_key: "clips/abc1234.mp4",
-    content_type: "video/mp4",
-    size_bytes: 10,
-    duration_s: 5,
-    title: "nice play",
-    champion: "Ahri",
-    created_at: now,
-    expires_at: now + 1000,
-    view_count: 0,
-    status: "ready",
-    ...over,
-  };
-}
+// Shared hardened fakes (D1, R2 with known-length stream enforcement, helpers).
+// makeRequest registers a Content-Length request body as a known-length stream,
+// the way Workers hands one to a handler.
+const env = makeEnv;
 
 describe("clip sharing", () => {
   beforeEach(() => {
@@ -242,7 +15,7 @@ describe("clip sharing", () => {
 
   it("rejects upload without a bearer token", async () => {
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", { method: "POST", headers: { "Content-Type": "video/mp4" }, body: "x" }),
+      makeRequest("https://proxy.example/clips", { method: "POST", headers: { "Content-Type": "video/mp4" }, body: "x" }),
       env(),
     );
     expect(res.status).toBe(401);
@@ -251,7 +24,7 @@ describe("clip sharing", () => {
   it("rejects upload from a static operator token (no account)", async () => {
     // Path A static token authenticates but has no user id → can't own clips.
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: "Bearer static-op-token", "Content-Type": "video/mp4" },
         body: new Uint8Array([1, 2, 3]),
@@ -273,7 +46,7 @@ describe("clip sharing", () => {
     const { bucket } = makeFakeR2();
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips?title=x&champion=Lux&duration=3", {
+      makeRequest("https://proxy.example/clips?title=x&champion=Lux&duration=3", {
         method: "POST",
         headers: { Authorization: `Bearer ${dualToken}`, "Content-Type": "video/mp4" },
         body: mp4Bytes(),
@@ -292,7 +65,7 @@ describe("clip sharing", () => {
     // sha256("sess-token") must map in the fake; we instead seed by token hash.
     // Easier: use a session token whose hash we precompute below.
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: "Bearer static-op-token", "Content-Type": "image/png" },
         body: new Uint8Array([1]),
@@ -310,7 +83,7 @@ describe("clip sharing", () => {
     const { bucket, store } = makeFakeR2();
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips?title=Great%20gank&champion=LeeSin&duration=12", {
+      makeRequest("https://proxy.example/clips?title=Great%20gank&champion=LeeSin&duration=12", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
         body: mp4Bytes(),
@@ -343,7 +116,7 @@ describe("clip sharing", () => {
     const body = mp4Bytes(64);
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips?title=streamed&champion=Sett&duration=8", {
+      makeRequest("https://proxy.example/clips?title=streamed&champion=Sett&duration=8", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${sessionToken}`,
@@ -379,7 +152,7 @@ describe("clip sharing", () => {
     const body = new TextEncoder().encode("<html><script>alert(1)</script></html>");
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${sessionToken}`,
@@ -411,7 +184,7 @@ describe("clip sharing", () => {
     } as unknown as R2Bucket;
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
         body: mp4Bytes(),
@@ -429,7 +202,7 @@ describe("clip sharing", () => {
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 1 });
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${sessionToken}`,
@@ -448,7 +221,7 @@ describe("clip sharing", () => {
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 1 });
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "image/gif" },
         body: new Uint8Array([1]),
@@ -463,7 +236,7 @@ describe("clip sharing", () => {
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 1 });
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
         body: new TextEncoder().encode("<html><script>alert(1)</script></html>"),
@@ -482,7 +255,7 @@ describe("clip sharing", () => {
     );
     const db = makeFakeDb(seeded, { [tokenHash]: 9 });
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
         body: mp4Bytes(),
@@ -505,7 +278,7 @@ describe("clip sharing", () => {
     const oversized = new Uint8Array(101 * 1024 * 1024);
     oversized.set(mp4Bytes(), 0); // valid magic bytes up front so only size rejects
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
         body: oversized,
@@ -559,7 +332,7 @@ describe("clip sharing", () => {
     } as unknown as D1Database;
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips", {
+      makeRequest("https://proxy.example/clips", {
         method: "POST",
         headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
         body: mp4Bytes(32),
@@ -580,7 +353,7 @@ describe("clip sharing", () => {
     const { bucket, store } = makeFakeR2();
     store.set("clips/Hdr1234.mp4", new Uint8Array([10, 20, 30, 40, 50]));
     const res = await worker.fetch(
-      new Request("https://proxy.example/clip-file/Hdr1234"),
+      makeRequest("https://proxy.example/clip-file/Hdr1234"),
       env({ DB: makeFakeDb([c]), CLIPS: bucket }),
     );
     expect(res.status).toBe(200);
@@ -592,7 +365,7 @@ describe("clip sharing", () => {
   it("serves clip metadata publicly", async () => {
     const c = clip({ id: "Meta123" });
     const res = await worker.fetch(
-      new Request("https://proxy.example/clip-meta/Meta123"),
+      makeRequest("https://proxy.example/clip-meta/Meta123"),
       env({ DB: makeFakeDb([c]) }),
     );
     expect(res.status).toBe(200);
@@ -608,7 +381,7 @@ describe("clip sharing", () => {
     const now = Math.floor(Date.now() / 1000);
     const c = clip({ id: "Expir12", expires_at: now - 10 });
     const res = await worker.fetch(
-      new Request("https://proxy.example/clip-meta/Expir12"),
+      makeRequest("https://proxy.example/clip-meta/Expir12"),
       env({ DB: makeFakeDb([c]) }),
     );
     expect(res.status).toBe(404);
@@ -620,7 +393,7 @@ describe("clip sharing", () => {
     store.set("clips/File123.mp4", new Uint8Array([10, 20, 30, 40, 50]));
 
     const full = await worker.fetch(
-      new Request("https://proxy.example/clip-file/File123"),
+      makeRequest("https://proxy.example/clip-file/File123"),
       env({ DB: makeFakeDb([c]), CLIPS: bucket }),
     );
     expect(full.status).toBe(200);
@@ -628,7 +401,7 @@ describe("clip sharing", () => {
     expect(full.headers.get("Content-Length")).toBe("5");
 
     const ranged = await worker.fetch(
-      new Request("https://proxy.example/clip-file/File123", { headers: { Range: "bytes=1-3" } }),
+      makeRequest("https://proxy.example/clip-file/File123", { headers: { Range: "bytes=1-3" } }),
       env({ DB: makeFakeDb([c]), CLIPS: bucket }),
     );
     expect(ranged.status).toBe(206);
@@ -642,7 +415,7 @@ describe("clip sharing", () => {
     // through to normal (non-clip) handling. Key assertion: never a 302 to
     // clip.html.
     const res = await worker.fetch(
-      new Request("https://proxy.example/discord", { headers: { Authorization: "Bearer static-op-token" } }),
+      makeRequest("https://proxy.example/discord", { headers: { Authorization: "Bearer static-op-token" } }),
       env(),
     );
     const loc = res.headers.get("Location") ?? "";
@@ -651,14 +424,14 @@ describe("clip sharing", () => {
   });
 
   it("redirects a bare clip-shaped slug to the watch page when the clip is unknown", async () => {
-    const res = await worker.fetch(new Request("https://proxy.example/Xy12Z9q"), env());
+    const res = await worker.fetch(makeRequest("https://proxy.example/Xy12Z9q"), env());
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("https://revu.lol/clip.html?id=Xy12Z9q");
   });
 
   it("serves per-clip Open Graph video tags for an existing slug (Discord embed)", async () => {
     const db = makeFakeDb([clip({ id: "Embed99", title: "baron steal", champion: "LeeSin", content_type: "video/mp4" })]);
-    const res = await worker.fetch(new Request("https://proxy.example/Embed99"), env({ DB: db }));
+    const res = await worker.fetch(makeRequest("https://proxy.example/Embed99"), env({ DB: db }));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const body = await res.text();
@@ -674,21 +447,21 @@ describe("clip sharing", () => {
 
   it("uses video/webm in og:video:type for a webm clip", async () => {
     const db = makeFakeDb([clip({ id: "Webm123", r2_key: "clips/Webm123.webm", content_type: "video/webm" })]);
-    const res = await worker.fetch(new Request("https://proxy.example/Webm123"), env({ DB: db }));
+    const res = await worker.fetch(makeRequest("https://proxy.example/Webm123"), env({ DB: db }));
     const body = await res.text();
     expect(body).toContain('property="og:video:type" content="video/webm"');
   });
 
   it("escapes HTML in a clip title to prevent injection in OG tags", async () => {
     const db = makeFakeDb([clip({ id: "Xss1234", title: '"><script>alert(1)</script>', champion: null })]);
-    const res = await worker.fetch(new Request("https://proxy.example/Xss1234"), env({ DB: db }));
+    const res = await worker.fetch(makeRequest("https://proxy.example/Xss1234"), env({ DB: db }));
     const body = await res.text();
     expect(body).not.toContain("<script>alert(1)</script>");
     expect(body).toContain("&lt;script&gt;");
   });
 
   it("does not redirect multi-segment paths", async () => {
-    const res = await worker.fetch(new Request("https://proxy.example/Xy12Z9q/extra"), env());
+    const res = await worker.fetch(makeRequest("https://proxy.example/Xy12Z9q/extra"), env());
     expect(res.status).not.toBe(302);
   });
 
@@ -702,7 +475,7 @@ describe("clip sharing", () => {
     // non-owner → 403
     const dbA = makeFakeDb([c], { [ownerHash]: 100, [otherHash]: 200 });
     const denied = await worker.fetch(
-      new Request("https://proxy.example/clips/Own1234", { method: "DELETE", headers: { Authorization: `Bearer ${other}` } }),
+      makeRequest("https://proxy.example/clips/Own1234", { method: "DELETE", headers: { Authorization: `Bearer ${other}` } }),
       env({ DB: dbA }),
     );
     expect(denied.status).toBe(403);
@@ -710,7 +483,7 @@ describe("clip sharing", () => {
     // owner → 200
     const dbB = makeFakeDb([clip({ id: "Own1234", user_id: 100 })], { [ownerHash]: 100 });
     const ok = await worker.fetch(
-      new Request("https://proxy.example/clips/Own1234", { method: "DELETE", headers: { Authorization: `Bearer ${owner}` } }),
+      makeRequest("https://proxy.example/clips/Own1234", { method: "DELETE", headers: { Authorization: `Bearer ${owner}` } }),
       env({ DB: dbB }),
     );
     expect(ok.status).toBe(200);
@@ -724,7 +497,7 @@ describe("clip sharing", () => {
     const db = makeFakeDb([...mine, notMine], { [hash]: 5 });
 
     const res = await worker.fetch(
-      new Request("https://proxy.example/clips/mine", { headers: { Authorization: `Bearer ${token}` } }),
+      makeRequest("https://proxy.example/clips/mine", { headers: { Authorization: `Bearer ${token}` } }),
       env({ DB: db }),
     );
     expect(res.status).toBe(200);
@@ -732,12 +505,3 @@ describe("clip sharing", () => {
     expect(out.clips.map((c) => c.id).sort()).toEqual(["Mine001", "Mine002"]);
   });
 });
-
-// sha256 helper mirroring src/crypto.ts so tests can seed session hashes.
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
