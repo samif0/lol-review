@@ -215,6 +215,72 @@ public sealed class HardStopEnforcerTests
         Assert.Equal(0, h.Lcu.CancelCalls);
     }
 
+    // ── 3.14.1: remakes never count toward the lock ──────────────────────────
+
+    private static async Task SeedTodayAsync(Harness h, params (long Id, bool Remake)[] games)
+    {
+        var at = RecentGameTodayUnix - games.Length;
+        foreach (var (id, remake) in games)
+        {
+            await h.Scope.SeedGameAsync(gameId: id, timestamp: at++);
+            if (remake) await h.Scope.Games.SetRemakeVerdictAsync(id, true, false, "eog");
+        }
+    }
+
+    [Fact]
+    public async Task MaxGamesThree_TwoGamesAndARemake_DoesNotHold()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        await h.RuleAsync("max_games", "3", enforce: true);
+        await SeedTodayAsync(h, (9301, false), (9302, false), (9303, true));
+
+        Assert.Null(await h.Enforcer.DecideAsync());
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
+        Assert.Equal(0, h.Lcu.CancelCalls);
+    }
+
+    [Fact]
+    public async Task MaxGamesThree_ThreeGamesAndARemake_HoldsAtThreeOfThree()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        await h.RuleAsync("max_games", "3", enforce: true);
+        await SeedTodayAsync(h, (9311, false), (9312, true), (9313, false), (9314, false));
+
+        var snapshot = await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking);
+
+        Assert.NotNull(snapshot);
+        Assert.Contains("3/3", snapshot!.Reason);
+        Assert.Equal(1, h.Lcu.CancelCalls);
+    }
+
+    [Fact]
+    public async Task Reevaluate_ClearsTheLockWhenACountedGameBecomesARemake()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "3", enforce: true);
+        await SeedTodayAsync(h, (9321, false), (9322, false), (9323, false));
+        Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
+        var (reader, sub) = h.Hub.Subscribe();
+        using var _ = sub;
+        while (reader.TryRead(out var _)) { }
+
+        // Still holds: nothing changes.
+        await h.Enforcer.ReevaluateAsync();
+        Assert.NotNull(h.Live.HardStop);
+        Assert.False(reader.TryRead(out var _));
+
+        await h.Scope.Games.SetRemakeVerdictAsync(9322, true, false, "user");
+        await h.Enforcer.ReevaluateAsync();
+
+        Assert.Null(h.Live.HardStop);
+        Assert.True(reader.TryRead(out var evt));
+        Assert.Equal("hardStopCleared", evt.Type);
+        Assert.Contains(ruleId.ToString(), JsonSerializer.Serialize(evt.Payload));
+    }
+
     [Fact]
     public void HardStopLine_WordsTheRecordNeutrally()
     {

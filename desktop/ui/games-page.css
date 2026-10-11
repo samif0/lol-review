@@ -21,6 +21,9 @@ body.games-page #games-list .gamerow-game:focus-visible{background:var(--surface
 .games-page #games-list .gtoken{display:inline-flex;align-items:center;gap:10px;padding:0;min-height:0;border:0;
   border-radius:0;background:none;color:var(--muted);font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;white-space:normal}
 .games-page #games-list .gtoken+.gtoken::before{content:'·';color:#707070}
+/* A remake (League early surrender) is listed but muted: it is not a result. */
+.games-page #games-list .grow-wl[data-result="remake"]{font:500 10px/1 var(--fb);color:var(--muted)}
+.games-page #games-list .gtoken[data-status="remake"]{color:var(--muted)}
 .games-page #games-list .grow-right{min-width:124px;gap:12px}
 .games-page #games-list .grow-kda{font-variant-numeric:tabular-nums}
 .games-page #games-list .grow-kda-n{font:500 16px/1.5 var(--fb);letter-spacing:0;color:var(--text)}

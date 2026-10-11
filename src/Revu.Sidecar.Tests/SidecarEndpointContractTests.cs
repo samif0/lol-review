@@ -82,6 +82,27 @@ public sealed class SidecarEndpointContractTests
         finally { await app.StopAsync(); }
     }
 
+    [Fact]
+    public async Task RemakeToggle_IsAllowedOnTheIsolatedHost_AndRejectsAMissingGameIdBeforeTheDatabase()
+    {
+        // 3.14.1: POST /api/review/remake is a database-only write (allowed when isolated);
+        // a body without a game id is a 400 and never opens revu.db.
+        using var scratch = new ScratchHost();
+        await using var app = BuildApp(scratch);
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+            using var content = new StringContent("""{"gameId":0,"isRemake":true}""", System.Text.Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync("/api/review/remake", content);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.False(File.Exists(Path.Combine(scratch.Root, "LoLReviewData", "revu.db")));
+        }
+        finally { await app.StopAsync(); }
+    }
+
     private const string Token = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
     private static WebApplication BuildApp(ScratchHost scratch)
     {
@@ -200,6 +221,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/reset
         POST /api/review/delete
         POST /api/review/draft/save
+        POST /api/review/remake
         POST /api/review/save
         POST /api/review/skip
         POST /api/rule/create

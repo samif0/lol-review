@@ -233,6 +233,25 @@ public sealed class MatchHistoryReconciliationServiceTests
         Assert.Equal(1, lcuClient.MatchDetailsCalls);
     }
 
+    [Fact]
+    public async Task FindMissedGamesAsync_NeverOffersAFlaggedRemake_StillOffersAnUnflaggedGame()
+    {
+        // 3.14.1: a remake is not offered as a missed review; a 386 s game without the
+        // flag clears the unflagged short-game gate and is offered as before.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var lcu = new StubLcuClient();
+        lcu.History.Add(StubLcuClient.Game(5531400001, 386, earlySurrender: true));
+        lcu.History.Add(StubLcuClient.Game(5531400002, 386, earlySurrender: null));
+        lcu.History.Add(StubLcuClient.Game(5531400003, 386, earlySurrender: false));
+        var service = new MatchHistoryReconciliationService(
+            lcu, scope.Games, scope.MissedGameDecisions, NullLogger<MatchHistoryReconciliationService>.Instance);
+
+        var candidates = await service.FindMissedGamesAsync(checkGameSaved: static _ => false);
+
+        Assert.Equal(new long[] { 5531400002, 5531400003 }, candidates.Select(c => c.GameId));
+    }
+
     private static JsonElement ParseJson(string json)
     {
         using var document = JsonDocument.Parse(json);

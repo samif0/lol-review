@@ -59,6 +59,7 @@ public sealed class ReviewSnapshotBuilder
     private const string GoldHex = "#f3c794";
     private const string WinHex = "#8ee7ba";
     private const string LossHex = "#f3a3a8";
+    private const string NeutralHex = "#9fb0c3";
     private const string PrimaryTextHex = "#f4f3ff";
     private const string RingTrackHex = "rgba(255,255,255,0.13)";
 
@@ -135,7 +136,11 @@ public sealed class ReviewSnapshotBuilder
             return new ReviewDto(GeneratedAt: generatedAt, Subject: null, SubjectSourceText: "");
         }
 
-        var header = BuildHeader(game) with { TimelineFixes = await CountTimelineFixesAsync(game.GameId) };
+        var header = BuildHeader(game) with
+        {
+            TimelineFixes = await CountTimelineFixesAsync(game.GameId),
+            RemakeSource = await RemakeSourceAsync(game.GameId),
+        };
         var stats = BuildStatStrip(game);
         // P-027 / P-013: load THIS game's evidence rows ONCE so the prompt-grouped
         // clips (Prompts[].Clips / UnpromptedClips / UnsortedClips) and the legacy
@@ -313,9 +318,9 @@ public sealed class ReviewSnapshotBuilder
             MatchupHeading: matchupHeading,
             GameRole: gameRole,
             Win: game.Win,
-            ResultText: game.Win ? "VICTORY" : "DEFEAT",
-            WinLossText: game.Win ? "W" : "L",
-            ResultColorHex: game.Win ? WinHex : LossHex,
+            ResultText: game.IsRemake ? "REMAKE" : game.Win ? "VICTORY" : "DEFEAT",
+            WinLossText: GameResultLabel.Short(game.Win, game.IsRemake),
+            ResultColorHex: game.IsRemake ? NeutralHex : game.Win ? WinHex : LossHex,
             Kills: game.Kills,
             Deaths: game.Deaths,
             Assists: game.Assists,
@@ -329,7 +334,23 @@ public sealed class ReviewSnapshotBuilder
             HasReview: HasPersistedReview(game),
             LaningAt10Line: laningLine,
             HasLaningAt10: hasLaning,
-            LobbyMatchups: lobbyMatchups);
+            LobbyMatchups: lobbyMatchups,
+            IsRemake: game.IsRemake);
+    }
+
+    // 3.14.1: the remake verdict's source for the header toggle ('' without a verdict).
+    private async Task<string> RemakeSourceAsync(long gameId)
+    {
+        try
+        {
+            var source = (await _gameHistory.GetRemakeVerdictAsync(gameId))?.Source ?? "";
+            return source == "unknown" ? "" : source; // no source answered: no verdict to show
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Review: remake verdict read failed for {GameId}", gameId);
+            return "";
+        }
     }
 
     // v3.11: applicable corrections on this game for the header badge. 0 without a

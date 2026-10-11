@@ -426,6 +426,8 @@ async function wireLiveAutoShow() {
   const leaveLiveSurface = () => { if (frameHas('pregame.html') || frameHas('ingame.html')) frameGoto('dashboard.html'); };
   const handleTutorialGameEnded = async (payload) => {
     const gameId = Number(payload?.gameId);
+    // A remake is saved but never counted; it is not the first review's game.
+    if (payload?.isRemake) return false;
     if (!payload?.saved || !Number.isSafeInteger(gameId) || gameId <= 0) return false;
     try {
       const cfg = await invoke('get_config');
@@ -526,6 +528,16 @@ async function wireLiveAutoShow() {
           }
         } catch (_) { /* best-effort */ }
         break;
+      case 'remakeUpdated':
+        // 3.14.1: a game's remake verdict changed (startup check, Match-V5, or the
+        // Review toggle). Labels, counts and the review queue come from the server;
+        // each page refetches only what it shows and never touches unsaved text.
+        try {
+          if ((frameHas('review.html') || frameHas('games.html') || frameHas('dashboard.html')) && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:remake-updated', { detail: p }));
+          }
+        } catch (_) { /* best-effort */ }
+        break;
       case 'eventsCorrected':
         // v3.11: a timeline correction landed (VOD panel, review death links, or the
         // legacy encounter form). Every page that draws game events refetches; each
@@ -574,6 +586,8 @@ async function wireLiveAutoShow() {
       // (from any surface) clears it.
       case 'hardStop': showHardStop(p, true); break;
       case 'hardStopOverridden': clearHardStop(); break;
+      // 3.14.1: the lock no longer holds (a counted game turned out to be a remake).
+      case 'hardStopCleared': clearHardStop(); break;
       case 'lcuConnection': setLcuIndicator(!!p.connected); break;
       default: break;
     }

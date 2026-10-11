@@ -41,7 +41,10 @@ public sealed class WriteServices : IDisposable
     public EventCorrectionWorkflow EventCorrections => _provider.GetRequiredService<EventCorrectionWorkflow>();
     public EventCorrectionSweep EventCorrectionSweep => _provider.GetRequiredService<EventCorrectionSweep>();
 
-    public WriteServices(ILoggerFactory loggerFactory, SidecarBackgroundWork? backgroundWork = null)
+    public WriteServices(
+        ILoggerFactory loggerFactory,
+        SidecarBackgroundWork? backgroundWork = null,
+        Revu.Core.Lcu.ILcuClient? lcu = null)
     {
         _backgroundWork = backgroundWork;
         _logger = loggerFactory.CreateLogger<WriteServices>();
@@ -153,6 +156,15 @@ public sealed class WriteServices : IDisposable
         // and resolve them via Match-V5 (through IRiotMatchClient). All write to
         // GameRepository; the map-state leg also writes derived game_events rows.
         services.AddSingleton<EnemyLanerBackfillService>();
+        // 3.14.1: remake verdicts from League's early-surrender flag (post-game Match-V5
+        // confirmation + the startup sweep). The app's LCU client, when the host has one,
+        // lets the sweep ask the local client's match history first.
+        services.AddSingleton(sp => new RemakeCheckService(
+            sp.GetRequiredService<IGameRepository>(),
+            lcu,
+            sp.GetRequiredService<IRiotMatchClient>(),
+            sp.GetRequiredService<IConfigService>(),
+            sp.GetRequiredService<ILogger<RemakeCheckService>>()));
         services.AddSingleton<LaningBackfillService>();
         services.AddSingleton<MapStateBackfillService>();
 
@@ -250,6 +262,7 @@ public sealed class WriteServices : IDisposable
     public INarrationTranscriptChunker TranscriptChunker => _provider.GetRequiredService<INarrationTranscriptChunker>();
     // POST /api/backfill/start — enemy-laner + laning@10 + map-state resolution via Match-V5.
     public EnemyLanerBackfillService EnemyLanerBackfill => _provider.GetRequiredService<EnemyLanerBackfillService>();
+    public RemakeCheckService RemakeCheck => _provider.GetRequiredService<RemakeCheckService>();
     public LaningBackfillService LaningBackfill => _provider.GetRequiredService<LaningBackfillService>();
     public MapStateBackfillService MapStateBackfill => _provider.GetRequiredService<MapStateBackfillService>();
 

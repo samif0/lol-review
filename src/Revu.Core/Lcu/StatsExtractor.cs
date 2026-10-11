@@ -359,6 +359,14 @@ public static class StatsExtractor
                 catch { /* leave empty; backfill will fill it later */ }
             }
 
+            // 3.14.1: League's early-surrender (remake) flag. A remake is saved but never
+            // counted. No real remake payload has been seen locally, so the raw flag
+            // fields are logged (names and values only) on every capture.
+            (gs.EndedInEarlySurrender, gs.CausedEarlySurrender) = RemakeSignals.FromEog(eogData);
+            gs.EarlySurrenderSource = RemakeSourceEog;
+            StampEarlySurrender(gs);
+            logger?.LogInformation("EOG remake flags for game {GameId}: {Flags}", gameId, RemakeSignals.DescribeEog(eogData));
+
             return gs;
         }
         catch (Exception ex)
@@ -673,6 +681,11 @@ public static class StatsExtractor
                 // best-effort; backfill will fill it later
             }
 
+            // 3.14.1: the early-surrender (remake) flag, self first, then any participant.
+            gs.EndedInEarlySurrender = RemakeSignals.FromLcuMatch(game, gs.Puuid, p);
+            gs.EarlySurrenderSource = RemakeSourceLcu;
+            StampEarlySurrender(gs);
+
             return gs;
         }
         catch (Exception ex)
@@ -683,6 +696,18 @@ public static class StatsExtractor
     }
 
     // ── Private helpers ─────────────────────────────────────────────────
+
+    // RemakeSql source names (that class is a repository helper; the strings match).
+    private const string RemakeSourceEog = "eog";
+    private const string RemakeSourceLcu = "lcu";
+
+    /// <summary>3.14.1: mirror the remake flag into raw_stats ("1" / "0"; absent when the
+    /// payload did not carry it) so a saved row shows what capture read.</summary>
+    private static void StampEarlySurrender(GameStats gs)
+    {
+        if (gs.EndedInEarlySurrender is bool flag) gs.RawStats["_early_surrender"] = flag ? "1" : "0";
+        else gs.RawStats.Remove("_early_surrender");
+    }
 
     /// <summary>
     /// Read an integer stat from the stats block, handling both string and numeric JSON values.

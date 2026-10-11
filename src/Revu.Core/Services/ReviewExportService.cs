@@ -109,7 +109,7 @@ public sealed class ReviewExportService : IReviewExportService
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var result = game.Win ? "Win" : "Loss";
+        var result = GameResultLabel.For(game);
         // Same role-aware heading as the review page itself: EnemyLaner is only
         // populated by the Match-V5 backfill and is often empty, but the
         // participant map captured at game end still names the opponents.
@@ -154,7 +154,7 @@ public sealed class ReviewExportService : IReviewExportService
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var result = game.Win ? "Win" : "Loss";
+        var result = GameResultLabel.For(game);
         var heading = new string('#', Math.Clamp(headingLevel, 1, 6));
         sb.AppendLine($"{heading} {FormatDate(game.Timestamp)} - {OneLine(game.ChampionName)} - {result}");
         sb.AppendLine();

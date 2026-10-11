@@ -121,6 +121,8 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             Attribution = GetStringOrDefault(reader, "attribution"),
             PersonalContribution = GetStringOrDefault(reader, "personal_contribution"),
             IsHidden = GetIntOrDefault(reader, "is_hidden") != 0,
+            // 3.14.1: present only on reads that select RemakeSql.IsRemakeColumn.
+            IsRemake = GetIntOrDefault(reader, "is_remake") != 0,
         };
 
         // items â€” JSON array of ints

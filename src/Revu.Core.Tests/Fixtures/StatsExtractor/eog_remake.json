@@ -1,0 +1,43 @@
+{
+  "gameId": 5531387201,
+  "gameLength": 212,
+  "gameMode": "CLASSIC",
+  "queueType": "RANKED_SOLO_5x5",
+  "gameType": "MATCHED_GAME",
+  "gameEndedInEarlySurrender": true,
+  "localPlayer": {
+    "teamId": 100,
+    "summonerName": "Tester",
+    "puuid": "self-puuid",
+    "championName": "Kai'Sa",
+    "championId": 145,
+    "selectedPosition": "BOTTOM",
+    "leaver": false,
+    "stats": {
+      "CHAMPIONS_KILLED": "0",
+      "NUM_DEATHS": "0",
+      "ASSISTS": "0",
+      "MINIONS_KILLED": "14",
+      "NEUTRAL_MINIONS_KILLED": "0",
+      "WIN": "0",
+      "LEVEL": "2",
+      "WAS_AFK": "0",
+      "GAME_ENDED_IN_EARLY_SURRENDER": "1"
+    }
+  },
+  "teams": [
+    {
+      "teamId": 100,
+      "stats": { "CHAMPIONS_KILLED": 0 },
+      "players": [
+        { "championName": "Kai'Sa", "selectedPosition": "BOTTOM", "stats": { "CHAMPIONS_KILLED": 0 } }
+      ]
+    },
+    {
+      "teamId": 200,
+      "players": [
+        { "championName": "Caitlyn", "selectedPosition": "BOTTOM", "stats": { "CHAMPIONS_KILLED": 0 } }
+      ]
+    }
+  ]
+}

@@ -41,7 +41,7 @@ namespace Revu.Sidecar;
 /// history reconciliation skips games already in the DB (mirrors the WinUI wiring).
 /// </para>
 /// </summary>
-public sealed class SidecarGameFlowCoordinator : IHostedService,
+public sealed partial class SidecarGameFlowCoordinator : IHostedService,
     IRecipient<ChampSelectStartedMessage>,
     IRecipient<ChampSelectUpdatedMessage>,
     IRecipient<ChampSelectCancelledMessage>,
@@ -260,7 +260,10 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
 
                 // Prepare only when the player opted in and the captured pairing
                 // is trustworthy. The confirmation pass retries incomplete games.
-                await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
+                // 3.14.1: a short game whose payload did not say "not a remake" waits
+                // for the post-game remake check, so a remake never gets an automatic note.
+                var deferMatchupNote = RemakeNoteMustWait(stats.EndedInEarlySurrender, stats.GameDuration);
+                if (!deferMatchupNote) await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
 
                 _logger.LogInformation("Live game captured + saved: game {GameId} ({Champ})", gameId, stats.ChampionName);
                 _eventHub.Publish("gameEnded", new
@@ -271,6 +274,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     enemyLaner = stats.EnemyLaner,
                     saved = true,
                     isRecovered,
+                    isRemake = stats.IsRemake,
                 });
 
                 // v3.2: derive the just-ended game's map-state (jungle proximity +
@@ -290,11 +294,12 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                 // Match-V5 when the LCU end-of-game payload left it blank, so the
                 // Review page and the Matchups journal show "you vs them" without
                 // the manual Settings backfill. Fire-and-forget like the others.
-                _backgroundWork.TryRun("post-game matchup", () => TryMatchupWithRetryAsync(gameId));
+                var duration = stats.GameDuration;
+                _backgroundWork.TryRun("post-game matchup", () => TryMatchupWithRetryAsync(gameId, duration, deferMatchupNote));
             }
             else
             {
-                // Skipped (casual/remake the workflow declined to persist).
+                // Skipped (casual or short unflagged game the workflow declined to persist).
                 _logger.LogInformation("Live game end processed but not saved (skipped/casual)");
                 _eventHub.Publish("gameEnded", new
                 {
@@ -303,6 +308,7 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
                     win = stats.Win,
                     saved = false,
                     isRecovered,
+                    isRemake = stats.IsRemake,
                 });
             }
         }
@@ -398,57 +404,92 @@ public sealed class SidecarGameFlowCoordinator : IHostedService,
     // throttle); a success also drains a few older rows still waiting. Publishes
     // matchupUpdated when the row changed so an open Review page or the Matchups
     // journal refreshes its header instead of waiting for a reload.
-    private async Task TryMatchupWithRetryAsync(long gameId)
+    // 3.14.1: the same timer confirms the remake verdict first (Match-V5 has Riot's
+    // early-surrender flag), ahead of the matchup's checks and early returns, so a remake
+    // is settled before any automatic matchup note. When the loop reaches +5 min, that
+    // attempt reruns it only if +90 s recorded nothing; the startup check covers the rest.
+    // A note deferred at game end is prepared once the remake verdict is recorded, or after
+    // the last attempt either way (the preparation itself skips a game marked as a remake).
+    private async Task TryMatchupWithRetryAsync(long gameId, int duration, bool deferredNote = false)
     {
         var delaysSeconds = new[] { 90, 300 };
-        foreach (var delay in delaysSeconds)
+        var remakeSettled = false;
+        try
         {
-            await Task.Delay(TimeSpan.FromSeconds(delay), _backgroundWork.Stopping).ConfigureAwait(false);
-            try
+            foreach (var delay in delaysSeconds)
             {
-                if (!_write.Config.HasValidRiotSession)
+                await Task.Delay(TimeSpan.FromSeconds(delay), _backgroundWork.Stopping).ConfigureAwait(false);
+                if (!remakeSettled) remakeSettled = await TryConfirmRemakeAsync(gameId, duration).ConfigureAwait(false);
+                if (deferredNote && remakeSettled)
                 {
-                    _logger.LogDebug("Post-game matchup pass skipped for game {GameId}: no Riot session", gameId);
-                    return;
-                }
-
-                var row = await _write.Games.GetAsync(gameId).ConfigureAwait(false);
-                if (row is null) return;
-                if (row.MatchupSource is MatchupSources.MatchV5 or MatchupSources.User)
-                {
+                    deferredNote = false;
                     await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
-                    return; // gone, confirmed by an earlier attempt, or the player's own word
                 }
-
-                var outcome = await _write.EnemyLanerBackfill.BackfillGameAsync(gameId).ConfigureAwait(false);
-                switch (outcome)
-                {
-                    case EnemyLanerBackfillOutcome.Updated:
-                        await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
-                        _eventHub.Publish("matchupUpdated", new { gameId, updated = 1 });
-                        _logger.LogInformation(
-                            "Post-game matchup confirmed from Match-V5 for game {GameId} (game end had '{Source}')",
-                            gameId, row.MatchupSource);
-                        await DrainMatchupBacklogAsync(gameId).ConfigureAwait(false);
-                        return;
-                    case EnemyLanerBackfillOutcome.Skipped:
-                        // Upstream has the match but no positions (a non-positional
-                        // queue) — nothing more to learn; keep what game end wrote.
-                        _logger.LogDebug("Post-game matchup pass: nothing to confirm upstream for game {GameId}", gameId);
-                        return;
-                    case EnemyLanerBackfillOutcome.NotConfigured:
-                        return;
-                    default:
-                        // Failed: the fresh match isn't visible upstream yet — fall
-                        // through to the longer delay (the startup heal covers the rest).
-                        break;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Post-game matchup attempt failed for game {GameId} (will retry/heal)", gameId);
+                if (!await TryMatchupAttemptAsync(gameId, remakePending: deferredNote).ConfigureAwait(false)) return;
             }
         }
+        finally
+        {
+            if (deferredNote && !_backgroundWork.Stopping.IsCancellationRequested)
+                await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>3.14.1: whether the automatic matchup note waits for the post-game remake
+    /// check. Only a payload that said "not a remake", or a game too long to be one, goes
+    /// ahead at game end.</summary>
+    internal static bool RemakeNoteMustWait(bool? endedInEarlySurrender, int durationS) =>
+        endedInEarlySurrender != false && durationS < Revu.Core.Services.RemakeCheckService.CandidateMaxDurationS;
+
+    // One matchup confirmation attempt. False ends the retries.
+    private async Task<bool> TryMatchupAttemptAsync(long gameId, bool remakePending)
+    {
+        try
+        {
+            if (!_write.Config.HasValidRiotSession)
+            {
+                _logger.LogDebug("Post-game matchup pass skipped for game {GameId}: no Riot session", gameId);
+                // A pending remake check (the client's match history) still gets its +5 min try.
+                return remakePending;
+            }
+
+            var row = await _write.Games.GetAsync(gameId).ConfigureAwait(false);
+            if (row is null) return false;
+            if (row.MatchupSource is MatchupSources.MatchV5 or MatchupSources.User)
+            {
+                await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
+                return false; // gone, confirmed by an earlier attempt, or the player's own word
+            }
+
+            var outcome = await _write.EnemyLanerBackfill.BackfillGameAsync(gameId).ConfigureAwait(false);
+            switch (outcome)
+            {
+                case EnemyLanerBackfillOutcome.Updated:
+                    await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
+                    _eventHub.Publish("matchupUpdated", new { gameId, updated = 1 });
+                    _logger.LogInformation(
+                        "Post-game matchup confirmed from Match-V5 for game {GameId} (game end had '{Source}')",
+                        gameId, row.MatchupSource);
+                    await DrainMatchupBacklogAsync(gameId).ConfigureAwait(false);
+                    return false;
+                case EnemyLanerBackfillOutcome.Skipped:
+                    // Upstream has the match but no positions (a non-positional
+                    // queue) — nothing more to learn; keep what game end wrote.
+                    _logger.LogDebug("Post-game matchup pass: nothing to confirm upstream for game {GameId}", gameId);
+                    return false;
+                case EnemyLanerBackfillOutcome.NotConfigured:
+                    return false;
+                default:
+                    // Failed: the fresh match isn't visible upstream yet — fall
+                    // through to the longer delay (the startup heal covers the rest).
+                    return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Post-game matchup attempt failed for game {GameId} (will retry/heal)", gameId);
+        }
+        return true;
     }
 
     // A few older rows that never got their pass (the app was closed within five

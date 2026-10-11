@@ -208,7 +208,9 @@ public sealed record ObjectiveGameEntry(
     double Assists,
     double KdaRatio,
     string ReviewNotes,
-    bool HasReview);
+    bool HasReview,
+    // 3.14.1: labelled "Remake" (a remake is never auto-linked, but a manual link stays).
+    bool IsRemake = false);
 
 // v2.15.0: free-form per-objective prompts. See docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
 public sealed record ObjectivePrompt(
@@ -376,3 +378,16 @@ public sealed record PatternMoment(
     string ClipPath = "",
     long? BookmarkId = null,
     int GameDurationSeconds = 0);
+
+// 3.14.1: game_remakes read/write models (RemakeSql, GameRepository.Remakes).
+
+/// <summary>The stored remake verdict for one game. Source is eog | lcu | matchv5 | user,
+/// or unknown (no source answered; never a remake).</summary>
+public sealed record RemakeVerdict(bool IsRemake, bool CausedBySelf, string Source, long CheckedAt);
+
+/// <summary>A short visible ranked game with no verdict yet (the startup remake check).</summary>
+public sealed record RemakeCandidate(long GameId, int Duration, long Timestamp);
+
+/// <summary>Applied: the write won the source precedence. Changed: the effective
+/// is_remake flipped (a new remake, or a remake cleared).</summary>
+public sealed record RemakeWriteResult(bool Applied, bool Changed);

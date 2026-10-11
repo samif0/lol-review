@@ -1,0 +1,16 @@
+{
+  "metadata": { "matchId": "NA1_5531387203", "participants": ["self-puuid", "ally-puuid", "enemy-puuid"] },
+  "info": {
+    "gameId": 5531387203,
+    "gameDuration": 386,
+    "queueId": 420,
+    "participants": [
+      { "puuid": "self-puuid", "teamId": 100, "championName": "Kai'Sa", "teamPosition": "", "individualPosition": "Invalid",
+        "gameEndedInEarlySurrender": true, "gameEndedInSurrender": false, "teamEarlySurrendered": true, "win": false },
+      { "puuid": "ally-puuid", "teamId": 100, "championName": "Nautilus", "teamPosition": "", "individualPosition": "Invalid",
+        "gameEndedInEarlySurrender": true, "gameEndedInSurrender": false, "teamEarlySurrendered": true, "win": false },
+      { "puuid": "enemy-puuid", "teamId": 200, "championName": "Caitlyn", "teamPosition": "", "individualPosition": "Invalid",
+        "gameEndedInEarlySurrender": true, "gameEndedInSurrender": false, "teamEarlySurrendered": false, "win": true }
+    ]
+  }
+}

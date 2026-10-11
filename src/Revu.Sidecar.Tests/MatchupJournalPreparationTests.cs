@@ -103,6 +103,26 @@ public sealed class MatchupJournalPreparationTests
     }
 
     [Fact]
+    public async Task AutoPreparation_SkipsARemake_TheManualPathStillWorks()
+    {
+        // 3.14.1: no automatic note for a remake (noise), but the player can still
+        // open one by hand to review the lane.
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        var matchups = new MatchupsRepository(scope.ConnectionFactory);
+        scope.Config.Current.AutoMatchupNotesEnabled = true;
+        await SeedAsync(scope, 8251);
+        await scope.Games.SetRemakeVerdictAsync(8251, true, false, "eog");
+
+        Assert.Null(await MatchupJournalPreparation.TryAutoPrepareAsync(8251, scope.Games, matchups, scope.Config));
+        Assert.Empty(await matchups.GetAllAsync());
+
+        var manual = await SelectAsync(scope, matchups, 8251);
+        Assert.True(manual.Created);
+        Assert.Equal(8251, Assert.Single(await matchups.GetAllAsync()).GameId);
+    }
+
+    [Fact]
     public async Task AutoPreparation_DefaultsOff_ThenCreatesOnlyABlankCard_WhenEnabled()
     {
         using var scope = new SidecarWriteScope();

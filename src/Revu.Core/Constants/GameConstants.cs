@@ -91,7 +91,9 @@ public static class GameConstants
 
     // ── Game thresholds ──────────────────────────────────────────────────
 
-    /// <summary>Games shorter than 5 min are treated as remakes (seconds).</summary>
+    /// <summary>Unflagged short-game skip (seconds), not remake detection: a game under
+    /// this with no early-surrender flag is not saved. A remake is detected only from
+    /// League's own flag (RemakeSignals) and is saved but never counted (3.14.1).</summary>
     public const int RemakeThresholdS = 300;
 
     /// <summary>Minimum game duration for session log rule checks (seconds).</summary>

@@ -123,10 +123,11 @@ public sealed class MatchHistoryReconciliationService : IMatchHistoryReconciliat
                 continue;
             }
 
-            // Exact mirror of the save gate (no zero-duration exemption: the
-            // gate declines ANY duration below the threshold, so offering a
-            // 0-duration payload would recreate the un-dismissable ghost).
-            if (stats.GameDuration < Constants.GameConstants.RemakeThresholdS)
+            // Superset of GameService's save gate: never offer what it would skip
+            // (no zero-duration exemption, so a 0-duration payload cannot become an
+            // un-dismissable ghost); remakes are not offered either (3.14.1).
+            if (stats.EndedInEarlySurrender == true
+                || stats.GameDuration < Constants.GameConstants.RemakeThresholdS)
             {
                 CoreDiagnostics.WriteVerbose($"LCU: Reconciliation skipping gameId={gameId} reason=remake-or-no-duration");
                 continue;

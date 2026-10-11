@@ -270,6 +270,52 @@ public sealed class AdditiveSchemaUpgradeTests
         Assert.DoesNotContain(Schema.VersionedMigrations, m => m.Version > 18);
     }
 
+    /// <summary>
+    /// 3.14.1 game_remakes: a v18 database without the table gains it on startup, the stored
+    /// version stays 18 (3.14.0 can still open it), and no other table changes.
+    /// </summary>
+    [Fact]
+    public async Task ApplyAdditiveSchemaAsync_CreatesGameRemakesWithoutVersionBump()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+
+        using (var conn = scope.OpenConnection())
+        {
+            await Exec(conn, "DROP TABLE IF EXISTS game_remakes");
+            await Exec(conn,
+                "INSERT INTO schema_metadata (key, value, updated_at) VALUES ('app_schema_version','18',0) "
+                + "ON CONFLICT(key) DO UPDATE SET value='18'");
+        }
+        Assert.False(await TableExists(scope, "game_remakes"));
+        var before = await SchemaSqlAsync(scope);
+
+        await scope.Initializer.ApplyAdditiveSchemaAsync();
+
+        Assert.True(await TableExists(scope, "game_remakes"));
+        var after = await SchemaSqlAsync(scope);
+        after.Remove("game_remakes");
+        Assert.Equal(before, after);
+        using (var conn = scope.OpenConnection())
+        {
+            using var versionCmd = conn.CreateCommand();
+            versionCmd.CommandText = "SELECT value FROM schema_metadata WHERE key='app_schema_version'";
+            Assert.Equal("18", (string?)await versionCmd.ExecuteScalarAsync());
+        }
+        Assert.Equal(18, Schema.CurrentAppSchemaVersion);
+    }
+
+    private static async Task<SortedDictionary<string, string>> SchemaSqlAsync(TestDatabaseScope scope)
+    {
+        var tables = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        using var conn = scope.OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name, COALESCE(sql, '') FROM sqlite_master WHERE type='table'";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) tables[reader.GetString(0)] = reader.GetString(1);
+        return tables;
+    }
+
     private static async Task Exec(SqliteConnection conn, string sql)
     {
         using var cmd = conn.CreateCommand();

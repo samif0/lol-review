@@ -289,6 +289,8 @@ function renderHeader(subject) {
   res.textContent = result ? result[0].toUpperCase() + result.slice(1).toLowerCase() : '';
   if (h.resultColorHex) res.style.color = h.resultColorHex;
 
+  renderRemakeToggle(subject);
+
   $('rv-gmode').textContent = h.gameMode || '';
   $('rv-gdur').textContent = h.duration || '';
   const date = $('rv-date'); if (date) date.textContent = h.datePlayed || '';
@@ -1394,6 +1396,75 @@ window.addEventListener('revu:vod-linked', event => {
   if (!Number.isSafeInteger(gameId) || gameId <= 0 || gameId !== shown) return;
   _linkedRecordingGameId = gameId;
   updateRecordingLaunch(gameId);
+});
+
+// ── remake toggle (3.14.1) ───────────────────────────────────────────────────
+// "Remake (doesn't count)": the player's own verdict, sticky against automatic
+// detection both ways. A remake stays reviewable; it leaves rules, stats and the
+// review queue. Only the header is re-rendered, never the mounted form.
+function renderRemakeToggle(subject) {
+  const line = $('rv-remake-line');
+  const box = $('rv-remake');
+  if (!line || !box) return;
+  const gameId = Number(subject && subject.gameId) || 0;
+  show(line, gameId > 0);
+  if (!box.disabled) box.checked = !!(subject && subject.header && subject.header.isRemake === true);
+}
+
+function setRemakeStatus(text, isError) {
+  const status = $('rv-remake-status');
+  if (!status) return;
+  status.textContent = text || '';
+  status.classList.toggle('err', !!isError);
+}
+
+async function refreshReviewHeader(gameId) {
+  // Ask for THIS game: without ?gameId the default subject is the newest unreviewed
+  // game, and a game just marked as a remake has left that queue.
+  const data = await readSnapshot('get_review', 'sample-review.json', { gameId });
+  if (Number(data?.subject?.gameId) === gameId && Number(_subject?.gameId) === gameId) {
+    _subject.header = data.subject.header;
+    renderHeader(data.subject);
+  }
+}
+
+const remakeBox = $('rv-remake');
+if (remakeBox) {
+  remakeBox.addEventListener('change', async () => {
+    const gameId = Number(_subject && _subject.gameId) || 0;
+    const wanted = remakeBox.checked;
+    setRemakeStatus('', false);
+    if (!(gameId > 0)) { remakeBox.checked = !wanted; return; }
+    remakeBox.disabled = true;
+    try {
+      const invoke = await getInvoke();
+      if (!invoke) { console.info('[review] (preview) set_game_remake: no Electron backend.'); return; }
+      const result = await invoke('set_game_remake', { payload: { gameId, isRemake: wanted } });
+      if (result?.ok === false) throw new Error(result.error || 'The change could not be saved.');
+      remakeBox.disabled = false;
+      await refreshReviewHeader(gameId);
+    } catch (err) {
+      remakeBox.checked = !wanted;
+      const raw = (err && err.message) ? err.message : String(err || '');
+      const m = raw.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
+      setRemakeStatus((m ? m[1] : raw) || 'The change could not be saved.', true);
+      console.error('[review] set_game_remake failed:', err);
+    } finally {
+      remakeBox.disabled = false;
+    }
+  });
+}
+
+// A remake verdict changed elsewhere (startup check, Match-V5): header only.
+window.addEventListener('revu:remake-updated', async (ev) => {
+  const gid = Number(ev && ev.detail && ev.detail.gameId);
+  const shown = Number(_subject && _subject.gameId) || 0;
+  if (!shown || (gid > 0 && gid !== shown)) return;
+  try {
+    await refreshReviewHeader(shown);
+  } catch (err) {
+    console.error('[review] header refresh after remake update failed:', err);
+  }
 });
 
 // Post-game matchup enrichment refreshes the header, never the mounted form.

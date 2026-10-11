@@ -1,0 +1,32 @@
+{
+  "gameId": 5531387202,
+  "gameLength": 386,
+  "gameMode": "CLASSIC",
+  "queueType": "RANKED_SOLO_5x5",
+  "gameType": "MATCHED_GAME",
+  "gameEndedInEarlySurrender": true,
+  "localPlayer": {
+    "teamId": 200,
+    "summonerName": "Tester",
+    "puuid": "self-puuid",
+    "championName": "Ahri",
+    "championId": 103,
+    "selectedPosition": "MIDDLE",
+    "leaver": true,
+    "stats": {
+      "CHAMPIONS_KILLED": "0",
+      "NUM_DEATHS": "1",
+      "ASSISTS": "0",
+      "MINIONS_KILLED": "3",
+      "NEUTRAL_MINIONS_KILLED": "0",
+      "WIN": "0",
+      "LEVEL": "1",
+      "WAS_AFK": "1",
+      "GAME_ENDED_IN_EARLY_SURRENDER": "1"
+    }
+  },
+  "teams": [
+    { "teamId": 100, "players": [] },
+    { "teamId": 200, "players": [] }
+  ]
+}

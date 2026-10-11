@@ -45,6 +45,11 @@ public sealed class EnemyLanerBackfillService
     private readonly IConfigService _config;
     private readonly ILogger<EnemyLanerBackfillService> _logger;
 
+    /// <summary>3.14.1: raised when a lookup flipped a game's remake verdict, so the host
+    /// can announce it (open pages refresh, a lock it caused clears). Every caller of this
+    /// service (startup heal, post-game pass, backlog drain, Settings backfill) is covered.</summary>
+    public event Action<RemakeChange>? RemakeChanged;
+
     public EnemyLanerBackfillService(
         IGameRepository games,
         IRiotMatchClient matchClient,
@@ -102,6 +107,7 @@ public sealed class EnemyLanerBackfillService
                 continue;
             }
 
+            await RecordRemakeAsync(gameId, match, puuid).ConfigureAwait(false);
             if (!await ApplyMatchAsync(gameId, match, puuid).ConfigureAwait(false))
             {
                 skipped++;
@@ -146,9 +152,31 @@ public sealed class EnemyLanerBackfillService
             return EnemyLanerBackfillOutcome.Failed;
         }
 
+        await RecordRemakeAsync(gameId, match, puuid).ConfigureAwait(false);
         return await ApplyMatchAsync(gameId, match, puuid).ConfigureAwait(false)
             ? EnemyLanerBackfillOutcome.Updated
             : EnemyLanerBackfillOutcome.Skipped;
+    }
+
+    /// <summary>
+    /// 3.14.1: the document is already here, so record Riot's early-surrender (remake)
+    /// verdict too. Independent of teamPosition (a remake document often has blank
+    /// positions, which makes <see cref="ApplyMatchAsync"/> skip). Never fails the backfill.
+    /// Only the player's own participant counts: the document was fetched by id.
+    /// </summary>
+    private async Task RecordRemakeAsync(long gameId, JsonElement match, string puuid)
+    {
+        try
+        {
+            if (Lcu.RemakeSignals.FromMatchV5(match, puuid, requireSelf: true) is not bool isRemake) return;
+            var result = await _games.SetRemakeVerdictAsync(gameId, isRemake, false, RemakeSql.SourceMatchV5)
+                .ConfigureAwait(false);
+            if (result.Changed) RemakeChanged?.Invoke(new RemakeChange(gameId, isRemake));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Backfill: could not record the remake verdict for game {GameId}", gameId);
+        }
     }
 
     /// <summary>

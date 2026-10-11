@@ -57,6 +57,9 @@ public sealed partial class GameRepository
             "game_summary",
             "review_concepts",
             "feature_values",
+            // 3.14.1: remake verdicts (game_remakes; created without a version bump,
+            // so DeleteByGameIdAsync's table check tolerates a DB without it).
+            "game_remakes",
         };
 
         using var conn = _factory.CreateConnection();
@@ -250,7 +253,7 @@ public sealed partial class GameRepository
         "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
         "cleared_rule_breaks", "death_classifications", "game_summary",
         "review_concepts", "feature_values", "coach_moments", "vod_bookmarks",
-        "coach_labels", "coach_inferences", "clip_narrations",
+        "coach_labels", "coach_inferences", "clip_narrations", "game_remakes",
     };
 
     private static string RequireDeletableTable(string table) =>

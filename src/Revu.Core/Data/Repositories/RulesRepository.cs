@@ -468,12 +468,12 @@ public sealed class RulesRepository : IRulesRepository
         var games = new List<EvidenceGame>();
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT g.timestamp, g.win, sl.mental_rating, COALESCE(sl.is_skipped, 0),
                    COALESCE(sl.rule_broken, 0)
             FROM games g
             LEFT JOIN session_log sl ON sl.game_id = g.game_id
-            WHERE COALESCE(g.is_hidden, 0) = 0 AND g.timestamp > 0
+            WHERE COALESCE(g.is_hidden, 0) = 0 AND g.timestamp > 0 AND {RemakeSql.NotRemake("g.game_id")}
             ORDER BY g.timestamp ASC
             """;
         using var reader = await cmd.ExecuteReaderAsync();

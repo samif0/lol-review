@@ -142,7 +142,7 @@ public sealed class MatchupsSnapshotBuilder
     internal static string GameLabel(GameStats game)
     {
         var date = MatchupJournalExporter.CreatedAtText(game.Timestamp);
-        var result = game.Win ? "Win" : "Loss";
+        var result = GameResultLabel.For(game);
         return date.Length > 0 ? $"{date} · {result}" : result;
     }
 

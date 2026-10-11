@@ -164,6 +164,23 @@ public class GameStats
     /// <summary>When true the game is soft-deleted and hidden from all views.</summary>
     public bool IsHidden { get; set; }
 
+    // ── Remake (3.14.1; game_remakes, not a games column) ────────────
+
+    /// <summary>Capture only: League's early-surrender flag from the payload, or null
+    /// when the payload did not carry it.</summary>
+    public bool? EndedInEarlySurrender { get; set; }
+
+    /// <summary>Capture only: the payload says this player caused the early surrender.
+    /// Stored for later policy; every remake is excluded either way.</summary>
+    public bool CausedEarlySurrender { get; set; }
+
+    /// <summary>Capture only: "eog" or "lcu" (RemakeSql source of the flag above).</summary>
+    public string? EarlySurrenderSource { get; set; }
+
+    /// <summary>Read model: the game has an is_remake=1 verdict (RemakeSql.IsRemakeColumn).
+    /// A remake is saved and reviewable but never counted.</summary>
+    public bool IsRemake { get; set; }
+
     // ── Raw JSON for anything we might have missed ───────────────────
 
     public Dictionary<string, object> RawStats { get; set; } = [];

@@ -781,12 +781,14 @@ public sealed class DatabaseInitializer
     private static async Task BackfillObjectiveGameCountAsync(SqliteConnection connection, CancellationToken ct)
     {
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        // 3.14.1: remakes do not count toward an objective's games (re-bases on startup).
+        cmd.CommandText = $"""
             UPDATE objectives SET game_count = COALESCE((
                 SELECT COUNT(*) FROM game_objectives
                 JOIN games g ON g.game_id = game_objectives.game_id
                 WHERE game_objectives.objective_id = objectives.id
                   AND COALESCE(g.is_hidden, 0) = 0
+                  AND {Repositories.RemakeSql.NotRemake("g.game_id")}
             ), 0)
             """;
         await cmd.ExecuteNonQueryAsync(ct);

@@ -69,6 +69,8 @@ public static class Schema
     //               runs on every startup. Foreign keys are off, so every delete path
     //               removes clip_narrations rows explicitly, and a startup sweep removes
     //               rows a downgraded build orphaned.
+    // game_remakes (3.14.1): additive, no version bump. Same AllCreateStatements path as
+    //               clip_narrations; keyed by games.game_id; every delete path removes it.
     public const int CurrentAppSchemaVersion = 18;
     public const int EventCorrectionsSchemaVersion = 16;
     public const string AppSchemaVersionKey = "app_schema_version";
@@ -276,6 +278,20 @@ public static class Schema
 
     public const string CreateClipNarrationsGameIndex = """
         CREATE INDEX IF NOT EXISTS idx_clip_narrations_game ON clip_narrations(game_id);
+        """;
+
+    /// <summary>3.14.1: one remake verdict per game (League early surrender). Created only by
+    /// <see cref="AllCreateStatements"/> (no schema version bump). is_remake 1 = remake,
+    /// 0 = confirmed not a remake; source is eog | lcu | matchv5 | user (RemakeSql.Rank), or
+    /// unknown (is_remake 0: no source answered, so the startup sweep stops asking).</summary>
+    public const string CreateGameRemakesTable = """
+        CREATE TABLE IF NOT EXISTS game_remakes (
+            game_id        INTEGER PRIMARY KEY,
+            is_remake      INTEGER NOT NULL DEFAULT 0,
+            caused_by_self INTEGER NOT NULL DEFAULT 0,
+            source         TEXT    NOT NULL DEFAULT '',
+            checked_at     INTEGER NOT NULL DEFAULT 0
+        );
         """;
 
     public const string CreateEvidenceItemsTable = """
@@ -1305,6 +1321,8 @@ public static class Schema
         // 3.14: no version bump; see CreateClipNarrationsTable.
         CreateClipNarrationsTable,
         CreateClipNarrationsGameIndex,
+        // 3.14.1: no version bump; see CreateGameRemakesTable.
+        CreateGameRemakesTable,
         CreateEvidenceItemsTable,
         CreateEvidenceItemsKeyIndex,
         CreateEvidenceItemsGameIndex,

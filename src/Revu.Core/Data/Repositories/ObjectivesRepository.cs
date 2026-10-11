@@ -151,7 +151,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT COALESCE(SUM(CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END), 0),
                    COUNT(go.criteria_met)
             FROM game_objectives go
@@ -159,6 +159,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             WHERE go.objective_id = @objectiveId
               AND go.criteria_met IS NOT NULL
               AND COALESCE(g.is_hidden, 0) = 0
+              AND {RemakeSql.NotRemake("g.game_id")}
             """;
         cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
         using var reader = await cmd.ExecuteReaderAsync();
@@ -191,21 +192,23 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         // For structured objectives only evaluated games qualify (criteria_met not
         // null); for free-text every linked visible game qualifies, success=practiced.
         cmd.CommandText = hasStructuredCriteria
-            ? """
+            ? $"""
                 SELECT (CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END) AS success, g.timestamp
                 FROM game_objectives go
                 JOIN games g ON g.game_id = go.game_id
                 WHERE go.objective_id = @objectiveId
                   AND go.criteria_met IS NOT NULL
                   AND COALESCE(g.is_hidden, 0) = 0
+                  AND {RemakeSql.NotRemake("g.game_id")}
                 ORDER BY g.timestamp ASC
                 """
-            : """
+            : $"""
                 SELECT (CASE WHEN COALESCE(go.practiced, 1) = 1 THEN 1 ELSE 0 END) AS success, g.timestamp
                 FROM game_objectives go
                 JOIN games g ON g.game_id = go.game_id
                 WHERE go.objective_id = @objectiveId
                   AND COALESCE(g.is_hidden, 0) = 0
+                  AND {RemakeSql.NotRemake("g.game_id")}
                 ORDER BY g.timestamp ASC
                 """;
         cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
@@ -280,7 +283,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
 
         using (var gateCmd = conn.CreateCommand())
         {
-            gateCmd.CommandText = """
+            gateCmd.CommandText = $"""
                 SELECT COUNT(go.criteria_met)
                 FROM game_objectives go
                 JOIN objectives o ON o.id = go.objective_id
@@ -288,13 +291,14 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                 WHERE go.criteria_met IS NOT NULL
                   AND o.status = 'active'
                   AND COALESCE(g.is_hidden, 0) = 0
+                  AND {RemakeSql.NotRemake("g.game_id")}
                 """;
             var total = Convert.ToInt32(await gateCmd.ExecuteScalarAsync() ?? 0);
             if (total < minEvaluatedTotal) return null;
         }
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT o.id, o.title, o.completion_criteria,
                    COALESCE(SUM(CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END), 0) AS hits,
                    COUNT(go.criteria_met) AS evaluated
@@ -304,6 +308,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             WHERE go.criteria_met IS NOT NULL
               AND o.status = 'active'
               AND COALESCE(g.is_hidden, 0) = 0
+              AND {RemakeSql.NotRemake("g.game_id")}
             GROUP BY o.id
             HAVING COUNT(go.criteria_met) >= 3
             ORDER BY CAST(SUM(CASE WHEN go.criteria_met = 1 THEN 1 ELSE 0 END) AS REAL) / COUNT(go.criteria_met) ASC,
@@ -960,7 +965,9 @@ public sealed class ObjectivesRepository : IObjectivesRepository
 
         var previousScoreContribution = existingPracticed == true ? 2 : 0;
         var scoreDelta = newScoreContribution - previousScoreContribution;
-        var gameCountDelta = existingPracticed.HasValue ? 0 : 1;
+        // 3.14.1: a remake never adds to game_count (so it cannot complete a mini either).
+        // A verdict that arrives later re-bases the count (GameRepository.Remakes).
+        var gameCountDelta = existingPracticed.HasValue || await IsRemakeAsync(conn, tx, gameId) ? 0 : 1;
 
         if (scoreDelta != 0 || gameCountDelta != 0)
         {
@@ -1003,6 +1010,22 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         await tx.CommitAsync();
     }
 
+    private static async Task<bool> IsRemakeAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
+    {
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = $"SELECT CASE WHEN {RemakeSql.NotRemake("@gameId")} THEN 0 ELSE 1 END";
+            cmd.Parameters.AddWithValue("@gameId", gameId);
+            return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0) != 0;
+        }
+        catch (SqliteException ex) when (RemakeSql.IsMissingTable(ex))
+        {
+            return false;
+        }
+    }
+
     public async Task<IReadOnlyList<ObjectiveGameEntry>> GetGamesForObjectiveAsync(long objectiveId)
     {
         using var conn = _factory.CreateConnection();
@@ -1014,12 +1037,13 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         // a fresh-install games table does not, so the old query threw
         // "no such column: g.mental_rating" for every NEW user (caught by
         // Revu.Sidecar.Tests). LEFT JOIN matches RulesRepository's canonical pattern.
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
                    g.champion_name, g.win, g.timestamp,
                    g.kills, g.deaths, g.assists, g.kda_ratio,
                    COALESCE(g.review_notes, '') AS review_notes,
-                   CASE WHEN sl.mental_rating IS NOT NULL THEN 1 ELSE 0 END AS has_review
+                   CASE WHEN sl.mental_rating IS NOT NULL THEN 1 ELSE 0 END AS has_review,
+                   {RemakeSql.IsRemakeColumn("g.game_id")}
             FROM game_objectives go
             JOIN games g ON g.game_id = go.game_id
             LEFT JOIN session_log sl ON sl.game_id = g.game_id
@@ -1046,7 +1070,8 @@ public sealed class ObjectivesRepository : IObjectivesRepository
                 Assists: reader.IsDBNull(9) ? 0 : reader.GetDouble(9),
                 KdaRatio: reader.IsDBNull(10) ? 0 : reader.GetDouble(10),
                 ReviewNotes: reader.IsDBNull(11) ? "" : reader.GetString(11),
-                HasReview: !reader.IsDBNull(12) && reader.GetInt64(12) != 0));
+                HasReview: !reader.IsDBNull(12) && reader.GetInt64(12) != 0,
+                IsRemake: !reader.IsDBNull(13) && reader.GetInt64(13) != 0));
         }
 
         return results;
@@ -1059,12 +1084,13 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         // Fetch per-game score contributions ordered oldest-first, capped to `limit` most-recent games.
         // Score contribution: +3 practiced, +1 unpracticed (win), -1 unpracticed (loss).
         // We reconstruct cumulative scores in C# from the raw contributions.
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT go.practiced, g.win
             FROM game_objectives go
             JOIN games g ON g.game_id = go.game_id
             WHERE go.objective_id = @objectiveId
               AND COALESCE(g.is_hidden, 0) = 0
+              AND {RemakeSql.NotRemake("g.game_id")}
             ORDER BY g.timestamp DESC
             LIMIT @limit
             """;
