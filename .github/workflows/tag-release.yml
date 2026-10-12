@@ -3,7 +3,7 @@ name: Create release tag
 # One-shot helper for cutting a release from an environment whose Git
 # credentials cannot push tags (remote Claude sessions get a 403 on
 # refs/tags/*). Dispatch-only, collaborator-only, and restricted to
-# release-shaped tag names.
+# release-shaped tag names on commits that are already on main.
 #
 # NOTE: a tag created here does NOT itself trigger release.yml — GitHub never
 # chains workflow runs off the Actions token. After this succeeds, dispatch
@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create (e.g. v3.4.0)"
+        description: "Release tag to create (e.g. v3.4.0, or v3.5.0-beta.1 for a prerelease)"
         required: true
       sha:
-        description: "Commit SHA the tag points at"
+        description: "Commit SHA on main the tag points at"
         required: true
 
 permissions:
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   tag:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -37,11 +37,20 @@ jobs:
           TAG: ${{ inputs.tag }}
           SHA: ${{ inputs.sha }}
         run: |
-          case "$TAG" in
-            v[0-9]*) ;;
-            *) echo "refusing non-release tag name: $TAG"; exit 1 ;;
-          esac
-          git tag "$TAG" "$SHA"
+          # Same version rule as release.yml's guard job.
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "refusing non-release tag name: $TAG"; exit 1
+          fi
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-fA-F]{7,40}$'; then
+            echo "refusing: sha must be a hexadecimal commit SHA"; exit 1
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          commit="$(git rev-parse --verify "$SHA^{commit}")" || { echo "refusing: $SHA is not a commit"; exit 1; }
+          if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
+            echo "refusing: $commit is not on origin/main. Merge it first, then tag the merged commit."
+            exit 1
+          fi
+          git tag "$TAG" "$commit"
           git push origin "refs/tags/$TAG"
           # Clean up a leftover helper BRANCH with the same name, if any
           # (an earlier workaround pushed refs/heads/v3.4.0).
