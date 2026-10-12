@@ -78,6 +78,41 @@ describe("worker proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects a region that only exists on Object.prototype and never calls Riot", async () => {
+    // The region map is a plain object, so a bare index lookup for
+    // "__proto__" / "constructor" returns a truthy non-string instead of
+    // null. The lookup must be an own-property check.
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const region of ["__proto__", "constructor", "hasOwnProperty", "toString"]) {
+      // One token per region keeps each loop well under the per-token rate limit.
+      const token = `proto-region-${region}`;
+      for (const path of [
+        `/account?riotId=a%23b&region=${region}`,
+        `/matches?puuid=abc&region=${region}`,
+        `/match/NA1_123456?region=${region}`,
+        `/timeline/NA1_123456?region=${region}`,
+        `/rank?puuid=abc&region=${region}`,
+      ]) {
+        const response = await worker.fetch(
+          new Request(`https://proxy.example${path}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          env(token),
+          ctx(),
+        );
+
+        expect(response.status).toBe(400);
+        expect(await json(response)).toEqual({
+          error: "bad_request",
+          message: `unknown region '${region}'`,
+        });
+      }
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("maps platform region to Riot regional route", async () => {
     const token = "region-token";
     const fetchMock = vi.fn().mockResolvedValue(

@@ -109,7 +109,7 @@ codes (`missing_bearer`, `empty_token`, `invalid_token`). Errors are JSON
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). 201 `{ id, url, expires_at }` |
+| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). `Content-Length` required (411 without it), at most 100 MB. The leading bytes must match the declared type, or the object is deleted and the request gets 415. 201 `{ id, url, expires_at }` |
 | POST | `/clips/uploads?title&champion&duration&size&narrated=0\|1` | owner | Start a multipart upload (`video/mp4` or `video/webm`, empty body). duration 1 to 610 s, size up to 2 GiB. 201 `{ id, part_size, part_count, expires_at }`. 6 per minute per user, at most 2 pending uploads |
 | PUT | `/clips/:id/parts/:n` | owner | Raw part bytes. `Content-Length` required and exact (`part_size`, last part is the remainder). 200 `{ part_number, etag }` |
 | POST | `/clips/:id/complete` | owner | `{ parts: [ { part_number, etag } ] }`. Idempotent. 201 `{ id, url, expires_at }` |

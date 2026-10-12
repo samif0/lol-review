@@ -60,7 +60,10 @@ const PLATFORM_TO_REGIONAL: Record<string, string> = {
 };
 
 function regionalFor(platform: string): string | null {
-  return PLATFORM_TO_REGIONAL[platform.toLowerCase()] ?? null;
+  // Own-property check: a bare index on a plain object would resolve
+  // "__proto__" / "constructor" to a truthy non-string.
+  const key = platform.toLowerCase();
+  return Object.hasOwn(PLATFORM_TO_REGIONAL, key) ? PLATFORM_TO_REGIONAL[key] : null;
 }
 
 // ── Rate limiting ───────────────────────────────────────────────────────
