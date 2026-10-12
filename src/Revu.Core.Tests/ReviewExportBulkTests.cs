@@ -131,6 +131,34 @@ public sealed class ReviewExportBulkTests : IDisposable
     }
 
     [Fact]
+    public async Task AnExport_SweepsTemporaryFilesAKilledExportLeftBehind_AndNothingElse()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        await SeedAsync(scope, 1);
+        Directory.CreateDirectory(_folder);
+        string Seed(string name, TimeSpan age)
+        {
+            var path = Path.Combine(_folder, name);
+            File.WriteAllText(path, "partial");
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow - age);
+            return path;
+        }
+        var abandoned = Seed($".revu-export-{Guid.NewGuid():N}.tmp", TimeSpan.FromHours(2));
+        var inProgress = Seed($".revu-export-{Guid.NewGuid():N}.tmp", TimeSpan.Zero);
+        var lookalike = Seed(".revu-export-notes.tmp", TimeSpan.FromHours(2));
+        var userFile = Seed("my-notes.md", TimeSpan.FromHours(2));
+
+        var saved = await Service(scope.ConnectionFactory).ExportAllToFolderAsync(_folder);
+
+        Assert.False(File.Exists(abandoned));
+        Assert.True(File.Exists(inProgress));
+        Assert.True(File.Exists(lookalike));
+        Assert.True(File.Exists(userFile));
+        Assert.True(File.Exists(saved.Path));
+    }
+
+    [Fact]
     public async Task ACancelledExport_LeavesNothingBehind()
     {
         using var scope = new TestDatabaseScope();

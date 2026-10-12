@@ -11,6 +11,8 @@ public sealed class ReviewExportService : IReviewExportService
 {
     private const int ExportLimit = 10_000;
     private const int SingleGameExportCharacterLimit = 2_000;
+    // An in-progress export's temporary file; one this old was left by a killed sidecar.
+    private static readonly TimeSpan AbandonedExportAge = TimeSpan.FromMinutes(30);
 
     private readonly IGameHistoryQuery _gameHistory;
     private readonly IObjectivesRepository _objectives;
@@ -57,8 +59,10 @@ public sealed class ReviewExportService : IReviewExportService
     public async Task<ReviewExportFile> ExportAllToFolderAsync(string folder, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(folder);
-        // Streamed to a hidden temporary file and moved into place only when complete, so a
-        // failed or cancelled export never leaves a partial Markdown file behind.
+        DeleteAbandonedExports(folder);
+        // Streamed to a temporary file and moved into place only when complete, so a failed or
+        // cancelled export never leaves a partial Markdown file behind. (A sidecar killed
+        // mid-export skips the cleanup below; the next export sweeps that file.)
         var temp = Path.Combine(folder, $".revu-export-{Guid.NewGuid():N}.tmp");
         try
         {
@@ -89,6 +93,32 @@ public sealed class ReviewExportService : IReviewExportService
         {
             try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
+    }
+
+    /// <summary>
+    /// Deletes temporary export files a killed sidecar left behind. Only this service's own
+    /// exact temp names, and only ones old enough that no export can still be writing them.
+    /// Best-effort: a file that cannot be removed is left for the next export.
+    /// </summary>
+    private static void DeleteAbandonedExports(string folder)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(folder, ".revu-export-*.tmp"))
+            {
+                var name = Path.GetFileName(file);
+                if (name.Length != ".revu-export-".Length + 32 + ".tmp".Length
+                    || !name[".revu-export-".Length..^".tmp".Length].All(char.IsAsciiHexDigitLower)) continue;
+                try
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(file) > AbandonedExportAge) File.Delete(file);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     /// <summary>
