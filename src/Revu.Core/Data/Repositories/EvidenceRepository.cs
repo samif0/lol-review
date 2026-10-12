@@ -330,7 +330,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
     // this set, even if they happen to track an active objective's event type.
     // Evidence owns the live tag, note and rating when present, including null
     // or empty values from explicit clears; stale bookmark fields cannot revive them.
-    private const string SavedPatternMomentsSql = """
+    private static readonly string SavedPatternMomentsSql = $"""
         WITH saved_moments AS (
             SELECT COALESCE(e.id, 0) AS evidence_id,
                    b.id AS bookmark_id,
@@ -388,7 +388,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
             JOIN objectives o ON o.id = s.objective_id AND o.status = 'active'
             JOIN games g ON g.game_id = s.game_id
             LEFT JOIN vod_files v ON v.game_id = s.game_id
-            WHERE COALESCE(g.is_hidden, 0) = 0
+            WHERE {CountedGamesSql.Counted("g")}
         )
         """;
 

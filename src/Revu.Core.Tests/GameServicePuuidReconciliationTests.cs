@@ -23,6 +23,7 @@ public sealed class GameServicePuuidReconciliationTests
         var config = new TestConfigService(new AppConfig { RiotPuuid = configPuuid ?? "" });
         var rules = new RulesRepository(scope.ConnectionFactory);
         return new GameService(
+            scope.ConnectionFactory,
             scope.Games,
             scope.SessionLog,
             rules,

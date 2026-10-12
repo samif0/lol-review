@@ -42,6 +42,11 @@ public sealed record ReviewDraftRequest(
     long GameId,
     ReviewSnapshot Snapshot);
 
+/// <summary>
+/// The final review save. <see cref="ChampionName"/> and <see cref="Win"/> are the
+/// client's echo of the game and are not trusted: the save reads both from the stored
+/// games row.
+/// </summary>
 public sealed record SaveReviewRequest(
     long GameId,
     string ChampionName,

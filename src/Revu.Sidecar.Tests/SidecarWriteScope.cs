@@ -77,6 +77,7 @@ public sealed class SidecarWriteScope : IDisposable
         // (null-passthrough / no-clobber semantics live here). Wired with its
         // real dependency list — see ReviewWorkflowService's constructor.
         ReviewWorkflow = new ReviewWorkflowService(
+            ConnectionFactory,
             Games,
             ConceptTags,
             Vod,

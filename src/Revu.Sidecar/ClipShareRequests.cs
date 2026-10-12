@@ -52,11 +52,25 @@ internal static class ClipShareRequests
             try { champion = (await games.GetAsync(body.GameId).ConfigureAwait(false))?.ChampionName ?? ""; }
             catch (Exception ex) { log.LogDebug(ex, "Share: champion lookup failed for game {GameId}", body.GameId); }
         }
-        var title = string.IsNullOrWhiteSpace(body.Title) ? (bm.Note ?? "") : body.Title!.Trim();
+        var title = ShareTitle(body.Title, champion, bm.GameTimeSeconds);
         var narrated = string.Equals(file, narratedOnDisk, StringComparison.OrdinalIgnoreCase) && narratedOnDisk.Length > 0;
 
         var jobId = share.Enqueue(body.GameId, bm.Id, champion, title, narrated);
         log.LogInformation("Share queued: bm {BookmarkId} (narrated={Narrated})", bm.Id, narrated);
         return ApiReply.Ok(new { ok = true, accepted = true, jobId, narrated });
+    }
+
+    /// <summary>
+    /// The public title of a shared clip (watch page title and link previews). Never the
+    /// bookmark note: that is the player's private review note. A title the player typed
+    /// for sharing wins; otherwise a neutral one from the champion and the game time,
+    /// e.g. "Jinx clip, 22:22".
+    /// </summary>
+    internal static string ShareTitle(string? explicitTitle, string champion, int gameTimeSeconds)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitTitle)) return explicitTitle.Trim();
+        var who = string.IsNullOrWhiteSpace(champion) ? "League" : champion.Trim();
+        var at = Math.Max(0, gameTimeSeconds);
+        return $"{who} clip, {at / 60}:{at % 60:00}";
     }
 }

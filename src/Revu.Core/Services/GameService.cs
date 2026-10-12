@@ -1,6 +1,7 @@
 #nullable enable
 
 using Revu.Core.Constants;
+using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,7 @@ namespace Revu.Core.Services;
 /// </summary>
 public sealed class GameService : IGameService
 {
+    private readonly IDbConnectionFactory _dbFactory;
     private readonly IGameRepository _games;
     private readonly ISessionLogRepository _sessionLog;
     private readonly IRulesRepository _rules;
@@ -23,6 +25,7 @@ public sealed class GameService : IGameService
     private readonly ILogger<GameService> _logger;
 
     public GameService(
+        IDbConnectionFactory dbFactory,
         IGameRepository games,
         ISessionLogRepository sessionLog,
         IRulesRepository rules,
@@ -31,6 +34,7 @@ public sealed class GameService : IGameService
         IConfigService config,
         ILogger<GameService> logger)
     {
+        _dbFactory = dbFactory;
         _games = games;
         _sessionLog = sessionLog;
         _rules = rules;
@@ -102,39 +106,31 @@ public sealed class GameService : IGameService
             stats.Puuid = riotPuuid;
         }
 
-        // 4. Save game via IGameRepository
-        await _games.SaveAsync(stats).ConfigureAwait(false);
-
-        // 4b. Record the capture's remake verdict (true or false) BEFORE the rule check, so
-        // today's session reads already exclude this game. Never fails the save.
-        if (stats.EndedInEarlySurrender is bool flag)
-        {
-            try
-            {
-                await _games.SetRemakeVerdictAsync(stats.GameId, flag, stats.CausedEarlySurrender,
-                    stats.EarlySurrenderSource ?? RemakeSql.SourceEog).ConfigureAwait(false);
-                if (flag) _logger.LogInformation("Game {GameId} ended in a remake: saved, not counted", stats.GameId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not record the remake verdict for game {GameId}", stats.GameId);
-            }
-        }
-
-        // 5. Check user-defined rule violations, then log the session. A remake never
-        // breaks a rule (it is not counted); its mood and intention are still logged.
+        // 4. Check user-defined rule violations. A remake never breaks a rule (it is not
+        // counted). These are reads, so they run before the write unit below; the
+        // session rows do not include this game yet either way.
         var ruleBroken = false;
         if (!isRemake)
         {
             try
             {
-                var todaysGames = await _sessionLog.GetTodayAsync().ConfigureAwait(false);
-                var gameChecks = todaysGames
+                // Clock rules judge when the game was queued (its start), like the Rules
+                // evidence pass, not when it ended or was ingested. So the game is judged
+                // against its own day's games played before it: a missed game reconciled
+                // later, or an earlier game ingested after later ones, must not see games
+                // from after it was queued.
+                DateTimeOffset? queuedAt = stats.Timestamp > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(stats.Timestamp)
+                    : null;
+                var sessionDate = (queuedAt ?? DateTimeOffset.Now).LocalDateTime.ToString("yyyy-MM-dd");
+                var sessionGames = await _sessionLog.GetForDateAsync(sessionDate).ConfigureAwait(false);
+                var gameChecks = sessionGames
+                    .Where(e => e.GameId != stats.GameId && (queuedAt is null || e.Timestamp < stats.Timestamp))
                     .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
                     .ToList();
                 // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
                 // be evaluated retroactively from the post-game review rating.
-                var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null)
+                var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null, asOf: queuedAt)
                     .ConfigureAwait(false);
                 ruleBroken = violations.Any(v => v.Violated);
 
@@ -150,15 +146,39 @@ public sealed class GameService : IGameService
             }
         }
 
-        await _sessionLog.LogGameAsync(
-            stats.GameId,
-            stats.ChampionName,
-            stats.Win,
-            request.MentalRating,
-            preGameMood: request.PreGameMood,
-            ruleBroken: ruleBroken,
-            pregameIntention: request.PregameIntention,
-            intentionSource: request.IntentionSource).ConfigureAwait(false);
+        // 5. Save the game, its remake verdict and its session row as one transaction. A
+        // failure leaves none of them, so the next capture or the missed-game reconcile
+        // saves the game whole instead of finding a games row with no session row. Its
+        // mood and intention are logged for a remake too.
+        using (var session = DbWriteSession.Begin(_dbFactory))
+        {
+            await _games.SaveAsync(stats, session).ConfigureAwait(false);
+
+            // The capture's remake verdict (true or false). Never fails the save: a
+            // failure rolls back only the verdict.
+            if (stats.EndedInEarlySurrender is bool flag)
+            {
+                var failure = await session.TryStepAsync(() => _games.SetRemakeVerdictAsync(stats.GameId, flag,
+                    stats.CausedEarlySurrender, stats.EarlySurrenderSource ?? RemakeSql.SourceEog, session))
+                    .ConfigureAwait(false);
+                if (failure is not null)
+                    _logger.LogWarning(failure, "Could not record the remake verdict for game {GameId}", stats.GameId);
+                else if (flag)
+                    _logger.LogInformation("Game {GameId} ended in a remake: saved, not counted", stats.GameId);
+            }
+
+            await _sessionLog.LogGameAsync(
+                stats.GameId,
+                stats.ChampionName,
+                stats.Win,
+                request.MentalRating,
+                preGameMood: request.PreGameMood,
+                ruleBroken: ruleBroken,
+                pregameIntention: request.PregameIntention,
+                intentionSource: request.IntentionSource,
+                session: session).ConfigureAwait(false);
+            session.Commit();
+        }
 
         // 6. Save live events via IGameEventsRepository
         if (stats.EventProcessingReport is { } processingReport)
@@ -223,15 +243,21 @@ public sealed class GameService : IGameService
         List<string>? tags = null,
         int mentalRating = 5)
     {
-        var gameId = await _games.SaveManualAsync(
-            championName, win, kills, deaths, assists,
-            gameMode, notes, mistakes, wentWell, focusNext, tags).ConfigureAwait(false);
+        long gameId;
+        using (var session = DbWriteSession.Begin(_dbFactory))
+        {
+            gameId = await _games.SaveManualAsync(
+                championName, win, kills, deaths, assists,
+                gameMode, notes, mistakes, wentWell, focusNext, tags, session).ConfigureAwait(false);
 
-        await _sessionLog.LogGameAsync(
-            gameId,
-            championName,
-            win,
-            mentalRating).ConfigureAwait(false);
+            await _sessionLog.LogGameAsync(
+                gameId,
+                championName,
+                win,
+                mentalRating,
+                session: session).ConfigureAwait(false);
+            session.Commit();
+        }
 
         _logger.LogInformation("Manual entry saved: {Champion} {Result}, game_id={GameId}",
             championName, win ? "Win" : "Loss", gameId);

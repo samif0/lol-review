@@ -335,7 +335,9 @@ public sealed class DatabaseInitializer
     private static async Task BackfillObjectiveScoreFromPracticedGamesAsync(SqliteConnection connection, CancellationToken ct)
     {
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        // Only counted games (visible, not a remake) earn practice points, or this floor
+        // would hand back the points a remake verdict took away on every launch.
+        cmd.CommandText = $"""
             UPDATE objectives
             SET score = MAX(
                 COALESCE(score, 0),
@@ -344,7 +346,7 @@ public sealed class DatabaseInitializer
                     FROM game_objectives
                     JOIN games g ON g.game_id = game_objectives.game_id
                     WHERE game_objectives.objective_id = objectives.id
-                      AND COALESCE(g.is_hidden, 0) = 0
+                      AND {Repositories.CountedGamesSql.Counted("g")}
                 ), 0)
             )
             """;

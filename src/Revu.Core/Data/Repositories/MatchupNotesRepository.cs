@@ -12,9 +12,10 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
     public MatchupNotesRepository(IDbConnectionFactory factory) => _factory = factory;
 
     public async Task<long> CreateAsync(string champion, string enemy, string note = "",
-        int? helpful = null, long? gameId = null)
+        int? helpful = null, long? gameId = null, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO matchup_notes
@@ -70,16 +71,18 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
         return await ReadAllAsync(cmd);
     }
 
-    public async Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note)
+    public async Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note,
+        DbWriteSession? session = null)
     {
         var trimmedNote = note.Trim();
         if (string.IsNullOrWhiteSpace(trimmedNote))
         {
-            await DeleteForGameAsync(gameId);
+            await DeleteForGameAsync(gameId, session);
             return null;
         }
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var existingCmd = conn.CreateCommand();
         existingCmd.CommandText = "SELECT id FROM matchup_notes WHERE game_id = @gameId LIMIT 1";
@@ -106,12 +109,13 @@ public sealed class MatchupNotesRepository : IMatchupNotesRepository
             return Convert.ToInt64(existingId);
         }
 
-        return await CreateAsync(champion, enemy, trimmedNote, gameId: gameId);
+        return await CreateAsync(champion, enemy, trimmedNote, gameId: gameId, session: session);
     }
 
-    public async Task DeleteForGameAsync(long gameId)
+    public async Task DeleteForGameAsync(long gameId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM matchup_notes WHERE game_id = @gameId";
         cmd.Parameters.AddWithValue("@gameId", gameId);

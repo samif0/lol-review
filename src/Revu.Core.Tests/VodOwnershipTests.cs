@@ -72,10 +72,10 @@ public sealed class VodOwnershipTests
     }
 
     private static GameService GameProcessor(TestDatabaseScope scope, IConfigService config) => new(
-        scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory), scope.GameEvents,
+        scope.ConnectionFactory, scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory), scope.GameEvents,
         scope.DerivedEvents, config, NullLogger<GameService>.Instance);
     private static ReviewWorkflowService Review(TestDatabaseScope scope, IConfigService config) => new(
-        scope.Games, scope.ConceptTags, scope.Vod, scope.SessionLog, scope.Objectives, scope.ReviewDrafts,
+        scope.ConnectionFactory, scope.Games, scope.ConceptTags, scope.Vod, scope.SessionLog, scope.Objectives, scope.ReviewDrafts,
         scope.MatchupNotes, scope.Evidence, config, NullLogger<ReviewWorkflowService>.Instance);
 
     private sealed class MediaFolder : IDisposable

@@ -26,9 +26,8 @@ public sealed class SessionLogRepository : ISessionLogRepository
         "LEFT JOIN games vg ON vg.game_id = sl.game_id";
 
     // 3.14.1: a remake's session row never counts either (RemakeSql.NotRemake); a
-    // manual row (game_id NULL) still passes.
-    private static readonly string VisibleGamesFilter =
-        $"COALESCE(vg.is_hidden, 0) = 0 AND {RemakeSql.NotRemake("sl.game_id")}";
+    // manual row (game_id NULL) still passes. The shared counted-games predicate.
+    private static readonly string VisibleGamesFilter = CountedGamesSql.Counted("vg", "sl.game_id");
 
     // schema v9: lenient account scope. Each aggregate that LEFT JOINs games as
     // vg can drop a genuinely-foreign future account's rows while KEEPING the
@@ -157,10 +156,15 @@ public sealed class SessionLogRepository : ISessionLogRepository
         int preGameMood = 0,
         bool ruleBroken = false,
         string pregameIntention = "",
-        string intentionSource = "")
+        string intentionSource = "",
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        // session_log has no unique index on game_id, so the check-then-insert below
+        // must hold the write lock throughout (BEGIN IMMEDIATE): two loggers racing for
+        // one game (game end vs a review save) would otherwise both insert, and every
+        // day stat would count the game twice.
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
 
         var (sessionDate, sessionTimestamp) = await ResolveGameSessionDateAsync(conn, gameId);
 
@@ -207,6 +211,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 updateCmd.Parameters.AddWithValue("@intention_source", intentionSource);
                 updateCmd.Parameters.AddWithValue("@gameId", gameId);
                 await updateCmd.ExecuteNonQueryAsync();
+                lease.Complete();
                 return;
             }
         }
@@ -232,6 +237,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         insertCmd.Parameters.AddWithValue("@intention_source", intentionSource);
 
         await insertCmd.ExecuteNonQueryAsync();
+        lease.Complete();
     }
 
     private static async Task<(string SessionDate, long SessionTimestamp)> ResolveGameSessionDateAsync(
@@ -296,10 +302,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task ClearSkippedAsync(long gameId)
+    public async Task ClearSkippedAsync(long gameId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE session_log SET is_skipped = 0 WHERE game_id = @gameId";
@@ -308,13 +314,13 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task ClearReviewMarkersAsync(long gameId)
+    public async Task ClearReviewMarkersAsync(long gameId, DbWriteSession? session = null)
     {
         // Delete-review: blank only the queue-gating fields. mental_rating /
         // focus_adherence / rule_broken are intentionally NOT touched so the live-
         // computed mental + adherence streaks stay byte-identical (see the interface).
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText =
@@ -324,10 +330,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateMentalHandledAsync(long gameId, string mentalHandled)
+    public async Task UpdateMentalHandledAsync(long gameId, string mentalHandled, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE session_log SET mental_handled = @handled WHERE game_id = @gameId";
@@ -444,10 +450,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
     /// game has no session_log row yet (the review save path re-stamps after
     /// LogGameAsync creates it).
     /// </summary>
-    public async Task UpdateFocusAdherenceAsync(long gameId, int? adherence)
+    public async Task UpdateFocusAdherenceAsync(long gameId, int? adherence, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE session_log SET focus_adherence = @adherence WHERE game_id = @gameId";

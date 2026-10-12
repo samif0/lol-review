@@ -106,7 +106,8 @@ public sealed class WriteServices : IDisposable
         // the ClipService + the objective/event/evidence repos registered here.
         services.AddSingleton<IAutoClipService, AutoClipService>();
 
-        // The review save — the big transactional multi-table write.
+        // The review save: the big multi-table write, committed as one transaction
+        // (DbWriteSession over the write factory above).
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
 
         // v3.5: pattern-evidence materializer — writes the evidence rows the
@@ -169,6 +170,10 @@ public sealed class WriteServices : IDisposable
 
         _provider = services.BuildServiceProvider();
     }
+
+    /// <summary>One transaction over the write factory for a multi-table endpoint write;
+    /// the repository calls it joins commit or roll back together.</summary>
+    public DbWriteSession BeginWriteSession() => DbWriteSession.Begin(_provider.GetRequiredService<IDbConnectionFactory>());
 
     public ISessionLogRepository SessionLog => _provider.GetRequiredService<ISessionLogRepository>();
     // Coaching stints (POST /api/stint/start, /api/stint/end, GET /api/stint).

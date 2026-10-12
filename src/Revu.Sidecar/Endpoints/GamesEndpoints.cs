@@ -228,37 +228,51 @@ public static partial class SidecarEndpoints
                 return Results.BadRequest(new { error = "championName required" });
             await w.BackupGuard.EnsureBackedUpAsync();
 
-            var champ = body.ChampionName.Trim();
-            var gameMode = string.IsNullOrWhiteSpace(body.GameMode) ? "Manual Entry" : body.GameMode.Trim();
-
-            var gameId = await w.Games.SaveManualAsync(
-                championName: champ,
-                win: body.Win,
-                kills: Math.Max(0, body.Kills),
-                deaths: Math.Max(0, body.Deaths),
-                assists: Math.Max(0, body.Assists),
-                gameMode: gameMode,
-                notes: (body.Notes ?? "").Trim(),
-                mistakes: (body.Mistakes ?? "").Trim(),
-                wentWell: (body.WentWell ?? "").Trim(),
-                focusNext: (body.FocusNext ?? "").Trim());
-
-            if (gameId > 0)
-            {
-                var mental = Math.Clamp(body.MentalRating <= 0 ? 5 : body.MentalRating, 1, 10);
-                await w.SessionLog.LogGameAsync(gameId, champ, body.Win, mental);
-
-                foreach (var o in (body.Objectives ?? new List<ManualObjectiveBody>()))
-                {
-                    if (o is null || o.ObjectiveId <= 0) continue;
-                    await w.Objectives.RecordGameAsync(gameId, o.ObjectiveId, o.Practiced, o.ExecutionNote ?? "");
-                }
-            }
+            var gameId = await SaveManualGameAsync(body, w.Games, w.SessionLog, w.Objectives, w.BeginWriteSession);
 
             log.LogInformation("Manual game entry saved: {Champion} ({Result}), game_id={GameId}",
-                champ, body.Win ? "Win" : "Loss", gameId);
+                body.ChampionName.Trim(), body.Win ? "Win" : "Loss", gameId);
             return Results.Json(new { ok = true, gameId }, jsonOptions);
         });
+    }
+
+    // POST /api/game/manual minus the HTTP plumbing: the game row, its session row and
+    // its objective practices in ONE transaction, so a failure never leaves a game with
+    // no session row (and a retry never saves the game twice).
+    internal static async Task<int> SaveManualGameAsync(ManualGameBody body, IGameRepository games,
+        ISessionLogRepository sessionLog, IObjectivesRepository objectives, Func<DbWriteSession> beginSession)
+    {
+        var champ = body.ChampionName.Trim();
+        var gameMode = string.IsNullOrWhiteSpace(body.GameMode) ? "Manual Entry" : body.GameMode.Trim();
+
+        using var session = beginSession();
+        var gameId = await games.SaveManualAsync(
+            championName: champ,
+            win: body.Win,
+            kills: Math.Max(0, body.Kills),
+            deaths: Math.Max(0, body.Deaths),
+            assists: Math.Max(0, body.Assists),
+            gameMode: gameMode,
+            notes: (body.Notes ?? "").Trim(),
+            mistakes: (body.Mistakes ?? "").Trim(),
+            wentWell: (body.WentWell ?? "").Trim(),
+            focusNext: (body.FocusNext ?? "").Trim(),
+            session: session);
+
+        if (gameId > 0)
+        {
+            var mental = Math.Clamp(body.MentalRating <= 0 ? 5 : body.MentalRating, 1, 10);
+            await sessionLog.LogGameAsync(gameId, champ, body.Win, mental, session: session);
+
+            foreach (var o in (body.Objectives ?? new List<ManualObjectiveBody>()))
+            {
+                if (o is null || o.ObjectiveId <= 0) continue;
+                await objectives.RecordGameAsync(gameId, o.ObjectiveId, o.Practiced, o.ExecutionNote ?? "", session);
+            }
+        }
+
+        session.Commit();
+        return gameId;
     }
 
     private static string today() => DateTime.Now.ToString("yyyy-MM-dd");

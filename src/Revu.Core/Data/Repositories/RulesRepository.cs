@@ -249,11 +249,21 @@ public sealed class RulesRepository : IRulesRepository
 
     public async Task<IReadOnlyList<RuleViolation>> CheckViolationsAsync(
         IReadOnlyList<RuleCheckGame>? todaysGames = null,
-        int? mentalRating = null)
+        int? mentalRating = null,
+        DateTimeOffset? asOf = null)
     {
         var rules = await GetActiveAsync();
         var results = new List<RuleViolation>();
-        var now = DateTime.Now;
+        var at = asOf ?? DateTimeOffset.Now;
+        var now = at.LocalDateTime;
+
+        // Judged at a past moment, only the games played before it count: a later game
+        // can neither arm a cooldown nor fill the day's cap for an earlier one.
+        if (asOf is not null && todaysGames is not null)
+        {
+            var atUnix = at.ToUnixTimeSeconds();
+            todaysGames = todaysGames.Where(g => g.Timestamp < atUnix).ToList();
+        }
 
         foreach (var rule in rules)
         {
@@ -311,7 +321,7 @@ public sealed class RulesRepository : IRulesRepository
 
                             if (cooldownMinutes is int cd && cd > 0 && triggerTs > 0)
                             {
-                                var nowUnix = DateTimeOffset.Now.ToUnixTimeSeconds();
+                                var nowUnix = at.ToUnixTimeSeconds();
                                 var elapsedMin = (nowUnix - triggerTs) / 60;
                                 var remainingMin = cd - elapsedMin;
                                 if (remainingMin > 0)

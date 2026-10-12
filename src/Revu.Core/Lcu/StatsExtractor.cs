@@ -450,15 +450,18 @@ public static class StatsExtractor
                     }
                 }
 
-                // Fallback: use the first participant
-                if (participant is null && participantList.Count > 0)
-                {
-                    participant = participantList[0];
-                }
+                // No guessing: with several participants and no way to tell which one is
+                // the local player, the first row is just somebody's game. Recording it
+                // would save another player's champion, KDA and result as ours.
             }
 
             if (participant is null)
+            {
+                logger?.LogWarning(
+                    "Match history game {GameId}: local player not identified; skipping instead of guessing",
+                    gameId);
                 return null;
+            }
 
             var p = participant.Value;
             var statsObj = p.GetPropertyObjectOrDefault("stats");

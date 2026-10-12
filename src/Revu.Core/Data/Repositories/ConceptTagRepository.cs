@@ -65,10 +65,11 @@ public sealed class ConceptTagRepository : IConceptTagRepository
         return results;
     }
 
-    public async Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds)
+    public async Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        using var transaction = conn.BeginTransaction();
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var transaction = lease.Transaction!;
 
         using (var delCmd = conn.CreateCommand())
         {
@@ -93,7 +94,7 @@ public sealed class ConceptTagRepository : IConceptTagRepository
             }
         }
 
-        await transaction.CommitAsync();
+        lease.Complete();
     }
 
     public async Task<IReadOnlyList<TagFrequency>> GetTagFrequencyAsync(int limit = 20)

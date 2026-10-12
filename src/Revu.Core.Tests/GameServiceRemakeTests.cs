@@ -13,7 +13,7 @@ namespace Revu.Core.Tests;
 public sealed class GameServiceRemakeTests
 {
     private static GameService BuildService(TestDatabaseScope scope) => new(
-        scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory),
+        scope.ConnectionFactory, scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory),
         scope.GameEvents, scope.DerivedEvents, new TestConfigService(), NullLogger<GameService>.Instance);
 
     private static long _clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 600;

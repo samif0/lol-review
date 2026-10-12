@@ -16,9 +16,11 @@ public sealed class PromptsRepository : IPromptsRepository
 
     // ── Prompt CRUD ─────────────────────────────────────────────────
 
-    public async Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder)
+    public async Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO objective_prompts (objective_id, phase, label, sort_order, created_at)
@@ -36,9 +38,11 @@ public sealed class PromptsRepository : IPromptsRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
-    public async Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder)
+    public async Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objective_prompts
@@ -54,9 +58,10 @@ public sealed class PromptsRepository : IPromptsRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task DeletePromptAsync(long promptId)
+    public async Task DeletePromptAsync(long promptId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using (var deleteAnswers = conn.CreateCommand())
         {
@@ -202,14 +207,15 @@ public sealed class PromptsRepository : IPromptsRepository
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         // Champion gate: inclusive of objectives with no champion rows (they
-        // apply to all champions). NULL championName skips the clause.
+        // apply to all champions). NULL championName skips the clause. Any
+        // spelling of the champion passes ("Kaisa" rows gate a "Kai'Sa" pick).
         var championClause = string.IsNullOrEmpty(championName)
             ? ""
-            : """
+            : $"""
               AND (
                   NOT EXISTS (SELECT 1 FROM objective_champions oc WHERE oc.objective_id = o.id)
                OR EXISTS (SELECT 1 FROM objective_champions oc
-                          WHERE oc.objective_id = o.id AND oc.champion_name = @championName)
+                          WHERE oc.objective_id = o.id AND {ChampionSql.Matches(cmd, "oc.champion_name", "@championName", championName)})
               )
               """;
         cmd.CommandText = $"""
@@ -225,10 +231,6 @@ public sealed class PromptsRepository : IPromptsRepository
                      op.sort_order ASC, op.id ASC
             """;
         cmd.Parameters.AddWithValue("@phase", normalized);
-        if (!string.IsNullOrEmpty(championName))
-        {
-            cmd.Parameters.AddWithValue("@championName", championName);
-        }
 
         var results = new List<ActivePrompt>();
         using var reader = await cmd.ExecuteReaderAsync();

@@ -312,6 +312,7 @@ public sealed class ReviewWorkflowServiceTests
     private static ReviewWorkflowService CreateWorkflow(TestDatabaseScope scope, bool requireReviewNotes)
     {
         return new ReviewWorkflowService(
+            scope.ConnectionFactory,
             scope.Games,
             scope.ConceptTags,
             scope.Vod,

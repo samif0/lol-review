@@ -49,31 +49,33 @@ public interface IObjectivesRepository
     Task<long> CreateWithPhasesAndTargetAsync(string title, string skillArea, string type,
         string completionCriteria, string description,
         bool practicePre, bool practiceIn, bool practicePost,
-        int targetGameCount);
+        int targetGameCount,
+        DbWriteSession? session = null);
 
     /// <summary>
     /// v2.17.7: update the target game count for an existing objective. Pass 0
     /// to clear (e.g. converting a mini back to primary).
     /// </summary>
-    Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount);
+    Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount, DbWriteSession? session = null);
 
     /// <summary>
     /// v2.18 (F2): set the game-phase focus used to match auto-clips to this
     /// objective. '' = auto-infer from title.
     /// </summary>
-    Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase);
+    Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase, DbWriteSession? session = null);
 
     /// <summary>
     /// v2.18 (schema v5): set or clear the structured criterion
     /// (metric key + comparator + threshold). Empty metric clears it.
     /// </summary>
-    Task UpdateCriteriaAsync(long objectiveId, string criteriaMetric, string criteriaOp, double criteriaValue);
+    Task UpdateCriteriaAsync(long objectiveId, string criteriaMetric, string criteriaOp, double criteriaValue,
+        DbWriteSession? session = null);
 
     /// <summary>
     /// v2.18 (schema v5): stamp the structured-criterion pass/fail outcome on
     /// an existing game_objectives row.
     /// </summary>
-    Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met);
+    Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met, DbWriteSession? session = null);
 
     /// <summary>
     /// v2.18 (schema v5): (hits, evaluated) criteria outcomes for an objective
@@ -132,7 +134,8 @@ public interface IObjectivesRepository
     /// an empty list to clear (objective applies to all champions). Diff-save
     /// under the hood so we don't churn rows that are already present.
     /// </summary>
-    Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions);
+    Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions,
+        DbWriteSession? session = null);
 
     // ── v3.0.15 event-token gating (objective_event_types) ──────────────
 
@@ -142,7 +145,8 @@ public interface IObjectivesRepository
 
     /// <summary>Replace the objective's tied event tokens with the provided list
     /// (empty clears). Only recognized tokens persist; diff-save under the hood.</summary>
-    Task SetEventTokensForObjectiveAsync(long objectiveId, IReadOnlyList<string> tokens);
+    Task SetEventTokensForObjectiveAsync(long objectiveId, IReadOnlyList<string> tokens,
+        DbWriteSession? session = null);
 
     /// <summary>Every (token, objectiveId, title) tie for ACTIVE objectives — the VOD
     /// timeline reads this to light up objective-tied events on the priority lane.</summary>
@@ -170,7 +174,8 @@ public interface IObjectivesRepository
     /// <summary>v2.15.0 multi-phase update. Mirrors <see cref="CreateWithPhasesAsync"/>.</summary>
     Task UpdateWithPhasesAsync(long objectiveId, string title, string skillArea, string type,
         string completionCriteria, string description,
-        bool practicePre, bool practiceIn, bool practicePost);
+        bool practicePre, bool practiceIn, bool practicePost,
+        DbWriteSession? session = null);
 
     Task UpdatePhaseAsync(long objectiveId, string phase);
 
@@ -179,7 +184,8 @@ public interface IObjectivesRepository
 
     Task DeleteAsync(long objectiveId);
 
-    Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "");
+    Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "",
+        DbWriteSession? session = null);
 
     Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId);
 

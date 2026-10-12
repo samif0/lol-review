@@ -17,6 +17,8 @@ internal sealed class FakeClipUpload : IClipUploadService
         };
 
     public List<(string File, bool Narrated, int? Duration)> Uploads { get; } = new();
+    /// <summary>The public title each upload carried, in upload order.</summary>
+    public List<string?> Titles { get; } = new();
     public List<string> Deleted { get; } = new();
     public List<(string Slug, TranscriptDocument Doc)> Transcripts { get; } = new();
     public bool DeleteResult { get; set; } = true;
@@ -25,7 +27,11 @@ internal sealed class FakeClipUpload : IClipUploadService
         int? durationSeconds = null, IProgress<ClipUploadProgress>? progress = null, bool narrated = false,
         Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
     {
-        lock (Uploads) Uploads.Add((filePath, narrated, durationSeconds));
+        lock (Uploads)
+        {
+            Uploads.Add((filePath, narrated, durationSeconds));
+            Titles.Add(title);
+        }
         return OnUpload(filePath, progress, onRemoteIdAssigned, ct);
     }
 

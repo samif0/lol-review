@@ -133,7 +133,7 @@ public sealed record ReviewHeaderDto(
     // Drives the header's "Timeline fixes: N" badge; 0 when the ledger is unavailable.
     int TimelineFixes = 0,
     // 3.14.1: a remake (League early surrender): ResultText "REMAKE", WinLossText "Remake".
-    // Win keeps the stored result because the review save sends it back. RemakeSource is
+    // Win keeps the stored result; the review save reads it from the stored game. RemakeSource is
     // the verdict's source (eog | lcu | matchv5 | user, '' when none) for the toggle.
     bool IsRemake = false,
     string RemakeSource = "");

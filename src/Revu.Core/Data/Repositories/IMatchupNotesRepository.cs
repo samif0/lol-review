@@ -13,7 +13,7 @@ public sealed record HelpfulnessStats(
 public interface IMatchupNotesRepository
 {
     Task<long> CreateAsync(string champion, string enemy, string note = "",
-        int? helpful = null, long? gameId = null);
+        int? helpful = null, long? gameId = null, DbWriteSession? session = null);
 
     /// <summary>Get the matchup note associated with a specific game, if one exists.</summary>
     Task<MatchupNoteRecord?> GetForGameAsync(long gameId);
@@ -24,9 +24,10 @@ public interface IMatchupNotesRepository
     Task<IReadOnlyList<MatchupNoteRecord>> GetAllAsync();
 
     /// <summary>Create or update the note attached to a specific game.</summary>
-    Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note);
+    Task<long?> UpsertForGameAsync(long gameId, string champion, string enemy, string note,
+        DbWriteSession? session = null);
 
-    Task DeleteForGameAsync(long gameId);
+    Task DeleteForGameAsync(long gameId, DbWriteSession? session = null);
 
     Task UpdateHelpfulAsync(long noteId, int helpful);
 

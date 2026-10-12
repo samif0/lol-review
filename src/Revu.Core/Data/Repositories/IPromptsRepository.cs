@@ -16,11 +16,13 @@ public interface IPromptsRepository
 {
     // ── Prompt CRUD ─────────────────────────────────────────────────
 
-    Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder);
+    Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null);
 
-    Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder);
+    Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null);
 
-    Task DeletePromptAsync(long promptId);
+    Task DeletePromptAsync(long promptId, DbWriteSession? session = null);
 
     Task<IReadOnlyList<ObjectivePrompt>> GetPromptsForObjectiveAsync(long objectiveId);
 
