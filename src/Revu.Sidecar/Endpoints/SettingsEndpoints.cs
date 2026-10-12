@@ -98,9 +98,11 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/settings/restore { backupFilePath } — DESTRUCTIVE: replace the live DB
-        // with a chosen backup. Core RestoreFromBackupAsync takes a PRE-RESTORE safety
-        // backup FIRST (returns its path), then swaps in the chosen file. The desktop main process
-        // relaunches on success. Returns { ok, preRestoreBackupPath } or { ok:false, error }.
+        // with a chosen backup. backupFilePath only NAMES an entry of Revu's own backup list:
+        // Core RestoreFromBackupAsync looks the file up server-side (anything else is refused
+        // unopened), validates it, takes a PRE-RESTORE safety backup (returns its path), then
+        // swaps it in. The desktop main process relaunches on success. Returns
+        // { ok, preRestoreBackupPath } or { ok:false, error }.
         app.MapPost("/api/settings/restore", async (RestoreBackupBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.BackupFilePath))
