@@ -128,14 +128,16 @@ public sealed partial class SidecarGameFlowCoordinator
 
     /// <summary>
     /// The tracked game's automatic save runs under the same gate as Home's Save and Settings
-    /// recovery, so no two of them both pass the already-saved check for one game.
+    /// recovery, so no two of them both pass the already-saved check for one game. A player's
+    /// save of it that failed left its live timeline on Home, not in the monitor's store, so
+    /// the waiting entry is saved when it carries at least as much.
     /// </summary>
     private async Task PersistRecoveredGameAsync(Revu.Core.Models.GameStats stats, PreGameState? preGame)
     {
         await _missedResolve.WaitAsync().ConfigureAwait(false);
         try
         {
-            await PersistGameEndAsync(stats, isRecovered: true, preGame).ConfigureAwait(false);
+            await PersistGameEndAsync(PreferWaitingStats(stats), isRecovered: true, preGame).ConfigureAwait(false);
         }
         finally
         {
@@ -255,30 +257,39 @@ public sealed partial class SidecarGameFlowCoordinator
     /// Settings' "Recover missing matches" saves one game League's match history lists,
     /// through the same path and gate as Home's Save: a game waiting on Home keeps the live
     /// timeline the monitor attached, the tracked game keeps its timeline and pre-game
-    /// choices, and a game the monitor is saving itself is left to that save. True when this
-    /// call saved the game; throws when its save failed (it then waits on Home).
+    /// choices, and a game the monitor is saving itself is left to that save. Busy while the
+    /// capture of the game just played (its id unknown) runs; throws when its save failed (it
+    /// then waits on Home).
     /// </summary>
-    internal async Task<bool> SaveRecoveredGameAsync(MissedGameCandidate candidate, CancellationToken cancellationToken)
+    internal async Task<RecoveredGameSave> SaveRecoveredGameAsync(MissedGameCandidate candidate, CancellationToken cancellationToken)
     {
         await _missedResolve.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var waiting = FindMissedGame(candidate.GameId);
-            var stats = waiting is not null && waiting.Stats.LiveEvents.Count >= candidate.Stats.LiveEvents.Count
-                ? waiting.Stats
-                : candidate.Stats;
-            return await PersistPlayerSaveAsync(stats).ConfigureAwait(false) switch
+            return await PersistPlayerSaveAsync(PreferWaitingStats(candidate.Stats)).ConfigureAwait(false) switch
             {
-                PlayerSave.Saved => true,
+                PlayerSave.Saved => RecoveredGameSave.Saved,
+                PlayerSave.Busy => RecoveredGameSave.Busy,
                 PlayerSave.Failed => throw new InvalidOperationException($"Game {candidate.GameId} could not be saved"),
-                // Saved another way, declined by the save gate, or a capture is still running.
-                _ => false,
+                // Saved another way, or declined by the save gate.
+                _ => RecoveredGameSave.NotSaved,
             };
         }
         finally
         {
             _missedResolve.Release();
         }
+    }
+
+    /// <summary>
+    /// The stats a save of this game uses: the waiting Home entry's when it carries at least
+    /// as much live timeline (the monitor attached it when it listed the game, or a save that
+    /// failed left it there).
+    /// </summary>
+    private Revu.Core.Models.GameStats PreferWaitingStats(Revu.Core.Models.GameStats stats)
+    {
+        var waiting = FindMissedGame(stats.GameId);
+        return waiting is not null && waiting.Stats.LiveEvents.Count >= stats.LiveEvents.Count ? waiting.Stats : stats;
     }
 
     private enum PlayerSave { Saved, SavedElsewhere, Busy, Declined, Failed }
