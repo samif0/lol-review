@@ -70,10 +70,14 @@ public sealed partial class VodService : IVodService
 
     public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken = default, IReadOnlySet<long>? reservedGameIds = null)
         => ScanCoreAsync(null, cancellationToken, reservedGameIds);
+    public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken, IReadOnlySet<long>? reservedGameIds,
+        Func<Task> beforeFirstLink)
+        => ScanCoreAsync(null, cancellationToken, reservedGameIds, beforeFirstLink);
     public async Task<int> AutoMatchRecordingsAsync(CancellationToken cancellationToken = default)
         => (await ScanAsync(cancellationToken).ConfigureAwait(false)).Matched;
 
-    private async Task<VodScanResult> ScanCoreAsync(string? requestedFolder, CancellationToken cancellationToken, IReadOnlySet<long>? reservedGameIds = null)
+    private async Task<VodScanResult> ScanCoreAsync(string? requestedFolder, CancellationToken cancellationToken,
+        IReadOnlySet<long>? reservedGameIds = null, Func<Task>? beforeFirstLink = null)
     {
         await _scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -110,6 +114,11 @@ public sealed partial class VodService : IVodService
                 if (occupiedGames.Contains(game.GameId) || usedPaths.Contains(rec.Path)) continue;
                 using var read = OpenStable(rec, root);
                 if (read is null) continue;
+                if (beforeFirstLink is not null)
+                {
+                    await beforeFirstLink().ConfigureAwait(false);
+                    beforeFirstLink = null;
+                }
                 if (await _vods.TryLinkUnownedVodAsync(game.GameId, rec.Path, rec.Size).ConfigureAwait(false))
                 {
                     occupiedGames.Add(game.GameId);
