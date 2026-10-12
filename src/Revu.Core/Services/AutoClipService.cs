@@ -47,7 +47,8 @@ public sealed class AutoClipService : IAutoClipService
         _reviewDrafts = reviewDrafts;
     }
 
-    public async Task<AutoClipResult> ClipObjectiveEventsAsync(long gameId, long? objectiveId, CancellationToken ct = default)
+    public async Task<AutoClipResult> ClipObjectiveEventsAsync(long gameId, long? objectiveId, CancellationToken ct = default,
+        IProgress<AutoClipProgress>? progress = null)
     {
         // Toggle gate (defense in depth — the button is hidden client-side too).
         if (!_config.AutoClipObjectivesEnabled)
@@ -85,10 +86,12 @@ public sealed class AutoClipService : IAutoClipService
         if (planned.Count == 0)
             return new AutoClipResult(0, skippedByCap, skippedByCap > 0 ? "" : "no_events");
 
-        int created = 0, skipped = skippedByCap;
+        int created = 0, skipped = skippedByCap, done = 0;
         foreach (var clip in planned)
         {
             ct.ThrowIfCancellationRequested();
+            // Before each clip: how many of the planned clips are finished so far.
+            progress?.Report(new AutoClipProgress(done++, planned.Count, created, skipped));
             try
             {
                 // Extract FIRST (the heavy ffmpeg step), then the quick DB writes — never

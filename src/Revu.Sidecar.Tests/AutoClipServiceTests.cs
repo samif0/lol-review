@@ -131,6 +131,31 @@ public sealed class AutoClipServiceTests
     }
 
     [Fact]
+    public async Task Progress_IsReportedBeforeEachPlannedClip()
+    {
+        var (scope, clips, svc, vodPath, gameId) = await SetupAsync(toggleOn: true);
+        using (scope)
+        {
+            var events = new GameEventsRepository(scope.ConnectionFactory);
+            await events.SaveEventsAsync(gameId, new[] { Ev("DEATH", 600), Ev("DEATH", 900), Ev("DEATH", 1200) });
+            var reports = new List<AutoClipProgress>();
+
+            var result = await svc.ClipObjectiveEventsAsync(gameId, null, progress: new Collect(reports));
+
+            Assert.Equal(3, result.Created);
+            Assert.Equal(new[] { 0, 1, 2 }, reports.Select(r => r.Done));
+            Assert.All(reports, r => Assert.Equal(3, r.Total));
+            Assert.Equal(new[] { 0, 1, 2 }, reports.Select(r => r.Created));
+            File.Delete(vodPath);
+        }
+    }
+
+    private sealed class Collect(List<AutoClipProgress> into) : IProgress<AutoClipProgress>
+    {
+        public void Report(AutoClipProgress value) => into.Add(value);
+    }
+
+    [Fact]
     public async Task SecondRun_IsIdempotent()
     {
         var (scope, clips, svc, vodPath, gameId) = await SetupAsync(toggleOn: true);

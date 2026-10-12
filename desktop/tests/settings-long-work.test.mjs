@@ -3,8 +3,10 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
-// "Export review data": the sidecar saves the Markdown into Documents\Revu and answers with
-// the path; the page never carries the export itself (it used to hit the 4 MiB IPC cap).
+// Long Settings work. "Export review data": the sidecar saves the Markdown into
+// Documents\Revu and answers with the path; the page never carries the export itself (it
+// used to hit the 4 MiB IPC cap). "Update & restart": the download is accepted sidecar work,
+// so a request deadline means "still downloading", never "failed".
 const source = (await readFile(new URL('../ui/settings.js', import.meta.url), 'utf8'))
   .replace(/^import .*?;\r?\n/gm, '');
 
@@ -21,7 +23,8 @@ let ids, created;
 
 function fixture(handler) {
   ids = new Map(); created = [];
-  for (const [id, action] of [['export-btn', 'export_data'], ['export-status', '']]) ids.set(id, element(id, action));
+  for (const [id, action] of [['export-btn', 'export_data'], ['export-status', ''],
+    ['install-update-btn', 'install_update'], ['update-status', '']]) ids.set(id, element(id, action));
   const listeners = new Map(), requests = [];
   const document = {
     readyState: 'loading',
@@ -76,4 +79,36 @@ test('a failed export says so and hides the folder action', async () => {
   assert.match(f.$('export-status').textContent, /^Export failed: Couldn't save the export to /);
   assert.equal(f.$('export-open-btn').hidden, true);
   assert.equal(f.$('export-btn').disabled, false);
+});
+
+const timeout = () => new Error("Error invoking remote method 'revu:command': TimeoutError: The operation was aborted due to timeout");
+
+test('an update download that outlives the request deadline is joined, not reported as failed', async () => {
+  let downloads = 0;
+  const seen = [];
+  const f = fixture(command => {
+    if (command === 'download_update') {
+      seen.push(f.$('update-status').textContent);
+      if (++downloads < 3) throw timeout();
+      return { ok: true, version: '3.15.0', message: 'Downloaded.' };
+    }
+    return null;
+  });
+  await f.click('install-update-btn');
+  assert.deepEqual(f.requests, ['download_update', 'download_update', 'download_update', 'apply_update']);
+  assert.deepEqual(seen, ['Downloading update…', 'Still downloading the update…', 'Still downloading the update…']);
+  assert.equal(f.$('update-status').textContent, 'Installing… the app will restart.');
+});
+
+test('a real update failure still says so, and the retries are bounded', async () => {
+  const failed = fixture(command => { if (command === 'download_update') throw new Error('Backend HTTP 500'); return null; });
+  await failed.click('install-update-btn');
+  assert.deepEqual(failed.requests, ['download_update']);
+  assert.equal(failed.$('update-status').textContent, 'Update failed. Try again later.');
+  assert.equal(failed.$('install-update-btn').disabled, false);
+
+  const stuck = fixture(command => { if (command === 'download_update') throw timeout(); return null; });
+  await stuck.click('install-update-btn');
+  assert.equal(stuck.requests.filter(command => command === 'download_update').length, 6);
+  assert.equal(stuck.$('update-status').textContent, 'Update failed. Try again later.');
 });

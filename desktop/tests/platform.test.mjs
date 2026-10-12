@@ -260,6 +260,10 @@ test('command declarations keep immutable envelopes, required arguments and exce
   assert.equal(COMMANDS.extract_clip.timeoutMs, 280_000);
   assert.equal(COMMANDS.mix_clip_narration.timeoutMs, 280_000);
   assert.equal(COMMANDS.run_backfill.timeoutMs, 290_000);
+  // Accepted sidecar work: long enough for real batches, and a timeout never stops the work.
+  assert.equal(COMMANDS.auto_clip_objectives.timeoutMs, 280_000);
+  assert.equal(COMMANDS.download_update.timeoutMs, 280_000);
+  assert.deepEqual(COMMANDS.download_update.args, {});
   // The sidecar saves the full export itself; the renderer only learns where it went.
   assert.equal(COMMANDS.export_review_data.method, 'POST');
   assert.equal(COMMANDS.export_review_data.route, '/api/settings/export');

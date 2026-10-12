@@ -169,7 +169,16 @@ async function runUpdateAndRestart() {
   if (btn) btn.disabled = true;
   try {
     if (txt) txt.textContent = 'Downloading update…';
-    const d = await invoke('download_update');
+    // The download runs in the sidecar past any request deadline and asking again joins
+    // it, so a timeout means "still downloading", never "failed".
+    let d;
+    for (let attempt = 1; ; attempt++) {
+      try { d = await invoke('download_update'); break; }
+      catch (err) {
+        if (attempt >= 6 || !/timeout|timed out|aborted/i.test(String(err?.message || err))) throw err;
+        if (txt) txt.textContent = 'Still downloading the update…';
+      }
+    }
     if (!d || d.ok === false) {
       if (txt) txt.textContent = (d && d.message) ? d.message : 'Download failed.';
       if (btn) btn.disabled = false;
@@ -559,6 +568,15 @@ async function wireLiveAutoShow() {
             frame.contentWindow.dispatchEvent(new CustomEvent(name, { detail: p }));
           }
         } catch (_) { /* best-effort; the share wait also polls its status */ }
+        break;
+      case 'autoClipProgress':
+        // An auto-clip batch runs in the sidecar past any request deadline; the VOD player
+        // shows its progress and re-reads its clips when it finishes (it matches gameId).
+        try {
+          if (frameHas('vodplayer.html') && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:auto-clip-progress', { detail: p }));
+          }
+        } catch (_) { /* best-effort; the next load reads the saved clips */ }
         break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU

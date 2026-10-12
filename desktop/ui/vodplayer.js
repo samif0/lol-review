@@ -2906,14 +2906,44 @@ async function runAutoClipForObjective(objId) {
     }
   } catch (err) {
     const msg = String(err && err.message ? err.message : err);
-    setAutoClipHint(/ffmpeg/i.test(msg) ? 'Auto-clip failed; is ffmpeg installed?' : 'Auto-clip failed.', true);
+    // The batch is accepted work in the sidecar: a request deadline only means this page
+    // stopped waiting. Its autoClipProgress event re-reads the clips when it finishes.
+    if (/timeout|timed out|aborted/i.test(msg)) setAutoClipHint('Still clipping in the background. New clips appear here when they are ready.', false);
+    else setAutoClipHint(/ffmpeg/i.test(msg) ? 'Auto-clip failed; is ffmpeg installed?' : 'Auto-clip failed.', true);
     console.error('[vodplayer] auto_clip_objectives failed:', err);
+    // Clips saved before the error or deadline are already on disk; show them.
+    await reloadBookmarks();
   } finally {
     _autoClipBusy = false;
     renderObjBar();   // restore the button + show the persisted hint
     renderAutoClipPanel();
   }
 }
+
+// autoClipProgress (forwarded by the shell): live progress while this page waits, and the
+// result of a batch that outlived its request (re-read the clips, finish the first-review
+// step). A waiting request reports its own result.
+function onAutoClipProgress(ev) {
+  const d = (ev && ev.detail) || {};
+  if (Number(d.gameId) !== _gameId || _gameId <= 0) return;
+  if (!d.finished) {
+    const total = Number(d.total || 0);
+    if (_autoClipBusy && total > 0) setAutoClipHint(`Auto-clipping… ${Number(d.done || 0)} of ${total} done.`, false);
+    return;
+  }
+  if (_autoClipBusy) return;
+  const created = Number(d.created || 0);
+  if (d.ok && created > 0) {
+    setAutoClipHint(`Saved ${created} clip${created === 1 ? '' : 's'}.`, false);
+    window.dispatchEvent(new CustomEvent('revu:first-review-autoclip-done', {
+      detail: { gameId: _gameId, objectiveId: d.objectiveId || null, created, skipped: Number(d.skipped || 0) },
+    }));
+  } else if (!d.ok) {
+    setAutoClipHint('Auto-clip failed.', true);
+  }
+  reloadBookmarks();
+}
+window.addEventListener('revu:auto-clip-progress', onAutoClipProgress);
 
 // Click the seek bar to scrub.
 // ── Timeline zoom + pan ───────────────────────────────────────────────────────

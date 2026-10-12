@@ -122,6 +122,7 @@ public static class SidecarServices
         // Hosted services stop in reverse order: coordinator, monitor, then accepted work.
         services.AddSingleton<SidecarBackgroundWork>();
         services.AddHostedService(sp => sp.GetRequiredService<SidecarBackgroundWork>());
+        services.AddSingleton<SidecarJobs>();
         services.AddSingleton<GameMonitorService>();
         services.AddSingleton<PracticeCaptureService>();
         services.AddSingleton<IGameMonitorService>(sp => sp.GetRequiredService<GameMonitorService>());

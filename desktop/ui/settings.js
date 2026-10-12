@@ -527,7 +527,16 @@ async function doInstallUpdate(invoke, target) {
   if ('disabled' in target) target.disabled = true;
   setStatusEl($('update-status'), 'Downloading update…', null, false);
   try {
-    const d = await invoke('download_update');
+    // The download runs in the sidecar past any request deadline and asking again joins
+    // it, so a timeout means "still downloading", never "failed".
+    let d;
+    for (let attempt = 1; ; attempt++) {
+      try { d = await invoke('download_update'); break; }
+      catch (err) {
+        if (attempt >= 6 || !/timeout|timed out|aborted/i.test(errText(err))) throw err;
+        setStatusEl($('update-status'), 'Still downloading the update…', null, false);
+      }
+    }
     if (!d || d.ok === false) {
       setStatusEl($('update-status'), (d && d.message) || 'Download failed.', 'bad', false);
       if ('disabled' in target) target.disabled = false;

@@ -67,8 +67,12 @@ public static partial class SidecarEndpoints
 
         // POST /api/update/download — stage the discovered update's package locally so the
         // desktop main process can apply it via Update.exe. Returns { ok, packagePath, version }.
-        app.MapPost("/api/update/download", async (UpdateService upd) =>
-            Results.Json(await upd.DownloadAsync(), jsonOptions));
+        // A full package can outlast any client deadline, so the download is accepted
+        // background work (SidecarJobs): giving up waiting never cancels it, asking again
+        // joins it, and progress goes out as updateDownloadProgress SSE events.
+        app.MapPost("/api/update/download", (UpdateService upd, SidecarJobs jobs, SidecarEventHub events,
+            ILogger<Program> log, CancellationToken ct) =>
+            DownloadUpdateAsync(upd.DownloadAsync, jobs, events, jsonOptions, log, ct));
 
         // ── POST /api/settings/export (token-gated): save the Markdown review export ──
         // IReviewExportService bundles games/notes/prompts/objectives/tags/matchup notes/
@@ -171,6 +175,51 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
+    }
+
+    /// <summary>
+    /// POST /api/update/download as accepted work: starts (or joins) the one update download
+    /// and waits for it while the client is listening. A client that gives up gets 499 while the
+    /// download continues; asking again returns the same download's result.
+    /// </summary>
+    internal static async Task<IResult> DownloadUpdateAsync(
+        Func<Action<int>?, CancellationToken, Task<UpdateDownloadResult>> download, SidecarJobs jobs,
+        SidecarEventHub events, JsonSerializerOptions jsonOptions, ILogger log, CancellationToken ct)
+    {
+        var job = jobs.Start("update-download", "update download", async stopping =>
+        {
+            var lastPercent = -1;
+            var result = await download(percent =>
+            {
+                // Velopack reports often; one event per whole percent is plenty.
+                if (percent == lastPercent) return;
+                lastPercent = percent;
+                events.Publish("updateDownloadProgress", new { percent, finished = false });
+            }, stopping);
+            events.Publish("updateDownloadProgress", new
+            {
+                percent = result.Ok ? 100 : Math.Max(lastPercent, 0), finished = true, ok = result.Ok,
+                version = result.Version, message = result.Message,
+            });
+            return result;
+        });
+        if (job is null)
+            return Results.Json(new UpdateDownloadResult(false, null, null, "Revu is closing; the download was not started."),
+                jsonOptions, statusCode: 503);
+
+        try
+        {
+            return Results.Json(await job.WaitAsync(ct), jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            log.LogInformation("Update download: the client stopped waiting; the download keeps running");
+            return Results.Json(new UpdateDownloadResult(false, null, null, "The request was cancelled."), jsonOptions, statusCode: 499);
+        }
+        catch (OperationCanceledException)
+        {
+            return Results.Json(new UpdateDownloadResult(false, null, null, "Download stopped."), jsonOptions, statusCode: 503);
+        }
     }
 
     /// <summary>Documents\Revu: where "Export all reviews" saves. The desktop host opens the

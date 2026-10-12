@@ -191,27 +191,13 @@ public static partial class SidecarEndpoints
         // IAutoClipService. Gated by config.AutoClipObjectivesEnabled (returns reason
         // "disabled" when off). Sequential ffmpeg at BelowNormal priority; idempotent
         // (re-running creates no duplicates). Token-gated + backup-guarded.
-        app.MapPost("/api/clip/auto-objectives", async (AutoObjectiveClipsBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
-        {
-            if (body is null || body.GameId <= 0)
-                return Results.BadRequest(new { error = "gameId required" });
-
-            await w.BackupGuard.EnsureBackedUpAsync();
-
-            try
-            {
-                var objectiveId = (body.ObjectiveId is > 0) ? body.ObjectiveId : null;
-                var result = await w.AutoClip.ClipObjectiveEventsAsync(body.GameId, objectiveId, ct);
-                log.LogInformation("Auto-clip objectives: game {GameId} created {Created} skipped {Skipped} ({Reason})",
-                    body.GameId, result.Created, result.Skipped, result.Reason);
-                return Results.Json(new { ok = true, created = result.Created, skipped = result.Skipped, reason = result.Reason }, jsonOptions);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Auto-clip objectives failed for game {GameId}", body.GameId);
-                return Results.Json(new { ok = false, error = "Auto-clip failed (is ffmpeg installed?)." }, jsonOptions, statusCode: 422);
-            }
-        });
+        // Up to 12 ffmpeg runs can outlast the client's deadline, so the batch is accepted
+        // background work (SidecarJobs): a client that stops waiting no longer kills the clip
+        // in progress, a repeat click joins the running batch, and progress plus the final
+        // result go out as autoClipProgress SSE events.
+        app.MapPost("/api/clip/auto-objectives", (AutoObjectiveClipsBody body, WriteServices w, SidecarJobs jobs,
+            SidecarEventHub events, ILogger<Program> log, CancellationToken ct) =>
+            AutoClipObjectivesAsync(body, w.AutoClip, w.BackupGuard.EnsureBackedUpAsync, jobs, events, jsonOptions, log, ct));
 
         // POST /api/clip/upload  { gameId, bookmarkId, championName? }: validates and queues a
         // background share (ClipShareWorker), returning at once. Progress and the result go
@@ -310,6 +296,75 @@ public static partial class SidecarEndpoints
                 body.BookmarkId, fileDeleted, remoteDeleted);
             return Results.Json(new { ok = true, fileDeleted, remoteDeleted }, jsonOptions);
         });
+    }
+
+    /// <summary>
+    /// POST /api/clip/auto-objectives as accepted work: starts (or joins) the game's batch and
+    /// waits for it while the client is listening. A client that gives up gets 499 and the
+    /// batch keeps going; its final autoClipProgress event (finished = true) tells any open
+    /// player to re-read its clips.
+    /// </summary>
+    internal static async Task<IResult> AutoClipObjectivesAsync(AutoObjectiveClipsBody body, IAutoClipService autoClip,
+        Func<Task> ensureBackedUp, SidecarJobs jobs, SidecarEventHub events, JsonSerializerOptions jsonOptions,
+        ILogger log, CancellationToken ct)
+    {
+        if (body is null || body.GameId <= 0)
+            return Results.BadRequest(new { error = "gameId required" });
+
+        await ensureBackedUp();
+
+        var gameId = body.GameId;
+        var objectiveId = (body.ObjectiveId is > 0) ? body.ObjectiveId : null;
+        // One batch per game: a repeat click (or a retry after a client timeout) joins it
+        // instead of planning the same clips twice.
+        var job = jobs.Start($"auto-clip:{gameId}", "auto-clip objectives", async stopping =>
+        {
+            try
+            {
+                var result = await autoClip.ClipObjectiveEventsAsync(gameId, objectiveId, stopping,
+                    new InlineJobProgress<AutoClipProgress>(p => events.Publish("autoClipProgress", new
+                    {
+                        gameId, objectiveId, done = p.Done, total = p.Total, created = p.Created, skipped = p.Skipped,
+                        finished = false,
+                    })));
+                log.LogInformation("Auto-clip objectives: game {GameId} created {Created} skipped {Skipped} ({Reason})",
+                    gameId, result.Created, result.Skipped, result.Reason);
+                events.Publish("autoClipProgress", new
+                {
+                    gameId, objectiveId, created = result.Created, skipped = result.Skipped, reason = result.Reason,
+                    finished = true, ok = true,
+                });
+                return result;
+            }
+            catch (Exception) when (!stopping.IsCancellationRequested)
+            {
+                events.Publish("autoClipProgress", new { gameId, objectiveId, finished = true, ok = false });
+                throw;
+            }
+        });
+        if (job is null)
+            return Results.Json(new { ok = false, error = "Revu is closing; auto-clip was not started." }, jsonOptions, statusCode: 503);
+
+        try
+        {
+            var result = await job.WaitAsync(ct);
+            return Results.Json(new { ok = true, created = result.Created, skipped = result.Skipped, reason = result.Reason }, jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            log.LogInformation("Auto-clip for game {GameId}: the client stopped waiting; the batch keeps running", gameId);
+            return Results.Json(new { ok = false, error = "The request was cancelled." }, jsonOptions, statusCode: 499);
+        }
+        catch (OperationCanceledException)
+        {
+            return Results.Json(new { ok = false, error = "Revu is closing; auto-clip stopped. Clips already saved are kept." },
+                jsonOptions, statusCode: 503);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "Auto-clip objectives failed for game {GameId}", gameId);
+            return Results.Json(new { ok = false, error = "Auto-clip failed (is ffmpeg installed?)." }, jsonOptions, statusCode: 422);
+        }
     }
 
     // The public slug in a revu.lol/<slug> share URL (the last non-empty path segment),
