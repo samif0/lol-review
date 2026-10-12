@@ -13,7 +13,9 @@ namespace Revu.Core.Services;
 /// </summary>
 public sealed class ConfigService : IConfigService
 {
-    private const string GithubTokenSecretName = "github_token";
+    // Retired: the GitHub-release updater's token. Velopack reads an anonymous feed, so
+    // nothing consumes it; a legacy value is scrubbed from config.json and the store.
+    private const string LegacyGithubTokenSecretName = "github_token";
     private const string RiotSessionTokenSecretName = "riot_session_token";
     // Login-unlock identity mirrored into DPAPI alongside the session token so a
     // config.json clobber (the P-020/P-023 empty-string-overwrite class) can't
@@ -65,7 +67,6 @@ public sealed class ConfigService : IConfigService
 
     // ── IConfigService convenience properties ───────────────────────
 
-    public string GithubToken => GetCached().GithubToken;
     public bool TiltFixEnabled => GetCached().TiltFixMode;
     public string AscentFolder => GetCached().AscentFolder ?? "";
     public string ClipsFolder => GetValidatedClipsFolder();
@@ -473,9 +474,11 @@ public sealed class ConfigService : IConfigService
         migrated = false;
         try
         {
+            // A legacy plaintext GitHub token is not kept anywhere: the sanitized
+            // rewrite drops it from config.json, and a stored copy is removed once.
+            ClearLegacyGithubToken();
             if (!string.IsNullOrWhiteSpace(config.GithubToken))
             {
-                _secrets.SetSecret(GithubTokenSecretName, config.GithubToken);
                 migrated = true;
             }
 
@@ -515,14 +518,7 @@ public sealed class ConfigService : IConfigService
 
     private AppConfig PersistSecretsAndCreateSanitizedConfig(AppConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.GithubToken))
-        {
-            _secrets.ClearSecret(GithubTokenSecretName);
-        }
-        else
-        {
-            _secrets.SetSecret(GithubTokenSecretName, config.GithubToken);
-        }
+        ClearLegacyGithubToken();
 
         // Session token: an empty token on a NORMAL save means "this writer didn't
         // touch the session — leave the stored token alone", NOT "clear it". Only the
@@ -556,6 +552,24 @@ public sealed class ConfigService : IConfigService
         return CreateSanitizedConfig(config);
     }
 
+    private bool _legacyGithubTokenCleared;
+
+    // Once per instance: drop the retired GitHub token from the protected store.
+    // Housekeeping only, so a failure is logged and retried on the next save.
+    private void ClearLegacyGithubToken()
+    {
+        if (_legacyGithubTokenCleared) return;
+        try
+        {
+            _secrets.ClearSecret(LegacyGithubTokenSecretName);
+            _legacyGithubTokenCleared = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not remove the retired GitHub token from protected storage");
+        }
+    }
+
     private void SetOrClearSecret(string name, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -575,7 +589,7 @@ public sealed class ConfigService : IConfigService
     private AppConfig HydrateSecrets(AppConfig config)
     {
         var copy = CloneConfig(config);
-        copy.GithubToken = _secrets.GetSecret(GithubTokenSecretName) ?? "";
+        copy.GithubToken = "";
         copy.RiotSessionToken = _secrets.GetSecret(RiotSessionTokenSecretName) ?? "";
         // Expiry: plaintext wins when present (written together with the mirror);
         // a missing/clobbered config.json (expiry 0) recovers from the store so

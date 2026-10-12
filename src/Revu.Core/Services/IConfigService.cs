@@ -27,7 +27,6 @@ public interface IConfigService
 
     // ── Convenience properties ──────────────────────────────────────
 
-    string GithubToken { get; }
     bool TiltFixEnabled { get; }
     string AscentFolder { get; }
     string ClipsFolder { get; }
