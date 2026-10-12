@@ -98,9 +98,11 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/settings/restore { backupFilePath } — DESTRUCTIVE: replace the live DB
-        // with a chosen backup. Core RestoreFromBackupAsync takes a PRE-RESTORE safety
-        // backup FIRST (returns its path), then swaps in the chosen file. The desktop main process
-        // relaunches on success. Returns { ok, preRestoreBackupPath } or { ok:false, error }.
+        // with a chosen backup. backupFilePath only NAMES an entry of Revu's own backup list:
+        // Core RestoreFromBackupAsync looks the file up server-side (anything else is refused
+        // unopened), validates it, takes a PRE-RESTORE safety backup (returns its path), then
+        // swaps it in. The desktop main process relaunches on success. Returns
+        // { ok, preRestoreBackupPath } or { ok:false, error }.
         app.MapPost("/api/settings/restore", async (RestoreBackupBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.BackupFilePath))
@@ -124,22 +126,69 @@ public static partial class SidecarEndpoints
         // otherwise zero clips_folder/backup_folder over the real values,
         // which is exactly how all three got blanked while riot_* survived. A DELIBERATE
         // clear (the Clear button) sends the FolderClearSentinel, which maps to "".
+        //
+        // H6: the load, the field mapping and the save run under ONE ConfigService lock
+        // (UpdateAsync), so a concurrent writer (sign-in, resolve, sign-out) cannot lose
+        // its update, and a config.json that exists but cannot be read throws instead of
+        // being replaced with defaults plus this body's fields.
         app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null) return Results.BadRequest(new { error = "body required" });
             await w.BackupGuard.EnsureBackedUpAsync();
 
-            var cfg = await w.Config.LoadAsync();
+            string? rejected = null;
+            try
+            {
+                await w.Config.UpdateAsync(cfg =>
+                {
+                    rejected = ApplyConfigSave(body, cfg);
+                    return rejected is null;
+                });
+            }
+            catch (ConfigUnreadableException ex)
+            {
+                log.LogWarning(ex, "Config save refused: config.json could not be read");
+                return Results.Json(new { ok = false, error = "Your settings could not be read right now, so nothing was changed. Try again." },
+                    jsonOptions, statusCode: 503);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A failed write: a full disk, a locked file or the secret store.
+                log.LogError(ex, "Config save failed while writing");
+                return Results.Json(new { ok = false, error = "Your settings could not be saved. Check that your drive has free space, then try again." },
+                    jsonOptions, statusCode: 500);
+            }
+            if (rejected is not null) return Results.BadRequest(new { error = rejected });
+            log.LogInformation("Config saved via sidecar.");
+            return Results.Json(new { ok = true }, jsonOptions);
+        });
 
+    }
+
+    /// <summary>
+    /// Maps a /api/config/save body onto the freshly loaded config (null = unchanged).
+    /// Returns a user-facing error to reject the whole save, or null to save it.
+    /// </summary>
+    internal static string? ApplyConfigSave(SaveConfigBody body, Revu.Core.Models.AppConfig cfg)
+    {
             // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
-            if (ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent)) cfg.AscentFolder = ascent;
-            if (ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips)) cfg.ClipsFolder = clips;
+            var ascentSet = ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent);
+            if (ascentSet && IsNewNonLocalFolder(ascent, cfg.AscentFolder)) return NonLocalFolderError("Ascent recordings");
+            if (ascentSet) cfg.AscentFolder = ascent;
+            var clipsSet = ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips);
+            if (clipsSet && IsNewNonLocalFolder(clips, cfg.ClipsFolder)) return NonLocalFolderError("clips");
+            if (clipsSet) cfg.ClipsFolder = clips;
+            if ((ascentSet || clipsSet) && ClipsFolderConflict(cfg) is { } conflict) return conflict;
             // Server-side clamp mirroring the Settings page (100–50000 MB). This value
             // feeds EnforceFolderSizeLimitAsync — an unclamped 0 (or negative) would
             // make the next clip extraction delete EVERY clip in the folder.
             if (body.ClipsMaxSizeMb is not null) cfg.ClipsMaxSizeMb = Math.Clamp(body.ClipsMaxSizeMb.Value, 100, 50_000);
             if (body.BackupEnabled is not null) cfg.BackupEnabled = body.BackupEnabled.Value;
-            if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup)) cfg.BackupFolder = backup;
+            if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup))
+            {
+                if (IsNewNonLocalFolder(backup, cfg.BackupFolder)) return NonLocalFolderError("backups");
+                cfg.BackupFolder = backup;
+            }
             if (body.TiltFixMode is not null) cfg.TiltFixMode = body.TiltFixMode.Value;
             if (body.RequireReviewNotes is not null) cfg.RequireReviewNotes = body.RequireReviewNotes.Value;
             if (body.SidebarAnimationEnabled is not null) cfg.SidebarAnimationEnabled = body.SidebarAnimationEnabled.Value;
@@ -168,11 +217,32 @@ public static partial class SidecarEndpoints
             // OnboardingSkipped=true (mirror OnboardingViewModel.FinishRoleAsync). The
             // login path leaves this null — /api/auth/resolve already set it false.
             if (body.OnboardingSkipped is not null) cfg.OnboardingSkipped = body.OnboardingSkipped.Value;
+            return null;
+    }
 
-            await w.Config.SaveAsync(cfg);
-            log.LogInformation("Config saved via sidecar.");
-            return Results.Json(new { ok = true }, jsonOptions);
-        });
+    // Revu writes to and scans these folders on its own, every launch. A folder on a network
+    // share (\\server\share) would make it connect to that host, and the automatic backup
+    // would copy the whole database there, so a NEWLY chosen folder must be on this PC
+    // (LocalPathPolicy). A value saved before this check is left alone, so the Settings page
+    // sending it back unchanged never blocks an unrelated save.
+    internal static bool IsNewNonLocalFolder(string resolved, string? current) =>
+        resolved.Length > 0
+        && !string.Equals(resolved, (current ?? "").Trim(), StringComparison.OrdinalIgnoreCase)
+        && !LocalPathPolicy.IsLocal(resolved);
 
+    private static string NonLocalFolderError(string purpose) =>
+        $"Choose a folder on this PC for your {purpose}. Network share paths aren't supported.";
+
+    // H5: clip cleanup deletes old clips from the clips folder, so that folder must never
+    // be, contain, or sit inside a folder of game recordings (the Ascent folder or Revu's
+    // own recordings folder). A blank clips folder means the default one.
+    internal static string? ClipsFolderConflict(Revu.Core.Models.AppConfig cfg)
+    {
+        var clips = string.IsNullOrWhiteSpace(cfg.ClipsFolder) ? AppDataPaths.ClipsDirectory : cfg.ClipsFolder;
+        if (!string.IsNullOrWhiteSpace(cfg.AscentFolder) && LocalPathPolicy.FoldersOverlap(clips, cfg.AscentFolder))
+            return "Your clips folder can't be the same as, inside, or contain your Ascent recordings folder. Choose a separate folder for clips.";
+        if (LocalPathPolicy.FoldersOverlap(clips, AppDataPaths.RecordingsDirectory))
+            return "Your clips folder can't be the same as, inside, or contain Revu's recordings folder. Choose a separate folder for clips.";
+        return null;
     }
 }

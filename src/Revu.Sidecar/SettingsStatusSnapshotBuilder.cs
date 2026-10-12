@@ -13,8 +13,9 @@ namespace Revu.Sidecar;
 //
 //   • ffmpeg availability — IClipService.FindFfmpegAsync() verbatim (filesystem
 //     probe). Drives the "clip saving disabled" banner.
-//   • Clips folder usage — recursive byte-sum vs ClipsMaxSizeMb, mirroring
-//     SettingsViewModel.UpdateClipUsage EXACTLY (same pct thresholds + hex).
+//   • Clips folder usage — ClipService.MeasureFolderBytes (exactly the files the size
+//     limit counts: top-level clips + narrated renders, no recursion, no junctions)
+//     vs ClipsMaxSizeMb (same pct thresholds + hex as the WinUI VM).
 //   • Backups list — IBackupService.ListBackupsAsync() verbatim (enumerates the
 //     backups directory; newest first). Feeds the Restore picker (restore itself
 //     is POST /api/settings/restore, which relaunches).
@@ -61,7 +62,7 @@ public sealed class SettingsStatusSnapshotBuilder
         }
 
         var ffmpeg = await ProbeFfmpegAsync();
-        var clipUsage = ComputeClipUsage(cfg.ClipsFolder ?? "", cfg.ClipsMaxSizeMb);
+        var clipUsage = ComputeClipUsage(EffectiveClipsFolder(cfg), cfg.ClipsMaxSizeMb, ct);
         var backups = await LoadBackupsAsync();
 
         return new SettingsStatusDto(
@@ -89,19 +90,26 @@ public sealed class SettingsStatusSnapshotBuilder
         }
     }
 
-    // ── Clip usage — mirror SettingsViewModel.UpdateClipUsage EXACTLY ─────────
-    private ClipUsageDto ComputeClipUsage(string folder, int maxSizeMb)
+    // The folder clips are saved to and trimmed in: the configured one when it exists,
+    // else the default (the same choice ConfigService.ClipsFolder makes for extraction).
+    private string EffectiveClipsFolder(AppConfig cfg)
+    {
+        try { return _config.ClipsFolder; }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Settings status: clips folder unavailable");
+            return cfg.ClipsFolder ?? "";
+        }
+    }
+
+    // ── Clip usage — the same files and thresholds the size limit uses ───────
+    private static ClipUsageDto ComputeClipUsage(string folder, int maxSizeMb, CancellationToken ct)
     {
         try
         {
             if (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
             {
-                long totalBytes = 0;
-                foreach (var path in EnumerateFilesSafe(folder))
-                {
-                    try { totalBytes += new FileInfo(path).Length; }
-                    catch { /* ignore transient/locked files while totaling */ }
-                }
+                var totalBytes = ClipService.MeasureFolderBytes(folder, ct);
 
                 var totalMb = totalBytes / (1024.0 * 1024.0);
                 var pct = maxSizeMb > 0 ? totalMb / maxSizeMb * 100 : 0;
@@ -112,6 +120,10 @@ public sealed class SettingsStatusSnapshotBuilder
                     ColorHex: color);
             }
             return new ClipUsageDto("No clips folder configured", "#8A80A8");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -141,33 +153,6 @@ public sealed class SettingsStatusSnapshotBuilder
         }
     }
 
-    // ── EnumerateFilesSafe — copied verbatim from SettingsViewModel ───────────
-    // Iterative directory walk that swallows per-folder access errors so a single
-    // permission-denied subfolder doesn't blank the whole status.
-    private static IEnumerable<string> EnumerateFilesSafe(string rootFolder)
-    {
-        var pending = new Stack<string>();
-        pending.Push(rootFolder);
-
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-
-            string[] files;
-            try { files = Directory.GetFiles(current); }
-            catch { files = Array.Empty<string>(); }
-
-            foreach (var file in files)
-                yield return file;
-
-            string[] directories;
-            try { directories = Directory.GetDirectories(current); }
-            catch { directories = Array.Empty<string>(); }
-
-            foreach (var dir in directories)
-                pending.Push(dir);
-        }
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -13,6 +13,14 @@ public interface IVodService
     Task<bool> TryLinkRecordingAsync(GameStats game, string? folder = null, CancellationToken cancellationToken = default);
     Task<int> AutoMatchRecordingsAsync(CancellationToken cancellationToken = default);
     Task<VodScanResult> ScanAsync(CancellationToken cancellationToken = default, IReadOnlySet<long>? reservedGameIds = null);
+
+    /// <summary>
+    /// <see cref="ScanAsync(CancellationToken, IReadOnlySet{long})"/> that awaits
+    /// <paramref name="beforeFirstLink"/> once, right before the first recording is linked
+    /// (the scan's only database write), so a scan that links nothing takes no backup.
+    /// </summary>
+    Task<VodScanResult> ScanAsync(CancellationToken cancellationToken, IReadOnlySet<long>? reservedGameIds,
+        Func<Task> beforeFirstLink) => ScanAsync(cancellationToken, reservedGameIds);
 }
 
 public record VodRecordingInfo(string Path, string Name, long Size, double Mtime, double? StartTs,

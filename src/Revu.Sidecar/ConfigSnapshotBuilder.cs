@@ -41,10 +41,12 @@ public sealed class ConfigSnapshotBuilder
         {
             cfg = await _config.LoadAsync();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not IOException)
         {
             // Mirror the WinUI page's LoadAsync try/catch: degrade to defaults so
-            // the Settings page still renders rather than blanking.
+            // the Settings page still renders rather than blanking. Never for an
+            // unreadable config.json (H6): the page would take defaults as its
+            // baseline and its next save would write them over the real settings.
             _logger.LogWarning(ex, "Config: LoadAsync failed; serving defaults");
             cfg = new AppConfig();
         }

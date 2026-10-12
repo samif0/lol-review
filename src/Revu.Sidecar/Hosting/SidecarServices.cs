@@ -19,6 +19,8 @@ public static class SidecarServices
         services.AddSingleton<StorageStartupHealth>();
 
         services.AddSingleton<IProtectedSecretStore, ProtectedSecretStore>();
+        // The sidecar's only ConfigService: WriteServices receives this same instance, so
+        // a save is visible to every read-side builder at once.
         services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<IBackupService, BackupService>();
 

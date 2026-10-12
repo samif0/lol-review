@@ -165,6 +165,8 @@ public sealed class SidecarWriteScope : IDisposable
 
     public void Dispose()
     {
+        // Release pooled connections first, or the delete fails and the DB leaks.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
             Directory.Delete(_rootDirectory, recursive: true);

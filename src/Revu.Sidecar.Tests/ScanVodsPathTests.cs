@@ -15,9 +15,10 @@ public sealed class ScanVodsPathTests
         var game = await db.SeedGameAsync();
         db.Config.Current.AscentFolder = "configured";
         var attempts = 0; var backups = 0; var notifications = new List<long>();
-        var scan = new FakeScan(async () =>
+        var scan = new FakeScan(async beforeLink =>
         {
             if (++attempts == 1) return new(true, 0, 1, "still finalizing");
+            await beforeLink();
             await db.Vod.TryLinkUnownedVodAsync(game.GameId, "external.mp4");
             return new(true, 1, 1, "linked") { LinkedGameIds = [game.GameId] };
         });
@@ -25,7 +26,8 @@ public sealed class ScanVodsPathTests
         await AscentRecordingScan.RunWithRetryAsync(scan, db.Config, db.Vod, work,
             () => { backups++; return Task.CompletedTask; }, notifications.Add, NullLogger.Instance,
             game.GameId, [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero]);
-        Assert.Equal(2, attempts); Assert.Equal(2, backups);
+        // The backup runs only before the attempt that links (not before the empty first one).
+        Assert.Equal(2, attempts); Assert.Equal(1, backups);
         Assert.Equal(new[] { game.GameId }, notifications);
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(new VodScanResult(true, 1, 1, "linked")
             { LinkedGameIds = [game.GameId] }, SidecarJson.CreateOptions()));
@@ -37,7 +39,7 @@ public sealed class ScanVodsPathTests
     {
         using var db = new SidecarWriteScope(); await db.InitializeAsync();
         var attempts = 0;
-        var scan = new FakeScan(() => { attempts++; return Task.FromResult(new VodScanResult(true, 0, 0, "")); });
+        var scan = new FakeScan(_ => { attempts++; return Task.FromResult(new VodScanResult(true, 0, 0, "")); });
         var work = new SidecarBackgroundWork(NullLogger<SidecarBackgroundWork>.Instance);
         Task Run() => AscentRecordingScan.RunWithRetryAsync(scan, db.Config, db.Vod, work,
             () => throw new Exception("No write may begin"), _ => throw new Exception("No event"), NullLogger.Instance,
@@ -51,9 +53,10 @@ public sealed class ScanVodsPathTests
         Assert.False(work.HasOutstandingWork); Assert.False(work.ShutdownIncomplete); Assert.Equal(0, attempts);
     }
 
-    private sealed class FakeScan(Func<Task<VodScanResult>> run) : IVodService
+    private sealed class FakeScan(Func<Func<Task>, Task<VodScanResult>> run) : IVodService
     {
-        public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken = default, IReadOnlySet<long>? reservedGameIds = null) => run();
+        public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken = default, IReadOnlySet<long>? reservedGameIds = null) => run(() => Task.CompletedTask);
+        public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken, IReadOnlySet<long>? reservedGameIds, Func<Task> beforeFirstLink) => run(beforeFirstLink);
         public Task<List<VodRecordingInfo>> FindRecordingsAsync(string? folder = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public string? MatchRecordingToGame(GameStats game, IReadOnlyList<VodRecordingInfo> recordings, IReadOnlySet<string>? excludePaths = null) => throw new NotSupportedException();
         public Task<bool> TryLinkRecordingAsync(GameStats game, string? folder = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();

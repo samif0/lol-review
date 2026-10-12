@@ -23,6 +23,22 @@ public sealed class DatabaseInitializer
         _logger = logger;
     }
 
+    private async Task ReassertWalModeAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var wal = connection.CreateCommand();
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            var mode = Convert.ToString(await wal.ExecuteScalarAsync(cancellationToken));
+            if (!string.Equals(mode, "wal", StringComparison.OrdinalIgnoreCase))
+                _logger.LogWarning("Database stays in {Mode} journal mode; WAL could not be enabled", mode);
+        }
+        catch (SqliteException ex)
+        {
+            _logger.LogWarning(ex, "Could not re-assert WAL journal mode (non-fatal)");
+        }
+    }
+
     /// <summary>
     /// Runs ONLY the additive, non-destructive schema steps: every
     /// <c>CREATE TABLE/INDEX IF NOT EXISTS</c> and the versioned ALTER/CREATE
@@ -35,6 +51,12 @@ public sealed class DatabaseInitializer
     public async Task ApplyAdditiveSchemaAsync(CancellationToken cancellationToken = default)
     {
         using var connection = _connectionFactory.CreateConnection();
+
+        // WAL persists once set, but a database that arrives in rollback-journal mode (a
+        // DataSnapshot restore, an old copy) would otherwise stay there, where readers
+        // block writers. Startup runs this on the first connection, before any other is
+        // open; if SQLite cannot switch, the current mode is kept and logged.
+        await ReassertWalModeAsync(connection, cancellationToken);
 
         // CREATE TABLE / INDEX IF NOT EXISTS — adds any table missing on this DB
         // (e.g. a v8 table on a DB last migrated at v7).

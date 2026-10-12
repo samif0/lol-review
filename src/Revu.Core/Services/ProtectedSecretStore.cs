@@ -43,8 +43,17 @@ public sealed class ProtectedSecretStore : IProtectedSecretStore
 
         lock (_gate)
         {
-            var values = ReadUnlocked();
-            return values.TryGetValue(name, out var value) ? value : null;
+            try
+            {
+                var values = ReadUnlocked();
+                return values.TryGetValue(name, out var value) ? value : null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A read may degrade to "no value"; only writers must refuse (see ReadUnlocked).
+                _logger.LogWarning(ex, "Protected secret store is unreadable right now; serving no value.");
+                return null;
+            }
         }
     }
 
@@ -86,25 +95,78 @@ public sealed class ProtectedSecretStore : IProtectedSecretStore
         }
     }
 
+    // Short waits for a sharing violation (antivirus, backup or sync tools) to clear.
+    private static readonly int[] ReadRetryDelaysMs = [50, 100, 200];
+
+    /// <summary>
+    /// Read the whole store. A missing file is an empty store. A file that exists but
+    /// cannot be read (sharing violation, IO error) is retried briefly and then THROWS:
+    /// SetSecret/ClearSecret rewrite the whole file from this result, so treating a
+    /// failed read as empty would erase every other secret (the session token and the
+    /// identity mirrors). Content that can never be decrypted or parsed is moved aside
+    /// as a .corrupt copy and then treated as empty, so a damaged store cannot block
+    /// sign-in, and it is kept once rather than copied again on every read.
+    /// </summary>
     private Dictionary<string, string> ReadUnlocked()
     {
-        if (!File.Exists(_filePath))
+        byte[] encrypted;
+        for (var attempt = 0; ; attempt++)
         {
-            return new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!File.Exists(_filePath))
+            {
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+
+            try
+            {
+                using var stream = new FileStream(_filePath, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+                using var buffer = new MemoryStream();
+                stream.CopyTo(buffer);
+                encrypted = buffer.ToArray();
+                break;
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException)
+                                       && attempt < ReadRetryDelaysMs.Length)
+            {
+                _logger.LogDebug(ex, "Protected secret store busy; retrying read.");
+                Thread.Sleep(ReadRetryDelaysMs[attempt]);
+            }
         }
 
         try
         {
-            var encrypted = File.ReadAllBytes(_filePath);
             var decrypted = ProtectedData.Unprotect(encrypted, optionalEntropy: null, DataProtectionScope.CurrentUser);
             var json = Encoding.UTF8.GetString(decrypted);
             return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
                    ?? new Dictionary<string, string>(StringComparer.Ordinal);
         }
+        catch (Exception ex) when (ex is CryptographicException or JsonException)
+        {
+            _logger.LogError(ex, "Protected secret store could not be decrypted; keeping it aside and starting a new one.");
+            MoveUnreadableStoreAside();
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+    }
+
+    // Moved, not copied (callers hold _gate): the next read then finds no file, which is
+    // already an empty store. A copy left the bad file in place, so every config load
+    // made another .corrupt copy until something wrote a new store.
+    private void MoveUnreadableStoreAside()
+    {
+        try
+        {
+            var aside = $"{_filePath}.corrupt-{DateTime.Now:yyyyMMdd_HHmmss}";
+            if (File.Exists(aside)) aside = $"{aside}-{Guid.NewGuid():N}";
+            File.Move(_filePath, aside);
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to read protected secret store; treating it as empty.");
-            return new Dictionary<string, string>(StringComparer.Ordinal);
+            _logger.LogWarning(ex, "Could not move the unreadable protected secret store aside.");
         }
     }
 
