@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import test from 'node:test';
-import { askRecovery, askSlowStart, createClosingNotice, createRendererRecovery, RECOVERY_BUTTONS, relaunchArgs,
-  shellPage, shellUrl, SLOW_START_BUTTONS } from '../lifecycle.mjs';
+import { askRecovery, askSlowStart, backendExitAction, createClosingNotice, createRendererRecovery, readLaunchConfig,
+  RECOVERY_BUTTONS, relaunchArgs, shellPage, shellUrl, SLOW_START_BUTTONS, watchSessionEnd } from '../lifecycle.mjs';
+import { backendRequest } from '../sidecar.mjs';
 import { createSplash, createStartupProgress, SPLASH_TEXT, splashPage } from '../splash.mjs';
 
 test('reset, restore and crash relaunches never inherit the hidden login launch flag', () => {
@@ -184,4 +188,103 @@ test('a long data update offers keep waiting, the logs, or quit', async () => {
   const controller = new AbortController();
   const closing = { showMessageBox: async options => { assert.equal(options.signal, controller.signal); controller.abort(); return { response: 2 }; } };
   assert.equal(await askSlowStart({ dialog: closing, signal: controller.signal, openLogs: async () => {} }), 'wait');
+});
+
+test('a backend that stops while Windows ends the session closes Revu quietly instead of reporting a crash', () => {
+  for (const event of ['query-session-end', 'session-end']) {
+    const window = new EventEmitter();
+    const sessionEnding = watchSessionEnd({ window });
+    assert.equal(sessionEnding(), false);
+    assert.equal(backendExitAction({ quitting: false, sessionEnding: sessionEnding() }), 'recover');
+    window.emit(event, { preventDefault: () => assert.fail('Windows was kept from ending the session') });
+    assert.equal(sessionEnding(), true, event);
+    assert.equal(backendExitAction({ quitting: false, sessionEnding: sessionEnding() }), 'quit');
+  }
+  // Revu's own close already owns the exit, session end or not.
+  assert.equal(backendExitAction({ quitting: true, sessionEnding: false }), 'ignore');
+  assert.equal(backendExitAction({ quitting: true, sessionEnding: true }), 'ignore');
+});
+
+test('a logoff another app cancelled stops counting as a session end, so a later crash is still reported', () => {
+  let time = 1_000;
+  const window = new EventEmitter();
+  const sessionEnding = watchSessionEnd({ window, now: () => time });
+  window.emit('query-session-end', {});
+  time += 59_999;
+  assert.equal(sessionEnding(), true, 'Windows is still deciding whether the logoff goes ahead');
+  time += 1;
+  assert.equal(sessionEnding(), false, 'the logoff was cancelled and Revu kept running');
+  assert.equal(backendExitAction({ quitting: false, sessionEnding: sessionEnding() }), 'recover');
+  // A later query starts its own window, and only a certain end counts from then on.
+  window.emit('query-session-end', {});
+  assert.equal(sessionEnding(), true);
+  window.emit('session-end', {});
+  time += 10 * 60_000;
+  assert.equal(sessionEnding(), true, 'the session end was certain');
+  assert.equal(backendExitAction({ quitting: false, sessionEnding: sessionEnding() }), 'quit');
+});
+
+test('the host wires session end into the backend exit and the closing error', async () => {
+  const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8');
+  assert.match(main, /sessionEnding = watchSessionEnd\(\{ window \}\);/);
+  assert.doesNotMatch(main, /powerMonitor/, "powerMonitor 'shutdown' never fires on Windows");
+  assert.match(main, /backendExitAction\(\{ quitting, sessionEnding: sessionEnding\(\) \}\)/);
+  assert.match(main, /!configuration\?\.smoke && !sessionEnding\(\)\)\s+dialog\.showErrorBox\('Revu could not finish closing'/);
+});
+
+test('a briefly unreadable settings file is read again before launch goes on', async () => {
+  const waits = [];
+  let calls = 0;
+  const config = await readLaunchConfig(async route => {
+    assert.equal(route, '/api/config');
+    if (++calls < 3) throw Object.assign(new Error('Your settings file could not be read right now.'), { status: 500 });
+    return { windowResolution: 'maximized' };
+  }, { wait: async ms => { waits.push(ms); }, log: { warn: () => assert.fail('warned after a successful read') } });
+  assert.deepEqual(config, { windowResolution: 'maximized' });
+  assert.deepEqual(waits, [250, 500]);
+});
+
+test('settings that stay unreadable open Revu at the default window size instead of failing the launch', async () => {
+  const waits = [], warnings = [];
+  const methods = [];
+  const config = await readLaunchConfig(async (route, options) => {
+    methods.push(options?.method ?? 'GET');
+    throw Object.assign(new Error('Backend HTTP 500'), { status: 500 });
+  }, { wait: async ms => { waits.push(ms); }, log: { warn: (message, error) => warnings.push([message, error.message]) } });
+  assert.deepEqual(config, {});
+  assert.deepEqual(waits, [250, 500, 1000]);
+  assert.deepEqual(methods, ['GET', 'GET', 'GET', 'GET'], 'only reads; defaults are never written over the file');
+  assert.deepEqual(warnings, [['Settings could not be read at launch; opening at the default window size', 'Backend HTTP 500']]);
+  assert.deepEqual(await readLaunchConfig(async () => null, { wait: async () => {} }), {});
+
+  // A backend that hangs, a cancelled request or no backend at all is not asked again.
+  for (const failure of [new DOMException('The operation timed out.', 'TimeoutError'),
+    new DOMException('This operation was aborted', 'AbortError'), new TypeError('fetch failed'),
+    Object.assign(new Error('Backend HTTP 401'), { status: 401 })]) {
+    let calls = 0;
+    const skipped = [];
+    assert.deepEqual(await readLaunchConfig(async () => { calls++; throw failure; },
+      { wait: async ms => assert.fail(`waited ${ms} ms to retry ${failure.name}`), log: { warn: (_, error) => skipped.push(error) } }), {});
+    assert.equal(calls, 1, failure.message);
+    assert.deepEqual(skipped, [failure]);
+  }
+
+  const main = await readFile(new URL('../main.mjs', import.meta.url), 'utf8');
+  assert.match(main, /const config = await readLaunchConfig\(route => backend\.request\(route\), \{ log: hostLog \}\);/);
+  assert.doesNotMatch(main, /await backend\.request\('\/api\/config'\)/);
+});
+
+test('a backend that never answers the launch settings read is not asked again', async () => {
+  const requests = [];
+  const server = createServer(req => { requests.push(req.url); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const hs = { port: server.address().port, token: 'A'.repeat(64) };
+  try {
+    const warnings = [];
+    const config = await readLaunchConfig(route => backendRequest(hs, route, { timeoutMs: 50 }),
+      { wait: async ms => assert.fail(`waited ${ms} ms to retry a timed-out read`), log: { warn: (_, error) => warnings.push(error.name) } });
+    assert.deepEqual(config, {});
+    assert.deepEqual(requests, ['/api/config']);
+    assert.deepEqual(warnings, ['TimeoutError']);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });

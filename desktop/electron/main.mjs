@@ -13,7 +13,8 @@ import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createBackgroundController } from './background.mjs';
 import { saveNarration } from './narration.mjs';
 import { createRollingLog, logDirectory, runtimeLogDirectory } from './logging.mjs';
-import { askRecovery, askSlowStart, createClosingNotice, createRendererRecovery, relaunchArgs, shellPage, shellUrl } from './lifecycle.mjs';
+import { askRecovery, askSlowStart, backendExitAction, createClosingNotice, createRendererRecovery, readLaunchConfig, relaunchArgs, shellPage, shellUrl,
+  watchSessionEnd } from './lifecycle.mjs';
 import { createSplash, createStartupProgress } from './splash.mjs';
 
 app.setName('Revu');
@@ -23,6 +24,8 @@ let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
 // abandonedWork: quit cancelled a long job, so its backend may need to be ended.
 let backendCrashed = false, restartAfterFailure = false, recovering = false, abandonedWork = false, framePage = '';
+// True while Windows is ending the session (logoff, restart, shutdown).
+let sessionEnding = () => false;
 const media = new MediaRegistry();
 const packageEvents = [];
 const pendingCommands = new Set();
@@ -106,7 +109,7 @@ app.on('before-quit', createQuitHandler({
     // After a backend crash its unclean stop is expected; the user already chose.
     // Ending a backend that was still stopping a cancelled long job is logged above.
     if (restartAfterFailure) relaunch();
-    else if (!backendCrashed && !(abandonedWork && error?.forced) && !configuration?.smoke)
+    else if (!backendCrashed && !(abandonedWork && error?.forced) && !configuration?.smoke && !sessionEnding())
       dialog.showErrorBox('Revu could not finish closing', String(error?.message || error));
   },
   exit: () => { hostLog.info(`Revu exited (code ${process.exitCode || 0})`); app.exit(process.exitCode || 0); },
@@ -253,9 +256,12 @@ async function start() {
   backend = new Sidecar({ dataRoot, executable, isolated, log: hostLog, stderrLog: sidecarStderr,
     onPreparing: () => { if (!smoke) progress.preparing(); },
     onExit: () => {
-      if (quitting) return;
+      const action = backendExitAction({ quitting, sessionEnding: sessionEnding() });
+      if (action === 'ignore') return;
       backendCrashed = true;
-      void recover('sidecar');
+      // Windows ending the session stops the backend too. That is not a crash: close quietly.
+      if (action === 'quit') { hostLog.info('The backend stopped while Windows is ending the session; closing'); app.quit(); }
+      else void recover('sidecar');
     } });
   await backend.start();
   progress.finish();
@@ -283,6 +289,7 @@ async function start() {
   if (process.platform === 'win32') window.setAppDetails({ appId: windowsAppId, appIconPath: iconPath, appIconIndex: 0 });
   background = await createBackgroundController({ app, window, Tray, Menu, iconPath, profile, isolated, smoke });
   window.on('close', background.onClose);
+  sessionEnding = watchSessionEnd({ window });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-frame-navigate', event => { if (!isAppUrl(event.url)) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
@@ -307,7 +314,8 @@ async function start() {
   native = nativeCommands({ app, clipboard, dialog, screen, shell, systemPreferences, window, dataRoot, isolated,
     quit: action => { afterShutdown = action; app.quit(); } });
   registerIpc();
-  const config = await backend.request('/api/config');
+  const config = await readLaunchConfig(route => backend.request(route), { log: hostLog });
+  if (quitting || recovering) return; // A backend that stopped meanwhile already asked how to recover.
   await native('set_window_resolution', { resolution: config.windowResolution || 'default' });
   await window.loadURL(`${APP_ORIGIN}/index.html`);
   if (quitting) return;

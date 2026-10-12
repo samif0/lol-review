@@ -17,6 +17,50 @@ export function relaunchArgs(argv) {
   return argv.slice(1).filter(arg => arg !== '--revu-startup');
 }
 
+/**
+ * Windows ending the session (logoff, restart, shutdown) also ends the backend. Watch
+ * the window's session-end notices so that exit is not taken for a crash. Returns a
+ * getter: true while Windows is ending the session. 'query-session-end' only asks, and
+ * another app can still cancel the logoff, so it counts for `queryWindowMs`; Windows
+ * ends the processes well within that when the logoff goes ahead. 'session-end' fires
+ * once the end is certain and counts from then on. (powerMonitor's 'shutdown' event
+ * never fires on Windows, so it is not watched.)
+ */
+export function watchSessionEnd({ window, now = Date.now, queryWindowMs = 60_000 }) {
+  let ended = false, queriedAt = -Infinity;
+  window?.on('query-session-end', () => { queriedAt = now(); });
+  window?.on('session-end', () => { ended = true; });
+  return () => ended || now() - queriedAt < queryWindowMs;
+}
+
+/** A backend exit: ignored while Revu closes, a quiet close while Windows ends the session, otherwise a crash. */
+export function backendExitAction({ quitting, sessionEnding }) {
+  if (quitting) return 'ignore';
+  return sessionEnding ? 'quit' : 'recover';
+}
+
+/**
+ * The host needs only the window size from the settings at launch. A briefly locked
+ * config.json is read again after a short pause; if it stays unreadable Revu still
+ * opens at the default size, and each page reports the problem when it reads its
+ * settings. Nothing is written here, so the file is never replaced with defaults.
+ */
+export async function readLaunchConfig(request, { delaysMs = [250, 500, 1000], log,
+  wait = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await request('/api/config') || {}; }
+    catch (error) {
+      // Only a backend that answered it could not read the file is asked again. A request
+      // that timed out, was cancelled or found no backend would only hold the splash longer.
+      if (attempt >= delaysMs.length || !(error?.status >= 500)) {
+        log?.warn('Settings could not be read at launch; opening at the default window size', error);
+        return {};
+      }
+      await wait(delaysMs[attempt]);
+    }
+  }
+}
+
 /** The first renderer crash reloads the window; another within the window asks the user. */
 export function createRendererRecovery({ now = Date.now, windowMs = 5 * 60_000 } = {}) {
   let lastReload = -Infinity;

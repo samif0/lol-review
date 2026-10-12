@@ -521,6 +521,14 @@ async function doCheckUpdate(invoke) {
   }
 }
 
+// The shell forwards the download's updateDownloadProgress events while Settings is open.
+let _downloadingUpdate = false;
+function showUpdateDownloadProgress(p) {
+  const percent = Number(p?.percent);
+  if (!_downloadingUpdate || p?.finished || !Number.isFinite(percent)) return;
+  setStatusEl($('update-status'), `Downloading update… ${Math.min(100, Math.max(0, Math.round(percent)))}%`, null, false);
+}
+
 async function doInstallUpdate(invoke, target) {
   if ('disabled' in target) target.disabled = true;
   setStatusEl($('update-status'), 'Downloading update…', null, false);
@@ -528,6 +536,7 @@ async function doInstallUpdate(invoke, target) {
     // The download runs in the sidecar past any request deadline and asking again joins
     // it, so a timeout means "still downloading", never "failed".
     let d;
+    _downloadingUpdate = true;
     for (let attempt = 1; ; attempt++) {
       try { d = await invoke('download_update'); break; }
       catch (err) {
@@ -535,8 +544,16 @@ async function doInstallUpdate(invoke, target) {
         setStatusEl($('update-status'), 'Still downloading the update…', null, false);
       }
     }
+    _downloadingUpdate = false;
     if (!d || d.ok === false) {
       setStatusEl($('update-status'), (d && d.message) || 'Download failed.', 'bad', false);
+      if ('disabled' in target) target.disabled = false;
+      return;
+    }
+    // The restart drops unsaved cards like leaving the page would, so ask first, as the
+    // update banner does.
+    if (typeof window.revuBeforeNavigate === 'function' && await window.revuBeforeNavigate() === false) {
+      setStatusEl($('update-status'), 'Update ready. Save or discard your changes, then install it.', null, false);
       if ('disabled' in target) target.disabled = false;
       return;
     }
@@ -544,6 +561,7 @@ async function doInstallUpdate(invoke, target) {
     // apply_update relaunches the app — this won't return on success.
     await invoke('apply_update');
   } catch (err) {
+    _downloadingUpdate = false;
     setStatusEl($('update-status'), 'Update failed. Try again later.', 'bad', false);
     if ('disabled' in target) target.disabled = false;
     console.error('[settings] install_update failed:', err);
@@ -773,6 +791,7 @@ function showFirstUnsavedCard() {
 function boot() {
   initializeSettingsNavigation();
   registerLeaveGuard({ isDirty: settingsDirty, flush: saveDirtySettings });
+  window.addEventListener('revu:update-download-progress', event => showUpdateDownloadProgress(event.detail));
   for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
   for (const [id, groupId] of [['recording-settings-status', 'recording-settings'], ['background-settings-status', 'background-settings']]) {
     new MutationObserver(() => {
