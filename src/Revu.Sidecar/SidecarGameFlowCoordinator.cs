@@ -362,7 +362,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
                     return;
                 }
 
-                var result = await _write.MapStateBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
+                var result = await _write.MapStateBackfill.RunAsync(maxGames: 5, _backgroundWork.Stopping).ConfigureAwait(false);
                 if (result.Scanned == 0 || result.Failed == 0)
                 {
                     // Nothing queued (already processed) or everything queued landed —
@@ -482,7 +482,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
                 return false; // gone, confirmed by an earlier attempt, or the player's own word
             }
 
-            var outcome = await _write.EnemyLanerBackfill.BackfillGameAsync(gameId).ConfigureAwait(false);
+            var outcome = await _write.EnemyLanerBackfill.BackfillGameAsync(gameId, _backgroundWork.Stopping).ConfigureAwait(false);
             switch (outcome)
             {
                 case EnemyLanerBackfillOutcome.Updated:
@@ -522,7 +522,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
         {
             var pending = await _write.Games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
             if (pending.Count == 0) return;
-            var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5).ConfigureAwait(false);
+            var result = await _write.EnemyLanerBackfill.RunAsync(maxGames: 5, ct: _backgroundWork.Stopping).ConfigureAwait(false);
             if (result.Updated > 0)
             {
                 foreach (var gameId in pending.Take(5))
