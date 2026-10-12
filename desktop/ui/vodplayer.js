@@ -70,6 +70,9 @@ const _matchNav = createMatchNavigation({
     if (_viewWrites.pending) showStatus?.('Finishing save…');
     await _fx?.flushPending();
     await _viewWrites.flush();
+    if (confirmLeaveWithUnsavedNotes()) return true;
+    showStatus?.('');
+    return false;
   },
 });
 // The persistent sidebar and Update & restart consult this hook (the narration
@@ -80,8 +83,15 @@ window.revuBeforeNavigate = async () => {
   if (isMomentNote(field)) queueNoteSave(field);
   await _fx?.flushPending();
   await _viewWrites.flush();
-  return true;
+  return confirmLeaveWithUnsavedNotes();
 };
+
+// A moment note that still could not be saved asks before the page goes away, so
+// a failed write never drops typing silently. Staying keeps the note and its Retry.
+function confirmLeaveWithUnsavedNotes() {
+  const unsaved = [..._momentFailures.values()].some(failure => failure.message === NOTE_SAVE_FAILED);
+  return !unsaved || window.confirm('A moment note couldn’t be saved. Leave without saving it?');
+}
 
 function captureVodViewState() {
   if (!_vod || !(_vod.gameId > 0)) return null;
@@ -515,8 +525,9 @@ async function reloadBookmarks() {
 }
 
 // ── render ──────────────────────────────────────────────────────────────────
-// Plain copy only: never show the internal media URL or host details.
-const VIDEO_LOAD_ERROR = 'Revu could not play this recording. It may have been moved or deleted.';
+// Plain copy only: never show the internal media URL or host details. One message
+// covers both a path that cannot be resolved and a video that fails to load.
+const VIDEO_LOAD_ERROR = 'This local video could not be opened. It may have moved or be unavailable.';
 
 function render(data, core) {
   _vod = data;
@@ -595,8 +606,7 @@ function render(data, core) {
   const v = video();
   const assetUrl = resolveAssetUrl(core, data.filePath);
   if (!assetUrl) {
-    renderError(new Error(
-      'This local video could not be opened. It may have moved or be unavailable.'));
+    renderError(new Error(VIDEO_LOAD_ERROR));
     restoreMatchView();
     return;
   }
@@ -1545,9 +1555,19 @@ function placeMomentRows(host, rows) {
     }
     if (before !== focusRow || kept) return row;
     kept = before;
+    Object.assign(before.dataset, row.dataset);
     for (const part of Array.from(row.children)) {
       const match = Array.from(before.children).find(child => child.className === part.className);
-      if (match && !match.contains(active)) before.replaceChild(part, match);
+      if (!match) continue;
+      if (!match.contains(active)) { before.replaceChild(part, match); continue; }
+      // The part holding focus stays. Its other controls are swapped for fresh ones
+      // and the focused field takes the fresh saved state, so later writes read it.
+      for (const selector of MOMENT_FIELDS) {
+        const old = match.querySelector(selector), field = part.querySelector(selector);
+        if (!old || !field) continue;
+        if (old === active) Object.assign(old.dataset, field.dataset);
+        else if (old.parentNode) old.parentNode.replaceChild(field, old);
+      }
     }
     return before;
   });
@@ -1612,8 +1632,13 @@ function retryMomentWrite(key) {
 }
 
 // Notes save on blur or Enter, one write at a time per row, and only when the text
-// differs from what is saved. A failed note stays in its field for Retry.
-const _noteWrites = new Map(); // moment key -> { tail, saved }
+// differs from what is saved. A failed note stays in its field for Retry; putting
+// back the saved text clears that failure.
+const NOTE_SAVE_FAILED = 'Couldn’t save this note.';
+const _noteWrites = new Map(); // moment key -> { tail, saved, clipped }
+function clearNoteFailure(key) {
+  if (_momentFailures.get(key)?.message === NOTE_SAVE_FAILED) setMomentFailure(key, null);
+}
 function queueNoteSave(field) {
   const row = field && field.closest ? field.closest('.moment') : null;
   const key = row && row.dataset.momentKey;
@@ -1622,19 +1647,27 @@ function queueNoteSave(field) {
   let entry = _noteWrites.get(key);
   if (!entry) {
     const saved = (field.dataset.savedValue ?? '').trim();
-    if (text === saved) return Promise.resolve(true);
-    entry = { tail: Promise.resolve(), saved };
+    if (text === saved) { clearNoteFailure(key); return Promise.resolve(true); }
+    entry = { tail: Promise.resolve(), saved, clipped: false };
     _noteWrites.set(key, entry);
   }
   const evidence = field.classList.contains('vp-ev-note');
-  const write = evidence ? () => saveEvidenceNote(field, text) : () => saveBookmarkNote(row.dataset.bmId, text);
+  // The first note on an auto moment can extract its clip. A save queued behind it
+  // must say the moment is already clipped, or the sidecar extracts a second clip.
+  const write = evidence
+    ? async () => {
+      const res = await saveEvidenceNote(field, text, entry.clipped);
+      if (res && res.ok !== false && res.clipped === true) { entry.clipped = true; field.dataset.hasClip = '1'; }
+      return res;
+    }
+    : () => saveBookmarkNote(row.dataset.bmId, text);
   const retry = () => {
     const current = momentRow(key)?.querySelector(evidence ? '.vp-ev-note' : '.vp-bm-editnote');
     return current ? queueNoteSave(current) : undefined;
   };
   const job = entry.tail.then(async () => {
-    if (text === entry.saved) return true;
-    const saved = await momentWrite(key, 'Couldn’t save this note.', write, retry);
+    if (text === entry.saved) { clearNoteFailure(key); return true; }
+    const saved = await momentWrite(key, NOTE_SAVE_FAILED, write, retry);
     if (saved) { entry.saved = text; field.dataset.savedValue = text; }
     return saved;
   });
@@ -2057,11 +2090,11 @@ function saveMomentTag(sel) {
   return momentWrite(key, 'Couldn’t save this objective tag.', write, retry);
 }
 
-function saveEvidenceNote(noteEl, text) {
+function saveEvidenceNote(noteEl, text, clipped = false) {
   const evidenceId = Number(noteEl.dataset.evId || 0);
   const startS = noteEl.dataset.startS !== '' ? Number(noteEl.dataset.startS) : null;
   const endS = noteEl.dataset.endS !== '' ? Number(noteEl.dataset.endS) : null;
-  const alreadyClipped = noteEl.dataset.hasClip === '1';
+  const alreadyClipped = clipped || noteEl.dataset.hasClip === '1';
   const payload = {
     evidenceId,
     text,
@@ -3220,7 +3253,8 @@ document.addEventListener('keydown', (ev) => {
     }
     return;
   }
-  if (ev.key === 'Escape' && _composerKind) {
+  // Escape typed in a moment note stays with that note; it never closes the composer.
+  if (ev.key === 'Escape' && _composerKind && !isMomentNote(ev.target)) {
     ev.preventDefault();
     if (!ev.repeat) closeComposer();
     return;

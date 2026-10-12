@@ -297,6 +297,7 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
     windowListener: type => windowListeners.get(type),
     linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
     setRestore(value) { restoreState = value; },
+    get nav() { return navOptions; },
     // Dispatch through the target's ancestors and the document, then wait for the
     // page's async handlers. Blur and focus do not bubble.
     async emit(type, target, extra = {}) {

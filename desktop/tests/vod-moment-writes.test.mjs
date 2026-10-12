@@ -278,7 +278,101 @@ test('the recording loads through the transport once per render and errors show 
   assert.equal(f.transport.loadOptions.startSeconds, null, 'loading never seeks on its own');
   await f.emit('error', video);
   const detail = f.$('err-detail').textContent;
-  assert.equal(detail, 'Revu could not play this recording. It may have been moved or deleted.');
+  assert.equal(detail, 'This local video could not be opened. It may have moved or be unavailable.', 'one message for every unplayable video');
   assert.doesNotMatch(detail, /revu-media|asset scope|src=/);
   assert.equal(f.$('errpanel').hidden, false);
+});
+
+test('a note queued behind the save that clips an auto moment never clips it twice', async () => {
+  const first = deferred();
+  let saves = 0;
+  const f = evidenceRows({ invokeWrite: command => command !== 'save_pattern_moment_note' ? { ok: true }
+    : ++saves === 1 ? first.promise : { ok: true, clipped: false } });
+  const note = f.row().querySelector('.vp-ev-note');
+  note.focus(); note.value = 'abc';
+  await f.emit('keydown', note, { key: 'Enter' });
+  await f.type('d'); // Enter keeps the caret here while ffmpeg extracts the clip
+  await f.emit('keydown', note, { key: 'Enter' });
+  await settle();
+  assert.equal(saves, 1, 'the second save waits for the first');
+  // The sidecar clipped the moment and promoted its evidence row to that clip.
+  f.snapshot.autoMoments = [];
+  f.snapshot.savedClips = [{ id: 41, startTimeSeconds: 30, endTimeSeconds: 40, note: 'abc', objectiveId: 7, hasClip: true, shareBookmarkId: 501 }];
+  first.resolve({ ok: true, clipped: true, clipPath: 'clip.mp4' });
+  await f.hooks.flush();
+  assert.deepEqual(f.writes.filter(write => write.command === 'save_pattern_moment_note')
+    .map(write => [write.args.payload.text, write.args.payload.alreadyClipped]), [['abc', false], ['abcd', true]]);
+});
+
+test('the focused row keeps its text but takes fresh saved state and controls from a refresh', () => {
+  const f = evidenceRows();
+  const row = f.row(), note = row.querySelector('.vp-ev-note'), picker = row.querySelector('.vp-ev-obj');
+  note.focus(); note.value = 'Still typing';
+  f.snapshot.autoMoments = [{ ...f.snapshot.autoMoments[0], note: 'Saved elsewhere', objectiveId: null, endTimeSeconds: 45, hasClip: true }];
+  f.hooks.renderMoments();
+  assert.ok(f.row() === row, 'the focused row stays');
+  assert.ok(f.document.activeElement === note);
+  assert.equal(note.value, 'Still typing');
+  assert.equal(note.dataset.savedValue, 'Saved elsewhere');
+  assert.equal(note.dataset.endS, '45');
+  assert.equal(note.dataset.hasClip, '1');
+  assert.ok(row.querySelector('.vp-ev-obj') !== picker, 'the picker beside the focused note is refreshed');
+  assert.equal(row.querySelector('.vp-ev-obj').value, '', 'and shows the tag that was saved');
+});
+
+test('putting back the saved note clears its failure but not a failed tag', async () => {
+  const f = bookmarkRows({ invokeWrite: () => { throw new Error('Offline'); } });
+  const first = f.field(1);
+  first.focus(); first.value = 'Will not save'; first.blur();
+  await f.hooks.flush();
+  assert.equal(status(f.row(1)).hidden, false);
+  first.focus(); first.value = 'First'; first.blur();
+  await f.hooks.flush();
+  assert.equal(status(f.row(1)).hidden, true, 'the saved text is back, so nothing is left to retry');
+  assert.equal(f.writes.length, 1);
+
+  const e = evidenceRows({ invokeWrite: command => command === 'set_evidence_objective' ? { ok: false, error: 'Objective missing' } : { ok: true } });
+  const picker = e.row().querySelector('.vp-ev-obj'), note = e.row().querySelector('.vp-ev-note');
+  picker.value = 'obj:11';
+  await e.emit('change', picker);
+  await e.hooks.flush();
+  note.focus(); note.blur();
+  await e.hooks.flush();
+  assert.equal(status(e.row()).querySelector('.vp-moment-status-txt').textContent, 'Couldn’t save this objective tag.');
+});
+
+test('leaving with a note that could not be saved asks first, and staying keeps it', async () => {
+  const f = bookmarkRows({ invokeWrite: () => { throw new Error('Offline'); } });
+  let leave = false;
+  f.window.confirm = message => { f.confirmations.push(message); return leave; };
+  const first = f.field(1);
+  first.focus(); first.value = 'Unsaved';
+  assert.equal(await f.window.revuBeforeNavigate(), false, 'the sidebar and Update & restart stay');
+  assert.deepEqual(f.confirmations, ['A moment note couldn’t be saved. Leave without saving it?']);
+  assert.equal(f.field(1).value, 'Unsaved');
+  assert.equal(status(f.row(1)).hidden, false, 'Retry stays on the row');
+  const statuses = [];
+  assert.equal(await f.nav.beforeLeave(text => statuses.push(text)), false, 'the Review/VOD switch stays too');
+  assert.equal(statuses.at(-1), '', 'staying clears the switch status');
+  leave = true;
+  assert.equal(await f.window.revuBeforeNavigate(), true, 'a note that keeps failing never traps the player');
+
+  const g = bookmarkRows();
+  assert.equal(await g.window.revuBeforeNavigate(), true);
+  assert.equal(await g.nav.beforeLeave(() => {}), true);
+  assert.equal(g.confirmations.length, 0, 'nothing failed, so nothing asks');
+});
+
+test('Escape in a moment note leaves an open composer alone', async () => {
+  const f = evidenceRows();
+  await f.emit('keydown', f.$('vp-video'), { key: 'b' });
+  assert.equal(f.$('vp-composer').hidden, false);
+  const note = f.row().querySelector('.vp-ev-note');
+  note.focus();
+  const escape = await f.emit('keydown', note, { key: 'Escape' });
+  assert.equal(escape.defaultPrevented, undefined);
+  assert.equal(f.$('vp-composer').hidden, false);
+  assert.ok(f.document.activeElement === note);
+  await f.emit('keydown', f.$('vp-bm-note'), { key: 'Escape' });
+  assert.equal(f.$('vp-composer').hidden, true, 'Escape elsewhere still closes it');
 });
