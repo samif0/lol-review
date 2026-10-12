@@ -34,7 +34,6 @@ public sealed class WriteServices : IDisposable
     private readonly SidecarBackgroundWork? _backgroundWork;
     private readonly ILogger<WriteServices> _logger;
 
-    public ReviewedEncountersRepository ReviewedEncounters => _provider.GetRequiredService<ReviewedEncountersRepository>();
     // v3.11: the event corrections ledger (POST /api/event/correct, /api/correction/revert)
     // wrapped in the rule-F workflow (derived recompute + pattern re-materialize after a
     // fix), and the rule-G startup sweep (event_key stamping + orphan resolution).
@@ -127,9 +126,7 @@ public sealed class WriteServices : IDisposable
         //     the kill-feed + derived-event rows for the captured game.
         //   • IMissedGameDecisionRepository — reconcile dismissals.
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
-        services.AddSingleton<ReviewedEncountersRepository>();
         // v3.11: the corrections ledger (schema v16) + its sidecar workflow and sweep.
-        // ReviewedEncountersRepository.SaveAsync delegates to the same ledger.
         services.AddSingleton<IEventCorrectionsRepository, EventCorrectionsRepository>();
         services.AddSingleton<EventCorrectionWorkflow>();
         services.AddSingleton<EventCorrectionSweep>();

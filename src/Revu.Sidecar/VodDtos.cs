@@ -194,8 +194,8 @@ public sealed record VodEventTypeDto(
     IReadOnlyList<VodEventAttrDto> Attrs);
 
 /// <summary>
-/// One event_corrections row as the VOD panel's corrections list and GET /api/corrections
-/// show it. EventType / GameTimeSeconds / TimeLabel are the EFFECTIVE values after the
+/// One event_corrections row as the VOD panel's corrections list
+/// shows it. EventType / GameTimeSeconds / TimeLabel are the EFFECTIVE values after the
 /// cumulative patch; SubjectType / SubjectTimeSeconds are the row as detected.
 /// </summary>
 public sealed record VodCorrectionDto(

@@ -61,8 +61,8 @@ internal static class CorrectionRequestMapper
 }
 
 /// <summary>
-/// Ledger rows and the correction catalog as the VOD snapshot / GET /api/corrections
-/// serve them: the type catalog the fix panel builds its selects from (so JS never
+/// Ledger rows and the correction catalog as the VOD snapshot
+/// serves them: the type catalog the fix panel builds its selects from (so JS never
 /// hardcodes a type or a value) and one <see cref="VodCorrectionDto"/> per ledger row
 /// with a human summary ("Death moved 13:32 to 13:35").
 /// </summary>
