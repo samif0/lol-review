@@ -7,7 +7,9 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Services;
 
-public sealed record EnemyLanerBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
+/// <param name="Remaining">Queued games this run did not reach (its <c>maxGames</c> cap or
+/// time budget ended it first); a later run continues with them.</param>
+public sealed record EnemyLanerBackfillResult(int Scanned, int Updated, int Skipped, int Failed, int Remaining = 0);
 
 /// <summary>v3.9.2: outcome of a single-game lookup (<see cref="EnemyLanerBackfillService.BackfillGameAsync"/>).</summary>
 public enum EnemyLanerBackfillOutcome
@@ -62,10 +64,14 @@ public sealed class EnemyLanerBackfillService
         _logger = logger;
     }
 
+    /// <param name="budget">Soft stop: once cancelled, the run starts no new game and
+    /// reports the rest as <see cref="EnemyLanerBackfillResult.Remaining"/>. Unlike
+    /// <paramref name="ct"/> it never throws, so a capped run still returns its summary.</param>
     public async Task<EnemyLanerBackfillResult> RunAsync(
         int maxGames = int.MaxValue,
         IProgress<EnemyLanerBackfillProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        CancellationToken budget = default)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -90,6 +96,7 @@ public sealed class EnemyLanerBackfillService
         foreach (var gameId in ids)
         {
             ct.ThrowIfCancellationRequested();
+            if (budget.IsCancellationRequested) break;
             scanned++;
             progress?.Report(new EnemyLanerBackfillProgress(scanned, ids.Count, updated, skipped, failed));
 
@@ -120,10 +127,11 @@ public sealed class EnemyLanerBackfillService
             await Throttle(ct).ConfigureAwait(false);
         }
 
+        var remaining = allIds.Count - scanned;
         _logger.LogInformation(
-            "Backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed}",
-            scanned, updated, skipped, failed);
-        return new EnemyLanerBackfillResult(scanned, updated, skipped, failed);
+            "Backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed} remaining={Remaining}",
+            scanned, updated, skipped, failed, remaining);
+        return new EnemyLanerBackfillResult(scanned, updated, skipped, failed, remaining);
     }
 
     /// <summary>

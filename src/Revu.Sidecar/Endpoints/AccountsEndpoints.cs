@@ -293,10 +293,15 @@ public static partial class SidecarEndpoints
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
+            // Each leg gets its own time budget and stops starting new games when it runs
+            // out, so a deep backlog ends inside the 290 s client deadline with a summary
+            // and a remaining count instead of an aborted request. Separate budgets keep
+            // one huge queue from starving the other two legs.
+            using var enemyBudget = new CancellationTokenSource(BackfillLegBudget);
             EnemyLanerBackfillResult enemy;
             try
             {
-                enemy = await w.EnemyLanerBackfill.RunAsync(ct: ct);
+                enemy = await w.EnemyLanerBackfill.RunAsync(ct: ct, budget: enemyBudget.Token);
             }
             catch (OperationCanceledException)
             {
@@ -316,9 +321,10 @@ public static partial class SidecarEndpoints
             // proxy edge-caches match/timeline, so the laning leg re-fetching the same
             // games afterwards is comparatively cheap. Degrades silently like laning.
             MapStateBackfillResult mapState = new(0, 0, 0, 0);
+            using var mapStateBudget = new CancellationTokenSource(BackfillLegBudget);
             try
             {
-                mapState = await w.MapStateBackfill.RunAsync(ct: ct);
+                mapState = await w.MapStateBackfill.RunAsync(ct: ct, budget: mapStateBudget.Token);
             }
             catch (OperationCanceledException)
             {
@@ -337,9 +343,10 @@ public static partial class SidecarEndpoints
 
             // Laning leg degrades silently on a proxy 404 (mirror the VM try/catch).
             LaningBackfillResult laning = new(0, 0, 0, 0);
+            using var laningBudget = new CancellationTokenSource(BackfillLegBudget);
             try
             {
-                laning = await w.LaningBackfill.RunAsync(ct: ct);
+                laning = await w.LaningBackfill.RunAsync(ct: ct, budget: laningBudget.Token);
             }
             catch (OperationCanceledException)
             {
@@ -350,22 +357,41 @@ public static partial class SidecarEndpoints
                 log.LogDebug(ex, "Backfill: laning leg failed (degraded, non-fatal)");
             }
 
-            var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
-            var text = totalUpdated > 0
-                ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
-                : "Nothing to backfill — every game already has its matchup data.";
+            var (text, remaining) = BackfillSummary(enemy, laning, mapState);
 
-            log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}",
-                enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned);
+            log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}, remaining {Remaining}",
+                enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned, remaining);
             return Results.Json(new
             {
                 ok = true,
                 ranBackfill = true,
                 text,
-                enemy = new { scanned = enemy.Scanned, updated = enemy.Updated, skipped = enemy.Skipped, failed = enemy.Failed },
-                laning = new { scanned = laning.Scanned, updated = laning.Updated, skipped = laning.Skipped, failed = laning.Failed },
-                mapState = new { scanned = mapState.Scanned, updated = mapState.Updated, skipped = mapState.Skipped, failed = mapState.Failed },
+                remaining,
+                enemy = new { scanned = enemy.Scanned, updated = enemy.Updated, skipped = enemy.Skipped, failed = enemy.Failed, remaining = enemy.Remaining },
+                laning = new { scanned = laning.Scanned, updated = laning.Updated, skipped = laning.Skipped, failed = laning.Failed, remaining = laning.Remaining },
+                mapState = new { scanned = mapState.Scanned, updated = mapState.Updated, skipped = mapState.Skipped, failed = mapState.Failed, remaining = mapState.Remaining },
             }, jsonOptions);
         });
+    }
+
+    /// <summary>How long one Settings backfill leg may keep starting new games. Three legs
+    /// plus the game each has in flight stay well inside run_backfill's 290 s deadline.</summary>
+    internal static readonly TimeSpan BackfillLegBudget = TimeSpan.FromSeconds(60);
+
+    /// <summary>The Settings backfill result line. A game can wait in more than one leg's
+    /// queue, so the largest leg's remainder is the honest lower bound on what is left.</summary>
+    internal static (string Text, int Remaining) BackfillSummary(
+        EnemyLanerBackfillResult enemy, LaningBackfillResult laning, MapStateBackfillResult mapState)
+    {
+        var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
+        var remaining = Math.Max(enemy.Remaining, Math.Max(laning.Remaining, mapState.Remaining));
+        var text = totalUpdated > 0
+            ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
+            : remaining > 0
+                ? "No new match data found in this pass."
+                : "Nothing to backfill. Every game already has its matchup data.";
+        if (remaining > 0)
+            text += $" At least {remaining} more {(remaining == 1 ? "game is" : "games are")} waiting. Run it again to continue.";
+        return (text, remaining);
     }
 }

@@ -5,7 +5,8 @@ using Revu.Core.Data.Repositories;
 
 namespace Revu.Core.Services;
 
-public sealed record LaningBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
+/// <param name="Remaining">Queued games this run did not reach (cap or time budget).</param>
+public sealed record LaningBackfillResult(int Scanned, int Updated, int Skipped, int Failed, int Remaining = 0);
 
 /// <summary>
 /// v2.18 (schema v5): walks games missing laning-at-10 numbers and resolves
@@ -36,7 +37,10 @@ public sealed class LaningBackfillService
         _logger = logger;
     }
 
-    public async Task<LaningBackfillResult> RunAsync(int maxGames = int.MaxValue, CancellationToken ct = default)
+    /// <param name="budget">Soft stop: once cancelled, no new game starts and the rest are
+    /// reported as <see cref="LaningBackfillResult.Remaining"/> (never throws).</param>
+    public async Task<LaningBackfillResult> RunAsync(int maxGames = int.MaxValue, CancellationToken ct = default,
+        CancellationToken budget = default)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -61,6 +65,7 @@ public sealed class LaningBackfillService
         foreach (var gameId in ids)
         {
             ct.ThrowIfCancellationRequested();
+            if (budget.IsCancellationRequested) break;
             scanned++;
 
             var matchId = $"{platform}_{gameId}";
@@ -105,10 +110,11 @@ public sealed class LaningBackfillService
                 gameId, laning.CsAt10, laning.GoldDiffAt10);
         }
 
+        var remaining = allIds.Count - scanned;
         _logger.LogInformation(
-            "Laning backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed}",
-            scanned, updated, skipped, failed);
-        return new LaningBackfillResult(scanned, updated, skipped, failed);
+            "Laning backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed} remaining={Remaining}",
+            scanned, updated, skipped, failed, remaining);
+        return new LaningBackfillResult(scanned, updated, skipped, failed, remaining);
     }
 
     private static Task Throttle(CancellationToken ct)
