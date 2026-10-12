@@ -33,7 +33,8 @@ export function describeMissedGame(game) {
 const validGames = (games) => (Array.isArray(games) ? games : [])
   .filter((game) => Number.isSafeInteger(game?.gameId) && game.gameId > 0);
 
-export function createMissedGamesCard({ section, list, heading, status, invoke, doc = globalThis.document }) {
+// onSaved(gameId) runs after a game is saved, so the page can refresh what that game joins.
+export function createMissedGamesCard({ section, list, heading, status, invoke, doc = globalThis.document, onSaved }) {
   let games = [];
   const pending = new Set();
   // Focus lands here when the last row the player acted on goes away.
@@ -149,8 +150,9 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
     setStatus('');
     render();
     let failed = false;
+    let result = null;
     try {
-      await invoke('resolve_missed_game', { payload: { gameId, action } });
+      result = await invoke('resolve_missed_game', { payload: { gameId, action } });
     } catch (err) {
       failed = true;
       console.error(`[missed games] ${action} failed:`, err);
@@ -163,6 +165,9 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
       setStatus(action === 'save' ? 'Couldn’t save this game. Try again.' : 'Couldn’t dismiss this game. Try again.');
     }
     if (hadFocus) restoreFocus(index);
+    if (!failed && result?.saved === true && typeof onSaved === 'function') {
+      try { onSaved(gameId); } catch (err) { console.warn('[missed games] refresh after save failed:', err); }
+    }
   }
 
   // The sidecar announces every change to the list as 'missedReviews' with the whole list.
@@ -176,7 +181,7 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
   return { refresh, resolve, handleEvent, get games() { return games.slice(); } };
 }
 
-export async function mountMissedGames(doc = globalThis.document) {
+export async function mountMissedGames(doc = globalThis.document, { onSaved } = {}) {
   const section = doc?.getElementById?.('missed-games');
   if (!section) return null;
   let invoke = null;
@@ -190,6 +195,7 @@ export async function mountMissedGames(doc = globalThis.document) {
     status: doc.getElementById('missed-games-status'),
     invoke,
     doc,
+    onSaved,
   });
   // Subscribe before the first fetch so no change slips between the two.
   try {

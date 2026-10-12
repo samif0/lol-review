@@ -102,6 +102,29 @@ test('Save and Dismiss resolve the game through the renderer command, then refre
   assert.equal(f.status.hidden, true);
 });
 
+test('a saved game asks Home to refresh what it joins; a dismissal or failure does not', async () => {
+  const f = fixture();
+  const refreshed = [];
+  let fail = false;
+  const card = createMissedGamesCard({
+    section: f.section, list: f.list, heading: f.heading, status: f.status, doc: f.doc,
+    onSaved: gameId => refreshed.push(gameId),
+    invoke: async (command, args) => {
+      if (command === 'get_missed_games') return { games: [] };
+      if (fail) throw new Error('sidecar 500');
+      const { gameId, action } = args.payload;
+      return { ok: true, gameId, saved: action === 'save', dismissed: action === 'dismiss' };
+    },
+  });
+  await card.resolve(7001, 'save');
+  await card.resolve(7002, 'dismiss');
+  fail = true;
+  const originalError = console.error;
+  console.error = () => {};
+  try { await card.resolve(7003, 'save'); } finally { console.error = originalError; }
+  assert.deepEqual(refreshed, [7001]);
+});
+
 test('a failed save keeps the game and says so in sentence case', async () => {
   const f = fixture();
   const section = f.section;
