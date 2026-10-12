@@ -26,8 +26,48 @@ export const RATE_CHOICES = [0.25, 0.5, 1, 1.5, 2, 3];
 
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
-function setGlyph(button, glyph) {
-  if (button) (button.querySelector?.('.tbtn-icon') || button).textContent = glyph;
+// Monochrome stroked icons in the rail's style. Emoji-capable glyphs (speaker,
+// enlarge, skip) render in color on Windows, so every transport icon is an SVG.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const ICONS = {
+  back: { paths: ['M11 6l-6 6 6 6', 'M19 6l-6 6 6 6'] },
+  forward: { paths: ['M13 6l6 6-6 6', 'M5 6l6 6-6 6'] },
+  play: { paths: ['M7 5v14l11-7z'], fill: true },
+  pause: { paths: ['M8 5v14', 'M16 5v14'] },
+  volume: { paths: ['M4 9h4l5-4v14l-5-4H4z', 'M16.5 8.5a5 5 0 0 1 0 7', 'M19 6a8.5 8.5 0 0 1 0 12'] },
+  muted: { paths: ['M4 9h4l5-4v14l-5-4H4z', 'M17 9.5l5 5', 'M22 9.5l-5 5'] },
+  enlarge: { paths: ['M8 3H3v5', 'M16 3h5v5', 'M3 16v5h5', 'M21 16v5h-5'] },
+  restore: { paths: ['M3 8h5V3', 'M21 8h-5V3', 'M3 16h5v5', 'M21 16h-5v5'] },
+};
+
+export function transportIcon(name) {
+  const spec = ICONS[name];
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  for (const [key, value] of [['viewBox', '0 0 24 24'], ['width', '16'], ['height', '16'], ['aria-hidden', 'true'],
+    ['focusable', 'false'], ['fill', spec?.fill ? 'currentColor' : 'none'], ['stroke', 'currentColor'],
+    ['stroke-width', '1.8'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round']]) svg.setAttribute(key, value);
+  for (const d of spec?.paths || []) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+// Swap only the icon holder, so a button's key hint and label survive.
+function setGlyph(button, name) {
+  if (!button) return;
+  let holder = button.querySelector?.('.tbtn-icon');
+  if (!holder) {
+    holder = document.createElement('span');
+    holder.className = 'tbtn-icon';
+    holder.setAttribute('aria-hidden', 'true');
+    button.insertBefore(holder, button.firstChild || null);
+  }
+  if (holder.dataset.icon === name) return;
+  while (holder.firstChild) holder.removeChild(holder.firstChild);
+  holder.appendChild(transportIcon(name));
+  holder.dataset.icon = name;
 }
 
 function shortcutHints(keys) {
@@ -79,9 +119,7 @@ export function renderTransportBar(host, { idPrefix = 'm', compact = false } = {
     return el;
   };
   const buttonContent = (button, glyph, key) => {
-    const icon = mk('span', 'tbtn-icon', { 'aria-hidden': 'true' });
-    icon.textContent = glyph;
-    button.appendChild(icon);
+    setGlyph(button, glyph);
     if (key) {
       const hint = mk('kbd', null, { 'aria-hidden': 'true' });
       hint.textContent = key;
@@ -90,11 +128,11 @@ export function renderTransportBar(host, { idPrefix = 'm', compact = false } = {
   };
 
   const back = mk('button', 'tbtn', { id: `${idPrefix}-back`, title: 'Back one step (←). Up/Down arrows change the step.', 'aria-label': 'Back one step', 'aria-keyshortcuts': 'ArrowLeft', 'data-action': 'seek', 'data-delta': '-1', type: 'button' });
-  buttonContent(back, '⏮', '←');
+  buttonContent(back, 'back', '←');
   const play = mk('button', 'tbtn play', { id: `${idPrefix}-play-btn`, title: 'Play / Pause', 'aria-label': 'Play or pause', 'data-action': 'playpause', type: 'button' });
-  buttonContent(play, '▶');
+  buttonContent(play, 'play');
   const fwd = mk('button', 'tbtn', { id: `${idPrefix}-fwd`, title: 'Forward one step (→). Up/Down arrows change the step.', 'aria-label': 'Forward one step', 'aria-keyshortcuts': 'ArrowRight', 'data-action': 'seek', 'data-delta': '1', type: 'button' });
-  buttonContent(fwd, '⏭', '→');
+  buttonContent(fwd, 'forward', '→');
 
   const time = mk('span', 'ttime', { id: `${idPrefix}-time` });
   // Seed the readout (textContent-only; setTimeReadout rebuilds it the same way).
@@ -113,9 +151,9 @@ export function renderTransportBar(host, { idPrefix = 'm', compact = false } = {
   }
 
   const mute = mk('button', 'tbtn', { id: `${idPrefix}-mute`, title: 'Mute (M)', 'aria-label': 'Mute', 'aria-keyshortcuts': 'M', 'data-action': 'mute', type: 'button' });
-  buttonContent(mute, '🔊', 'M');
+  buttonContent(mute, 'volume', 'M');
   const fs = mk('button', 'tbtn', { id: `${idPrefix}-fs`, title: 'Enlarge video (F)', 'aria-label': 'Enlarge video', 'aria-keyshortcuts': 'F', 'data-action': 'fullscreen', type: 'button' });
-  buttonContent(fs, '⛶', 'F');
+  buttonContent(fs, 'enlarge', 'F');
 
   const seekControls = mk('div', 'transport-seek-controls');
   seekControls.appendChild(back);
@@ -159,7 +197,7 @@ export function createTransport({
   expandClass = 'vp-expanded',
   modalExpand = false,  // true → contain focus and disable the page behind the player
   onExpandChange = null, // cb(expanded) for page extras (e.g. scrollIntoView)
-  fullGlyphs = true,     // true → ⛶/🗗 enlarge glyphs; false leaves the glyph as-is
+  fullGlyphs = true,     // true → enlarge/restore icons; false leaves the icon as-is
   durationFallback = () => 0, // returns a duration when video.duration isn't ready
 } = {}) {
   let _step = 5;
@@ -200,11 +238,11 @@ export function createTransport({
     if (playheadEl) playheadEl.style.left = `${pct * 100}%`;
     setTimeReadout(current(), d);
   }
-  function onPlay() { setGlyph(playBtn, '❚❚'); }
-  function onPause() { setGlyph(playBtn, '▶'); }
+  function onPlay() { setGlyph(playBtn, 'pause'); }
+  function onPause() { setGlyph(playBtn, 'play'); }
   function onVolume() {
     if (!muteBtn) return;
-    setGlyph(muteBtn, (video.muted || video.volume === 0) ? '🔇' : '🔊');
+    setGlyph(muteBtn, (video.muted || video.volume === 0) ? 'muted' : 'volume');
     const label = video.muted ? 'Unmute' : 'Mute';
     muteBtn.title = `${label} (M)`;
     muteBtn.setAttribute('aria-label', label);
@@ -342,7 +380,7 @@ export function createTransport({
       const expanded = expandTarget.classList.toggle(expandClass);
       if (modalExpand) expanded ? enterModal(scrollPosition) : leaveModal();
       if (fullGlyphs && fsBtn) {
-        setGlyph(fsBtn, expanded ? '🗗' : '⛶');
+        setGlyph(fsBtn, expanded ? 'restore' : 'enlarge');
       }
       if (fsBtn) {
         fsBtn.title = expanded ? 'Restore layout (F or Esc)' : 'Enlarge video (F)';
@@ -382,7 +420,7 @@ export function createTransport({
       try { video.pause(); } catch (_) { /* ignore */ }
       video.removeAttribute('src');
       try { video.load(); } catch (_) { /* ignore */ }
-      setGlyph(playBtn, '▶');
+      setGlyph(playBtn, 'play');
     },
 
     // CALLED FROM the page's existing single click handler. Returns true if it

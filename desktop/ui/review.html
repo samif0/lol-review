@@ -29,7 +29,7 @@
           <div class="rv-page-label">Match review</div>
           <h1 id="hero-title">Match review</h1>
           <div class="rv-resline">
-            <span class="rv-res" id="rv-res">—</span>
+            <span class="rv-res" id="rv-res"></span>
             <span class="rv-gmode" id="rv-gmode"></span>
             <span class="rv-gdur" id="rv-gdur"></span>
             <span id="rv-date"></span>
@@ -43,7 +43,7 @@
           </div>
         </div>
         <div class="rv-hero-kda">
-          <div class="rv-kda" id="rv-kda">— / — / —</div>
+          <div class="rv-kda" id="rv-kda"></div>
           <div class="rv-kdar" id="rv-kdar"></div>
           <span class="rv-reviewed" id="rv-reviewed" hidden>Review saved</span>
         </div>
@@ -114,17 +114,9 @@
           </div>
         </section>
 
-        <div class="rv-commitbar" id="rv-commitbar">
-          <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">Save review</button>
-          <span class="rv-commit-msg" id="rv-commit-msg" role="status" hidden></span>
-          <button type="button" class="review rv-nextbtn" id="rv-nextbtn" data-action="next_unreviewed" hidden>Next game →</button>
-        </div>
-      </section>
-
-      <section class="rv-supporting" aria-labelledby="rv-supporting-title">
-        <h2 id="rv-supporting-title">More from this match</h2>
-
-        <!-- Inputs remain mounted while collapsed, preserving drafts and autosaves. -->
+        <!-- The practice check-in earns objective points, so it sits above Save and
+             opens by default when the match has active objectives. Inputs remain
+             mounted while collapsed, preserving drafts and autosaves. -->
         <details class="rv-objsec learning-details" id="rv-objsec" hidden>
           <summary>Practice check-in <span id="rv-goal-count"></span></summary>
           <div class="learning-details-body">
@@ -152,6 +144,18 @@
             <div class="rv-emptyline" id="rv-obj-empty" hidden>No active learning objectives. Choose one from the Learning objectives page.</div>
           </div>
         </details>
+
+        <div class="rv-commitbar" id="rv-commitbar">
+          <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">Save review</button>
+          <span class="rv-commit-msg" id="rv-commit-msg" role="status" hidden></span>
+          <span class="rv-commit-msg rv-draft-status" id="rv-draft-status" role="status" hidden>Draft not saved.</span>
+          <button type="button" class="review rv-draft-retry" id="rv-draft-retry" data-action="retry_draft" hidden>Retry</button>
+          <button type="button" class="review rv-nextbtn" id="rv-nextbtn" data-action="next_unreviewed" hidden>Next game →</button>
+        </div>
+      </section>
+
+      <section class="rv-supporting" aria-labelledby="rv-supporting-title">
+        <h2 id="rv-supporting-title">More from this match</h2>
 
         <details class="learning-details" id="rv-match-details">
           <summary>Match details <span>Stats and matchups</span></summary>
@@ -344,9 +348,10 @@
     </div>
   </template>
 
-  <!-- One concept-tag catalog chip w/ selection state (read-only; .on = selected). -->
+  <!-- One concept-tag catalog chip: a toggle button (aria-pressed = selected). The
+       tag's own color is a small swatch; selection uses the shared pressed style. -->
   <template id="tpl-tagcat">
-    <span class="rv-tagcat-chip"><span class="rv-tagcat-txt"></span></span>
+    <button type="button" class="rv-tagcat-chip" aria-pressed="false"><span class="rv-tagcat-swatch" aria-hidden="true"></span><span class="rv-tagcat-txt"></span></button>
   </template>
 
   <script type="module" src="./review.js"></script>

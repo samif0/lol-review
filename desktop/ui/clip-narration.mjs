@@ -75,19 +75,31 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
   const status = text => setText('status', text);
   const show = (name, visible) => { const el = q(name); if (el) el.hidden = !visible; };
 
+  // The page keeps its own pre-navigation flush (pending moment writes). The studio
+  // chains in front of it while a take is active and restores it afterwards.
+  let pageGuard = null;
   function guard() {
     if (isActiveWork(sm.state) && !closed) {
       window.__revuActiveWork = 'narration';
-      window.revuBeforeNavigate = beforeNavigate;
+      if (window.revuBeforeNavigate !== beforeNavigate) {
+        pageGuard = typeof window.revuBeforeNavigate === 'function' ? window.revuBeforeNavigate : null;
+        window.revuBeforeNavigate = beforeNavigate;
+      }
     } else clearGuard();
   }
   async function beforeNavigate() {
-    if (sm.state === 'saving') { await dispatched; return true; } // the host finishes the render
-    return confirmFn(STUDIO_COPY.leave);
+    const next = pageGuard; // the take may end (and restore the page hook) while saving
+    if (sm.state === 'saving') await dispatched; // the host finishes the render
+    else if (!confirmFn(STUDIO_COPY.leave)) return false;
+    return next ? (await next()) !== false : true;
   }
   function clearGuard() {
     if (window.__revuActiveWork === 'narration') window.__revuActiveWork = false;
-    if (window.revuBeforeNavigate === beforeNavigate) delete window.revuBeforeNavigate;
+    if (window.revuBeforeNavigate === beforeNavigate) {
+      if (pageGuard) window.revuBeforeNavigate = pageGuard;
+      else delete window.revuBeforeNavigate;
+    }
+    pageGuard = null;
   }
   const send = event => { const next = sm.send(event); if (next) render(); return next; };
 

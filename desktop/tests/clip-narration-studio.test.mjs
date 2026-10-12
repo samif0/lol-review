@@ -525,3 +525,36 @@ test('closing while the microphone list loads never starts a level meter afterwa
     assert.equal(env.tracks[0].stopped, true);
   } finally { env.restore(); }
 });
+
+test('an active take chains onto the page navigation flush and restores it afterwards', async () => {
+  const env = environment();
+  try {
+    const flushed = [];
+    const pageGuard = async () => { flushed.push('page'); return true; };
+    env.win.revuBeforeNavigate = pageGuard;
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.equal(env.win.revuBeforeNavigate, pageGuard, 'setup does not replace the page flush');
+    await startTake(env);
+    assert.notEqual(env.win.revuBeforeNavigate, pageGuard);
+    env.confirm = false;
+    assert.equal(await env.win.revuBeforeNavigate(), false);
+    assert.deepEqual(flushed, [], 'a declined leave keeps the page and its pending writes');
+    env.confirm = true;
+    assert.equal(await env.win.revuBeforeNavigate(), true);
+    assert.deepEqual(flushed, ['page'], 'an accepted leave still flushes the page writes');
+    const laterOwner = async () => false;
+    env.win.revuBeforeNavigate = laterOwner;
+    studio.close();
+    await flush();
+    assert.equal(env.win.revuBeforeNavigate, laterOwner, 'never overwrite a hook the studio does not own');
+    env.win.revuBeforeNavigate = pageGuard;
+    const again = env.open(clipCtx());
+    await flush();
+    await startTake(env);
+    again.close();
+    await flush();
+    assert.equal(env.win.revuBeforeNavigate, pageGuard, 'closing restores the page flush');
+    assert.equal(env.win.__revuActiveWork, false);
+  } finally { env.restore(); }
+});

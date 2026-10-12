@@ -266,10 +266,14 @@ test('transcript progress never re-renders the rows while a moment note is being
   assert.equal(f.reads.length, reads, 'no reload while the note has focus');
   assert.equal(f.part(301, 'vp-ev-note'), note, 'the row being edited is untouched');
   assert.equal(f.document.activeElement, note);
-  note.blur();
+  note.blur(); // a real blur saves the changed note, then refreshes the list once
+  await f.hooks.flush();
+  assert.deepEqual(f.writes.map(write => write.command), ['save_pattern_moment_note']);
+  assert.equal(f.writes[0].args.payload.text, 'half typed');
+  assert.equal(f.reads.length, reads + 1);
   timers.advance(1000);
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.reads.length, reads + 1, 'the deferred reload runs once the field is left');
+  assert.equal(f.reads.length, reads + 2, 'the deferred reload runs once the field is left');
   assert.equal(timers.size, 0);
 });
 
