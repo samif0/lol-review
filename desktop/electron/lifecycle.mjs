@@ -17,6 +17,46 @@ export function relaunchArgs(argv) {
   return argv.slice(1).filter(arg => arg !== '--revu-startup');
 }
 
+/**
+ * Windows ending the session (logoff, restart, shutdown) also ends the backend. Watch
+ * the window's session-end notices and the power monitor, so that exit is not taken
+ * for a crash. Resolves to a getter: true once Windows has started ending the session.
+ */
+export function watchSessionEnd({ window, powerMonitor }) {
+  let ending = false;
+  const mark = () => { ending = true; };
+  window?.on('query-session-end', mark);
+  window?.on('session-end', mark);
+  powerMonitor?.on('shutdown', mark);
+  return () => ending;
+}
+
+/** A backend exit: ignored while Revu closes, a quiet close while Windows ends the session, otherwise a crash. */
+export function backendExitAction({ quitting, sessionEnding }) {
+  if (quitting) return 'ignore';
+  return sessionEnding ? 'quit' : 'recover';
+}
+
+/**
+ * The host needs only the window size from the settings at launch. A briefly locked
+ * config.json is read again after a short pause; if it stays unreadable Revu still
+ * opens at the default size, and each page reports the problem when it reads its
+ * settings. Nothing is written here, so the file is never replaced with defaults.
+ */
+export async function readLaunchConfig(request, { delaysMs = [250, 500, 1000], log,
+  wait = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await request('/api/config') || {}; }
+    catch (error) {
+      if (attempt >= delaysMs.length) {
+        log?.warn('Settings could not be read at launch; opening at the default window size', error);
+        return {};
+      }
+      await wait(delaysMs[attempt]);
+    }
+  }
+}
+
 /** The first renderer crash reloads the window; another within the window asks the user. */
 export function createRendererRecovery({ now = Date.now, windowMs = 5 * 60_000 } = {}) {
   let lastReload = -Infinity;
