@@ -257,6 +257,14 @@ public sealed class RulesRepository : IRulesRepository
         var at = asOf ?? DateTimeOffset.Now;
         var now = at.LocalDateTime;
 
+        // Judged at a past moment, only the games played before it count: a later game
+        // can neither arm a cooldown nor fill the day's cap for an earlier one.
+        if (asOf is not null && todaysGames is not null)
+        {
+            var atUnix = at.ToUnixTimeSeconds();
+            todaysGames = todaysGames.Where(g => g.Timestamp < atUnix).ToList();
+        }
+
         foreach (var rule in rules)
         {
             bool violated = false;

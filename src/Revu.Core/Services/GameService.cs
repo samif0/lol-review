@@ -107,24 +107,29 @@ public sealed class GameService : IGameService
         }
 
         // 4. Check user-defined rule violations. A remake never breaks a rule (it is not
-        // counted). These are reads, so they run before the write unit below; today's
+        // counted). These are reads, so they run before the write unit below; the
         // session rows do not include this game yet either way.
         var ruleBroken = false;
         if (!isRemake)
         {
             try
             {
-                var todaysGames = await _sessionLog.GetTodayAsync().ConfigureAwait(false);
-                var gameChecks = todaysGames
-                    .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
-                    .ToList();
-                // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
-                // be evaluated retroactively from the post-game review rating. Clock rules
-                // judge when the game was queued (its start), like the Rules evidence pass,
-                // not when it ended or was ingested.
+                // Clock rules judge when the game was queued (its start), like the Rules
+                // evidence pass, not when it ended or was ingested. So the game is judged
+                // against its own day's games played before it: a missed game reconciled
+                // later, or an earlier game ingested after later ones, must not see games
+                // from after it was queued.
                 DateTimeOffset? queuedAt = stats.Timestamp > 0
                     ? DateTimeOffset.FromUnixTimeSeconds(stats.Timestamp)
                     : null;
+                var sessionDate = (queuedAt ?? DateTimeOffset.Now).LocalDateTime.ToString("yyyy-MM-dd");
+                var sessionGames = await _sessionLog.GetForDateAsync(sessionDate).ConfigureAwait(false);
+                var gameChecks = sessionGames
+                    .Where(e => e.GameId != stats.GameId && (queuedAt is null || e.Timestamp < stats.Timestamp))
+                    .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
+                    .ToList();
+                // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
+                // be evaluated retroactively from the post-game review rating.
                 var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null, asOf: queuedAt)
                     .ConfigureAwait(false);
                 ruleBroken = violations.Any(v => v.Violated);
