@@ -44,7 +44,8 @@ public sealed class SessionService : ISessionService
     public async Task SetIntentionAsync(string dateStr, string intention)
     {
         await _sessionLog.SetSessionIntentionAsync(dateStr, intention).ConfigureAwait(false);
-        _logger.LogInformation("Session intention set for {Date}: {Intention}", dateStr, intention);
+        // Never the intention itself: sidecar.log can be attached to support requests.
+        _logger.LogInformation("Session intention set for {Date}", dateStr);
     }
 
     /// <inheritdoc />
