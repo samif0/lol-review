@@ -228,6 +228,38 @@ public sealed class VodServiceTests
         finally { Directory.Delete(junction); }
     }
 
+    [WindowsFact]
+    public async Task DirectoryJunctionOutsideTheFolderIsNotFollowed()
+    {
+        using var db = new TestDatabaseScope(); using var folder = new MediaFolder(); using var outside = new MediaFolder();
+        var video = folder.Video("09-11-2026-17-25.mp4");
+        outside.Video("09-11-2026-19-25.mp4");
+        var junction = Path.Combine(folder.Root, "elsewhere");
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            Arguments = $"/d /c mklink /J \"{junction}\" \"{outside.Root}\""
+        })!;
+        await process.WaitForExitAsync(); Assert.Equal(0, process.ExitCode);
+        try
+        {
+            var service = Service(db, new(new AppConfig { AscentFolder = folder.Root }));
+            Assert.Equal(video, Assert.Single(await service.FindRecordingsAsync()).Path);
+        }
+        finally { Directory.Delete(junction); }
+    }
+
+    [Fact]
+    public async Task ScanStopsDescendingBelowMaxScanDepth()
+    {
+        using var db = new TestDatabaseScope(); using var folder = new MediaFolder();
+        var deepest = Path.Combine(Enumerable.Repeat("d", VodService.MaxScanDepth).ToArray());
+        var atCap = folder.Video(Path.Combine(deepest, "09-11-2026-17-25.mp4"));
+        folder.Video(Path.Combine(deepest, "d", "09-11-2026-19-25.mp4"));
+        var service = Service(db, new(new AppConfig { AscentFolder = folder.Root }));
+        Assert.Equal(atCap, Assert.Single(await service.FindRecordingsAsync()).Path);
+    }
+
     [Fact]
     public async Task CancelledScanDoesNotLinkAnything()
     {

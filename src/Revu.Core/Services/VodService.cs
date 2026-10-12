@@ -136,13 +136,19 @@ public sealed partial class VodService : IVodService
         finally { _scanGate.Release(); }
     }
 
+    // Real recording folders are shallow. Links are never followed, so the walk
+    // is finite; the cap bounds pathological nesting (and the per-ancestor link
+    // check in IsSafePath) instead of descending until the OS rejects the path.
+    internal const int MaxScanDepth = 32;
+
     private List<VodRecordingInfo> Enumerate(string root, CancellationToken ct)
     {
         var found = new List<VodRecordingInfo>();
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.TryPop(out var directory))
+        var pending = new Stack<(string Path, int Depth)>();
+        pending.Push((root, 0));
+        while (pending.TryPop(out var next))
         {
+            var (directory, depth) = next;
             ct.ThrowIfCancellationRequested();
             if (!IsSafePath(directory, root) || IsNativePath(directory)) continue;
             try
@@ -151,7 +157,11 @@ public sealed partial class VodService : IVodService
                 {
                     ct.ThrowIfCancellationRequested();
                     if ((file.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    if ((file.Attributes & FileAttributes.Directory) != 0) { pending.Push(file.FullName); continue; }
+                    if ((file.Attributes & FileAttributes.Directory) != 0)
+                    {
+                        if (depth < MaxScanDepth) pending.Push((file.FullName, depth + 1));
+                        continue;
+                    }
                     if (!VideoExtensions.Contains(file.Extension)) continue;
                     try
                     {
