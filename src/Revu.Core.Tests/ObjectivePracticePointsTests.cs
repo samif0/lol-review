@@ -152,6 +152,91 @@ public sealed class ObjectivePracticePointsTests
         Assert.Equal(0, await CountAsync(scope, "SELECT COUNT(*) FROM games WHERE game_id = 6562"));
     }
 
+    [Fact]
+    public async Task UpgradedDatabase_OldHiddenGamesAndRemakes_AreCreditedOnlyOnce()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Ward river");
+        await SeedAsync(scope, 6601, 6602, 6603);
+        foreach (var id in new long[] { 6601, 6602, 6603 })
+            await scope.Objectives.RecordGameAsync(id, objectiveId, practiced: true);
+        await AddClipPointsAsync(scope, objectiveId, 4);
+        // What 3.14.1 left: 6602 hidden and 6603 marked a remake, both still holding points.
+        await HideAsOlderBuildAsync(scope, 6602);
+        await MarkRemakeAsOlderBuildAsync(scope, 6603);
+        await ForgetRebaseAsync(scope);
+        Assert.Equal(10, await ScoreAsync(scope, objectiveId));
+
+        await scope.Initializer.ApplySeedsAndIndexesAsync();
+        Assert.Equal(6, await ScoreAsync(scope, objectiveId));
+
+        await scope.Games.SetHiddenAsync(6602, false);
+        await MarkAsync(scope, 6603, false, "user");
+        var objective = (await scope.Objectives.GetAsync(objectiveId))!;
+        Assert.Equal(10, objective.Score);
+        Assert.Equal(3, objective.GameCount);
+
+        // The re-base runs once per database: a later launch never takes points again.
+        await scope.Games.SetHiddenAsync(6601, true);
+        await scope.Initializer.ApplySeedsAndIndexesAsync();
+        Assert.Equal(8, await ScoreAsync(scope, objectiveId));
+    }
+
+    [Fact]
+    public async Task UpgradedDatabase_OldHiddenGameResavedUnpracticed_KeepsNoStalePoints()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Ward river");
+        await SeedAsync(scope, 6611, 6612);
+        await scope.Objectives.RecordGameAsync(6611, objectiveId, practiced: true);
+        await scope.Objectives.RecordGameAsync(6612, objectiveId, practiced: true);
+        await HideAsOlderBuildAsync(scope, 6612);
+        await ForgetRebaseAsync(scope);
+        await scope.Initializer.ApplySeedsAndIndexesAsync();
+        Assert.Equal(2, await ScoreAsync(scope, objectiveId));
+
+        await scope.Objectives.RecordGameAsync(6612, objectiveId, practiced: false, "re-saved");
+        await scope.Games.SetHiddenAsync(6612, false);
+        Assert.Equal(2, await ScoreAsync(scope, objectiveId));
+
+        await scope.Objectives.RecordGameAsync(6612, objectiveId, practiced: true, "practiced after all");
+        Assert.Equal(4, await ScoreAsync(scope, objectiveId));
+    }
+
+    // Builds up to 3.14.1 hid a game and stored a remake verdict without moving any points.
+    private static async Task HideAsOlderBuildAsync(TestDatabaseScope scope, long gameId)
+    {
+        using var conn = scope.OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE games SET is_hidden = 1 WHERE game_id = @id";
+        cmd.Parameters.AddWithValue("@id", gameId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static async Task MarkRemakeAsOlderBuildAsync(TestDatabaseScope scope, long gameId)
+    {
+        using var conn = scope.OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO game_remakes (game_id, is_remake, caused_by_self, source, checked_at)
+            VALUES (@id, 1, 0, 'eog', 0)
+            """;
+        cmd.Parameters.AddWithValue("@id", gameId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // A database an older build last opened has never been re-based.
+    private static async Task ForgetRebaseAsync(TestDatabaseScope scope)
+    {
+        using var conn = scope.OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM schema_metadata WHERE key = @key";
+        cmd.Parameters.AddWithValue("@key", Revu.Core.Data.DatabaseInitializer.PracticePointsRebasedKey);
+        Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+    }
+
     // A database a downgraded build last opened, or one whose startup schema pass failed.
     private static async Task DropRemakesTableAsync(TestDatabaseScope scope)
     {

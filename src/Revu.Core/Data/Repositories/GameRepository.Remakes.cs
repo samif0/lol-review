@@ -135,7 +135,9 @@ public sealed partial class GameRepository
     // Practice points (ObjectivesRepository.PracticePoints per practiced objective) count
     // only for a visible, non-remake game. The score also holds clip points and older
     // points that cannot be recomputed, so a game that starts or stops counting moves
-    // exactly its own points instead of the score being recomputed from scratch.
+    // exactly its own points instead of the score being recomputed from scratch. A
+    // database older builds left (points on hidden games and remakes too) is re-based
+    // once at startup (DatabaseInitializer.RebaseLegacyPracticePointsOnceAsync).
     private static async Task ShiftObjectivePracticePointsAsync(SqliteConnection conn, SqliteTransaction tx, long gameId, bool nowCounted)
     {
         using var cmd = conn.CreateCommand();
