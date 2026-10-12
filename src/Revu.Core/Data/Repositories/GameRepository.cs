@@ -144,71 +144,61 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         return stats;
     }
 
-    private static int GetIntOrDefault(SqliteDataReader r, string col)
+    // A column a later migration added can be missing from an older database's rows, and
+    // a read may not select a computed column (is_remake): only an absent column reads as
+    // the default. Any other read failure throws instead of silently becoming 0 or "".
+    // (Column names are checked against the schema by GameRowMappingTests.)
+    private static int? OrdinalOrNull(SqliteDataReader r, string col)
     {
         try
         {
-            var ord = r.GetOrdinal(col);
-            if (r.IsDBNull(ord)) return 0;
-            // SQLite stores all ints as INT64; safely cast down
-            var val = r.GetInt64(ord);
-            return val > int.MaxValue ? int.MaxValue : val < int.MinValue ? int.MinValue : (int)val;
+            return r.GetOrdinal(col);
         }
-        catch { return 0; }
+        catch (Exception ex) when (ex is ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    private static int GetIntOrDefault(SqliteDataReader r, string col)
+    {
+        if (OrdinalOrNull(r, col) is not int ord || r.IsDBNull(ord)) return 0;
+        // SQLite stores all ints as INT64; safely cast down
+        var val = r.GetInt64(ord);
+        return val > int.MaxValue ? int.MaxValue : val < int.MinValue ? int.MinValue : (int)val;
     }
 
     private static long GetLongOrDefault(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? 0L : r.GetInt64(ord);
-        }
-        catch { return 0L; }
+        if (OrdinalOrNull(r, col) is not int ord) return 0L;
+        return r.IsDBNull(ord) ? 0L : r.GetInt64(ord);
     }
 
     // v2.18 (schema v5): nullable reads where NULL means "not backfilled yet",
     // which must stay distinguishable from zero.
     private static double? GetNullableDouble(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? null : r.GetDouble(ord);
-        }
-        catch { return null; }
+        if (OrdinalOrNull(r, col) is not int ord) return null;
+        return r.IsDBNull(ord) ? null : r.GetDouble(ord);
     }
 
     private static int? GetNullableInt(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? null : (int)r.GetInt64(ord);
-        }
-        catch { return null; }
+        if (OrdinalOrNull(r, col) is not int ord) return null;
+        return r.IsDBNull(ord) ? null : (int)r.GetInt64(ord);
     }
 
     private static double GetDoubleOrDefault(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            if (r.IsDBNull(ord)) return 0.0;
-            // SQLite might store as int or real; handle both
-            return Convert.ToDouble(r.GetValue(ord));
-        }
-        catch { return 0.0; }
+        if (OrdinalOrNull(r, col) is not int ord || r.IsDBNull(ord)) return 0.0;
+        // SQLite converts an INTEGER (or numeric text) cell to REAL itself.
+        return r.GetDouble(ord);
     }
 
     private static string GetStringOrDefault(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? "" : r.GetString(ord);
-        }
-        catch { return ""; }
+        if (OrdinalOrNull(r, col) is not int ord) return "";
+        return r.IsDBNull(ord) ? "" : r.GetString(ord);
     }
 
     /// <summary>Read all rows from a command into a list of GameStats.</summary>
