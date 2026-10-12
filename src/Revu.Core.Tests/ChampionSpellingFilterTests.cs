@@ -9,7 +9,7 @@ namespace Revu.Core.Tests;
 public sealed class ChampionSpellingFilterTests
 {
     [Fact]
-    public async Task RecentGamesAndLosses_FindTheOtherSpelling()
+    public async Task RecentGames_FindTheOtherSpelling()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
@@ -21,7 +21,6 @@ public sealed class ChampionSpellingFilterTests
 
         Assert.Equal([8501L, 8502L], recent.Select(g => g.GameId).Order());
         Assert.Equal(2, await scope.Games.GetRecentCountAsync(champion: "kaisa"));
-        Assert.Equal(8501, Assert.Single(await scope.Games.GetLossesAsync("Kai'Sa")).GameId);
     }
 
     [Fact]

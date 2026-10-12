@@ -181,11 +181,11 @@ public sealed class RecentGameRecoveryTests
         {
             var db = Database;
             Decisions = new(db.ConnectionFactory);
-            var gameService = new GameService(db.Games, db.SessionLog, new RulesRepository(db.ConnectionFactory),
+            var gameService = new GameService(db.ConnectionFactory, db.Games, db.SessionLog, new RulesRepository(db.ConnectionFactory),
                 new GameEventsRepository(db.ConnectionFactory), new DerivedEventsRepository(db.ConnectionFactory),
                 db.Config, NullLogger<GameService>.Instance);
             var lifecycle = new GameLifecycleWorkflowService(gameService, Decisions, db.Objectives,
-                db.CoachNotifier, NullLogger<GameLifecycleWorkflowService>.Instance);
+                NullLogger<GameLifecycleWorkflowService>.Instance);
             var history = new MatchHistoryReconciliationService(Lcu, db.Games, Decisions, NullLogger<MatchHistoryReconciliationService>.Instance);
             var registrations = new RecordingRegistrationService(Path.Combine(Root, "Native"),
                 new RecordingLinkStore(db.ConnectionFactory), Backup, NullLogger<RecordingRegistrationService>.Instance);

@@ -177,7 +177,6 @@ public sealed class ReviewSaveTransactionTests
         scope.MatchupNotes,
         scope.Evidence,
         new TestConfigService(),
-        new NullCoachSidecarNotifier(),
         NullLogger<ReviewWorkflowService>.Instance);
 
     private static readonly ReviewSnapshot Snapshot = new(
