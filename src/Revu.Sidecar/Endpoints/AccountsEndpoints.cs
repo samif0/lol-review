@@ -13,9 +13,9 @@ public static partial class SidecarEndpoints
     private static void MapAccounts(WebApplication app, JsonSerializerOptions jsonOptions)
     {
         // ─────────────────────────────────────────────────────────────────────────────
-        // RIOT AUTH / ACCOUNT (Batch 4). SECURITY-SENSITIVE: the email-OTP login flow
-        // (mirrors OnboardingViewModel + SettingsViewModel's RiotAuth* commands) and the
-        // account resolve that fills RiotPuuid + auto-detected rank. The session triplet
+        // RIOT AUTH / ACCOUNT. SECURITY-SENSITIVE: the email-OTP sign-in flow used by
+        // onboarding and Settings, and the account resolve that fills RiotPuuid +
+        // auto-detected rank. The session triplet
         // (RiotSessionToken/Email/ExpiresAt) and PUUID persist via the WRITE-graph
         // IConfigService, which round-trips through the DPAPI IProtectedSecretStore — so
         // these MUST run on WriteServices, never the read graph.
@@ -28,8 +28,7 @@ public static partial class SidecarEndpoints
         // we surface it with HTTP 422 so the desktop transport's error-extraction shows it.
         // ─────────────────────────────────────────────────────────────────────────────
 
-        // POST /api/auth/login  { email } — sends the magic-link / OTP email. No DB write.
-        // Mirrors OnboardingViewModel.SendLoginCodeAsync (validates non-empty email).
+        // POST /api/auth/login  { email } — sends the OTP email. No DB write.
         app.MapPost("/api/auth/login", async (AuthLoginBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Email))
@@ -52,11 +51,10 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/auth/verify  { code } — exchanges the OTP for a session token and
-        // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). Mirrors
-        // OnboardingViewModel.VerifyAsync + SettingsViewModel.RiotAuthVerify. The email we
+        // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). The email we
         // stamp is the one the verify call was issued for — the frontend passes it back so
         // we record the right RiotSessionEmail (the proxy's verify response carries only
-        // the token + expiry). Code is trimmed + upper-cased (mirror the VM).
+        // the token + expiry). Code is trimmed + upper-cased.
         app.MapPost("/api/auth/verify", async (AuthVerifyBody body, WriteServices w, SidecarBackgroundWork work,
             IServiceProvider services, ILogger<Program> log, CancellationToken ct) =>
         {
@@ -96,15 +94,13 @@ public static partial class SidecarEndpoints
         // POST /api/auth/resolve  { riotId, region } — resolve the Riot ID to a PUUID
         // using the stored session token, persist RiotId/RiotRegion/RiotPuuid +
         // OnboardingSkipped=false, then best-effort auto-detect the ranked solo tier
-        // (display-only, never throws). Mirrors OnboardingViewModel.FinishAccountAsync +
-        // SettingsViewModel.Save's PUUID-resolution leg. Validates the gameName#tagLine
-        // shape exactly like the VM. Returns the detected rank so the frontend can show
-        // the "RANK DETECTED" line.
+        // (display-only, never throws). Validates the gameName#tagLine shape. Returns the
+        // detected rank so the frontend can show it.
         app.MapPost("/api/auth/resolve", async (AuthResolveBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             var riotId = (body?.RiotId ?? "").Trim();
             var region = (body?.Region ?? "").Trim();
-            // Mirror the VM validation: must contain '#', not start/end with it.
+            // Must contain '#', not start/end with it.
             if (!riotId.Contains('#') || riotId.StartsWith('#') || riotId.EndsWith('#'))
                 return Results.BadRequest(new { error = "Enter your Riot ID as gameName#tagLine." });
             if (region.Length == 0)
@@ -144,9 +140,9 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/auth/logout — clear the session triplet (and reset OnboardingSkipped so
-        // a stale opt-out doesn't trap the user), then best-effort tell the server. Mirrors
-        // SettingsViewModel.RiotAuthLogout: clear config FIRST (so the local state is gone
-        // even if the network call fails), then call LogoutAsync(token).
+        // a stale opt-out doesn't trap the user), then best-effort tell the server. Clear
+        // config FIRST (so the local state is gone even if the network call fails), then
+        // call LogoutAsync(token).
         app.MapPost("/api/auth/logout", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             await w.BackupGuard.EnsureBackedUpAsync();
@@ -311,7 +307,7 @@ public static partial class SidecarEndpoints
             if (mapState.Updated > 0)
                 hub.Publish("mapStateUpdated", new { gameId = 0L, updated = mapState.Updated });
 
-            // Laning leg degrades silently on a proxy 404 (mirror the VM try/catch).
+            // Laning leg degrades silently on a proxy 404.
             LaningBackfillResult laning = new(0, 0, 0, 0);
             try
             {

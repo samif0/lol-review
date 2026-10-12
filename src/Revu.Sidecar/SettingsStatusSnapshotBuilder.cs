@@ -17,7 +17,7 @@ namespace Revu.Sidecar;
 //     SettingsViewModel.UpdateClipUsage EXACTLY (same pct thresholds + hex).
 //   • Backups list — IBackupService.ListBackupsAsync() verbatim (enumerates the
 //     backups directory; newest first). Feeds the Restore picker (restore itself
-//     is DEFERRED — destructive + relaunch).
+//     is POST /api/settings/restore, which relaunches).
 //
 // Folder-status computation is filesystem enumeration, not DB SQL, so it is
 // replicated here from the WinUI VM (the VM owns it too — there is no Core method
@@ -185,7 +185,7 @@ public sealed record FfmpegStatusDto(bool Available, string Text, string ColorHe
 /// <summary>Clip folder usage — "Using X MB / Y MB (Z%)" + the threshold hex.</summary>
 public sealed record ClipUsageDto(string Text, string ColorHex);
 
-/// <summary>One backup file in the restore picker. Restore is DEFERRED.</summary>
+/// <summary>One backup file in the restore picker (POST /api/settings/restore).</summary>
 public sealed record BackupDto(
     string FilePath,
     string FileName,

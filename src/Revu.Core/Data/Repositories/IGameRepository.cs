@@ -4,7 +4,7 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Data.Repositories;
 
-// â”€â”€ Result record types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Result record types ──────────────────────────────────────────────
 
 /// <summary>Focus/mistakes/went-well from the most recently reviewed game.
 /// v2.18 (schema v6 build): champion/result/timestamp let the pre-game intent
@@ -28,11 +28,8 @@ public sealed record SpottedProblem(
     string EnemyChampion = ""
 );
 
-// â”€â”€ Interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Interface ────────────────────────────────────────────────────────
 
-/// <summary>
-/// Repository for game stats CRUD â€” ported from Python GameRepository.
-/// </summary>
 /// <summary>Writes game rows and review metadata.</summary>
 public interface IGameWriter
 {

@@ -58,7 +58,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
 
         try
         {
-            // NULL = "leave the persisted value unchanged" for the fields the Tauri
+            // NULL = "leave the persisted value unchanged" for the fields the
             // review form doesn't render (it omits them, so they arrive null). We
             // load the current rows first and COALESCE nulls back to what's stored,
             // so the (blind) UPDATEs re-write the existing value instead of zeroing

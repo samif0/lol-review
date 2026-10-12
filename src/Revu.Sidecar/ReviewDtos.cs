@@ -47,7 +47,7 @@ public sealed record ReviewSubjectDto(
     long GameId,
     ReviewHeaderDto Header,
     // 8-up stat strip (Damage / CS / Vision / Gold / Kill Part. / Dmg Taken /
-    // Wards / KDA-style), mirroring ReviewViewModel.ApplyGameData. The laning@10
+    // Wards / KDA-style). The laning@10
     // line rides on the header (LaningAt10Line / HasLaningAt10).
     IReadOnlyList<ReviewStatDto> Stats,
     // Active objectives that could be practiced this game (IObjectivesRepository
@@ -86,7 +86,7 @@ public sealed record ReviewSubjectDto(
 public sealed record ReviewMatchupJournalDto(bool Enabled, MatchupCardDto? Card);
 
 /// <summary>
-/// Hero header for the reviewed game. Mirrors ReviewViewModel.ApplyGameData's
+/// Hero header for the reviewed game. Carries the
 /// precomputed display strings (ResultText, KdaText, the meta line) and emits
 /// *Hex colors rather than brushes.
 /// </summary>
@@ -117,7 +117,7 @@ public sealed record ReviewHeaderDto(
     // as the dashboard game rows.
     string MetaLine,
     // True when this game already has any persisted review signal
-    // (mirrors DashboardViewModel.HasPersistedReview).
+    // (same rule as the dashboard builder's HasPersistedReview).
     bool HasReview,
     // v2.18 (schema v5): "LANING @10 // CS 84 · GOLD DIFF +210 · CS DIFF +6"
     // from the Match-V5 timeline backfill. Empty until the backfill has run.
@@ -265,7 +265,7 @@ public sealed record ReviewFormDto(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// One DEATH event from the live kill feed (ReviewViewModel.LoadDeathAuditAsync),
+/// One DEATH event from the live kill feed,
 /// joined with the saved cause classification for this (game, second). The six
 /// cause chips mirror DeathClasses.All; exactly one IsSelected when classified.
 /// Classification/clear are DEFERRED writes — rendered read-only for now.
@@ -299,7 +299,7 @@ public sealed record ReviewDeathChipDto(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// The review's evidence triage split, mirroring ReviewViewModel's two lists:
+/// The review's evidence triage split into two lists:
 /// the capped, prioritized "ATTACHED EVIDENCE" set (Attached) vs the uncapped
 /// "EVIDENCE TO SORT" inbox of unassigned, non-dismissed moments (Unassigned).
 /// The two are derived from the SAME GetForGameAsync row set so they can't drift
@@ -339,13 +339,13 @@ public sealed record ReviewEvidenceItemDto(
 
 /// <summary>
 /// One past note for the same champion-vs-enemy matchup (newest-first), excluding
-/// this game's own note. Mirrors ReviewViewModel.MatchupHistoryItem.
+/// this game's own note.
 /// </summary>
 public sealed record ReviewMatchupHistoryDto(
     string Note,
     bool? Helpful,
     // "Game 5581701721  ·  Jun 12, 2026 18:04  ·  Helpful" — same MetaText
-    // convention as ReviewViewModel.BuildMatchupMetaText.
+    // convention as every past matchup note.
     string MetaText);
 
 // ─────────────────────────────────────────────────────────────────────────────

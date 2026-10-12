@@ -140,12 +140,6 @@ public static partial class SidecarEndpoints
         });
 
         // ─────────────────────────────────────────────────────────────────────────────
-        // SESSION LOG row write (Batch 2). Skip / delete / intention already exist
-        // (/api/review/skip, /api/game/delete, /api/block/start). This adds the one
-        // missing session-row action: clearing a false-positive rule-break flag.
-        // ─────────────────────────────────────────────────────────────────────────────
-
-        // ─────────────────────────────────────────────────────────────────────────────
         // MANUAL GAME ENTRY (Batch 2). Hand-log a game NOT auto-captured + a minimal
         // review. The Manual Entry page needs the active post-game objectives to render
         // its practiced/note rows, then POSTs the whole form.

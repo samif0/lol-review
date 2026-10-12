@@ -16,7 +16,7 @@ public sealed record ReviewSnapshot(
     string Mistakes,
     string FocusNext,
     string ReviewNotes,
-    // NULL = "leave the persisted value unchanged" for the fields below. The Tauri
+    // NULL = "leave the persisted value unchanged" for the fields below. The
     // review form does NOT render these (improvement/mental-handled/the three
     // attribution texts/enemy-laner/matchup-note), so its save payload omits them
     // and they arrive null — which must NOT overwrite migrated/pre-existing data

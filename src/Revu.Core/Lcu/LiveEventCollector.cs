@@ -9,7 +9,6 @@ namespace Revu.Core.Lcu;
 
 /// <summary>
 /// Polls the Live Client Data API during a game to collect events.
-/// Ported from Python LiveEventCollector class in live_events.py.
 /// </summary>
 public sealed class LiveEventCollector : Services.EventProcessing.IObservationSource
 {

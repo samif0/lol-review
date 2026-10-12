@@ -24,10 +24,8 @@ namespace Revu.Sidecar;
 /// <see cref="IObjectivesRepository.GetChampionsForObjectiveAsync"/>,
 /// <see cref="IGameAnalyticsQuery.GetRecentSpottedProblemsAsync"/>, and the
 /// static <see cref="IObjectivesRepository.GetLevelInfo"/>). No writes/migrations.
-/// The create-objective form + every mutation are DEFERRED: the contract carries
-/// a disabled <see cref="CreateFormDto"/> the frontend renders-but-disables.
-/// TODO: wire the create/edit/complete/delete mutations once a write-capable
-/// sidecar phase lands.
+/// Create, edit, priority, complete and delete go through the /api/objective/*
+/// write routes.
 /// </para>
 ///
 /// <para>

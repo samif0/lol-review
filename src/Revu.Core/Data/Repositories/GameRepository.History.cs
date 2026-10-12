@@ -88,7 +88,7 @@ public sealed partial class GameRepository
         return await reader.ReadAsync() ? MapGameStats(reader) : null;
     }
 
-    // â”€â”€ List reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── List reads ───────────────────────────────────────────────────────
 
     public async Task<List<GameStats>> GetRecentAsync(
         int limit = 50,
@@ -275,6 +275,6 @@ public sealed partial class GameRepository
         return list;
     }
 
-    // â”€â”€ Aggregation reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Aggregation reads ────────────────────────────────────────────────
 
 }

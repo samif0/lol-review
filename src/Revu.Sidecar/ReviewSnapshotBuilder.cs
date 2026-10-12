@@ -269,7 +269,7 @@ public sealed class ReviewSnapshotBuilder
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Header (mirror ReviewViewModel.ApplyGameData)
+    // Header
     // ─────────────────────────────────────────────────────────────────────────
 
     private ReviewHeaderDto BuildHeader(GameStats game)
@@ -353,8 +353,7 @@ public sealed class ReviewSnapshotBuilder
     }
 
     /// <summary>
-    /// Mirror of ReviewViewModel.ApplyGameData's laning-at-10 block: the
-    /// canonical "did I win lane?" line from the Match-V5 timeline backfill.
+    /// The laning-at-10 block: the canonical "did I win lane?" line from the Match-V5 timeline backfill.
     /// Empty until the backfill has populated CsAt10 for this game.
     /// </summary>
     private static (string Line, bool Has) BuildLaningLine(GameStats game)
@@ -387,7 +386,7 @@ public sealed class ReviewSnapshotBuilder
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Stat strip — the full 8-up set ReviewViewModel.ApplyGameData shows:
+    // Stat strip — the full 8-up set:
     // Damage / CS / Vision / Gold / Kill Part. / Dmg Taken / Wards / KDA.
     // (The dashboard snapshot ships 6; the review surface shows all 8 + the
     // laning@10 line, which rides on the header.) Uses the dashboard
@@ -424,8 +423,8 @@ public sealed class ReviewSnapshotBuilder
         var result = new List<ReviewObjectiveDto>();
 
         // Hydrate this game's saved prompt answers once (keyed by prompt id) so
-        // each prompt below can show what the user actually wrote (mirrors
-        // ReviewViewModel.HydratePromptsAsync). Failure degrades to no answers.
+        // each prompt below can show what the user actually wrote. Failure
+        // degrades to no answers.
         var answersByPromptId = new Dictionary<long, string>();
         try
         {
@@ -857,7 +856,7 @@ public sealed class ReviewSnapshotBuilder
 
     // ─────────────────────────────────────────────────────────────────────────
     // Death audit — one row per DEATH event from the live kill feed, joined to
-    // the saved cause classification (mirror ReviewViewModel.LoadDeathAuditAsync).
+    // the saved cause classification.
     // The six cause chips mirror DeathClasses.All; IsSelected reflects the saved
     // class. Read-only (classify/clear are DEFERRED writes).
     // ─────────────────────────────────────────────────────────────────────────
@@ -878,7 +877,7 @@ public sealed class ReviewSnapshotBuilder
             }
 
             var saved = await _deathClassRepo.GetForGameAsync(gameId);
-            // Same dedupe as the VM: first saved class wins per (game, second).
+            // First saved class wins per (game, second).
             var savedByTime = saved
                 .GroupBy(static c => c.GameTimeSeconds)
                 .ToDictionary(static g => g.Key, static g => g.First().DeathClass);
@@ -918,12 +917,9 @@ public sealed class ReviewSnapshotBuilder
     // ─────────────────────────────────────────────────────────────────────────
     // Evidence triage — the attached (capped, prioritized) list + the uncapped
     // "EVIDENCE TO SORT" inbox of unassigned, non-dismissed moments. Both derive
-    // from the SAME GetForGameAsync row set so they can't drift (P-013). Read-only
-    // (polarity/status/objective triage are DEFERRED writes).
-    //
-    // NB: the WinUI VM ALSO upserts auto timeline-region + clip evidence rows on
-    // load (a WRITE). The read-only sidecar must NOT write, so we ship whatever
-    // GetForGameAsync already returns — the WinUI app remains the writer.
+    // from the SAME GetForGameAsync row set so they can't drift (P-013). Read-only:
+    // triage goes through the /api/evidence/* write routes, and this snapshot never
+    // creates evidence rows.
     // ─────────────────────────────────────────────────────────────────────────
 
     private ReviewEvidenceDto BuildEvidence(IReadOnlyList<EvidenceItemRecord> allRows)
@@ -931,8 +927,7 @@ public sealed class ReviewSnapshotBuilder
         try
         {
             // Attached: assigned-to-an-objective OR a real clip OR already triaged
-            // as evidence/highlight — the prioritized, capped set (mirror
-            // ReviewViewModel.PrioritizeEvidenceRows, capped at MaxEvidenceInbox).
+            // as evidence/highlight — the prioritized set, capped at MaxEvidenceInbox.
             var attached = allRows
                 .Where(static row => row.SourceKind == EvidenceKinds.Clip
                     || row.ObjectiveId.HasValue
@@ -1068,7 +1063,7 @@ public sealed class ReviewSnapshotBuilder
         _ => null,
     };
 
-    /// <summary>Mirror of ReviewViewModel.BuildMatchupMetaText.</summary>
+    /// <summary>"Game N  ·  date  ·  Helpful" meta line for a past matchup note.</summary>
     private static string BuildMatchupMetaText(long? gameId, long? createdAt, int? helpful)
     {
         var createdText = createdAt is > 0
@@ -1124,10 +1119,10 @@ public sealed class ReviewSnapshotBuilder
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Shared helpers (mirrors of the dashboard builder / ReviewViewModel)
+    // Shared helpers (shared shape with the dashboard builder)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Mirror of DashboardViewModel.HasPersistedReview.</summary>
+    /// <summary>True when the game row holds any saved review content.</summary>
     private static bool HasPersistedReview(GameStats game)
     {
         return game.Rating > 0
@@ -1149,7 +1144,7 @@ public sealed class ReviewSnapshotBuilder
         _ => n.ToString()
     };
 
-    /// <summary>Mirror of ReviewViewModel.FormatGameTime: "MM:SS" (clamped ≥0).</summary>
+    /// <summary>"MM:SS" game time (clamped ≥0).</summary>
     private static string FormatGameTime(int seconds)
     {
         if (seconds < 0) seconds = 0;
