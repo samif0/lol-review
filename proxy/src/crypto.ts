@@ -10,9 +10,18 @@ export async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-export async function sha256Prefix(input: string, hexChars: number): Promise<string> {
-  const full = await sha256Hex(input);
-  return full.slice(0, hexChars);
+export async function hmacSha256Hex(secret: string, input: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** 48-char hex string — 24 random bytes. Session tokens. */

@@ -7,8 +7,12 @@
  * upload/delete. Clips auto-expire after 3 days (see CLIP_TTL_SECONDS +
  * purgeExpiredClips, run from the Worker's scheduled handler).
  *
- * Privacy: only the uploader-typed title/champion ever surface publicly. No
- * account, Riot ID, or match data is stored or returned here.
+ * Privacy: what surfaces publicly is the video, its champion tag, a short
+ * title, duration, narrated/transcript flags and the view count. The title is
+ * whatever the uploading client sends. Desktop builds up to 3.14.1 send the
+ * clip's bookmark note when the user typed no title, so a stored title can be
+ * a private note; later builds send a neutral champion and game-time title
+ * instead. No account, Riot ID or match data is stored or returned here.
  */
 
 import { Env } from "./types";
@@ -219,10 +223,6 @@ export async function findClip(db: D1Database, id: string): Promise<ClipRow | nu
   return row ?? null;
 }
 
-async function incrementViews(db: D1Database, id: string): Promise<void> {
-  await db.prepare("UPDATE clips SET view_count = view_count + 1 WHERE id = ?1").bind(id).run();
-}
-
 /** Minimal HTML-attribute/text escaping for user-supplied title/champion. */
 function escapeHtml(s: string): string {
   return s
@@ -259,7 +259,8 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 
   const rawTitle = (clip.title || "").trim() || "League clip";
   const champ = (clip.champion || "").trim();
-  const title = escapeHtml(champ ? `${rawTitle} — ${champ}` : rawTitle);
+  // A middle dot, not a dash: user-facing copy never uses em or en dashes.
+  const title = escapeHtml(champ ? `${rawTitle} · ${champ}` : rawTitle);
   const desc = escapeHtml(
     champ ? `${champ} clip shared with Revu. Watch in your browser.` : "Watch this League of Legends clip, shared with Revu.",
   );
@@ -529,20 +530,29 @@ export async function handleClipMeta(env: Env, id: string): Promise<Response> {
   );
 }
 
+/** True when an If-None-Match / If-Range value names `etag` (weak tags compare equal). */
+function etagMatches(header: string, etag: string): boolean {
+  if (header.trim() === "*") return true;
+  const strip = (t: string) => t.trim().replace(/^W\//, "");
+  return header.split(",").some((t) => strip(t) === strip(etag));
+}
+
 /**
- * GET /clip-file/:id — stream the video bytes from R2. Honors Range so the
- * browser <video> element can seek. 404 if missing/expired.
+ * GET|HEAD /clip-file/:id — the video bytes from R2. 404 if missing/expired.
+ *
+ *   - Range: a single `bytes=` range is a 206; one that starts past the end is a
+ *     416 whose Content-Range is the unsatisfied form (an asterisk, then the
+ *     size); anything unparseable is ignored (full 200), as RFC 9110 allows.
+ *   - If-None-Match matching the ETag is a 304 with no body.
+ *   - If-Range that no longer matches the ETag ignores the Range (full 200).
+ *   - HEAD reads only the object's metadata (R2 head), never its body.
+ * Conditional requests and HEAD cost one R2 head; a plain GET costs one get.
  */
 export async function handleClipFile(request: Request, env: Env, id: string): Promise<Response> {
   if (!SLUG_REGEX.test(id)) return jsonResponse({ error: "not_found" }, 404);
   const clip = await findClip(env.DB, id);
   if (!clip) return jsonResponse({ error: "not_found" }, 404);
-
-  const rangeHeader = request.headers.get("Range");
-  const range = parseRange(rangeHeader, clip.size_bytes);
-
-  const obj = await env.CLIPS.get(clip.r2_key, range ? { range: { offset: range.offset, length: range.length } } : undefined);
-  if (!obj) return jsonResponse({ error: "not_found" }, 404);
+  const size = clip.size_bytes;
 
   const headers = new Headers();
   headers.set("Content-Type", clip.content_type);
@@ -557,29 +567,47 @@ export async function handleClipFile(request: Request, env: Env, id: string): Pr
     "Content-Disposition",
     `inline; filename="revu-clip-${clip.id}.${clip.content_type === "video/webm" ? "webm" : "mp4"}"`,
   );
-  const etag = obj.httpEtag;
-  if (etag) headers.set("ETag", etag);
+
+  const isHead = request.method === "HEAD";
+  const ifNoneMatch = request.headers.get("If-None-Match");
+  const ifRange = request.headers.get("If-Range");
+  let range = parseRange(request.headers.get("Range"), size);
+
+  // Metadata first when the answer depends on the ETag, or no body is wanted.
+  let etag: string | null = null;
+  if (isHead || ifNoneMatch !== null || (range !== null && ifRange !== null)) {
+    const meta = await env.CLIPS.head(clip.r2_key);
+    if (!meta) return jsonResponse({ error: "not_found" }, 404);
+    etag = meta.httpEtag || null;
+    if (etag) headers.set("ETag", etag);
+    if (etag && ifNoneMatch !== null && etagMatches(ifNoneMatch, etag)) {
+      headers.delete("Content-Type");
+      return new Response(null, { status: 304, headers });
+    }
+    // If-Range carries an ETag here (we send no Last-Modified); a stale one
+    // means "send the whole current file".
+    if (range !== null && ifRange !== null && !(etag && etagMatches(ifRange, etag))) range = null;
+  }
+
+  if (range === "unsatisfiable") {
+    headers.set("Content-Range", `bytes */${size}`);
+    headers.delete("Content-Type");
+    return new Response(null, { status: 416, headers });
+  }
 
   if (range) {
     headers.set("Content-Length", String(range.length));
-    headers.set("Content-Range", `bytes ${range.offset}-${range.offset + range.length - 1}/${clip.size_bytes}`);
-    return new Response(obj.body, { status: 206, headers });
+    headers.set("Content-Range", `bytes ${range.offset}-${range.offset + range.length - 1}/${size}`);
+  } else {
+    headers.set("Content-Length", String(size));
   }
+  const status = range ? 206 : 200;
+  if (isHead) return new Response(null, { status, headers });
 
-  headers.set("Content-Length", String(clip.size_bytes));
-  return new Response(obj.body, { status: 200, headers });
-}
-
-/** POST /clip-view/:id — best-effort view increment. Always 200 (cheap, public). */
-export async function handleClipView(env: Env, id: string): Promise<Response> {
-  if (!SLUG_REGEX.test(id)) return jsonResponse({ ok: true }, 200);
-  try {
-    const clip = await findClip(env.DB, id);
-    if (clip) await incrementViews(env.DB, id);
-  } catch {
-    // Views are not worth failing a request over.
-  }
-  return jsonResponse({ ok: true }, 200);
+  const obj = await env.CLIPS.get(clip.r2_key, range ? { range: { offset: range.offset, length: range.length } } : undefined);
+  if (!obj) return jsonResponse({ error: "not_found" }, 404);
+  if (obj.httpEtag) headers.set("ETag", obj.httpEtag);
+  return new Response(obj.body, { status, headers });
 }
 
 /** DELETE /clips/:id — owner-only delete. Requires a session (userId). */
@@ -641,10 +669,11 @@ export function clampText(value: string | null, max: number): string | null {
 
 /**
  * Parse a single-range `Range: bytes=start-end` header into an R2-friendly
- * { offset, length }. Returns null for absent/unsatisfiable/multi-range headers
- * (caller then serves the whole object).
+ * { offset, length }. Returns "unsatisfiable" for a well-formed range that
+ * starts at or past the end (or a zero-length suffix), and null for an absent,
+ * malformed, inverted or multi-range header (caller serves the whole object).
  */
-function parseRange(header: string | null, size: number): { offset: number; length: number } | null {
+export function parseRange(header: string | null, size: number): { offset: number; length: number } | "unsatisfiable" | null {
   if (!header) return null;
   const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
   if (!m) return null;
@@ -658,7 +687,8 @@ function parseRange(header: string | null, size: number): { offset: number; leng
   if (startStr === "") {
     // suffix range: last N bytes
     const suffix = parseInt(endStr, 10);
-    if (!Number.isFinite(suffix) || suffix <= 0) return null;
+    if (!Number.isFinite(suffix)) return null;
+    if (suffix <= 0 || size <= 0) return "unsatisfiable";
     offset = Math.max(0, size - suffix);
     end = size - 1;
   } else {
@@ -667,9 +697,9 @@ function parseRange(header: string | null, size: number): { offset: number; leng
   }
 
   if (!Number.isFinite(offset) || !Number.isFinite(end)) return null;
-  if (offset < 0 || offset >= size) return null;
+  if (endStr !== "" && startStr !== "" && end < offset) return null;
+  if (offset >= size) return "unsatisfiable";
   if (end >= size) end = size - 1;
-  if (end < offset) return null;
 
   return { offset, length: end - offset + 1 };
 }

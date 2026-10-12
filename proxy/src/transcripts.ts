@@ -26,8 +26,11 @@ export const TRANSCRIBE_MAX_BODY_BYTES = 1048576;
 export const TRANSCRIBE_MAX_CHUNK_MS = 120000;
 export const TRANSCRIBE_MIN_OFFSET_MS = -60000;
 export const TRANSCRIBE_MAX_OFFSET_MS = 1200000;
-export const TRANSCRIBE_USER_DAILY_SECONDS = 7200;
+// The global row is the Workers AI cost cap. One account's daily share is a
+// ninth of it (20 minutes of narration, two full 10-minute clips), so it takes
+// nine accounts at their cap, not two, to switch transcripts off for everyone.
 export const TRANSCRIBE_GLOBAL_DAILY_SECONDS = 10800;
+export const TRANSCRIBE_USER_DAILY_SECONDS = TRANSCRIBE_GLOBAL_DAILY_SECONDS / 9;
 // The desktop always encodes 24 kbps mono MP3 (3000 bytes per second). The quota
 // is charged from the larger of the declared duration and the duration the body
 // size implies at that rate, and a body far larger than its declared duration

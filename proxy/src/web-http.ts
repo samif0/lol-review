@@ -9,6 +9,7 @@
  * they must never pass through index.ts withCors (it rebuilds the headers).
  */
 
+import { clientIpKey } from "./client-ip";
 import { sha256Hex } from "./crypto";
 import { mediaTypeOf, readSmallBody } from "./http";
 import { Env } from "./types";
@@ -168,7 +169,7 @@ export function makeIpLimiter(limit: number, windowMs: number): IpLimiter {
   const buckets = new Map<string, Bucket>();
   return {
     take(request: Request): boolean {
-      const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      const ip = clientIpKey(request);
       const now = Date.now();
       if (buckets.size >= MAX_TRACKED_IPS) {
         for (const [key, bucket] of buckets) {

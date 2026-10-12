@@ -47,27 +47,6 @@ export async function createUser(db: D1Database, email: string, inviteCode: stri
   return result.id;
 }
 
-// ── Invite codes ────────────────────────────────────────────────────────
-
-/**
- * Atomic consume: only succeeds if the code exists and is unused. Returns
- * true when the row was flipped, false otherwise (invalid or already used).
- */
-export async function tryConsumeInvite(
-  db: D1Database,
-  code: string,
-  userId: number,
-): Promise<boolean> {
-  const now = Math.floor(Date.now() / 1000);
-  const res = await db
-    .prepare(
-      "UPDATE invite_codes SET used_by = ?2, used_at = ?3 WHERE code = ?1 AND used_by IS NULL",
-    )
-    .bind(code, userId, now)
-    .run();
-  return (res.meta.changes ?? 0) > 0;
-}
-
 // ── Sessions ────────────────────────────────────────────────────────────
 
 export async function createSession(
@@ -109,9 +88,15 @@ export async function deleteExpiredSessions(db: D1Database): Promise<void> {
 
 // ── Login requests (one-time codes) ─────────────────────────────────────
 //
-// The `code` column stores sha256(otp) hex, never the raw code — same
-// hash-at-rest treatment as session tokens, so a D1 leak can't hand out
-// live login codes.
+// The `code` column stores a hash of the code, never the raw code (see
+// loginCodeHash in auth.ts: plain sha256, or HMAC-SHA256 with the
+// LOGIN_CODE_PEPPER secret when it is set). Without the pepper a leaked table
+// could still be brute-forced offline, because codes are only about 40 bits,
+// so set the pepper in production. The hourly cron deletes rows about an hour
+// after they expire, so a sign-in email address is kept for hours, not forever.
+
+/** A code is burned once this many verify attempts have counted against it. */
+export const MAX_CODE_ATTEMPTS = 5;
 
 export async function createLoginRequest(
   db: D1Database,
@@ -148,31 +133,48 @@ export async function countRecentLoginRequests(
 }
 
 /**
- * Atomic: look up a login request by code hash, mark it consumed if it's
- * still valid (unexpired, unconsumed). Returns the pre-consume row or null.
+ * Desktop verify by code alone (clients that don't send the email yet).
+ * Atomic consume of a live desktop code. A code burned by bound attempts
+ * (more than MAX_CODE_ATTEMPTS) can't be consumed here either, and web codes
+ * are redeemable only at /auth/web/email/verify. Returns the email or null.
  */
-export async function tryConsumeLoginRequest(
-  db: D1Database,
-  codeHash: string,
-): Promise<LoginRequestRow | null> {
+export async function tryConsumeLoginRequest(db: D1Database, codeHash: string): Promise<string | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = await db
     .prepare(
-      "SELECT code, email, purpose, created_at, expires_at, consumed FROM login_requests WHERE code = ?1 LIMIT 1",
+      "UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND purpose != 'web' AND consumed = 0 AND attempts <= 5 AND expires_at > ?2 RETURNING email",
     )
-    .bind(codeHash)
-    .first<LoginRequestRow>();
-  if (!row) return null;
-  if (row.purpose === 'web') return null; // web codes are redeemable only at /auth/web/email/verify
-  if (row.consumed !== 0) return null;
-  if (row.expires_at <= now) return null;
+    .bind(codeHash, now)
+    .first<{ email: string }>();
+  return row?.email ?? null;
+}
 
-  const upd = await db
-    .prepare("UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND consumed = 0")
-    .bind(codeHash)
+/** Every bound desktop verify attempt counts against all live desktop codes for the email. */
+export async function bumpLoginAttempts(db: D1Database, email: string): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare("UPDATE login_requests SET attempts = attempts + 1 WHERE email = ?1 AND purpose != 'web' AND consumed = 0 AND expires_at > ?2")
+    .bind(email, now)
     .run();
-  if ((upd.meta.changes ?? 0) === 0) return null; // race: another request consumed it
-  return row;
+}
+
+/**
+ * Atomic consume of a desktop code bound to its email. Runs AFTER the attempt
+ * bump, so at most MAX_CODE_ATTEMPTS guesses are evaluated per code.
+ */
+export async function tryConsumeBoundLoginRequest(
+  db: D1Database,
+  codeHash: string,
+  email: string,
+): Promise<string | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const row = await db
+    .prepare(
+      "UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND email = ?2 AND purpose != 'web' AND consumed = 0 AND attempts <= 5 AND expires_at > ?3 RETURNING email",
+    )
+    .bind(codeHash, email, now)
+    .first<{ email: string }>();
+  return row?.email ?? null;
 }
 
 // ── Web accounts (revu.lol, cookie sessions) ────────────────────────────

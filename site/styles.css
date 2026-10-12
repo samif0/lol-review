@@ -396,7 +396,7 @@ kbd {
   list-style: none;
 }
 .feature-card { padding: 20px; border-radius: var(--radius-panel); background: var(--surface); }
-.feature-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.feature-card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 .feature-card p { color: var(--muted); font-size: 14px; line-height: 1.6; }
 
 @media (min-width: 768px) {

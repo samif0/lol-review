@@ -6,19 +6,28 @@
   const caption = lightbox.querySelector('.lightbox-caption');
   const closeBtn = lightbox.querySelector('.lightbox-close');
 
+  // The element that opened the lightbox gets focus back when it closes.
+  let opener = null;
+
   const open = (src, alt, captionText) => {
+    opener = document.activeElement;
     img.src = src;
     img.alt = alt || '';
     caption.textContent = captionText || '';
     lightbox.classList.add('is-open');
     lightbox.setAttribute('aria-hidden', 'false');
+    lightbox.setAttribute('aria-modal', 'true');
     document.body.style.overflow = 'hidden';
+    if (closeBtn) closeBtn.focus();
   };
 
   const close = () => {
     lightbox.classList.remove('is-open');
     lightbox.setAttribute('aria-hidden', 'true');
+    lightbox.removeAttribute('aria-modal');
     document.body.style.overflow = '';
+    if (opener && typeof opener.focus === 'function') opener.focus();
+    opener = null;
     // clear src after transition so a stale flash doesn't appear next open
     setTimeout(() => {
       if (!lightbox.classList.contains('is-open')) img.src = '';
@@ -47,6 +56,12 @@
     if (e.target === lightbox || e.target === closeBtn) close();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && lightbox.classList.contains('is-open')) close();
+    if (!lightbox.classList.contains('is-open')) return;
+    if (e.key === 'Escape') close();
+    // The close button is the only control inside, so Tab stays on it.
+    if (e.key === 'Tab' && closeBtn) {
+      e.preventDefault();
+      closeBtn.focus();
+    }
   });
 })();

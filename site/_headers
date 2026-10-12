@@ -19,11 +19,11 @@
 # intersection of joined policies (frame-ancestors 'none' would win).
 /clip
   ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-qSvTjAYPc8wjmxhRcKTcSCb0oANI+GpQ7PLEME43KAo=' 'sha256-cjC7akSeLpR0hmt6bck9WDyy/XQKg0rbBqwe6o0syoQ='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; connect-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://twitter.com https://x.com https://*.twitter.com https://*.x.com
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-Jc9g/O4YwfbHrfQc0DF3SOxgZYJeOWpvzs4UCTBAGAg=' 'sha256-XXaGqM9Ae0HM6ryYkvvlFVZf5x2T9gcrh9VcvPETxWE='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://twitter.com https://x.com https://*.twitter.com https://*.x.com
 
 /clip.html
   ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-qSvTjAYPc8wjmxhRcKTcSCb0oANI+GpQ7PLEME43KAo=' 'sha256-cjC7akSeLpR0hmt6bck9WDyy/XQKg0rbBqwe6o0syoQ='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; connect-src https://clips.revu.lol http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://twitter.com https://x.com https://*.twitter.com https://*.x.com
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-Jc9g/O4YwfbHrfQc0DF3SOxgZYJeOWpvzs4UCTBAGAg=' 'sha256-XXaGqM9Ae0HM6ryYkvvlFVZf5x2T9gcrh9VcvPETxWE='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://twitter.com https://x.com https://*.twitter.com https://*.x.com
 
 # Web account pages. Detach the global CSP first (matched rules comma-join),
 # then allow only what each page needs: Turnstile on /sign-in, and the

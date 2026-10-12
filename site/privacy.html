@@ -38,13 +38,14 @@
     <article class="legal">
       <p class="eyebrow">Legal</p>
       <h1 class="legal-h1">Privacy policy</h1>
-      <p class="legal-meta">Last updated: 2026-10-10</p>
+      <p class="legal-meta">Last updated: 2026-10-12</p>
 
       <p>
         Revu is a Windows desktop app. Your review data, game history,
         notes, objectives, and clips live on your machine. Revu's
         server holds only what it needs to run its online features: the
-        email address and session you use to sign in, clips you choose
+        email address and session you use to sign in, pending sign-in
+        codes (deleted within about two hours), clips you choose
         to share and their transcripts (deleted after 3 days), and daily
         transcription usage counts (kept for 7 days). This page
         explains exactly what Revu reads, what it stores, and what (if
@@ -95,7 +96,9 @@
           rest of your local game data does not leave your machine. The
           Worker logs request metadata (timestamps, status codes) for
           rate limiting and abuse prevention; it does not log request
-          bodies.
+          bodies. To rate limit requests and count clip views fairly,
+          it keeps your IP address, or a hash of it, only in short-lived
+          server memory. It is never written to Revu's database.
         </li>
         <li>
           <strong>Email sign-in</strong>: you can sign in in the desktop
@@ -105,7 +108,10 @@
           identify your account, along with your sign-in session. The
           sign-in code is emailed to you through an email delivery
           provider (Resend), which receives your email address only to
-          send that message.
+          send that message. Each code request is stored with your
+          email address and a one-way hash of the code, never the code
+          itself, and is deleted about an hour after the code expires,
+          whether or not it was used.
         </li>
         <li>
           <strong>Riot Games' Match-V5 API</strong> (via the proxy
@@ -150,6 +156,15 @@
           clip in the app also removes the shared copy as soon as Revu
           can reach its server while you are signed in; otherwise the
           shared copy expires after 3 days.
+        </li>
+        <li>
+          A shared clip's page shows the video, its champion, a short
+          title, its length and a view count. In Revu 3.14.1 and
+          earlier, if you share a clip without typing a title, the
+          clip's note is used as its title, so it appears on that page
+          and in link previews. Later versions title it with the
+          champion and game time instead and never send your notes
+          with a shared clip.
         </li>
         <li>
           When you are signed in, narration audio you record over a
@@ -197,7 +212,12 @@
         searches, cached match lists, review notes, and the name and size
         of the file you attached in your browser's local storage. It does not upload ROFL files, VODs, or other media.
         Clearing your browser data for this site removes that local web
-        review data.
+        review data. Review notes are kept separately for each match.
+      </p>
+      <p>
+        The shared clip page remembers, for the current browser tab only,
+        which clips you opened, so reloading a clip does not count as a
+        new view. Closing the tab forgets it.
       </p>
       <p>
         If you sign in on revu.lol, <code>clips.revu.lol</code> sets one
