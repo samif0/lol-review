@@ -235,10 +235,11 @@ public sealed class BackupServiceResetTests
         var backups = await svc.ListBackupsAsync();
 
         var entry = Assert.Single(backups);
-        // Label format: "<Kind> — <date> — <size> MB"
+        // Label format: "<Kind> · <date> · <size> MB" (no em dashes in user-facing copy)
         Assert.Contains("Pre-reset", entry.Label);
         Assert.Contains("2026", entry.Label); // timestamp rendered
         Assert.Contains("MB", entry.Label);
+        Assert.DoesNotContain("—", entry.Label);
     }
 
     [Fact]

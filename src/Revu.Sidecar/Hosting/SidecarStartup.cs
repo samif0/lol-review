@@ -76,6 +76,12 @@ public static class SidecarStartup
                             reconcileEx, "Back-catalog PUUID reconcile skipped (non-fatal)");
                     }
 
+                    // Settings "Create automatic backups": at most one backup a day into the
+                    // chosen backup folder, with its own retention (IBackupService.RunBackupAsync
+                    // checks the toggle and folder itself and never throws). Off the startup path.
+                    backgroundWork.TryRun("startup user backup", () =>
+                        app.Services.GetRequiredService<WriteServices>().Backup.RunBackupAsync());
+
                     // v3.5: pattern-evidence window backfill — materialize the pattern-
                     // feeding evidence rows for window games not yet stamped at the current
                     // materializer version (games.pattern_evidence_v, map_state_v shape).
