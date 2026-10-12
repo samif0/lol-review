@@ -1,5 +1,6 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { getInvoke } from './platform/index.mjs';
+import { objectivePhaseLabel } from './objective-labels.mjs';
 
 // Revu desktop — Add a game manually.
 // Hand-log a League game that wasn't auto-captured + a minimal review. Mirrors
@@ -60,7 +61,7 @@ function renderObjectives() {
     el.dataset.objId = String(o.objectiveId);
     const title = o.title || '';
     el.querySelector('.me-obj-title').textContent = title;
-    el.querySelector('.me-obj-phase').textContent = o.phaseLabel || '';
+    el.querySelector('.me-obj-phase').textContent = objectivePhaseLabel(o.phaseLabel);
     // Every row repeats the same controls, so name them after their objective.
     el.querySelector('.me-obj-practiced').setAttribute('aria-label', `Practiced: ${title}`);
     el.querySelector('.me-obj-note').setAttribute('aria-label', `How did it go: ${title}`);

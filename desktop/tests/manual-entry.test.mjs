@@ -31,6 +31,7 @@ async function page() {
       return { ok: true };
     },
     $: id => els[id] ?? null, show: (el, visible) => { if (el) el.hidden = !visible; }, clear() {}, tpl() {},
+    objectivePhaseLabel: value => String(value ?? ''),
   };
   vm.createContext(context);
   vm.runInContext(source, context);
