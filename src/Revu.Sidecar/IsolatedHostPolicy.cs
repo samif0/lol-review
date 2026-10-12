@@ -100,7 +100,7 @@ public static class IsolatedHostPolicy
         "/api/health", "/api/host", "/api/dashboard", "/api/events", "/api/games", "/api/objectives",
         "/api/objective/games", "/api/objective/notes", "/api/objective", "/api/vod", "/api/derived", "/api/review",
         "/api/rules", "/api/tiltcheck", "/api/matchups", "/api/matchups/export", "/api/patterns", "/api/config",
-        "/api/settings/status", "/api/settings/export", "/api/review/export", "/api/stint", "/api/corrections",
+        "/api/settings/status", "/api/settings/export", "/api/review/export", "/api/stint",
         "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status"
     };
 }

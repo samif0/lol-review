@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -18,16 +19,83 @@ public sealed class SidecarEndpointContractTests
     {
         using var scratch = new ScratchHost();
         await using var app = BuildApp(scratch);
-        var routes = ((IEndpointRouteBuilder)app).DataSources
-            .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>().ToArray();
-        var actual = routes.SelectMany(endpoint => endpoint.Metadata.GetRequiredMetadata<IHttpMethodMetadata>()
-            .HttpMethods.Select(method => method + " " + endpoint.RoutePattern.RawText)).Order().ToArray();
+        var routes = RouteEndpoints(app);
+        var actual = MethodAndPaths(routes).Order().ToArray();
         var expected = ExpectedRoutes.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Order().ToArray();
         Assert.Equal(expected, actual);
         Assert.Equal(actual.Length, actual.Distinct().Count());
         Assert.All(routes, endpoint => Assert.NotNull(endpoint.RequestDelegate));
         Assert.False(File.Exists(Path.Combine(scratch.Root, "LoLReviewData", "revu.db")));
+    }
+
+    [Fact]
+    public async Task PracticeDiagnosticRoutes_ExistOnlyWhenOptedIn()
+    {
+        string[] practice =
+        [
+            "GET /api/diagnostics/practice/status",
+            "POST /api/diagnostics/practice/start",
+            "POST /api/diagnostics/practice/stop",
+        ];
+        using var optedInScratch = new ScratchHost();
+        await using var optedIn = BuildApp(optedInScratch, practiceDiagnostics: true);
+        var actual = MethodAndPaths(RouteEndpoints(optedIn)).ToHashSet();
+        Assert.All(practice, route => Assert.Contains(route, actual));
+
+        using var shippedScratch = new ScratchHost();
+        await using var shipped = BuildApp(shippedScratch);
+        Assert.DoesNotContain(MethodAndPaths(RouteEndpoints(shipped)), route => route.Contains("/api/diagnostics/"));
+    }
+
+    /// <summary>
+    /// Every route the renderer command table (desktop/ui/platform/commands.mjs) names
+    /// must be mapped here with the same method, so a rename on either side fails
+    /// this test instead of failing at runtime in the app.
+    /// </summary>
+    [Fact]
+    public async Task EveryRendererCommandRouteIsMappedWithItsMethod()
+    {
+        var source = File.ReadAllText(FindRepoFile("desktop", "ui", "platform", "commands.mjs"));
+        var definitions = source[source.IndexOf("const definitions = {", StringComparison.Ordinal)..];
+        definitions = definitions[..definitions.IndexOf("\n};", StringComparison.Ordinal)];
+        var commands = CommandRoute.Matches(definitions)
+            .Select(match => (Name: match.Groups["name"].Value,
+                Method: match.Groups["helper"].Value switch { "get" => "GET", "post" => "POST", _ => "GET" /* SSE */ },
+                Route: match.Groups["route"].Value))
+            .ToArray();
+        // Every /api/ route literal in the table must have been parsed, so a new
+        // helper shape cannot silently skip the check.
+        Assert.Equal(Regex.Matches(definitions, "\"/api/").Count, commands.Length);
+        Assert.Contains(commands, command => command.Name == "get_review");
+
+        using var scratch = new ScratchHost();
+        await using var app = BuildApp(scratch);
+        var mapped = MethodAndPaths(RouteEndpoints(app)).ToHashSet();
+        Assert.All(commands, command =>
+            Assert.True(mapped.Contains(command.Method + " " + command.Route),
+                $"{command.Name} -> {command.Method} {command.Route} has no sidecar route"));
+    }
+
+    private static readonly Regex CommandRoute = new(
+        "^\\s*(?<name>[a-z_]+):\\s*(?:(?<helper>get|post)\\(\"(?<route>/api/[^\"]+)\"|\\{\"method\":\"(?<helper>SSE)\",\"route\":\"(?<route>/api/[^\"]+)\")",
+        RegexOptions.Multiline);
+
+    private static RouteEndpoint[] RouteEndpoints(WebApplication app) => ((IEndpointRouteBuilder)app).DataSources
+        .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>().ToArray();
+
+    private static IEnumerable<string> MethodAndPaths(IEnumerable<RouteEndpoint> routes) =>
+        routes.SelectMany(endpoint => endpoint.Metadata.GetRequiredMetadata<IHttpMethodMetadata>()
+            .HttpMethods.Select(method => method + " " + endpoint.RoutePattern.RawText));
+
+    private static string FindRepoFile(params string[] parts)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var candidate = Path.Combine([directory.FullName, .. parts]);
+            if (File.Exists(candidate)) return candidate;
+        }
+        throw new FileNotFoundException("Could not locate " + string.Join('/', parts));
     }
 
     [Fact]
@@ -104,9 +172,11 @@ public sealed class SidecarEndpointContractTests
     }
 
     private const string Token = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
-    private static WebApplication BuildApp(ScratchHost scratch)
+    private static WebApplication BuildApp(ScratchHost scratch, bool practiceDiagnostics = false)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = Environments.Production });
+        // Pin the opt-in either way so a developer's own environment cannot change the table.
+        builder.Configuration[SidecarEndpoints.PracticeDiagnosticsSetting] = practiceDiagnostics ? "1" : "0";
         builder.Logging.ClearProviders();
         builder.Services.AddSidecarServices(isolatedHostTest: true);
         var app = builder.Build();
@@ -123,15 +193,14 @@ public sealed class SidecarEndpointContractTests
         public void Dispose() { Session.Dispose(); Directory.Delete(Root, recursive: true); }
     }
 
-    // Captured from the pre-extraction Program: 99 unchanged routes plus private host shutdown.
+    // Captured from the pre-extraction Program, minus the routes retired with their
+    // renderer commands. Practice diagnostics are opt-in and absent here.
     private const string ExpectedRoutes = """
         GET /api/auth/status
         GET /api/config
-        GET /api/corrections
         GET /api/corrections/export
         GET /api/dashboard
         GET /api/derived
-        GET /api/diagnostics/practice/status
         GET /api/events
         GET /api/games
         GET /api/health
@@ -162,7 +231,6 @@ public sealed class SidecarEndpointContractTests
         POST /api/auth/login
         POST /api/auth/logout
         POST /api/auth/resolve
-        POST /api/auth/signup
         POST /api/auth/verify
         POST /api/backfill/start
         POST /api/block/end
@@ -185,11 +253,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/correction/revert
         POST /api/death/classify
         POST /api/death/clear
-        POST /api/diagnostics/practice/start
-        POST /api/diagnostics/practice/stop
-        POST /api/encounter/save
         POST /api/event/correct
-        POST /api/events/reprocess/{gameId:long}
         POST /api/evidence/objective
         POST /api/evidence/polarity
         POST /api/evidence/prompt

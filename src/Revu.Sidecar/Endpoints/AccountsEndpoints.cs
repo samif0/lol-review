@@ -51,30 +51,6 @@ public static partial class SidecarEndpoints
             }
         });
 
-        // POST /api/auth/signup  { email, inviteCode } — sends the email after validating
-        // an invite code. Mirrors SettingsViewModel.RiotAuthSignup (both required; code
-        // upper-cased). No DB write.
-        app.MapPost("/api/auth/signup", async (AuthSignupBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
-        {
-            if (body is null || string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.InviteCode))
-                return Results.BadRequest(new { error = "Enter an email and an invite code." });
-            try
-            {
-                await w.RiotAuth.SignupAsync(body.Email.Trim(), body.InviteCode.Trim().ToUpperInvariant(), ct);
-                log.LogInformation("Auth: signup code sent.");
-                return Results.Json(new { ok = true, info = $"Check {body.Email.Trim()} for a code." }, jsonOptions);
-            }
-            catch (RiotAuthException ex)
-            {
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions, statusCode: 422);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Auth: signup failed");
-                return Results.Json(new { ok = false, error = "Couldn't reach the server. Check your connection." }, jsonOptions, statusCode: 502);
-            }
-        });
-
         // POST /api/auth/verify  { code } — exchanges the OTP for a session token and
         // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). Mirrors
         // OnboardingViewModel.VerifyAsync + SettingsViewModel.RiotAuthVerify. The email we
