@@ -13,10 +13,20 @@ namespace Revu.Core.Lcu;
 public sealed record GameEndedMessage(GameStats Stats, bool IsRecovered = false);
 
 /// <summary>
-/// Sent the moment a tracked game's end-of-game capture fails or its end is missed, before
-/// the game is handed to match-history reconciliation. Lets the sidecar keep that game's
-/// pre-game choices (mood, intention, practiced objectives) before the next champ select
-/// replaces them; the recovered <see cref="GameEndedMessage"/> for the same id uses them.
+/// Sent the moment the monitor sees a game end (a post-game phase, or a collector finished
+/// once its game went away), before the end-of-game capture runs. The sidecar keeps that
+/// game's pre-game choices (mood, intention, practiced objectives, lobby) under
+/// <paramref name="GameId"/> right then, so a capture that uses its whole retry budget never
+/// lends the game a champ select that began meanwhile. <paramref name="GameId"/> is 0 when the
+/// id is unknown. A casual game is never saved; <paramref name="IsCasual"/> only ends its flow.
+/// </summary>
+public sealed record GameEndObservedMessage(long GameId, bool IsCasual = false);
+
+/// <summary>
+/// Sent when a tracked game's end-of-game capture fails or its end is missed, as the game is
+/// handed to match-history reconciliation. Its pre-game choices were kept when it ended
+/// (<see cref="GameEndObservedMessage"/>); the recovered <see cref="GameEndedMessage"/> for
+/// the same id uses them.
 /// </summary>
 public sealed record GameCaptureDeferredMessage(long GameId);
 

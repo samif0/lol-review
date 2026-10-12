@@ -23,10 +23,12 @@ namespace Revu.Sidecar.Tests;
 ///
 /// The coordinator writes through <see cref="WriteServices"/>, which opens the process-wide
 /// test data root's revu.db (TestDataRoot, never the live app data). This class is the only
-/// one that writes there and uses its own game ids.
+/// one that writes there and uses its own game ids, fresh on every run so a data root kept
+/// between runs (REVU_DATA_ROOT) never holds them already.
 /// </summary>
 public sealed class MissedGamesFlowTests : IAsyncLifetime
 {
+    private static readonly long RunBase = 6_100_000_000 + DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 1_000_000 * 100;
     private readonly StrongReferenceMessenger _messenger = new();
     private readonly SidecarEventHub _hub = new();
     private readonly LcuLiveState _live = new();
@@ -102,18 +104,37 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
         return events;
     }
 
+    private static async Task<SidecarEventHub.SidecarEvent> NextEventAsync(
+        System.Threading.Channels.ChannelReader<SidecarEventHub.SidecarEvent> reader, List<SidecarEventHub.SidecarEvent> seen, string type)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (true)
+        {
+            SidecarEventHub.SidecarEvent evt;
+            try { evt = await reader.ReadAsync(timeout.Token); }
+            catch (OperationCanceledException)
+            {
+                throw new TimeoutException($"no {type} event; saw {string.Join(", ", seen.Select(e => e.Type))}");
+            }
+            seen.Add(evt);
+            if (evt.Type == type) return evt;
+        }
+    }
+
     [Fact]
     public async Task DeferredCapture_IsSavedAsTheRecoveredGame_WithItsOwnPreGameChoicesAndTimeline()
     {
-        const long gameId = 6_100_000_001;
+        var gameId = RunBase + 1;
         var (reader, sub) = _hub.Subscribe();
         using var _ = sub;
 
         _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
         _live.SetMood(4);
         _live.SetIntent("Ward the river at 3:00", "typed", cleared: false);
+        _live.SetGameInProgress(true);
 
-        // The capture failed: the monitor hands the game to reconciliation.
+        // The game ends; its capture fails and the monitor hands it to reconciliation.
+        _messenger.Send(new GameEndObservedMessage(gameId));
         _messenger.Send(new GameCaptureDeferredMessage(gameId));
         var pending = Assert.Single(Drain(reader), e => e.Type == "gameEnded");
         Assert.Contains("\"pending\":true", JsonSerializer.Serialize(pending.Payload));
@@ -123,7 +144,12 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
         _live.SetMood(1);
 
         _messenger.Send(new GameEndedMessage(Game(gameId), IsRecovered: true));
-        await EventuallyAsync(() => _write.Games.GetAsync(gameId), "the recovered game is saved");
+        // Its pre-game page stays up: the save is announced without the gameEnded event
+        // that takes pages off the live surface.
+        var seen = new List<SidecarEventHub.SidecarEvent>();
+        var saved = await NextEventAsync(reader, seen, "gameRecovered");
+        Assert.Contains("\"saved\":true", JsonSerializer.Serialize(saved.Payload));
+        Assert.DoesNotContain(seen, e => e.Type == "gameEnded");
 
         var (mood, intention, events) = await SavedRowAsync(gameId);
         Assert.Equal(4, mood);
@@ -135,9 +161,71 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ALiveCaptureThatSettlesAfterTheNextChampSelectBegan_KeepsItsOwnPreGameChoices()
+    {
+        var gameId = RunBase + 3;
+        var (reader, subscription) = _hub.Subscribe();
+        using var unsubscribe = subscription;
+        _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
+        _live.SetMood(3);
+        _live.SetIntent("Trade on cooldowns", "typed", cleared: false);
+
+        // The game ends; its capture keeps retrying while the player queues again.
+        _messenger.Send(new GameEndObservedMessage(gameId));
+        var nextLobby = _live.BeginChampSelect("Jinx", "Caitlyn", "BOTTOM", "");
+        _live.SetMood(1);
+
+        _messenger.Send(new GameEndedMessage(Game(gameId)));
+        var saved = await NextEventAsync(reader, [], "gameEnded");
+        Assert.Contains("\"saved\":true", JsonSerializer.Serialize(saved.Payload));
+
+        var (mood, intention, _) = await SavedRowAsync(gameId);
+        Assert.Equal(3, mood);
+        Assert.Equal("Trade on cooldowns", intention);
+        Assert.Equal(nextLobby, _live.SessionKey);
+        Assert.Equal(1, _live.PreGameMood);
+    }
+
+    [Fact]
+    public async Task ASecondEndOfTheSameGame_KeepsItsFirstPreGameChoices_AndStillEndsTheGame()
+    {
+        var gameId = RunBase + 4;
+        var (reader, subscription) = _hub.Subscribe();
+        using var unsubscribe = subscription;
+        _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
+        _live.SetMood(5);
+
+        // A collector finished on a wrong guess that the game was over; the game went on.
+        _messenger.Send(new GameEndObservedMessage(gameId));
+        _live.SetGameInProgress(true);
+        _messenger.Send(new GameEndObservedMessage(gameId)); // the real end
+
+        Assert.False(_live.IsGameInProgress);
+        _messenger.Send(new GameEndedMessage(Game(gameId)));
+        await NextEventAsync(reader, [], "gameEnded");
+        Assert.Equal(5, (await SavedRowAsync(gameId)).Mood);
+    }
+
+    [Fact]
+    public void ACasualGameEnd_ClosesItsFlow_SoPagesLeaveTheInGameSurface()
+    {
+        var (reader, sub) = _hub.Subscribe();
+        using var _ = sub;
+        _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
+        _live.SetGameInProgress(true);
+
+        _messenger.Send(new GameEndObservedMessage(0, IsCasual: true));
+
+        Assert.False(_live.IsGameInProgress);
+        Assert.Null(_live.SessionKey);
+        var ended = Assert.Single(Drain(reader), e => e.Type == "gameEnded");
+        Assert.Contains("\"saved\":false", JsonSerializer.Serialize(ended.Payload));
+    }
+
+    [Fact]
     public async Task RecoveredGameWithoutItsOwnPreGameState_NeverBorrowsTheCurrentLobby()
     {
-        const long gameId = 6_100_000_002;
+        var gameId = RunBase + 2;
         var lobby = _live.BeginChampSelect("Jinx", "Caitlyn", "BOTTOM", "");
         _live.SetMood(2);
 
@@ -152,7 +240,7 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
     [Fact]
     public async Task WaitingGames_AreListed_SavedThroughTheGameEndPath_OrDismissedForGood()
     {
-        const long older = 6_100_000_010, newer = 6_100_000_011;
+        long older = RunBase + 10, newer = RunBase + 11;
         var (reader, sub) = _hub.Subscribe();
         using var _ = sub;
 
@@ -184,13 +272,13 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
         Assert.Contains("\"games\":[]", JsonSerializer.Serialize(published[^1].Payload, SidecarJson.CreateOptions()));
 
         Assert.Equal(MissedGameOutcome.NotFound, await _flow.SaveMissedGameAsync(older));
-        Assert.Equal(MissedGameOutcome.NotFound, await _flow.DismissMissedGameAsync(6_100_000_099));
+        Assert.Equal(MissedGameOutcome.NotFound, await _flow.DismissMissedGameAsync(RunBase + 99));
     }
 
     [Fact]
     public async Task ARecoveredGameAlreadySaved_IsNotSavedAgain()
     {
-        const long gameId = 6_100_000_020;
+        var gameId = RunBase + 20;
         _messenger.Send(new MissedReviewsDetectedMessage([new MissedGameCandidate(gameId, 1_700_000_000, Game(gameId))]));
         Assert.Equal(MissedGameOutcome.Saved, await _flow.SaveMissedGameAsync(gameId));
 

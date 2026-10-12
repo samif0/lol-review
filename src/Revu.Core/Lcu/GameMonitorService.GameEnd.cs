@@ -98,6 +98,10 @@ public sealed partial class GameMonitorService
         // missed never takes this game's id (and with it this game's stored timeline).
         _captureGameId = 0;
 
+        // The sidecar keeps this game's pre-game choices now, before the capture's retries
+        // leave time for the next champ select to begin.
+        _messenger.Send(new GameEndObservedMessage(gameId));
+
         if (gameId > 0)
         {
             // Never replaces a stored timeline with an empty one (a second game-end pass,
@@ -190,8 +194,8 @@ public sealed partial class GameMonitorService
 
     /// <summary>
     /// The tracked game will not be captured live: reconcile it from match history. Its
-    /// timeline already waits in the evidence store; the sidecar is told now so it keeps
-    /// the game's pre-game choices before the next champ select replaces them.
+    /// timeline already waits in the evidence store, and the sidecar kept its pre-game
+    /// choices when the game end was observed.
     /// </summary>
     private void DeferToReconciliation(long gameId)
     {
@@ -473,6 +477,7 @@ public sealed partial class GameMonitorService
         {
             _logger.LogWarning("Live events of a game with an unknown id cannot be matched to it later ({Count} skipped)", events.Count);
         }
+        _messenger.Send(new GameEndObservedMessage(gameId));
         DeferToReconciliation(gameId);
     }
 }

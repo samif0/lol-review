@@ -768,6 +768,7 @@ public sealed partial class GameMonitorServiceTests
             messenger.Register<MissedReviewsDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).MissedGamesDetected.Add(message));
             messenger.Register<QueueDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).QueueDetected.Add(message));
             messenger.Register<GameCaptureDeferredMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).CaptureDeferred.Add(message));
+            messenger.Register<GameEndObservedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameEndObserved.Add(message));
         }
 
         public List<LcuConnectionChangedMessage> ConnectionChanges { get; } = [];
@@ -787,6 +788,8 @@ public sealed partial class GameMonitorServiceTests
         public List<QueueDetectedMessage> QueueDetected { get; } = [];
 
         public List<GameCaptureDeferredMessage> CaptureDeferred { get; } = [];
+
+        public List<GameEndObservedMessage> GameEndObserved { get; } = [];
     }
 
     private sealed class FakeCredentialDiscovery : ILcuCredentialDiscovery

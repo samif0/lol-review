@@ -83,6 +83,9 @@ public sealed partial class GameMonitorServiceTests
         Assert.Empty(collector.GameEnded);
         Assert.Empty(collector.CaptureDeferred);
         Assert.NotNull(service.PendingCapture);
+        // The game end is announced at once, so its pre-game choices are kept before the
+        // capture's retries leave time for another champ select.
+        Assert.Equal(9100, Assert.Single(collector.GameEndObserved).GameId);
 
         slowEog.SetResult(); // the stats arrive after that tick moved on
         await service.PendingCapture!;
@@ -94,6 +97,7 @@ public sealed partial class GameMonitorServiceTests
         Assert.Equal(1, capture.Calls);
         Assert.Equal(9100, await Assert.Single(saves));
         Assert.NotNull(await db.Games.GetAsync(9100));
+        Assert.Single(collector.GameEndObserved);
 
         await service.TickOnceAsync(); // Lobby: a captured game needs no match-history walk
         Assert.Equal(0, history.Calls);
@@ -337,6 +341,7 @@ public sealed partial class GameMonitorServiceTests
     public async Task OnlyRankedSoloOrAnUnknownQueueRunsTheGameEndCapture(int queueId, bool captured)
     {
         var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
         var lcu = new FakeLcuClient
         {
             IsConnected = true, QueueId = queueId,
@@ -351,6 +356,9 @@ public sealed partial class GameMonitorServiceTests
         await service.TickOnceAsync();
 
         Assert.Equal(captured ? 1 : 0, capture.Calls);
+        // A casual game is never saved, but its end still closes the flow so the app leaves
+        // the in-game page.
+        Assert.Equal(!captured, Assert.Single(collector.GameEndObserved).IsCasual);
     }
 
     [Theory]
@@ -385,6 +393,7 @@ public sealed partial class GameMonitorServiceTests
         capture.Result = captured ? TestGameStatsFactory.Create(8700) : null;
         await service.TickOnceAsync();
 
+        Assert.Equal([8600L, 8700L], collector.GameEndObserved.Select(m => m.GameId));
         Assert.DoesNotContain(capture.LastEvents, e => e.EventType == GameEvent.EventTypes.Kill);
         if (captured)
         {

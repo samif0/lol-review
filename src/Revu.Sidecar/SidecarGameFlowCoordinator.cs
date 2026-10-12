@@ -48,6 +48,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
     IRecipient<GameStartedMessage>,
     IRecipient<GameInProgressMessage>,
     IRecipient<GameEndedMessage>,
+    IRecipient<GameEndObservedMessage>,
     IRecipient<GameCaptureDeferredMessage>,
     IRecipient<MissedReviewsDetectedMessage>,
     IRecipient<LcuConnectionChangedMessage>,
@@ -193,14 +194,15 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
         var stats = m.Stats;
         var isRecovered = m.IsRecovered;
         // The pre-game choices (mood / intent / practiced ids / session key) belong to
-        // this game: read and cleared now, on the monitor's thread, so a champ select
-        // that begins while the save runs can never lend its lobby to this game. A game
-        // whose capture was deferred had them kept when it ended; any other recovered
-        // game gets none (a stale champ select would mislabel it, mirror Shell).
+        // this game: they were kept when the monitor saw it end (GameEndObservedMessage),
+        // before the capture's retries, so a champ select that begins in between can never
+        // lend its lobby to this game. A live capture whose id was unknown then uses the
+        // unknown-id entry. Any other recovered game gets none (a stale champ select would
+        // mislabel it, mirror Shell).
         var preGame = TakeDeferredPreGame(stats.GameId);
-        if (preGame is null && !isRecovered) preGame = PreGameState.Take(_liveState);
-        else if (!isRecovered) _liveState.SetGameInProgress(false);
-        _backgroundWork.TryRun("game-end persistence", () => PersistGameEndAsync(stats, isRecovered, preGame));
+        if (preGame is null && !isRecovered) preGame = TakeDeferredPreGame(0) ?? PreGameState.Take(_liveState);
+        if (isRecovered) _backgroundWork.TryRun("game-end persistence", () => PersistRecoveredGameAsync(stats, preGame));
+        else _backgroundWork.TryRun("game-end persistence", () => PersistGameEndAsync(stats, isRecovered, preGame));
     }
 
     private async Task<ProcessGameEndResult?> PersistGameEndAsync(
@@ -285,7 +287,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
                 if (!deferMatchupNote) await TryPrepareMatchupNoteAsync(gameId).ConfigureAwait(false);
 
                 _logger.LogInformation("Live game captured + saved: game {GameId} ({Champ})", gameId, stats.ChampionName);
-                _eventHub.Publish("gameEnded", new
+                _eventHub.Publish(GameEndEventType(isRecovered, preGame), new
                 {
                     gameId,
                     championName = stats.ChampionName,
@@ -320,7 +322,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
             {
                 // Skipped (casual or short unflagged game the workflow declined to persist).
                 _logger.LogInformation("Live game end processed but not saved (skipped/casual)");
-                _eventHub.Publish("gameEnded", new
+                _eventHub.Publish(GameEndEventType(isRecovered, preGame), new
                 {
                     gameId = (long?)null,
                     championName = stats.ChampionName,
@@ -335,7 +337,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist live game end");
-            _eventHub.Publish("gameEnded", new { saved = false, error = ex.Message });
+            _eventHub.Publish(GameEndEventType(isRecovered, preGame), new { saved = false, error = ex.Message });
             return null;
         }
     }

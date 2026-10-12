@@ -14,7 +14,7 @@ namespace Revu.Sidecar;
 /// League client was away) comes back from match-history reconciliation as a recovered
 /// <see cref="GameEndedMessage"/> and is saved automatically through
 /// <see cref="PersistGameEndAsync"/>, with the pre-game choices kept here when the
-/// monitor deferred it (<see cref="GameCaptureDeferredMessage"/>).
+/// monitor saw it end (<see cref="GameEndObservedMessage"/>).
 /// </para>
 ///
 /// <para>
@@ -35,7 +35,7 @@ public sealed partial class SidecarGameFlowCoordinator
     private List<MissedGameCandidate> _missedGames = [];
     private readonly SemaphoreSlim _missedResolve = new(1, 1);
 
-    /// <summary>The deferred pre-game choices of one game (<see cref="LcuLiveState.TakeForGameEnd"/>).</summary>
+    /// <summary>The pre-game choices of one ended game (<see cref="LcuLiveState.TakeForGameEnd"/>).</summary>
     private sealed record PreGameState(
         int Mood,
         string Intention,
@@ -52,14 +52,28 @@ public sealed partial class SidecarGameFlowCoordinator
         }
     }
 
-    public void Receive(GameCaptureDeferredMessage m)
+    public void Receive(GameEndObservedMessage m)
     {
-        if (m.GameId <= 0) return;
+        if (m.IsCasual)
+        {
+            // Never saved, but the flow is over: close it so pages leave the in-game surface.
+            _liveState.TakeForGameEnd();
+            _eventHub.Publish("gameEnded", new { gameId = (long?)null, saved = false, isRecovered = false });
+            return;
+        }
         lock (_missedGate)
         {
-            // The first take belongs to the game; a second deferral of it must not replace
-            // that with the (already cleared, or next lobby's) live state.
-            if (_deferredPreGame.ContainsKey(m.GameId)) return;
+            // Taken now, on the monitor's thread, while no later champ select can have begun.
+            // The first take belongs to the game: a second game-end pass for it (a collector
+            // finished too early, then the real end) must not replace it with the already
+            // cleared live state, but still ends the game. An unknown id (0) always holds the
+            // latest game whose id was unknown.
+            if (m.GameId > 0 && _deferredPreGame.ContainsKey(m.GameId))
+            {
+                _liveState.SetGameInProgress(false);
+                return;
+            }
+            if (_deferredPreGame.Remove(m.GameId)) _deferredPreGameOrder.Remove(m.GameId);
             _deferredPreGame[m.GameId] = PreGameState.Take(_liveState);
             _deferredPreGameOrder.Add(m.GameId);
             while (_deferredPreGameOrder.Count > MaxDeferredPreGame)
@@ -68,10 +82,48 @@ public sealed partial class SidecarGameFlowCoordinator
                 _deferredPreGameOrder.RemoveAt(0);
             }
         }
-        // The game is over: pages leave the live surface now; the save follows once match
-        // history has the game (gameEnded again, saved).
-        _eventHub.Publish("gameEnded", new { gameId = m.GameId, saved = false, pending = true });
+    }
+
+    public void Receive(GameCaptureDeferredMessage m)
+    {
+        if (m.GameId <= 0) return;
         _logger.LogInformation("Game {GameId} goes to match-history reconciliation; its pre-game choices are kept for the save", m.GameId);
+        // The game is over: pages leave the live surface now, and the save follows once match
+        // history has the game (gameEnded again, saved). A player already in the next lobby
+        // or game stays where they are.
+        if (NextFlowIsLive()) return;
+        _eventHub.Publish("gameEnded", new { gameId = m.GameId, saved = false, pending = true });
+    }
+
+    /// <summary>
+    /// A lobby or game is live that began after the last observed game end (that end closed
+    /// its own flow in <see cref="LcuLiveState"/>).
+    /// </summary>
+    private bool NextFlowIsLive() => _liveState.SessionKey is not null || _liveState.IsGameInProgress;
+
+    /// <summary>
+    /// The event a finished game is announced with. Pages leave the live surface on
+    /// <c>gameEnded</c>, so a recovered game whose flow closed when it ended, saved while the
+    /// player is already in the next lobby or game, is announced as <c>gameRecovered</c>.
+    /// </summary>
+    private string GameEndEventType(bool isRecovered, PreGameState? preGame) =>
+        isRecovered && preGame is not null && NextFlowIsLive() ? "gameRecovered" : "gameEnded";
+
+    /// <summary>
+    /// The tracked game's automatic save runs under the same gate as Home's Save, so the two
+    /// never both pass the already-saved check for one game.
+    /// </summary>
+    private async Task PersistRecoveredGameAsync(Revu.Core.Models.GameStats stats, PreGameState? preGame)
+    {
+        await _missedResolve.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await PersistGameEndAsync(stats, isRecovered: true, preGame).ConfigureAwait(false);
+        }
+        finally
+        {
+            _missedResolve.Release();
+        }
     }
 
     private PreGameState? TakeDeferredPreGame(long gameId)

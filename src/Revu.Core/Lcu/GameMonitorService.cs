@@ -251,6 +251,8 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
             if (_state.CurrentGameIsCasual)
             {
                 _logger.LogInformation("Casual game ended - skipping");
+                // Never saved, but its flow is over: pages leave the in-game surface.
+                _messenger.Send(new GameEndObservedMessage(0, IsCasual: true));
             }
             else
             {
