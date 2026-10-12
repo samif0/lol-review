@@ -33,6 +33,17 @@ body.games-page #games-list .gamerow-game:focus-visible{background:var(--surface
 .games-page #games-list .gamerow-cue .arr{font-size:17px;transform:none}
 .games-page #games-list .gamerow-game:hover .gamerow-cue{color:var(--text)}
 .games-page .loadmore{font-size:14px;letter-spacing:0;text-transform:none}
+/* Remove from history: quiet, always visible, never mistaken for the row's action. */
+body.games-page #games-list .gamerow-remove{padding:2px 0;min-height:0;border:0!important;background:none!important;box-shadow:none;
+  color:var(--muted)!important;font:400 12px/1.5 var(--fb);letter-spacing:0;text-transform:none;text-decoration:underline;
+  text-underline-offset:3px;cursor:pointer}
+body.games-page #games-list .gamerow-remove:hover,body.games-page #games-list .gamerow-remove:focus-visible{color:var(--text)!important}
+.games-page .games-undo{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:16px;
+  padding:12px 16px 12px 20px;border:1px solid var(--border);border-radius:12px;background:var(--surface-raised);color:var(--text);
+  font:400 14px/1.5 var(--fb);box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.games-page .games-undo[hidden]{display:none}
+body.games-page .games-undo-btn{min-height:32px;padding:4px 14px;border:1px solid var(--border)!important;border-radius:999px!important;
+  background:transparent!important;color:var(--text)!important;font:500 14px/1.4 var(--fb);letter-spacing:0;text-transform:none;cursor:pointer}
 
 @media(max-width:680px){
   body.games-page #games-list .gamerow-game{padding:16px}

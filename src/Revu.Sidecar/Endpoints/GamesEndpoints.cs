@@ -215,6 +215,26 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true, backupPath }, jsonOptions);
         });
 
+        // POST /api/game/hide  { gameId, hidden } — Match library "Remove from history".
+        // A soft hide with Undo, never a delete: every row tied to the game stays, and
+        // is_hidden keeps it out of every list, count, streak and the review queue
+        // (CasualFilter / VisibleGamesJoin). A hard stop that only held because of
+        // this game is re-checked, as for a remake.
+        app.MapPost("/api/game/hide", async (GameHiddenBody body, WriteServices w, HardStopEnforcer hardStop,
+            ILogger<Program> log) =>
+        {
+            if (body is null || body.GameId <= 0)
+                return Results.BadRequest(new { error = "gameId required" });
+            if (await w.Games.GetAsync(body.GameId) is null)
+                return Results.NotFound(new { error = "game not found" });
+            await w.BackupGuard.EnsureBackedUpAsync();
+            await w.Games.SetHiddenAsync(body.GameId, body.Hidden);
+            try { await hardStop.ReevaluateAsync(); }
+            catch (Exception ex) { log.LogDebug(ex, "Hard stop re-evaluation after hiding game {GameId} failed", body.GameId); }
+            log.LogInformation("Game {GameId} {Change} the Match library", body.GameId, body.Hidden ? "removed from" : "restored to");
+            return Results.Json(new { ok = true, gameId = body.GameId, hidden = body.Hidden }, jsonOptions);
+        });
+
         // POST /api/game/manual — write a manual game row + log it + record objective
         // assessments. Replicates ManualEntryDialogViewModel.SaveAsync EXACTLY:
         //   (1) IGameRepository.SaveManualAsync(...) -> gameId

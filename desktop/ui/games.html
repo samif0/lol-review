@@ -51,6 +51,13 @@
       <div class="games-empty-p" id="games-empty-p">Keep Revu open during a Ranked Solo/Duo game, or add a game manually.</div>
     </div>
 
+    <!-- Remove from history is a soft hide: the game and its notes stay saved, and
+         Undo brings it back. -->
+    <div class="games-undo" id="games-undo" role="status" aria-live="polite" hidden>
+      <span id="games-undo-text"></span>
+      <button class="games-undo-btn" id="games-undo-btn" type="button" data-action="undo_hide">Undo</button>
+    </div>
+
     <!-- Load more — only when the server has more pages. Small, calm glass. -->
     <div class="loadwrap" id="loadwrap" hidden>
       <button class="loadmore" id="loadmore" data-action="load_more">Load More</button>
@@ -92,6 +99,7 @@
         <div class="grow-right">
           <div class="grow-kda"><span class="grow-kda-n"></span><span class="grow-kda-r"></span></div>
           <div class="gamerow-cue">Review <span class="arr" aria-hidden="true">→</span></div>
+          <button class="gamerow-remove" type="button" data-action="hide_game">Remove from history</button>
         </div>
       </div>
     </div>

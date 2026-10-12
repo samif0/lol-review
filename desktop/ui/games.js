@@ -1,5 +1,6 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
+import { getInvoke } from './platform/index.mjs';
 
 // Revu desktop — Match library page renderer.
 // Renders the JSON returned by the Electron command `get_games`
@@ -159,6 +160,11 @@ function buildRow(g) {
   const ratio = typeof g.kdaRatio === 'number' ? g.kdaRatio : parsedRatio ? Number(parsedRatio[1]) : null;
   kdaR.textContent = Number.isFinite(ratio) && ratio >= 0 ? `${Number(ratio.toFixed(2))} KDA` : ratioText;
 
+  const remove = el.querySelector('.gamerow-remove');
+  if (remove) {
+    remove.dataset.gameId = String(g.gameId ?? '');
+    remove.setAttribute('aria-label', `Remove ${champ.textContent} from history`);
+  }
   updateRowRecording(el, g);
   return el;
 }
@@ -240,6 +246,89 @@ async function refreshLinkedVodList() {
   } finally {
     _vodListRefreshing = false;
   }
+}
+
+// ── Remove from history (soft hide with Undo) ───────────────────────────────
+// set_game_hidden keeps the game and everything tied to it; a hidden game
+// leaves every list, count, streak and the review queue. The list and strip
+// update in place (History pages and scroll stay put), and Undo restores it.
+const UNDO_MS = 10_000;
+let _undo = null;       // { game, index, view, timer } for the latest removal
+let _shiftedRows = 0;   // History rows removed since the last page fetch
+
+function adjustTotals(game, sign) {
+  if (!_data) return;
+  _data.totalCount = Math.max(0, (Number(_data.totalCount) || 0) + sign);
+  const totals = _data.totals;
+  if (!totals || isRemake(game)) return;
+  totals.games = Math.max(0, totals.games + sign);
+  if (game.win === true) totals.wins = Math.max(0, totals.wins + sign);
+  if (reviewedState(game) === true) totals.reviewed = Math.max(0, totals.reviewed + sign);
+}
+
+function renderRows() {
+  renderQueueBar(_data);
+  renderStrip(_data);
+  renderList(_data);
+}
+
+async function setHidden(gameId, hidden) {
+  const invoke = await getInvoke();
+  if (!invoke) { console.info(`[games] (preview) set_game_hidden ${gameId} ${hidden}`); return false; }
+  await invoke('set_game_hidden', { payload: { gameId: Number(gameId), hidden } });
+  return true;
+}
+
+async function hideGame(button) {
+  const gameId = button.dataset.gameId;
+  const index = _rows.findIndex((g) => String(g.gameId) === gameId);
+  if (!gameId || index < 0 || _loading || button.disabled) return;
+  button.disabled = true;
+  try {
+    if (!await setHidden(gameId, true)) { button.disabled = false; return; }
+  } catch (err) {
+    button.disabled = false;
+    renderError(err);
+    console.error('[games] remove from history failed:', err);
+    return;
+  }
+  const [game] = _rows.splice(index, 1);
+  if (_view === 'history') _shiftedRows++;
+  adjustTotals(game, -1);
+  renderRows();
+  if (_undo) clearTimeout(_undo.timer);
+  const name = game.championName ? `${game.championName}${game.enemyChampion ? ` vs ${game.enemyChampion}` : ''}` : 'The match';
+  $('games-undo-text').textContent = `${name} was removed from history.`;
+  $('games-undo-btn').disabled = false;
+  show($('games-undo'), true);
+  _undo = { game, index, view: _view, timer: setTimeout(dismissUndo, UNDO_MS) };
+}
+
+function dismissUndo() {
+  if (_undo) clearTimeout(_undo.timer);
+  _undo = null;
+  show($('games-undo'), false);
+}
+
+async function undoHide() {
+  const undo = _undo;
+  if (!undo) return;
+  $('games-undo-btn').disabled = true;
+  try {
+    if (!await setHidden(undo.game.gameId, false)) { $('games-undo-btn').disabled = false; return; }
+  } catch (err) {
+    $('games-undo-btn').disabled = false;
+    renderError(err);
+    console.error('[games] undo remove from history failed:', err);
+    return;
+  }
+  dismissUndo();
+  if (undo.view !== _view) { if (!_loading) void loadView(_view); return; }
+  if (_rows.some((g) => String(g.gameId) === String(undo.game.gameId))) return;
+  _rows.splice(Math.min(undo.index, _rows.length), 0, undo.game);
+  if (_view === 'history') _shiftedRows = Math.max(0, _shiftedRows - 1);
+  adjustTotals(undo.game, 1);
+  renderRows();
 }
 
 function knownBoolean(value, label, yes, no) {
@@ -390,6 +479,7 @@ async function loadView(view) {
   const prevView = _view;
   _view = view;
   _page = 0;
+  _shiftedRows = 0;
   try {
     const data = await fetchGames(_view, _page);
     // Trust the server's echoed view if present (keeps seg honest if it
@@ -421,10 +511,19 @@ async function loadMore() {
   if (btn) btn.disabled = true;
   try {
     const next = _page + 1;
-    const data = await fetchGames('history', next);
-    const more = Array.isArray(data?.items) ? data.items : [];
+    // Rows removed from history move later games onto pages already loaded:
+    // read again from the first page that now holds an unseen game.
+    const size = Number(_data.pageSize) || 30;
+    const first = _shiftedRows > 0 ? Math.max(0, Math.floor((next * size - _shiftedRows) / size)) : next;
+    let data, more = [];
+    for (let page = first; page <= next; page++) {
+      data = await fetchGames('history', page);
+      more = more.concat(Array.isArray(data?.items) ? data.items : []);
+    }
+    const seen = new Set(_rows.map((g) => String(g.gameId)));
     _page = next;
-    _rows = _rows.concat(more.map(withLinkedRecording));
+    _shiftedRows = 0;
+    _rows = _rows.concat(more.filter((g) => !seen.has(String(g.gameId))).map(withLinkedRecording));
     render(data); // re-renders the accumulated _rows + updated hasMore/page.
   } catch (err) {
     renderError(err);
@@ -439,7 +538,8 @@ async function loadMore() {
 // view        = the segmented control (server-side view switch, page reset).
 // open_review = clicking a whole game row (→ review page).
 // load_more   = History pagination (append next page).
-const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry']);
+// hide_game   = Remove from history on a row; undo_hide = its Undo.
+const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo_hide']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -476,6 +576,9 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  if (action === 'hide_game') { await hideGame(target); return; }
+  if (action === 'undo_hide') { await undoHide(); return; }
+
   // Manual Entry — log a game by hand (moved here from the nav rail).
   if (action === 'manual_entry') {
     window.location.href = 'manualentry.html';
@@ -486,6 +589,8 @@ document.addEventListener('click', async (ev) => {
 // Keyboard activation for the role="button" game rows (Enter / Space).
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  // A real button inside a row (Remove from history) handles its own keys.
+  if (ev.target.tagName === 'BUTTON') return;
   const target = ev.target.closest('[data-action][role="button"]');
   if (!target) return;
   ev.preventDefault();

@@ -61,6 +61,28 @@ public sealed class GamesLibraryTotalsTests
     }
 
     [Fact]
+    public async Task RemoveFromHistory_IsASoftHide_AndUndoRestoresTheGameAndItsCounts()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        await scope.SeedGameAsync(gameId: 8101, win: true, timestamp: 1_700_000_001);
+        await scope.SeedGameAsync(gameId: 8102, win: false, timestamp: 1_700_000_002);
+        await scope.Games.UpdateReviewAsync(8101, new GameReview { Notes = "Kept my notes." });
+        var builder = Builder(scope);
+
+        await scope.Games.SetHiddenAsync(8101, true);
+        var hidden = await builder.BuildAsync(view: "history");
+        Assert.DoesNotContain(hidden.Items, row => row.GameId == 8101);
+        Assert.Equal(new GamesTotalsDto(Games: 1, Wins: 0, Reviewed: 0), hidden.Totals);
+        Assert.Equal("Kept my notes.", (await scope.Games.GetAsync(8101))!.ReviewNotes);
+
+        await scope.Games.SetHiddenAsync(8101, false);
+        var restored = await builder.BuildAsync(view: "history");
+        Assert.Contains(restored.Items, row => row.GameId == 8101 && row.HasReview);
+        Assert.Equal(new GamesTotalsDto(Games: 2, Wins: 1, Reviewed: 1), restored.Totals);
+    }
+
+    [Fact]
     public async Task AFailedRead_IsLoggedAsAWarningAndShownAsAnError_NotAsAnEmptyLibrary()
     {
         using var scope = new SidecarWriteScope();

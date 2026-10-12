@@ -50,6 +50,7 @@ const definitions = {
   run_reset: post("/api/reset"),
   save_config: post("/api/config/save"),
   delete_game: post("/api/game/delete"),
+  set_game_hidden: post("/api/game/hide"),
   reset_all_data: post("/api/settings/reset", {"payload":false,"sideEffect":"restart-after-write"}),
   restore_backup: post("/api/settings/restore", {"sideEffect":"restart-after-write"}),
   save_review_draft: post("/api/review/draft/save"),

@@ -36,6 +36,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("GET", "/api/vod")]
     [InlineData("POST", "/api/review/save")]
     [InlineData("POST", "/api/review/remake")]
+    [InlineData("POST", "/api/game/hide")]
     [InlineData("POST", "/api/bookmark/delete")]
     [InlineData("POST", "/API/EVENT/CORRECT/")]
     [InlineData("POST", "/api/correction/revert")]

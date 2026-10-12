@@ -6,8 +6,8 @@ import vm from 'node:vm';
 const source = (await readFile(new URL('../ui/games.js', import.meta.url), 'utf8')).replace(/^import .*?;\r?\n/gm, '');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function fixture(reply = async () => ({ items: [] })) {
-  const ids = new Map(), listeners = new Map(), windowListeners = new Map(), requests = [];
+function fixture(reply = async () => ({ items: [] }), { invoke } = {}) {
+  const ids = new Map(), listeners = new Map(), windowListeners = new Map(), requests = [], writes = [];
   const scope = { location: { href: 'games.html' }, scrollX: 0, scrollY: 310,
     addEventListener(type, callback) { windowListeners.set(type, callback); },
     scrollTo({ left, top }) { this.scrollX = left; this.scrollY = top; } };
@@ -59,16 +59,20 @@ function fixture(reply = async () => ({ items: [] })) {
         }
         const cue = node.querySelector('.gamerow-cue');
         cue.appendChild(element()); const arrow = element(); arrow.textContent = '→'; cue.appendChild(arrow);
+        const remove = element(); remove.tagName = 'BUTTON'; remove.dataset.action = 'hide_game';
+        node.selectors.set('.gamerow-remove', [remove]); node.appendChild(remove);
       } else if (name === 'tpl-stat') {
         for (const selector of ['.k', '.v', '.s']) node.selectors.set(selector, [element()]);
       }
       return node;
     },
     readSnapshot: async (command, sample, args) => { requests.push({ command, sample, args: plain(args) }); return reply(args); },
+    getInvoke: async () => invoke ? async (command, args) => { writes.push({ command, args: plain(args) }); return invoke(command, args); } : null,
+    setTimeout: () => 0, clearTimeout() {},
   });
   vm.runInContext(`${source}\n globalThis.hooks = { buildRow, loadView, loadMore,
     get view() { return _view; }, get rows() { return _rows; } };`, context);
-  return { $, hooks: context.hooks, scope, requests, segments, emit,
+  return { $, hooks: context.hooks, scope, requests, writes, segments, emit,
     linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
     fire: (type, detail) => windowListeners.get(type)?.({ detail }) };
 }
@@ -271,4 +275,79 @@ test('a library that could not be read shows an error, not the empty state or a 
   assert.match(f.$('err-detail').textContent, /couldn't read your games/);
   assert.equal(f.$('games-empty').hidden, true);
   assert.equal(f.$('strip').hidden, true);
+});
+
+// A tiny sidecar: History pages over the visible games, honoring set_game_hidden.
+function library(ids, size = 2) {
+  const hidden = new Set();
+  const visible = () => ids.filter(id => !hidden.has(id));
+  const game = id => ({ gameId: id, championName: `Champ${id}`, enemyChampion: 'Zed', win: id % 2 === 1, hasReview: id === 1 });
+  return {
+    hidden,
+    reply: async ({ view, page }) => {
+      const list = visible(), counted = list.map(game);
+      return { view, page, pageSize: size, totalCount: list.length, hasMore: (page + 1) * size < list.length,
+        totals: { games: counted.length, wins: counted.filter(g => g.win).length, reviewed: counted.filter(g => g.hasReview).length },
+        items: list.slice(page * size, page * size + size).map(game) };
+    },
+    invoke: async (command, { payload }) => {
+      assert.equal(command, 'set_game_hidden');
+      if (payload.hidden) hidden.add(payload.gameId); else hidden.delete(payload.gameId);
+      return { ok: true, ...payload };
+    },
+  };
+}
+
+test('Remove from history hides the game in place and Undo brings it back, without reloading the library', async () => {
+  const lib = library([1, 2, 3], 30);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  const strip = () => f.$('strip').children.map(cell => cell.querySelector('.v').textContent);
+  assert.deepEqual(strip(), ['3', '67%', '1/3']);
+  const second = f.$('games-list').children[1].querySelector('.gamerow-remove');
+  assert.equal(second.getAttribute('aria-label'), 'Remove Champ2 vs Zed from history');
+
+  await f.emit('click', second);
+  assert.deepEqual(f.writes, [{ command: 'set_game_hidden', args: { payload: { gameId: 2, hidden: true } } }]);
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 3]);
+  assert.deepEqual(strip(), ['2', '100%', '1/2']);
+  assert.equal(f.$('queue-cnt-text').textContent, 'Showing 2 of 2');
+  assert.equal(f.$('games-undo').hidden, false);
+  assert.equal(f.$('games-undo-text').textContent, 'Champ2 vs Zed was removed from history.');
+  assert.equal(f.scope.location.href, 'games.html', 'removing never opens the review');
+  assert.equal(f.requests.length, 1, 'no refetch: History pages and scroll stay');
+
+  const undo = f.$('games-undo-btn'); undo.dataset.action = 'undo_hide';
+  await f.emit('click', undo);
+  assert.deepEqual(f.writes.at(-1), { command: 'set_game_hidden', args: { payload: { gameId: 2, hidden: false } } });
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2, 3]);
+  assert.deepEqual(strip(), ['3', '67%', '1/3']);
+  assert.equal(f.$('games-undo').hidden, true);
+});
+
+test('a failed removal keeps the row and explains the error; Enter on the button never opens the review', async () => {
+  const f = fixture(library([1, 2], 30).reply, { invoke: async () => { throw new Error('The database is busy.'); } });
+  await f.hooks.loadView('history');
+  const remove = f.$('games-list').children[0].querySelector('.gamerow-remove');
+  const key = await f.emit('keydown', remove, { key: 'Enter' });
+  assert.notEqual(key.defaultPrevented, true);
+  assert.equal(f.scope.location.href, 'games.html');
+  await f.emit('click', remove);
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2]);
+  assert.equal(f.$('errpanel').hidden, false);
+  assert.equal(f.$('err-detail').textContent, 'The database is busy.');
+  assert.equal(f.$('games-undo-text').textContent, '', 'nothing was removed, so nothing is offered to undo');
+  assert.equal(remove.disabled, false);
+});
+
+test('Load More after a removal re-reads the shifted page so no game is skipped', async () => {
+  const lib = library([1, 2, 3, 4, 5, 6], 2);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  await f.emit('click', f.$('games-list').children[1].querySelector('.gamerow-remove'));
+  await f.hooks.loadMore();
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 3, 4, 5]);
+  await f.hooks.loadMore();
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 3, 4, 5, 6]);
+  assert.equal(f.$('loadwrap').hidden, true);
 });

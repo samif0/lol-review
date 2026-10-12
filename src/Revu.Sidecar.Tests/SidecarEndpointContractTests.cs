@@ -103,6 +103,25 @@ public sealed class SidecarEndpointContractTests
         finally { await app.StopAsync(); }
     }
 
+    [Fact]
+    public async Task RemoveFromHistory_IsAllowedOnTheIsolatedHost_AndRejectsAMissingGameIdBeforeTheDatabase()
+    {
+        using var scratch = new ScratchHost();
+        await using var app = BuildApp(scratch);
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+            using var content = new StringContent("""{"gameId":0,"hidden":true}""", System.Text.Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync("/api/game/hide", content);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.False(File.Exists(Path.Combine(scratch.Root, "LoLReviewData", "revu.db")));
+        }
+        finally { await app.StopAsync(); }
+    }
+
     private const string Token = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
     private static WebApplication BuildApp(ScratchHost scratch)
     {
@@ -196,6 +215,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/evidence/status
         POST /api/focus-adherence
         POST /api/game/delete
+        POST /api/game/hide
         POST /api/game/manual
         POST /api/hardstop/override
         POST /api/host/shutdown
