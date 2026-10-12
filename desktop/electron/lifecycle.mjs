@@ -19,16 +19,18 @@ export function relaunchArgs(argv) {
 
 /**
  * Windows ending the session (logoff, restart, shutdown) also ends the backend. Watch
- * the window's session-end notices and the power monitor, so that exit is not taken
- * for a crash. Resolves to a getter: true once Windows has started ending the session.
+ * the window's session-end notices so that exit is not taken for a crash. Returns a
+ * getter: true while Windows is ending the session. 'query-session-end' only asks, and
+ * another app can still cancel the logoff, so it counts for `queryWindowMs`; Windows
+ * ends the processes well within that when the logoff goes ahead. 'session-end' fires
+ * once the end is certain and counts from then on. (powerMonitor's 'shutdown' event
+ * never fires on Windows, so it is not watched.)
  */
-export function watchSessionEnd({ window, powerMonitor }) {
-  let ending = false;
-  const mark = () => { ending = true; };
-  window?.on('query-session-end', mark);
-  window?.on('session-end', mark);
-  powerMonitor?.on('shutdown', mark);
-  return () => ending;
+export function watchSessionEnd({ window, now = Date.now, queryWindowMs = 60_000 }) {
+  let ended = false, queriedAt = -Infinity;
+  window?.on('query-session-end', () => { queriedAt = now(); });
+  window?.on('session-end', () => { ended = true; });
+  return () => ended || now() - queriedAt < queryWindowMs;
 }
 
 /** A backend exit: ignored while Revu closes, a quiet close while Windows ends the session, otherwise a crash. */
@@ -48,7 +50,9 @@ export async function readLaunchConfig(request, { delaysMs = [250, 500, 1000], l
   for (let attempt = 0; ; attempt++) {
     try { return await request('/api/config') || {}; }
     catch (error) {
-      if (attempt >= delaysMs.length) {
+      // Only a backend that answered it could not read the file is asked again. A request
+      // that timed out, was cancelled or found no backend would only hold the splash longer.
+      if (attempt >= delaysMs.length || !(error?.status >= 500)) {
         log?.warn('Settings could not be read at launch; opening at the default window size', error);
         return {};
       }

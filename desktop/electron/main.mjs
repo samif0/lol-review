@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, protocol, screen, shell, session, systemPreferences, Tray, Menu } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, screen, shell, session, systemPreferences, Tray, Menu } from 'electron';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Sidecar } from './sidecar.mjs';
@@ -24,7 +24,7 @@ let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
 // abandonedWork: quit cancelled a long job, so its backend may need to be ended.
 let backendCrashed = false, restartAfterFailure = false, recovering = false, abandonedWork = false, framePage = '';
-// True once Windows starts ending the session (logoff, restart, shutdown).
+// True while Windows is ending the session (logoff, restart, shutdown).
 let sessionEnding = () => false;
 const media = new MediaRegistry();
 const packageEvents = [];
@@ -289,7 +289,7 @@ async function start() {
   if (process.platform === 'win32') window.setAppDetails({ appId: windowsAppId, appIconPath: iconPath, appIconIndex: 0 });
   background = await createBackgroundController({ app, window, Tray, Menu, iconPath, profile, isolated, smoke });
   window.on('close', background.onClose);
-  sessionEnding = watchSessionEnd({ window, powerMonitor });
+  sessionEnding = watchSessionEnd({ window });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-frame-navigate', event => { if (!isAppUrl(event.url)) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
