@@ -1,7 +1,7 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
-import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
+import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel, TRACKABLE_EVENT_TOKENS } from './objective-labels.mjs';
 import { renderObjectiveProgress } from './objective-progress.mjs';
 
 // Revu desktop — Objectives page renderer for the glass-aurora layout.
@@ -41,35 +41,6 @@ const FALLBACK_METRICS = [
   { index: 8, key: 'cs_total', label: 'Total CS', lowerIsBetter: false },
   { index: 9, key: 'cs_at_10', label: 'CS at 10 min', lowerIsBetter: false },
   { index: 10, key: 'gold_diff_at_10', label: 'Gold diff at 10 min', lowerIsBetter: false },
-];
-
-// Trackable-event tokens fall back to this static catalog if the snapshot didn't
-// carry eventTypeOptions. MUST mirror Revu.Core.Models.GameEvent.TrackableTokens.Catalog.
-const FALLBACK_EVENT_TOKENS = [
-  { token: 'KILL', group: 'Combat', label: 'Kill', color: '#28c76f' },
-  { token: 'DEATH', group: 'Combat', label: 'Death', color: '#ea5455' },
-  { token: 'JUNGLE_GANK', group: 'Combat', label: 'Died to Gank', color: '#d6455e' },
-  { token: 'FOG_DEATH', group: 'Combat', label: 'Died in Fog', color: '#b23a72' },
-  { token: 'ASSIST', group: 'Combat', label: 'Assist', color: '#0099ff' },
-  { token: 'MULTI_KILL', group: 'Combat', label: 'Multikill', color: '#fbbf24' },
-  { token: 'FIRST_BLOOD', group: 'Combat', label: 'First Blood', color: '#ef4444' },
-  { token: 'DRAGON', group: 'Objectives', label: 'Dragon', color: '#c89b3c' },
-  { token: 'BARON', group: 'Objectives', label: 'Baron', color: '#8b5cf6' },
-  { token: 'HERALD', group: 'Objectives', label: 'Herald', color: '#06b6d4' },
-  { token: 'TURRET', group: 'Objectives', label: 'Turret', color: '#f97316' },
-  { token: 'INHIBITOR', group: 'Objectives', label: 'Inhibitor', color: '#ec4899' },
-  { token: 'RECALL', group: 'Lane', label: 'Recall', color: '#a9c8ff' },
-  { token: 'TRADE', group: 'Lane', label: 'Trade', color: '#ffb86b' },
-  { token: 'SHORT_TRADE', group: 'Lane', label: 'Short Trade', color: '#ffd9a3' },
-  { token: 'EXTENDED_TRADE', group: 'Lane', label: 'Extended Trade', color: '#ff9248' },
-  { token: 'JUNGLE_PROXIMITY', group: 'Map', label: 'Jungler Near', color: '#b07cd8' },
-  { token: 'ENEMY_JUNGLE_PROXIMITY', group: 'Map', label: 'Enemy Jungler Near', color: '#ff7a9e' },
-  { token: 'ALLY_JUNGLE_PROXIMITY', group: 'Map', label: 'Ally Jungler Near', color: '#6bd6c8' },
-  { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
-  { token: 'OUTNUMBERED_TEAMFIGHT', group: 'Fights', label: 'Outnumbered Fight', color: '#f26d7d' },
-  { token: 'EVEN_TEAMFIGHT', group: 'Fights', label: 'Even-Numbers Fight', color: '#f3a3a8' },
-  { token: 'NUMBERS_UP_TEAMFIGHT', group: 'Fights', label: 'Numbers-Up Fight', color: '#8ee7ba' },
-  { token: 'ABSENT_TEAMFIGHT', group: 'Fights', label: 'Fight Without You', color: '#9fb0c3' },
 ];
 
 // ── data fetch ──────────────────────────────────────────────────────────────
@@ -373,7 +344,7 @@ let _criteriaMetrics = FALLBACK_METRICS;
 let _playedChampions = [];
 // Tracked-event gate: the set of selected event tokens + the catalog to render.
 let _eventTypes = [];           // Set-like array of selected tokens (UPPERCASE)
-let _eventTypeOptions = FALLBACK_EVENT_TOKENS;
+let _eventTypeOptions = TRACKABLE_EVENT_TOKENS;
 
 function setChecked(id, on) { const el = $(id); if (el) el.checked = !!on; }
 function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : String(v); }
@@ -459,7 +430,7 @@ function removePromptRow(idx) {
 // ── tracked-event gate ─────────────────────────────────────────────────────────
 // Render the event-token picker as grouped pill-toggles. Each pill toggles its
 // token in _eventTypes; a selected pill lights up in its own event color. Groups
-// (Combat / Objectives / Lane / Fights) get a tiny eyebrow label.
+// (Combat / Map objectives / Mark these yourself) get a small label.
 function renderEventPicker() {
   const host = $('f-events');
   if (!host) return;
@@ -475,6 +446,8 @@ function renderEventPicker() {
   for (const group of groups) {
     const sec = document.createElement('div');
     sec.className = 'obj-evtgroup';
+    sec.setAttribute('role', 'group');
+    sec.setAttribute('aria-label', group);
     const eyebrow = document.createElement('div');
     eyebrow.className = 'obj-evtgroup-k';
     eyebrow.textContent = group;
