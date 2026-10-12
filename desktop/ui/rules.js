@@ -2,6 +2,7 @@ import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
+import { recordLabel, planWithoutThen } from './rule-labels.mjs';
 
 // Revu desktop — Rules (session protocols) page renderer for the glass-aurora
 // layout. Renders the JSON returned by the Electron command `get_rules`
@@ -41,22 +42,6 @@ const TYPE_LABELS = {
   max_games: 'Max games per day',
   min_mental: 'Minimum mental',
 };
-
-// Only format the fixed wording of system-generated records. User names,
-// descriptions and replacement plans are displayed exactly as saved.
-function recordLabel(text) {
-  return text
-    .replace(/^NO TRIPS ON RECORD$/, 'No trips on record')
-    .replace(/^TRIPPED (?=\d)/, 'Tripped ')
-    .replace('BASELINE WR', 'Baseline WR')
-    .replace('WR WHEN TRIPPED', 'WR when tripped')
-    .replace(' VS ', ' vs ')
-    .replace(' BASELINE ·', ' baseline ·')
-    .replace(' · LAST ', ' · Last ')
-    .replace(/^HELD (?=\d)/, 'Held ')
-    .replace(' THIS WEEK', ' this week')
-    .replace(' · OVERRIDDEN ', ' · Overridden ');
-}
 
 // ── condition-text formatting (mirror RuleDisplayItem.ConditionText) ──────────
 // Used for the live IF-leg preview so it matches what the saved card will show.
@@ -301,7 +286,8 @@ function renderViolations(d) {
     if (v.hasPlan) {
       const el = tpl('tpl-vbanner-plan');
       el.querySelector('.rule-check-cue').textContent = v.conditionCue || '';
-      el.querySelector('.rule-check-plan').textContent = v.replacementPlan || '';
+      // The template prints its own "Then" label before the plan.
+      el.querySelector('.rule-check-plan').textContent = planWithoutThen(v.replacementPlan);
       el.querySelector('.rule-check-by-name').textContent = v.ruleName || '';
       list.appendChild(el);
     } else {

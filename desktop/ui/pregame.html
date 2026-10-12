@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revu: Champ Select</title>
+<title>Revu: Champ select</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
@@ -11,7 +11,7 @@
 <body>
   <div class="shell pg-shell">
     <div class="eyebrow">Champ Select</div>
-    <div class="hero"><h1 id="hero-title">Lock In</h1></div>
+    <div class="hero"><h1 id="hero-title">Lock in</h1></div>
     <div class="statusline" id="statusline">
       <span class="dot" id="lcu-dot"></span>
       <b>Stays open through the loading screen; closes when your game begins.</b>
@@ -38,7 +38,7 @@
       <div class="seclabel-in">Matchup</div>
       <div class="matchup-pairing" id="matchup-pairing" hidden></div>
       <div class="matchup-vs">
-        <span class="matchup-my" id="matchup-my">—</span>
+        <span class="matchup-my" id="matchup-my">…</span>
         <span class="matchup-x">vs</span>
         <span class="matchup-enemy" id="matchup-enemy">…</span>
       </div>
@@ -46,13 +46,13 @@
 
     <!-- ════ MATCHUP HISTORY ════ your saved notes vs this enemy -->
     <div class="glass card pg-card mh" id="mh-card" hidden>
-      <div class="seclabel-in" id="mh-header">Your notes</div>
+      <div class="seclabel-in" id="mh-header">Matchup notes</div>
       <div id="mh-list"></div>
     </div>
 
     <!-- ════ THIS GAME'S INTENT ════ carry-over card (zero-tap default) -->
     <div class="glass card pg-card intent" id="intent-card" hidden>
-      <div class="seclabel-in">This game’s intent</div>
+      <label class="seclabel-in" for="intent-input">This game’s intent</label>
       <div class="intent-prov-row" id="intent-prov-row" hidden>
         <span class="intent-dot" aria-hidden="true"></span>
         <span class="intent-prov" id="intent-prov"></span>
@@ -85,19 +85,19 @@
 
     <!-- ════ MENTAL ════ mood selector -->
     <div class="glass card pg-card mood" id="mood-card" hidden>
-      <div class="seclabel-in">How are you feeling?</div>
-      <div class="mood-row">
+      <div class="seclabel-in" id="mood-label">How are you feeling?</div>
+      <div class="mood-row" role="group" aria-labelledby="mood-label">
         <button type="button" class="mood-btn m1" data-action="set_mood" data-mood="1">Tilted</button>
         <button type="button" class="mood-btn m2" data-action="set_mood" data-mood="2">Off</button>
         <button type="button" class="mood-btn m3" data-action="set_mood" data-mood="3">Neutral</button>
         <button type="button" class="mood-btn m4" data-action="set_mood" data-mood="4">Good</button>
-        <button type="button" class="mood-btn m5" data-action="set_mood" data-mood="5">Locked In</button>
+        <button type="button" class="mood-btn m5" data-action="set_mood" data-mood="5">Locked in</button>
       </div>
     </div>
 
     <!-- ════ SESSION INTENTION ════ first-game-of-day implementation intention -->
     <div class="glass card pg-card session" id="session-card" hidden>
-      <div class="seclabel-in">Session intention</div>
+      <label class="seclabel-in" for="session-input">Session intention</label>
       <textarea class="pg-textarea" id="session-input" rows="2"
                 placeholder="One if-then intention for this session…"></textarea>
       <div class="session-quick" id="session-quick"></div>
@@ -154,16 +154,16 @@
   </template>
 
   <template id="tpl-prompt">
-    <div class="p-row">
-      <div class="p-label"></div>
+    <label class="p-row">
+      <span class="p-label"></span>
       <textarea class="pg-textarea p-input" rows="2" placeholder="Write your answer…"></textarea>
-    </div>
+    </label>
   </template>
 
   <template id="tpl-obj">
     <div class="obj-row">
       <div class="obj-main">
-        <div class="obj-top"><span class="obj-title"></span><span class="obj-pri" hidden>PRIORITY</span></div>
+        <div class="obj-top"><span class="obj-title"></span><span class="obj-pri" hidden>Priority</span></div>
         <div class="obj-crit" hidden></div>
       </div>
       <button type="button" class="obj-toggle">Practiced</button>

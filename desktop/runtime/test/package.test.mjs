@@ -24,7 +24,7 @@ async function file(root, name, value = 'fixture') {
 async function fixture(root) {
   for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/branding/revu.ico',
     'runtime/overwolf.mjs', 'ui/index.html', 'ui/app.js', 'ui/platform/index.mjs',
-    'ui/fonts/Inter.ttf', 'ui/sample-dashboard.json']) await file(root, name);
+    'ui/sample-dashboard.json']) await file(root, name);
   await file(root, 'package.json', JSON.stringify({ name: 'revu-desktop', version: '3.10.1',
     main: 'electron/main.mjs', type: 'module', overwolf: { packages: [] } }));
 }
@@ -34,10 +34,11 @@ test('staging copies the canonical app and rejects tests, output, private files 
   await fixture(source);
   for (const name of ['electron/test/host.test.mjs', 'electron/host.test.mjs', 'electron/private.local.mjs',
     'electron/.local/credentials.json', 'electron/package.json', 'ui/dist/index.html', 'ui/.env',
-    'ui/private.json', 'ui/node_modules/test.js', 'runtime/test/host.test.mjs',
+    'ui/private.json', 'ui/node_modules/test.js', 'ui/fonts/Inter.ttf', 'runtime/test/host.test.mjs',
     'overwolf-probes/src/main.ts', 'node_modules/dependency/index.js']) await file(source, name, 'must not ship');
   const copied = await stageApp(source, stage);
-  assert.ok(copied.includes('ui/fonts/Inter.ttf'));
+  // The app renders the Windows UI font; a leftover font folder is not part of the app.
+  assert.equal(copied.some(name => name.startsWith('ui/fonts/')), false);
   assert.ok(copied.includes('ui/sample-dashboard.json'));
   assert.equal(copied.some(name => /test|private|credentials|node_modules|dist|overwolf-probes/.test(name)), false);
   assert.deepEqual((await readdir(path.join(stage, 'electron'))).sort(), ['branding', 'main.mjs', 'preload.cjs']);

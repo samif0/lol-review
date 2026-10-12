@@ -37,7 +37,7 @@ public sealed record PreGameDto(
     // Live matchup card seed (champ vs enemy). HasMatchupDetected when my champ
     // is known; the enemy column shows "…" until the enemy locks (over SSE).
     PreGameMatchupDto Matchup,
-    // Saved "YOUR NOTES vs ENEMY" for the detected matchup. Empty when none.
+    // Saved "Matchup notes vs Enemy" for the detected matchup. Empty when none.
     PreGameMatchupHistoryDto MatchupHistory,
     // THIS GAME'S INTENT carry-over card: the zero-tap seed + provenance + the
     // selectable source chips (carry / priority objective / lowest adherence).
@@ -85,10 +85,10 @@ public sealed record PreGameMatchupDto(
     string EnemyOrPlaceholder,
     string AccentHex);
 
-/// <summary>Saved matchup notes ("YOUR NOTES vs ENEMY").</summary>
+/// <summary>Saved matchup notes ("Matchup notes vs Enemy").</summary>
 public sealed record PreGameMatchupHistoryDto(
     bool Has,
-    // "YOUR NOTES vs ENEMY" header, or empty when no notes.
+    // "Matchup notes vs Enemy" header, or empty when no notes.
     string HeaderText,
     IReadOnlyList<PreGameMatchupNoteDto> Items,
     string AccentHex);

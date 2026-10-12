@@ -1,20 +1,21 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { changedFromDefaults, registerLeaveGuard } from './leave-guard.mjs';
+import { objectivePhaseLabel } from './objective-labels.mjs';
 
-// Revu desktop — Manual Entry page renderer.
+// Revu desktop — Add a game manually.
 // Hand-log a League game that wasn't auto-captured + a minimal review. Mirrors
 // ManualEntryDialogViewModel: loads the active post-game objectives (practiced
-// toggle + execution note per objective), validates a required champion name,
-// then POSTs the whole form via save_manual_game and navigates to the Games
-// page (where the logged game appears). Mirrors app.js conventions:
+// toggle + execution note per objective), validates a required champion name and
+// an explicit result, then POSTs the whole form via save_manual_game and navigates
+// to the Match library (where the logged game appears). Mirrors app.js conventions:
 //   • getInvoke() uses the shared platform boundary and detects browser previews.
-//   • Outside Electron the objectives list falls back to sample-objectives-active.json
+//   • Outside Electron the objectives list falls back to sample-objectives.json
 //     (or empty) so the form previews standalone; save no-ops in preview.
 //   • Server strings written via textContent only (XSS-safe).
 //   • ONE delegated [data-action] click handler (save / cancel).
-
-// ── small DOM helpers ───────────────────────────────────────────────────────
+// The reflection field is the Review page's "One thing to take into your next
+// game", stored in the same column, so the note shows up when the match is reviewed.
 
 // ── module state ────────────────────────────────────────────────────────────
 let _objectives = []; // active post-game objectives → assessment rows
@@ -32,12 +33,13 @@ async function fetchObjectives() {
       return [];
     }
   }
-  // Browser preview: best-effort sample, else empty.
+  // Browser preview: the shared objectives sample, shaped like get_active_objectives.
   try {
-    const res = await fetch('./sample-objectives-active.json');
+    const res = await fetch('./sample-objectives.json');
     if (res.ok) {
       const j = await res.json();
-      return Array.isArray(j && j.objectives) ? j.objectives : [];
+      const active = Array.isArray(j && j.activeObjectives) ? j.activeObjectives : [];
+      return active.map((o) => ({ objectiveId: o.id, title: o.title, phaseLabel: o.phaseLabel }));
     }
   } catch (_) { /* no sample — render with no objectives */ }
   return [];
@@ -58,26 +60,23 @@ function renderObjectives() {
   for (const o of _objectives) {
     const el = tpl('tpl-meobj');
     el.dataset.objId = String(o.objectiveId);
-    el.querySelector('.me-obj-title').textContent = o.title || '';
-    el.querySelector('.me-obj-phase').textContent = o.phaseLabel || '';
-
-    // The toggle label tracks the checkbox state (Practiced / Not practiced).
-    const chk = el.querySelector('.me-obj-practiced');
-    const lbl = el.querySelector('.me-toggle-lbl');
-    chk.addEventListener('change', () => {
-      lbl.textContent = chk.checked ? 'Practiced' : 'Not practiced';
-    });
-
+    const title = o.title || '';
+    el.querySelector('.me-obj-title').textContent = title;
+    el.querySelector('.me-obj-phase').textContent = objectivePhaseLabel(o.phaseLabel);
+    // Every row repeats the same controls, so name them after their objective.
+    el.querySelector('.me-obj-practiced').setAttribute('aria-label', `Practiced: ${title}`);
+    el.querySelector('.me-obj-note').setAttribute('aria-label', `How did it go: ${title}`);
     host.appendChild(el);
   }
 }
 
 // ── validation + helpers ──────────────────────────────────────────────────────
-function setError(msg) {
+function setError(msg, field) {
   const e = $('me-error');
   if (!e) return;
   e.textContent = msg || '';
   show(e, !!msg);
+  if (msg && field) field.focus();
 }
 
 // Parse a KDA field: non-negative ints only (negatives / NaN → 0), mirroring the
@@ -92,7 +91,13 @@ function readNum(id) {
 function readPayload() {
   const champion = ($('me-champ').value || '').trim();
   if (!champion) {
-    setError('Champion name is required.');
+    setError('Enter the champion you played.', $('me-champ'));
+    return null;
+  }
+  // No default result: a forgotten choice must not silently record a loss.
+  const win = $('me-win').checked;
+  if (!win && !$('me-loss').checked) {
+    setError('Choose Victory or Defeat.', $('me-win'));
     return null;
   }
   setError('');
@@ -110,16 +115,13 @@ function readPayload() {
 
   return {
     championName: champion,
-    win: $('me-win').checked, // Defeat is the implicit complement (unchecked)
+    win,
     kills: readNum('me-k'),
     deaths: readNum('me-d'),
     assists: readNum('me-a'),
     mentalRating: Number($('me-mental').value) || 5,
     gameMode: 'Manual Entry',
     notes: ($('me-notes').value || '').trim(),
-    mistakes: ($('me-mistakes').value || '').trim(),
-    wentWell: ($('me-well').value || '').trim(),
-    focusNext: ($('me-focus').value || '').trim(),
     objectives,
   };
 }
@@ -130,13 +132,12 @@ function readPayload() {
 let _saved = false;
 async function save(btn, { leaving = false } = {}) {
   const payload = readPayload();
-  if (!payload) return false; // validation failed (champion required)
+  if (!payload) return false; // validation failed (champion or result missing)
 
   const invoke = await getInvoke();
   if (!invoke) {
     console.info('[manualentry] (preview) save_manual_game — no Electron backend.', payload);
-    // In preview just bounce to Games like the real flow would (the logged game
-    // shows up in Today / History there).
+    // In preview just bounce to the Match library like the real flow would.
     if (!leaving) window.location.href = 'games.html';
     return true;
   }
@@ -148,7 +149,7 @@ async function save(btn, { leaving = false } = {}) {
     if (!leaving) window.location.href = 'games.html';
     return true;
   } catch (err) {
-    setError('Failed to save game entry.');
+    setError("Couldn't save this game. Try again.");
     renderError(err);
     console.error('[manualentry] save_manual_game failed:', err);
     if (btn) btn.disabled = false;
@@ -174,9 +175,13 @@ function wire() {
   if (mental && mentalVal) {
     mental.addEventListener('input', () => { mentalVal.textContent = mental.value; });
   }
-  // Clear the required-field error as soon as a champion name is typed.
+  // Clear a required-field error as soon as it is resolved.
   const champ = $('me-champ');
   if (champ) champ.addEventListener('input', () => { if (champ.value.trim()) setError(''); });
+  for (const id of ['me-win', 'me-loss']) {
+    const radio = $(id);
+    if (radio) radio.addEventListener('change', () => setError(''));
+  }
 }
 
 // ── single delegated action handler (save / cancel) ──────────────────────────

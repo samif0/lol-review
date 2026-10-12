@@ -164,45 +164,48 @@ public class GameEvent
         public static readonly string[] SpellNames =
             ["Flash", "Ignite", "Teleport", "Smite", "Exhaust", "Heal", "Barrier", "Cleanse", "Ghost"];
 
-        /// <summary>Token \u2192 (Group, Label, ColorHex). Order within a group is display order.</summary>
+        /// <summary>Picker group for tokens no detector produces. EventEligibility only
+        /// surfaces these once the player marks the moment in the VOD player (a correction
+        /// or reviewed encounter), so the picker must not promise they appear on their own.</summary>
+        public const string ManualGroup = "Mark these yourself";
+
+        /// <summary>Token, group, label and color hex. Order within a group is display order.
+        /// Only events Revu detects on its own sit outside <see cref="ManualGroup"/>.</summary>
         public static readonly IReadOnlyList<(string Token, string Group, string Label, string Color)> Catalog =
         [
-            // Combat
-            (EventTypes.Kill,       "Combat",     "Kill",          "#28c76f"),
-            (EventTypes.Death,      "Combat",     "Death",         "#ea5455"),
-            (JungleGankToken,       "Combat",     "Died to Gank",  "#d6455e"),
-            (FogDeathToken,         "Combat",     "Died in Fog",   "#b23a72"),
-            (EventTypes.Assist,     "Combat",     "Assist",        "#0099ff"),
-            (EventTypes.MultiKill,  "Combat",     "Multikill",   "#fbbf24"),
-            (EventTypes.FirstBlood, "Combat",     "First Blood", "#ef4444"),
-            // Objectives
-            (EventTypes.Dragon,     "Objectives", "Dragon",      "#c89b3c"),
-            (EventTypes.Baron,      "Objectives", "Baron",       "#8b5cf6"),
-            (EventTypes.Herald,     "Objectives", "Herald",      "#06b6d4"),
-            (EventTypes.Turret,     "Objectives", "Turret",      "#f97316"),
-            (EventTypes.Inhibitor,  "Objectives", "Inhibitor",   "#ec4899"),
-            // Lane (derived) — recall from shop purchases / fountain restore, and
-            // trades from your own HP dropping while alive. The Summoners group used
-            // to live here (one token per spell) but summoner-cast timing can't be
-            // ingested from any ToS-safe source, so it was retired (v3.1.8).
-            (EventTypes.Recall,  "Lane", "Recall",         "#a9c8ff"),
-            (AllInToken,         "Lane", "All-in",         "#f87171"),
-            (TradeToken,         "Lane", "Trade",          "#ffb86b"),
-            (ShortTradeToken,    "Lane", "Short Trade",    "#ffd9a3"),
-            (ExtendedTradeToken, "Lane", "Extended Trade", "#ff9248"),
-            // Map state (derived post-game from Match-V5 timeline positions)
-            (JungleProximityToken,      "Map", "Jungler Near",       "#b07cd8"),
-            (EnemyJungleProximityToken, "Map", "Enemy Jungler Near", "#ff7a9e"),
-            (AllyJungleProximityToken,  "Map", "Ally Jungler Near",  "#6bd6c8"),
-            // Fights: TEAMFIGHT = any fight you were in (a stored post-game row with
-            // numbers, or the synthetic own-event cluster before the pass runs); the
-            // numbers family splits those by the verdict when you committed; ABSENT
-            // = a fight that happened without you.
-            (TeamfightToken,             "Fights", "Teamfight",          "#f3a3a8"),
-            (OutnumberedTeamfightToken,  "Fights", "Outnumbered Fight",  "#f26d7d"),
-            (EvenTeamfightToken,         "Fights", "Even-Numbers Fight", "#f3a3a8"),
-            (NumbersUpTeamfightToken,    "Fights", "Numbers-Up Fight",   "#8ee7ba"),
-            (AbsentTeamfightToken,       "Fights", "Fight Without You",  "#9fb0c3"),
+            // Detected from the live game feed (EventEligibility's baseline types).
+            (EventTypes.Kill,       "Combat",         "Kill",        "#28c76f"),
+            (EventTypes.Death,      "Combat",         "Death",       "#ea5455"),
+            (EventTypes.Assist,     "Combat",         "Assist",      "#0099ff"),
+            (EventTypes.MultiKill,  "Combat",         "Multikill",   "#fbbf24"),
+            (EventTypes.FirstBlood, "Combat",         "First Blood", "#ef4444"),
+            (EventTypes.Dragon,     "Map objectives", "Dragon",      "#c89b3c"),
+            (EventTypes.Baron,      "Map objectives", "Baron",       "#8b5cf6"),
+            (EventTypes.Herald,     "Map objectives", "Herald",      "#06b6d4"),
+            (EventTypes.Turret,     "Map objectives", "Turret",      "#f97316"),
+            (EventTypes.Inhibitor,  "Map objectives", "Inhibitor",   "#ec4899"),
+            // Marked by the player in the VOD player. Their detectors are unavailable or
+            // hidden (death attributes, recall, trades, jungle proximity, teamfights), so
+            // they stay offered and valid for existing objectives under an honest heading.
+            // The Summoners group (one token per spell) was retired in v3.1.8: summoner-cast
+            // timing can't be ingested from any ToS-safe source.
+            (JungleGankToken,           ManualGroup, "Died to Gank",       "#d6455e"),
+            (FogDeathToken,             ManualGroup, "Died in Fog",        "#b23a72"),
+            (EventTypes.Recall,         ManualGroup, "Recall",             "#a9c8ff"),
+            (AllInToken,                ManualGroup, "All-in",             "#f87171"),
+            (TradeToken,                ManualGroup, "Trade",              "#ffb86b"),
+            (ShortTradeToken,           ManualGroup, "Short Trade",        "#ffd9a3"),
+            (ExtendedTradeToken,        ManualGroup, "Extended Trade",     "#ff9248"),
+            (JungleProximityToken,      ManualGroup, "Jungler Near",       "#b07cd8"),
+            (EnemyJungleProximityToken, ManualGroup, "Enemy Jungler Near", "#ff7a9e"),
+            (AllyJungleProximityToken,  ManualGroup, "Ally Jungler Near",  "#6bd6c8"),
+            // TEAMFIGHT = any fight you were in; the numbers family splits those by the
+            // verdict when you committed; ABSENT = a fight that happened without you.
+            (TeamfightToken,            ManualGroup, "Teamfight",          "#f3a3a8"),
+            (OutnumberedTeamfightToken, ManualGroup, "Outnumbered Fight",  "#f26d7d"),
+            (EvenTeamfightToken,        ManualGroup, "Even-Numbers Fight", "#f3a3a8"),
+            (NumbersUpTeamfightToken,   ManualGroup, "Numbers-Up Fight",   "#8ee7ba"),
+            (AbsentTeamfightToken,      ManualGroup, "Fight Without You",  "#9fb0c3"),
         ];
 
         /// <summary>Legacy per-spell tokens (SPELL_FLASH, …) that are NO LONGER in the

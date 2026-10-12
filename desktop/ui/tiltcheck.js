@@ -113,15 +113,16 @@ function renderStrip(d) {
 
   const cells = [
     { k: 'Resets',     v: String(total),                                      sub: 'All-time',  flag: false },
-    { k: 'Avg before', v: total ? fmt(s.avgBefore) : '—',                     sub: 'Intensity', flag: false },
-    { k: 'Avg after',  v: total ? fmt(s.avgAfter) : '—',                      sub: 'Intensity', flag: false },
-    { k: 'Avg drop',   v: total ? fmt(s.avgReduction) : '—',                  sub: 'Points',    flag: true  },
-    { k: 'Top',        v: topEmotion ? cap(topEmotion.emotion) : '—',         sub: topEmotion ? `${topEmotion.count}×` : '', flag: false },
+    { k: 'Avg before', v: total ? fmt(s.avgBefore) : NO_DATA,                   sub: 'Intensity', flag: false },
+    { k: 'Avg after',  v: total ? fmt(s.avgAfter) : NO_DATA,                    sub: 'Intensity', flag: false },
+    { k: 'Avg drop',   v: total ? fmt(s.avgReduction) : NO_DATA,                sub: 'Points',    flag: true  },
+    { k: 'Top',        v: topEmotion ? cap(topEmotion.emotion) : NO_DATA,       sub: topEmotion ? `${topEmotion.count}×` : '', flag: false },
   ];
 
   for (const c of cells) {
     const el = tpl('tpl-stat');
     if (c.flag) el.classList.add('flag');
+    if (c.v === NO_DATA) el.classList.add('is-empty');
     el.querySelector('.k').textContent = c.k;
     el.querySelector('.v').textContent = c.v;
     el.querySelector('.s').textContent = c.sub;
@@ -129,7 +130,9 @@ function renderStrip(d) {
   }
 }
 
-function fmt(n) { return n == null ? '—' : String(n); }
+// Missing values read as words, never as a dash glyph.
+const NO_DATA = 'No data yet';
+function fmt(n) { return n == null ? NO_DATA : String(n); }
 function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
 // ── render: top emotions chips ──────────────────────────────────────────────
@@ -212,7 +215,7 @@ function buildRecentRow(r) {
     || r.focusIntention || '';
 
   // Before → after intensity duo. After/reduction are nullable.
-  before.textContent = r.intensityBefore != null ? String(r.intensityBefore) : '—';
+  before.textContent = r.intensityBefore != null ? String(r.intensityBefore) : 'None';
   if (r.intensityAfter != null) {
     after.textContent = String(r.intensityAfter);
     if (r.intensityReduction != null && r.intensityReduction > 0) {
@@ -499,7 +502,7 @@ function openRitual() {
       result.textContent = `Higher than before. Consider a longer break before the next game.`;
       result.className = 'tc-result bad';
     } else {
-      result.textContent = `Same intensity, and that's okay. A 4-minute ritual can't clear cortisol; it catches you on the slope.`;
+      result.textContent = `Same intensity, and that's okay. A short reset still gives you a clear plan before the next queue.`;
       result.className = 'tc-result';
     }
     show(result, true);

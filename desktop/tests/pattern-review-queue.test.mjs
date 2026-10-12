@@ -311,15 +311,15 @@ test('long saved playlists render eight moments at a time and keep the last mome
   p.moments = Array.from({ length: 18 }, (_, i) => ({ ...pattern(i + 1).moments[0], title: `Saved ${i + 1}` }));
   f.hooks.render(snapshot([p]));
   assert.equal(f.$('pat-rail').children.length, 8);
-  assert.equal(f.$('pat-batch-label').textContent, '1–8 of 18');
+  assert.equal(f.$('pat-batch-label').textContent, '1-8 of 18');
   assert.equal(f.$('pat-batch-prev').disabled, true);
   assert.equal(f.$('pat-batch-next').disabled, false);
   f.hooks.gotoMoment(8);
-  assert.equal(f.$('pat-batch-label').textContent, '9–16 of 18');
+  assert.equal(f.$('pat-batch-label').textContent, '9-16 of 18');
   assert.equal(f.$('pat-rail').children[0].dataset.momIdx, '8');
   f.hooks.gotoMoment(17);
   assert.equal(f.$('pat-rail').children.length, 2);
-  assert.equal(f.$('pat-batch-label').textContent, '17–18 of 18');
+  assert.equal(f.$('pat-batch-label').textContent, '17-18 of 18');
   assert.equal(f.$('pat-batch-next').disabled, true);
   assert.equal(f.$('m-title').textContent, 'Saved 18');
 });

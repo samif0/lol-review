@@ -10,8 +10,8 @@ import { objectiveDisplayText } from './objective-labels.mjs';
 //   • getInvoke() uses the shared platform boundary and detects browser previews.
 //   • Outside Electron it fetches ./sample-objective-games.json so the page
 //     previews in a plain browser.
-//   • Every server string is written via textContent (never innerHTML); colors
-//     arrive as *Hex strings applied to style properties only.
+//   • Every server string is written via textContent (never innerHTML); result
+//     colors come from the shared CSS tokens, not the snapshot's legacy hex values.
 //   • ONE delegated [data-action] click handler.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ async function fetchObjectiveGames() {
 
 // ── render: header ────────────────────────────────────────────────────────
 function renderHeader(d) {
-  $('obj-title').textContent = d.objectiveTitle || 'Objective';
+  $('obj-title').textContent = d.objectiveTitle || 'Learning objective';
   $('obj-status').textContent = objectiveDisplayText(d.objectiveStatus);
   const counter = $('obj-counter');
   const hasCounter = !!d.hasGames && !!d.counterText;
@@ -58,7 +58,6 @@ function renderEvidence(d) {
 
   for (const e of items) {
     const el = tpl('tpl-ev');
-    if (e.polarityColorHex) el.style.setProperty('--ev', e.polarityColorHex);
     el.querySelector('.og-ev-title').textContent = e.title || '';
     el.querySelector('.og-ev-meta').textContent = e.metaText || '';
     const note = el.querySelector('.og-ev-note');
@@ -70,14 +69,26 @@ function renderEvidence(d) {
 }
 
 // ── render: one game row ────────────────────────────────────────────────────
+const RESULT_NAMES = { win: 'Win', loss: 'Loss', remake: 'Remake' };
+
+// A remake is not a result, whatever its stored win flag says.
+function resultOf(g) {
+  if (String(g.resultText || '').toLowerCase() === 'remake') return 'remake';
+  return g.win ? 'win' : 'loss';
+}
+
 function buildGame(g) {
   const el = tpl('tpl-game');
   if (g.gameId != null) el.dataset.gameId = String(g.gameId);
-  if (g.resultColorHex) el.style.setProperty('--wl', g.resultColorHex);
 
+  // Result color comes from the shared result tokens, not the server's legacy hex.
   const wl = el.querySelector('.og-grow-wl');
-  wl.textContent = g.resultText || '';
-  if (g.resultColorHex) wl.style.color = g.resultColorHex;
+  const result = resultOf(g);
+  wl.dataset.result = result;
+  wl.title = RESULT_NAMES[result];
+  // The visible W or L is a glyph; screen readers read the result word instead.
+  wl.querySelector('.og-grow-wl-short').textContent = g.resultText || '';
+  wl.querySelector('.og-grow-wl-name').textContent = RESULT_NAMES[result];
 
   el.querySelector('.og-grow-champ').textContent = g.championName || '';
   el.querySelector('.og-grow-kda').textContent = g.kdaText || '';
@@ -88,8 +99,6 @@ function buildGame(g) {
   // review. Older snapshots call false "Skipped", which looks like a lost review.
   badge.textContent = g.practiced ? 'Objective practiced' : 'Objective not practiced';
   badge.title = 'Shows whether this objective was marked practiced for this game. Your match review is saved separately.';
-  if (g.practicedColorHex) badge.style.setProperty('--fg', g.practicedColorHex);
-  if (g.practicedDimColorHex) badge.style.setProperty('--bg', g.practicedDimColorHex);
 
   const exec = el.querySelector('.og-grow-exec');
   show(exec, !!g.hasExecutionNote && !!g.executionNote);
@@ -200,17 +209,6 @@ document.addEventListener('click', (ev) => {
   } else if (action === 'review_game') {
     window.location.href = `review.html?gameId=${encodeURIComponent(gid)}`;
   }
-});
-
-// Keyboard activation for the role="button" game rows (Enter / Space). The
-// nested Watch VOD <button> handles its own keys natively (it isn't role=button),
-// so a focused VOD button won't also fire the row's review_game.
-document.addEventListener('keydown', (ev) => {
-  if (ev.key !== 'Enter' && ev.key !== ' ') return;
-  const target = ev.target.closest('[data-action][role="button"]');
-  if (!target) return;
-  ev.preventDefault();
-  target.click();
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────

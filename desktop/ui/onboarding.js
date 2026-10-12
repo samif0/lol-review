@@ -128,7 +128,7 @@ function render() {
   const rank = $('onb-rank');
   if (rank) {
     if (vm.detectedRank) {
-      rank.textContent = `RANK DETECTED: ${vm.detectedRank}`;
+      rank.textContent = `Rank detected: ${vm.detectedRank}`;
       show(rank, true);
     } else {
       rank.textContent = '';

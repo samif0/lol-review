@@ -16,7 +16,7 @@
       <div class="hero">
         <div class="eyebrow">Session protocols</div>
         <h1>Session rules</h1>
-        <div class="rules-subt" id="rules-subt">Stop-losses · Time limits · Mindset checks</div>
+        <div class="rules-subt" id="rules-subt">Stop-losses, time limits and mindset checks</div>
       </div>
       <div class="rules-hero-act">
         <button class="cta rules-new-btn" id="new-rule" data-action="new_rule" type="button">+ New rule</button>
@@ -91,7 +91,7 @@
     <!-- RULE CHECK banner — live check vs today's games. P2b: observation, not
          a verdict. Hidden unless an active rule is tripped today. Each entry has
          two layouts: a plan-led IF/THEN block (when the rule has a replacement
-         plan) or a plain "RuleName — Reason" line. -->
+         plan) or a plain "RuleName: Reason" line. -->
     <div class="rule-check" id="rule-check" hidden>
       <div class="rule-check-head">
         <span class="rule-check-ico" aria-hidden="true">⚠</span>
@@ -172,11 +172,10 @@
     </div>
   </template>
 
-  <!-- ── BANNER-ITEM TEMPLATE (no plan): "RuleName — Reason" ── -->
+  <!-- ── BANNER-ITEM TEMPLATE (no plan): "RuleName: Reason" ── -->
   <template id="tpl-vbanner">
     <div class="rule-check-item">
-      <span class="rule-check-name"></span>
-      <span class="rule-check-dash" aria-hidden="true">—</span>
+      <span class="rule-check-name"></span><span class="rule-check-dash" aria-hidden="true">:</span>
       <span class="rule-check-reason"></span>
     </div>
   </template>

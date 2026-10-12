@@ -124,11 +124,13 @@
           <datalist id="f-champ-list"></datalist>
         </div>
 
-        <!-- TRACKED EVENTS — tie the objective to specific in-game events. Only the
+        <!-- TRACKED EVENTS: tie the objective to specific in-game events. Only the
              selected events get highlighted on the VOD timeline (priority lane).
-             Rendered as grouped pill-toggles; populated from eventTypeOptions. -->
+             Rendered as grouped pill-toggles from eventTypeOptions; events no
+             detector produces sit under "Mark these yourself". -->
         <div class="obj-field">
-          <span class="obj-field-k obj-field-k-events">Tracked events <i class="obj-field-hint">light up on the timeline</i></span>
+          <span class="obj-field-k obj-field-k-events">Tracked events <i class="obj-field-hint">highlighted on the VOD timeline</i></span>
+          <p class="field-help">Revu finds kills, deaths and map objectives on its own. Events under "Mark these yourself" appear once you mark them while watching the VOD.</p>
           <div class="obj-evtpick" id="f-events"></div>
         </div>
           </div>
@@ -179,16 +181,13 @@
     </div>
   </div>
 
-  <!-- MILESTONE CELEBRATION OVERLAY — full-screen scrim + HUD card, shown when an
-       objective is marked complete. Auto-dismisses after 5s; CONTINUE closes it. -->
-  <div class="obj-celebrate" id="celebrate" hidden>
+  <!-- MILESTONE CELEBRATION: a modal alert shown when an objective is marked
+       complete. It is announced, takes focus, and stays until Continue or Escape. -->
+  <div class="obj-celebrate" id="celebrate" role="alertdialog" aria-modal="true"
+       aria-labelledby="celebrate-head" aria-describedby="celebrate-title celebrate-stats" hidden>
     <div class="obj-celebrate-card glass">
-      <span class="obj-celebrate-bracket tl" aria-hidden="true"></span>
-      <span class="obj-celebrate-bracket tr" aria-hidden="true"></span>
-      <span class="obj-celebrate-bracket bl" aria-hidden="true"></span>
-      <span class="obj-celebrate-bracket br" aria-hidden="true"></span>
       <div class="obj-celebrate-eyebrow">Milestone reached</div>
-      <div class="obj-celebrate-head">Learning objective complete</div>
+      <h2 class="obj-celebrate-head" id="celebrate-head">Learning objective complete</h2>
       <div class="obj-celebrate-title" id="celebrate-title"></div>
       <div class="obj-celebrate-stats" id="celebrate-stats"></div>
       <div class="obj-celebrate-line">Skill acquired: carry it into your next games.</div>
