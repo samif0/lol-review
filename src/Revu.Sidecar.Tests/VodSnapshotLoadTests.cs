@@ -71,4 +71,17 @@ public sealed class VodSnapshotLoadTests
             () => Builder(scope, events).BuildAsync(GameId, new CancellationToken(canceled: true)));
         Assert.Equal(0, events.Reads);
     }
+
+    [Fact]
+    public async Task TheRouteEndsAnAbortedLoadQuietly_InsteadOfThrowingToTheErrorLog()
+    {
+        var (scope, events) = await SeedAsync();
+        using var _ = scope;
+
+        var result = await SidecarEndpoints.GetVodSnapshotAsync(GameId, Builder(scope, events), SidecarJson.CreateOptions(),
+            new CancellationToken(canceled: true));
+
+        Assert.Equal(499, Assert.IsAssignableFrom<Microsoft.AspNetCore.Http.IStatusCodeHttpResult>(result).StatusCode);
+        Assert.Equal(0, events.Reads);
+    }
 }

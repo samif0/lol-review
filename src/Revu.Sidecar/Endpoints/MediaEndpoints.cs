@@ -13,8 +13,8 @@ public static partial class SidecarEndpoints
     private static void MapMedia(WebApplication app, JsonSerializerOptions jsonOptions)
     {
         // ── GET /api/vod?gameId=N (token-gated): VOD file path + bookmarks ───────────
-        app.MapGet("/api/vod", async (long gameId, VodSnapshotBuilder builder, CancellationToken ct) =>
-            Results.Json(await builder.BuildAsync(gameId, ct), jsonOptions));
+        app.MapGet("/api/vod", (long gameId, VodSnapshotBuilder builder, CancellationToken ct) =>
+            GetVodSnapshotAsync(gameId, builder, jsonOptions, ct));
 
         app.MapPost("/api/bookmark/add", async (AddBookmarkBody body, WriteServices w, ILogger<Program> log) =>
         {
@@ -296,6 +296,24 @@ public static partial class SidecarEndpoints
                 body.BookmarkId, fileDeleted, remoteDeleted);
             return Results.Json(new { ok = true, fileDeleted, remoteDeleted }, jsonOptions);
         });
+    }
+
+    /// <summary>
+    /// GET /api/vod. The snapshot stops when the player navigates away mid-load; that abort is
+    /// routine, so it ends quietly (499, nobody reads it) instead of reaching the error-level
+    /// unhandled-request log.
+    /// </summary>
+    internal static async Task<IResult> GetVodSnapshotAsync(long gameId, VodSnapshotBuilder builder,
+        JsonSerializerOptions jsonOptions, CancellationToken ct)
+    {
+        try
+        {
+            return Results.Json(await builder.BuildAsync(gameId, ct), jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Results.StatusCode(499);
+        }
     }
 
     /// <summary>
