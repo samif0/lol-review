@@ -7,6 +7,9 @@
     <RootNamespace>Revu.Core</RootNamespace>
     <AssemblyName>LoLReview.Core</AssemblyName>
     <Platforms>x64;ARM64</Platforms>
+    <!-- Restore-only: records the win-x64 graph in packages.lock.json so the
+         sidecar's `dotnet publish -r win-x64` restores Core in locked mode. -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
