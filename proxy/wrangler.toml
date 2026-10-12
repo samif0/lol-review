@@ -1,7 +1,7 @@
 # Cloudflare Worker config. The `name` below becomes part of the deployed URL:
 # https://<name>.<account-subdomain>.workers.dev
 #
-# Rename freely — after changing, run `wrangler deploy` and update the desktop
+# Rename freely. After changing it, run `npm run deploy` and update the desktop
 # app's RIOT_PROXY_URL config field to the new URL.
 name = "revu-proxy"
 main = "src/index.ts"

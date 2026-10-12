@@ -1,0 +1,31 @@
+<Project>
+  <!--
+    Shared build policy for every project under this repository. The SDK itself
+    is pinned by global.json at the repository root.
+  -->
+  <PropertyGroup>
+    <!--
+      Reproducible restores: each project commits its packages.lock.json. A
+      restore on a GitHub Actions runner (CI=true) runs in locked mode and fails
+      instead of silently resolving a different package graph. After changing a
+      PackageReference locally, run a normal restore and commit the updated lock
+      file alongside the change.
+    -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!--
+      CONTRIBUTING.md requires a clean Release build (0 warnings, 0 errors); CI
+      and the release workflow build Release, so this enforces it there.
+      NuGet vulnerability advisories (NU1901-NU1904) stay warnings: a newly
+      published advisory should be visible, but must not fail an unrelated
+      build. Dependabot raises the update PRs for those. NU1900 (the audit
+      data could not be fetched) also stays a warning, so a feed outage does
+      not fail the build.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1900;NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+</Project>

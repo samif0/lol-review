@@ -10,6 +10,11 @@ import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime
 const uiExtensions = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.webp', '.ico', '.woff', '.woff2', '.ttf']);
 const requiredAppFiles = ['package.json', 'electron/main.mjs', 'electron/preload.cjs',
   'electron/branding/revu.ico', 'ui/index.html', 'ui/platform/index.mjs', 'runtime/overwolf.mjs'];
+// Electron fuse wire v1 (@electron/fuses): sentinel, version byte, length byte, then one
+// ASCII '0'/'1' per fuse. Each packaged build must carry the states electron-builder.config.mjs sets.
+const fuseSentinel = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX', 'latin1');
+export const requiredFuses = Object.freeze([['RunAsNode', 0, false], ['EnableNodeOptionsEnvironmentVariable', 2, false],
+  ['EnableNodeCliInspectArguments', 3, false], ['EnableEmbeddedAsarIntegrityValidation', 4, true], ['OnlyLoadAppFromAsar', 5, true]]);
 
 /** Explicit source areas; adding a new asset directory requires a deliberate change. */
 export function isAppFile(relative) {
@@ -62,6 +67,23 @@ async function copyTree(source, destination) {
   }
 }
 
+/** Reads the single v1 fuse wire of a Windows Electron executable. */
+export function readFuseWire(binary) {
+  const at = binary.indexOf(fuseSentinel);
+  if (at < 0 || binary.indexOf(fuseSentinel, at + 1) !== -1) throw new Error('Packaged executable has no single Electron fuse wire');
+  const position = at + fuseSentinel.length;
+  if (binary[position] !== 1) throw new Error('Unsupported Electron fuse wire version');
+  return [...binary.subarray(position + 2, position + 2 + binary[position + 1])];
+}
+
+export async function verifyFuses(executable) {
+  const wire = readFuseWire(await readFile(executable));
+  for (const [name, index, enabled] of requiredFuses) {
+    if (wire[index] !== (enabled ? 0x31 : 0x30))
+      throw new Error(`Packaged executable fuse ${name} must be ${enabled ? 'enabled' : 'disabled'}`);
+  }
+}
+
 export async function verifyPackage(directory) {
   for (const relative of ['revu-desktop.exe', 'Revu.Sidecar.exe', 'Revu.Sidecar.dll',
     'Revu.Sidecar.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'resources/app.asar', 'resources/branding/revu.ico']) {
@@ -86,6 +108,7 @@ export async function verifyPackage(directory) {
   const manifest = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
   if (manifest.main !== 'electron/main.mjs' || manifest.overwolf?.packages?.length !== 0)
     throw new Error('Packaged manifest changed its entry or enabled gaming packages');
+  await verifyFuses(path.join(directory, 'revu-desktop.exe'));
 }
 
 function run(executable, args, cwd, env) {
@@ -135,8 +158,12 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
   const files = await stageApp(root, staged);
   const env = cleanRuntimeEnvironment();
   env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
+  // Stamp the sidecar's version resource with the app version, like rcedit does for the host exe.
+  const fileVersion = manifest.version.split('-')[0];
+  if (!/^\d+\.\d+\.\d+$/.test(fileVersion)) throw new Error('Desktop version must start with major.minor.patch.');
   await run('dotnet', ['publish', path.join(repository, 'src/Revu.Sidecar/Revu.Sidecar.csproj'),
     '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:Platform=x64',
+    `-p:Version=${fileVersion}`, `-p:InformationalVersion=${manifest.version}`,
     '--artifacts-path', path.join(buildRoot, 'dotnet'), '-o', sidecar], repository, env);
   const builderConfig = { ...config, electronVersion: runtime.pinnedVersion,
     electronDist: path.dirname(runtime.executable), directories: { app: staged, output: path.join(buildRoot, 'output') },
