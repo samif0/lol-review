@@ -40,9 +40,19 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
     {
         if (!File.Exists(AppDataPaths.DatabasePath))
         {
+            // The schema the sidecar's startup builds: a WAL database, the additive schema,
+            // then the idempotent seeds and indexes (SidecarStartup).
             Directory.CreateDirectory(AppDataPaths.UserDataRoot);
             var factory = new SqliteConnectionFactory(NullLogger<SqliteConnectionFactory>.Instance, AppDataPaths.DatabasePath);
-            await new DatabaseInitializer(factory, NullLogger<DatabaseInitializer>.Instance).InitializeAsync();
+            using (var connection = factory.CreateConnection())
+            using (var wal = connection.CreateCommand())
+            {
+                wal.CommandText = "PRAGMA journal_mode=WAL;";
+                await wal.ExecuteNonQueryAsync();
+            }
+            var schema = new DatabaseInitializer(factory, NullLogger<DatabaseInitializer>.Instance);
+            await schema.ApplyAdditiveSchemaAsync();
+            await schema.ApplySeedsAndIndexesAsync();
         }
 
         _write = new WriteServices(NullLoggerFactory.Instance, _work);
