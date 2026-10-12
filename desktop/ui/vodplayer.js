@@ -32,6 +32,7 @@ let _autoClipEnabled = false; // config.autoClipObjectivesEnabled — gates the 
 let _autoClipBusy = false;    // true while an auto-clip run is in flight
 let _autoClipHintMsg = '';    // last auto-clip result message (survives objbar re-render)
 let _autoClipHintErr = false; // whether _autoClipHintMsg is an error
+let _autoClipReportedBatch = ''; // batch id whose result this page's request already showed
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
 let _fx = null;        // timeline corrections module (selection, keys, form, ghosts, list)
 let _vodInitialLoading = true;
@@ -2883,6 +2884,8 @@ async function runAutoClipForObjective(objId) {
     const payload = { gameId: _gameId };
     if (oid) payload.objectiveId = oid;
     const res = await _core.invoke('auto_clip_objectives', { payload });
+    // Its finished event may still be on the way; it must not report the same batch again.
+    if (res && res.batch) _autoClipReportedBatch = String(res.batch);
     if (res && res.ok) {
       const created = Number(res.created || 0);
       const skipped = Number(res.skipped || 0);
@@ -2909,6 +2912,8 @@ async function runAutoClipForObjective(objId) {
     // The batch is accepted work in the sidecar: a request deadline only means this page
     // stopped waiting. Its autoClipProgress event re-reads the clips when it finishes.
     if (/timeout|timed out|aborted/i.test(msg)) setAutoClipHint('Still clipping in the background. New clips appear here when they are ready.', false);
+    // Another objective's batch for this game is still running (it outlived its request).
+    else if (/already running/i.test(msg)) setAutoClipHint('Auto-clip is already running for this game. Try again when it finishes.', false);
     else setAutoClipHint(/ffmpeg/i.test(msg) ? 'Auto-clip failed; is ffmpeg installed?' : 'Auto-clip failed.', true);
     console.error('[vodplayer] auto_clip_objectives failed:', err);
     // Clips saved before the error or deadline are already on disk; show them.
@@ -2922,7 +2927,8 @@ async function runAutoClipForObjective(objId) {
 
 // autoClipProgress (forwarded by the shell): live progress while this page waits, and the
 // result of a batch that outlived its request (re-read the clips, finish the first-review
-// step). A waiting request reports its own result.
+// step). A waiting request reports its own result, and a batch it already reported is
+// ignored when its finished event arrives after the reply.
 function onAutoClipProgress(ev) {
   const d = (ev && ev.detail) || {};
   if (Number(d.gameId) !== _gameId || _gameId <= 0) return;
@@ -2932,6 +2938,7 @@ function onAutoClipProgress(ev) {
     return;
   }
   if (_autoClipBusy) return;
+  if (d.batch && String(d.batch) === _autoClipReportedBatch) return;
   const created = Number(d.created || 0);
   if (d.ok && created > 0) {
     setAutoClipHint(`Saved ${created} clip${created === 1 ? '' : 's'}.`, false);

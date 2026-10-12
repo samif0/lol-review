@@ -60,6 +60,25 @@ public sealed class AcceptedJobsTests
     }
 
     [Fact]
+    public async Task ARunningKey_IsJoinedOnlyByTheSameVariant()
+    {
+        var jobs = new SidecarJobs(Work());
+        var release = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var first = jobs.Start("job", "a", "test job", _ => release.Task, out var firstBusy)!;
+        var same = jobs.Start("job", "a", "test job", _ => Task.FromResult(-1), out var sameBusy);
+        var other = jobs.Start("job", "b", "test job", _ => Task.FromResult(-1), out var otherBusy);
+
+        Assert.False(firstBusy);
+        Assert.False(sameBusy);
+        Assert.Same(first, same);
+        Assert.True(otherBusy);
+        Assert.Null(other);
+        release.SetResult(5);
+        Assert.Equal(5, await first.WaitAsync(Wait));
+    }
+
+    [Fact]
     public async Task Shutdown_CancelsTheRunningJob_AndAdmitsNoNewOne()
     {
         var work = Work();
@@ -133,6 +152,47 @@ public sealed class AcceptedJobsTests
         Assert.Equal(4242, done.GetProperty("gameId").GetInt64());
         Assert.Equal(7, done.GetProperty("objectiveId").GetInt64());
         Assert.Equal(3, done.GetProperty("created").GetInt32());
+        // The joined reply names the batch it reports, the same one every event carries.
+        var batch = againReply.GetProperty("batch").GetString();
+        Assert.False(string.IsNullOrEmpty(batch));
+        Assert.All(events, e => Assert.Equal(batch, e.GetProperty("batch").GetString()));
+    }
+
+    [Fact]
+    public async Task AutoClip_AnotherObjectiveWhileABatchRuns_IsRefused_NotAnsweredWithThatBatch()
+    {
+        var hub = new SidecarEventHub();
+        var jobs = new SidecarJobs(Work());
+        var clipper = new SlowAutoClip();
+        var options = SidecarJson.CreateOptions();
+        Task<IResult> Request(long? objectiveId, CancellationToken ct) => SidecarEndpoints.AutoClipObjectivesAsync(
+            new AutoObjectiveClipsBody(4242, objectiveId), clipper, () => Task.CompletedTask, jobs, hub, options,
+            NullLogger.Instance, ct);
+
+        // Objective 7's batch outlives its request; the page re-enables its buttons.
+        using var deadline = new CancellationTokenSource();
+        var first = Request(7, deadline.Token);
+        await clipper.Started.Task.WaitAsync(Wait);
+        deadline.Cancel();
+        Assert.Equal(499, Read(await first.WaitAsync(Wait)).Status);
+
+        // Objective 8, or every objective, must not join it and report its clips as their own.
+        foreach (var other in new long?[] { 8, null })
+        {
+            var (status, reply) = Read(await Request(other, CancellationToken.None).WaitAsync(Wait));
+            Assert.Equal(409, status);
+            Assert.False(reply.GetProperty("ok").GetBoolean());
+            Assert.Equal("Auto-clip is already running for this game; try again when it finishes.",
+                reply.GetProperty("error").GetString());
+        }
+        Assert.Equal(1, clipper.Runs);
+
+        // Once the batch finishes, the other objective gets its own run.
+        clipper.Release.SetResult();
+        await WaitUntilAsync(() => !jobs.IsRunning("auto-clip:4242"));
+        var (afterStatus, _) = Read(await Request(8, CancellationToken.None).WaitAsync(Wait));
+        Assert.Equal(200, afterStatus);
+        Assert.Equal(2, clipper.Runs);
     }
 
     [Fact]

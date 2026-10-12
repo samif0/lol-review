@@ -13,7 +13,7 @@ public sealed class SidecarJobs
 {
     private readonly SidecarBackgroundWork _work;
     private readonly object _gate = new();
-    private readonly Dictionary<string, Task> _running = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (Task Task, string Variant)> _running = new(StringComparer.Ordinal);
 
     public SidecarJobs(SidecarBackgroundWork work) => _work = work;
 
@@ -22,11 +22,28 @@ public sealed class SidecarJobs
     /// <paramref name="run"/>. Null once shutdown has begun (nothing was started). A run
     /// cancelled by shutdown completes as cancelled; a run that throws completes faulted.
     /// </summary>
-    public Task<T>? Start<T>(string key, string operation, Func<CancellationToken, Task<T>> run)
+    public Task<T>? Start<T>(string key, string operation, Func<CancellationToken, Task<T>> run) =>
+        Start(key, "", operation, run, out _);
+
+    /// <summary>
+    /// As <see cref="Start{T}(string, string, Func{CancellationToken, Task{T}})"/>, but a run
+    /// already going for <paramref name="key"/> is joined only when it was started with the
+    /// same <paramref name="variant"/> (the same request). One started with another variant
+    /// is left alone: the result is null with <paramref name="busy"/> set, so the caller can
+    /// say so instead of handing back an answer to a different request.
+    /// </summary>
+    public Task<T>? Start<T>(string key, string variant, string operation, Func<CancellationToken, Task<T>> run,
+        out bool busy)
     {
         lock (_gate)
         {
-            if (_running.TryGetValue(key, out var existing)) return (Task<T>)existing;
+            busy = false;
+            if (_running.TryGetValue(key, out var existing))
+            {
+                if (string.Equals(existing.Variant, variant, StringComparison.Ordinal)) return (Task<T>)existing.Task;
+                busy = true;
+                return null;
+            }
             var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (!_work.TryRun(operation, async () =>
             {
@@ -46,7 +63,7 @@ public sealed class SidecarJobs
                 }
             })) return null;
             // Still under the lock, so the run's own removal cannot overtake this insert.
-            _running[key] = completion.Task;
+            _running[key] = (completion.Task, variant);
             return completion.Task;
         }
     }

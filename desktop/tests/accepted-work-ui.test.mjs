@@ -7,6 +7,7 @@ import vm from 'node:vm';
 // page's request deadline. The UI treats a deadline as "still working" and picks the result
 // up from SSE (auto-clip) or by asking again, which joins the same download.
 const outer = await readFile(new URL('../ui/shell-outer.js', import.meta.url), 'utf8');
+const standalone = await readFile(new URL('../ui/shell.js', import.meta.url), 'utf8');
 const player = await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8');
 class CustomEvent { constructor(type, options) { this.type = type; this.detail = options.detail; } }
 const timeout = () => new Error("Error invoking remote method 'revu:command': TimeoutError: The operation was aborted due to timeout");
@@ -33,6 +34,22 @@ test('auto-clip progress reaches only the VOD player frame, unchanged', async ()
     shell.emit('autoClipProgress', progress);
     if (page !== 'vodplayer.html') { assert.equal(shell.events.length, 0, page); continue; }
     assert.deepEqual(shell.events.map(event => [event.type, event.detail]), [['revu:auto-clip-progress', progress]]);
+  }
+});
+
+test('a standalone VOD player forwards auto-clip progress to itself too', async () => {
+  const code = standalone.slice(standalone.indexOf('async function wireLiveAutoShow()'), standalone.indexOf('\nif (!FRAMED) wireLiveAutoShow();'));
+  const progress = { gameId: 42, batch: 'b1', finished: true, ok: true, created: 3 };
+  for (const page of ['vodplayer.html', 'review.html']) {
+    const events = [];
+    let callback;
+    const context = vm.createContext({ window: { location: { pathname: `/${page}` }, dispatchEvent: event => events.push(event) },
+      getInvoke: async () => async () => {}, getListen: async () => async (_name, listener) => { callback = listener; }, CustomEvent });
+    vm.runInContext(`${code}\nglobalThis.ready = wireLiveAutoShow();`, context);
+    await context.ready;
+    callback({ payload: { type: 'autoClipProgress', payload: progress } });
+    assert.deepEqual(events.map(event => [event.type, event.detail]),
+      page === 'vodplayer.html' ? [['revu:auto-clip-progress', progress]] : [], page);
   }
 });
 
@@ -68,7 +85,7 @@ function autoClip(reply) {
     log, reply,
   });
   vm.runInContext(`
-    let _autoClipBusy = false, _autoClipEnabled = true, _gameId = 42, _vod = { filePath: 'match.mp4' };
+    let _autoClipBusy = false, _autoClipEnabled = true, _gameId = 42, _vod = { filePath: 'match.mp4' }, _autoClipReportedBatch = '';
     let _core = { invoke: async () => { log.invokes++; return reply(); } };
     function openClipTools() {}
     function setAutoClipHint(message, isError) { log.hints.push(JSON.stringify([message, isError])); }
@@ -119,4 +136,31 @@ test('while the page still waits, SSE shows progress and leaves the result to th
   assert.deepEqual(JSON.parse(clip.log.hints.at(-1)), ['Saved 5 clips.', false]);
   assert.equal(clip.log.reloads, 1);
   assert.equal(clip.log.dispatched.length, 1);
+});
+
+test('a batch the request already reported is not reported again by its late finished event', async () => {
+  const clip = autoClip(() => ({ ok: true, batch: 'b1', created: 5, skipped: 0 }));
+  await clip.run(7);
+  assert.equal(clip.log.reloads, 1);
+  assert.equal(clip.log.dispatched.length, 1);
+  clip.progress({ gameId: 42, objectiveId: 7, batch: 'b1', finished: true, ok: true, created: 5 });
+  assert.equal(clip.log.reloads, 1);
+  assert.equal(clip.log.dispatched.length, 1);
+  // A later batch (started elsewhere) is still picked up.
+  clip.progress({ gameId: 42, objectiveId: 8, batch: 'b2', finished: true, ok: true, created: 2 });
+  assert.equal(clip.log.reloads, 2);
+  assert.equal(clip.log.dispatched.length, 2);
+});
+
+test('another objective batch still running is reported as busy, not as a failure or as its result', async () => {
+  const clip = autoClip(() => {
+    throw new Error("Error invoking remote method 'revu:command': Error: Auto-clip is already running for this game; try again when it finishes.");
+  });
+  await clip.run(8);
+  assert.deepEqual(JSON.parse(clip.log.hints.at(-1)), ['Auto-clip is already running for this game. Try again when it finishes.', false]);
+  assert.equal(clip.log.dispatched.length, 0);
+  // The running batch still reports its own clips, under its own objective, when it ends.
+  clip.progress({ gameId: 42, objectiveId: 7, batch: 'b1', finished: true, ok: true, created: 4, skipped: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(clip.log.dispatched.map(event => event.detail))),
+    [{ gameId: 42, objectiveId: 7, created: 4, skipped: 0 }]);
 });

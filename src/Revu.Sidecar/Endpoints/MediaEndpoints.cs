@@ -302,7 +302,8 @@ public static partial class SidecarEndpoints
     /// POST /api/clip/auto-objectives as accepted work: starts (or joins) the game's batch and
     /// waits for it while the client is listening. A client that gives up gets 499 and the
     /// batch keeps going; its final autoClipProgress event (finished = true) tells any open
-    /// player to re-read its clips.
+    /// player to re-read its clips. The reply and every event carry the run's batch id, so a
+    /// page that already showed a batch's result can ignore that batch's finished event.
     /// </summary>
     internal static async Task<IResult> AutoClipObjectivesAsync(AutoObjectiveClipsBody body, IAutoClipService autoClip,
         Func<Task> ensureBackedUp, SidecarJobs jobs, SidecarEventHub events, JsonSerializerOptions jsonOptions,
@@ -315,40 +316,48 @@ public static partial class SidecarEndpoints
 
         var gameId = body.GameId;
         var objectiveId = (body.ObjectiveId is > 0) ? body.ObjectiveId : null;
-        // One batch per game: a repeat click (or a retry after a client timeout) joins it
-        // instead of planning the same clips twice.
-        var job = jobs.Start($"auto-clip:{gameId}", "auto-clip objectives", async stopping =>
+        var batch = Guid.NewGuid().ToString("N");
+        // One batch per game: a repeat click for the same objective (or a retry after a client
+        // timeout) joins it instead of planning the same clips twice. A click for another
+        // objective (or for all of them) is refused while it runs: joining would answer it with
+        // this batch's result and never clip what it asked for.
+        var job = jobs.Start($"auto-clip:{gameId}", objectiveId is { } only ? $"objective:{only}" : "all",
+            "auto-clip objectives", async stopping =>
         {
             try
             {
                 var result = await autoClip.ClipObjectiveEventsAsync(gameId, objectiveId, stopping,
                     new InlineJobProgress<AutoClipProgress>(p => events.Publish("autoClipProgress", new
                     {
-                        gameId, objectiveId, done = p.Done, total = p.Total, created = p.Created, skipped = p.Skipped,
+                        gameId, objectiveId, batch, done = p.Done, total = p.Total, created = p.Created, skipped = p.Skipped,
                         finished = false,
                     })));
                 log.LogInformation("Auto-clip objectives: game {GameId} created {Created} skipped {Skipped} ({Reason})",
                     gameId, result.Created, result.Skipped, result.Reason);
                 events.Publish("autoClipProgress", new
                 {
-                    gameId, objectiveId, created = result.Created, skipped = result.Skipped, reason = result.Reason,
+                    gameId, objectiveId, batch, created = result.Created, skipped = result.Skipped, reason = result.Reason,
                     finished = true, ok = true,
                 });
-                return result;
+                return (Batch: batch, Result: result);
             }
             catch (Exception) when (!stopping.IsCancellationRequested)
             {
-                events.Publish("autoClipProgress", new { gameId, objectiveId, finished = true, ok = false });
+                events.Publish("autoClipProgress", new { gameId, objectiveId, batch, finished = true, ok = false });
                 throw;
             }
-        });
+        }, out var busy);
+        if (busy)
+            return Results.Json(new { ok = false, error = "Auto-clip is already running for this game; try again when it finishes." },
+                jsonOptions, statusCode: 409);
         if (job is null)
             return Results.Json(new { ok = false, error = "Revu is closing; auto-clip was not started." }, jsonOptions, statusCode: 503);
 
         try
         {
-            var result = await job.WaitAsync(ct);
-            return Results.Json(new { ok = true, created = result.Created, skipped = result.Skipped, reason = result.Reason }, jsonOptions);
+            var (runBatch, result) = await job.WaitAsync(ct);
+            return Results.Json(new { ok = true, batch = runBatch, created = result.Created, skipped = result.Skipped, reason = result.Reason },
+                jsonOptions);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

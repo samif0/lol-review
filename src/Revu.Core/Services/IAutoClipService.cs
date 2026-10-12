@@ -19,7 +19,8 @@ public interface IAutoClipService
     /// When set, only clip events tied to THIS objective (the framed view). Null clips
     /// every active-objective-tied event.
     /// </param>
-    /// <param name="progress">Reported after each planned clip (extracted or skipped).</param>
+    /// <param name="progress">Reported before each planned clip, with <c>Done</c> = the planned clips
+    /// finished so far (extracted or skipped). There is no final report: the returned result is it.</param>
     Task<AutoClipResult> ClipObjectiveEventsAsync(long gameId, long? objectiveId, CancellationToken ct = default,
         IProgress<AutoClipProgress>? progress = null);
 }
