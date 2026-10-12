@@ -7,6 +7,11 @@ public sealed record GameLibraryTotals(int Games, int Wins, int Reviewed);
 
 public sealed partial class GameRepository
 {
+    // string.IsNullOrWhiteSpace for review text (GamesSnapshotBuilder.HasPersistedReview):
+    // a field holding only spaces, tabs or line breaks is not a review.
+    private static string HasText(string column) =>
+        $"TRIM(COALESCE({column}, ''), ' ' || char(9, 10, 11, 12, 13)) != ''";
+
     // The Match library stat strip describes the whole history, not the loaded
     // page. Same visibility as the list (CasualFilter: ranked + manual, not
     // hidden) and the shared remake exclusion; "reviewed" is the per-row
@@ -19,15 +24,15 @@ public sealed partial class GameRepository
             SELECT COUNT(*),
                    COALESCE(SUM(CASE WHEN win = 1 THEN 1 ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN COALESCE(rating, 0) > 0
-                                       OR COALESCE(review_notes, '') != ''
-                                       OR COALESCE(mistakes, '') != ''
-                                       OR COALESCE(went_well, '') != ''
-                                       OR COALESCE(focus_next, '') != ''
-                                       OR COALESCE(spotted_problems, '') != ''
-                                       OR COALESCE(outside_control, '') != ''
-                                       OR COALESCE(within_control, '') != ''
-                                       OR COALESCE(attribution, '') != ''
-                                       OR COALESCE(personal_contribution, '') != ''
+                                       OR {HasText("review_notes")}
+                                       OR {HasText("mistakes")}
+                                       OR {HasText("went_well")}
+                                       OR {HasText("focus_next")}
+                                       OR {HasText("spotted_problems")}
+                                       OR {HasText("outside_control")}
+                                       OR {HasText("within_control")}
+                                       OR {HasText("attribution")}
+                                       OR {HasText("personal_contribution")}
                                      THEN 1 ELSE 0 END), 0)
             FROM games
             WHERE 1=1 {CasualFilter}

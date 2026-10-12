@@ -39,6 +39,27 @@ public sealed class GamesLibraryTotalsTests
     }
 
     [Fact]
+    public async Task HistoryReviewedCount_IgnoresWhitespaceOnlyReviewText_LikeTheRowLabel()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        await scope.SeedGameAsync(gameId: 8201, win: false, timestamp: 1_700_000_001);
+        await scope.SeedGameAsync(gameId: 8202, win: false, timestamp: 1_700_000_002);
+        await scope.Games.UpdateReviewAsync(8201, new GameReview { Notes = "Real note." });
+        using (var conn = scope.OpenConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE games SET mistakes = ' \t\r\n ', went_well = '   ' WHERE game_id = 8202";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var history = await Builder(scope).BuildAsync(view: "history");
+        Assert.False(history.Items.Single(row => row.GameId == 8202).HasReview);
+        Assert.Equal(new GamesTotalsDto(Games: 2, Wins: 0, Reviewed: 1), history.Totals);
+        Assert.Equal(history.Totals!.Reviewed, history.Items.Count(row => row.HasReview));
+    }
+
+    [Fact]
     public async Task SingleShotViewTotals_ExcludeRemakes_AndMatchTheRowLabels()
     {
         using var scope = new SidecarWriteScope();
