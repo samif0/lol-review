@@ -175,6 +175,10 @@ public sealed class WriteServices : IDisposable
         _provider = services.BuildServiceProvider();
     }
 
+    /// <summary>One transaction over the write factory for a multi-table endpoint write;
+    /// the repository calls it joins commit or roll back together.</summary>
+    public DbWriteSession BeginWriteSession() => DbWriteSession.Begin(_provider.GetRequiredService<IDbConnectionFactory>());
+
     public ISessionLogRepository SessionLog => _provider.GetRequiredService<ISessionLogRepository>();
     // Coaching stints (POST /api/stint/start, /api/stint/end, GET /api/stint).
     public ICoachingStintsRepository CoachingStints => _provider.GetRequiredService<ICoachingStintsRepository>();

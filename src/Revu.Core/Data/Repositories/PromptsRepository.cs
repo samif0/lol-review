@@ -16,9 +16,11 @@ public sealed class PromptsRepository : IPromptsRepository
 
     // ── Prompt CRUD ─────────────────────────────────────────────────
 
-    public async Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder)
+    public async Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO objective_prompts (objective_id, phase, label, sort_order, created_at)
@@ -36,9 +38,11 @@ public sealed class PromptsRepository : IPromptsRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
-    public async Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder)
+    public async Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objective_prompts
@@ -54,9 +58,10 @@ public sealed class PromptsRepository : IPromptsRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task DeletePromptAsync(long promptId)
+    public async Task DeletePromptAsync(long promptId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using (var deleteAnswers = conn.CreateCommand())
         {

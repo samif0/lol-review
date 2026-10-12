@@ -62,18 +62,7 @@ public static partial class SidecarEndpoints
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
-            var type = NormalizeObjectiveType(body.Type);
-            var targetGameCount = type == "mini" ? Math.Max(1, body.TargetGameCount) : 0;
-
-            var id = await w.Objectives.CreateWithPhasesAndTargetAsync(
-                body.Title.Trim(), (body.SkillArea ?? "").Trim(), type,
-                (body.CompletionCriteria ?? "").Trim(), (body.Description ?? "").Trim(),
-                body.PracticePre, body.PracticeIn, body.PracticePost,
-                targetGameCount);
-
-            await PersistObjectiveSideTablesAsync(w, id, body.Prompts, body.Champions,
-                body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText,
-                body.EventTypes);
+            var id = await CreateObjectiveAsync(body, w.Objectives, w.Prompts, w.BeginWriteSession, log);
 
             log.LogInformation("Objective created: {Id} '{Title}'", id, body.Title);
             return Results.Json(new { ok = true, id }, jsonOptions);
@@ -91,31 +80,21 @@ public static partial class SidecarEndpoints
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
-            var type = NormalizeObjectiveType(body.Type);
-            var targetGameCount = type == "mini" ? Math.Max(1, body.TargetGameCount) : 0;
-
-            await w.Objectives.UpdateWithPhasesAsync(
-                body.Id, body.Title.Trim(), (body.SkillArea ?? "").Trim(), type,
-                (body.CompletionCriteria ?? "").Trim(), (body.Description ?? "").Trim(),
-                body.PracticePre, body.PracticeIn, body.PracticePost);
-            await w.Objectives.UpdateTargetGameCountAsync(body.Id, targetGameCount);
-
-            await PersistObjectiveSideTablesAsync(w, body.Id, body.Prompts, body.Champions,
-                body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText,
-                body.EventTypes);
+            await UpdateObjectiveAsync(body, w.Objectives, w.Prompts, w.BeginWriteSession, log);
 
             log.LogInformation("Objective updated: {Id}", body.Id);
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
         // POST /api/objective/delete  { id } — hard delete. The Core repo cascades the
-        // prompts/answers/game_objectives/champion rows. The frontend confirms first; the
-        // session safety backup is taken before the first write.
+        // prompts/answers/game_objectives/champion rows in one transaction and detaches
+        // clips and evidence. The frontend confirms first; a fresh safety backup is taken
+        // right before the delete (the session's first-write backup may be hours old).
         app.MapPost("/api/objective/delete", async (ObjectiveIdBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null || body.Id <= 0) return Results.BadRequest(new { error = "id required" });
             await w.BackupGuard.EnsureBackedUpAsync();
-            await w.Objectives.DeleteAsync(body.Id);
+            await DeleteObjectiveAsync(body.Id, w.Backup, w.Objectives);
             log.LogInformation("Objective deleted: {Id}", body.Id);
             return Results.Json(new { ok = true }, jsonOptions);
         });
@@ -256,12 +235,72 @@ public static partial class SidecarEndpoints
         };
     }
 
+    // POST /api/objective/create minus the HTTP plumbing: the core row and every side
+    // table in ONE transaction, so a failure never leaves a half-configured objective
+    // (and a retry never duplicates one).
+    internal static async Task<long> CreateObjectiveAsync(CreateObjectiveBody body,
+        IObjectivesRepository objectives, IPromptsRepository prompts, Func<DbWriteSession> beginSession, ILogger log)
+    {
+        var type = NormalizeObjectiveType(body.Type);
+        var targetGameCount = type == "mini" ? Math.Max(1, body.TargetGameCount) : 0;
+
+        using var session = beginSession();
+        var id = await objectives.CreateWithPhasesAndTargetAsync(
+            body.Title.Trim(), (body.SkillArea ?? "").Trim(), type,
+            (body.CompletionCriteria ?? "").Trim(), (body.Description ?? "").Trim(),
+            body.PracticePre, body.PracticeIn, body.PracticePost,
+            targetGameCount, session);
+
+        await PersistObjectiveSideTablesAsync(objectives, prompts, session, log, id,
+            existing: Array.Empty<Revu.Core.Data.Repositories.ObjectivePrompt>(), body.Prompts, body.Champions,
+            body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText,
+            body.EventTypes);
+        session.Commit();
+        return id;
+    }
+
+    // POST /api/objective/update minus the HTTP plumbing; one transaction like create.
+    internal static async Task UpdateObjectiveAsync(UpdateObjectiveBody body,
+        IObjectivesRepository objectives, IPromptsRepository prompts, Func<DbWriteSession> beginSession, ILogger log)
+    {
+        var type = NormalizeObjectiveType(body.Type);
+        var targetGameCount = type == "mini" ? Math.Max(1, body.TargetGameCount) : 0;
+        // Read the stored prompts before the write session opens (the diff-save base).
+        var existing = await prompts.GetPromptsForObjectiveAsync(body.Id);
+
+        using var session = beginSession();
+        await objectives.UpdateWithPhasesAsync(
+            body.Id, body.Title.Trim(), (body.SkillArea ?? "").Trim(), type,
+            (body.CompletionCriteria ?? "").Trim(), (body.Description ?? "").Trim(),
+            body.PracticePre, body.PracticeIn, body.PracticePost, session);
+        await objectives.UpdateTargetGameCountAsync(body.Id, targetGameCount, session);
+
+        await PersistObjectiveSideTablesAsync(objectives, prompts, session, log, body.Id, existing,
+            body.Prompts, body.Champions,
+            body.FocusPhaseIndex, body.CriteriaMetricIndex, body.CriteriaOpIndex, body.CriteriaValueText,
+            body.EventTypes);
+        session.Commit();
+    }
+
+    // Snapshot right before the hard delete, like game delete: it drops the objective's
+    // prompts and their written answers, and the session's first-write backup may be old.
+    internal static async Task DeleteObjectiveAsync(long objectiveId, IBackupService backup, IObjectivesRepository objectives)
+    {
+        await backup.CreateSafetyBackupAsync($"delete-objective-{objectiveId}");
+        await objectives.DeleteAsync(objectiveId);
+    }
+
     // Persist the side-tables of an objective AFTER its core row exists, in the same
     // order the WinUI VM does: prompts diff-save → champion gate replace → focus phase
-    // → structured criterion. Reuses Revu.Core write methods verbatim.
+    // → structured criterion. Reuses Revu.Core write methods verbatim, all inside the
+    // caller's write session.
     static async Task PersistObjectiveSideTablesAsync(
-        Revu.Sidecar.WriteServices w,
+        IObjectivesRepository objectives,
+        IPromptsRepository promptsRepo,
+        DbWriteSession session,
+        ILogger log,
         long objectiveId,
+        IReadOnlyList<Revu.Core.Data.Repositories.ObjectivePrompt> existing,
         List<ObjectivePromptBody>? prompts,
         List<string>? champions,
         int focusPhaseIndex,
@@ -275,7 +314,6 @@ public static partial class SidecarEndpoints
         //    persist; unchanged rows skip the update; removed rows are deleted;
         //    sortOrder = the prompt's index in the submitted list.
         var draft = prompts ?? new List<ObjectivePromptBody>();
-        var existing = await w.Prompts.GetPromptsForObjectiveAsync(objectiveId);
         var existingById = existing.ToDictionary(p => p.Id);
         var keptIds = new HashSet<long>();
 
@@ -293,12 +331,12 @@ public static partial class SidecarEndpoints
                 // Only write when something actually changed (avoid updated_at churn).
                 if (prior.Phase != phase || prior.Label != label || prior.SortOrder != i)
                 {
-                    await w.Prompts.UpdatePromptAsync(prior.Id, phase, label, i);
+                    await promptsRepo.UpdatePromptAsync(prior.Id, phase, label, i, session);
                 }
             }
             else
             {
-                var newId = await w.Prompts.CreatePromptAsync(objectiveId, phase, label, i);
+                var newId = await promptsRepo.CreatePromptAsync(objectiveId, phase, label, i, session);
                 keptIds.Add(newId);
             }
         }
@@ -308,7 +346,7 @@ public static partial class SidecarEndpoints
         {
             if (!keptIds.Contains(prior.Id))
             {
-                await w.Prompts.DeletePromptAsync(prior.Id);
+                await promptsRepo.DeletePromptAsync(prior.Id, session);
             }
         }
 
@@ -322,29 +360,26 @@ public static partial class SidecarEndpoints
             if (champs.Any(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase))) continue;
             champs.Add(name);
         }
-        await w.Objectives.SetChampionsForObjectiveAsync(objectiveId, champs);
+        await objectives.SetChampionsForObjectiveAsync(objectiveId, champs, session);
 
         // ── Event-token gate: replace wholesale (empty list = tracks no events). The
         //    repo validates each token against the trackable vocabulary, so junk is
-        //    dropped silently; we just forward the submitted list. Wrapped defensively
-        //    so a token-table problem (e.g. a DB that somehow missed the v8 migration)
-        //    never fails the whole objective save — the objective + its other side
-        //    tables still persist; only the event-token tie is skipped.
-        try
+        //    dropped silently; we just forward the submitted list. Run as an optional
+        //    step so a token-table problem (e.g. a DB that somehow missed the v8
+        //    migration) never fails the whole objective save — the objective + its other
+        //    side tables still persist; only the event-token tie is rolled back.
+        var tokenFailure = await session.TryStepAsync(() => objectives.SetEventTokensForObjectiveAsync(
+            objectiveId, eventTypes ?? new List<string>(), session));
+        if (tokenFailure is not null)
         {
-            await w.Objectives.SetEventTokensForObjectiveAsync(
-                objectiveId, eventTypes ?? new List<string>());
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(
-                $"[objective {objectiveId}] event-token persist failed (skipped): {ex.Message}");
+            log.LogWarning(tokenFailure, "Objective {ObjectiveId}: event-token persist failed (skipped)", objectiveId);
         }
 
         // ── Auto-clip focus phase (0 Auto / 1 Laning / 2 Mid-late / 3 Teamfight / 4 Any).
-        await w.Objectives.UpdateFocusPhaseAsync(
+        await objectives.UpdateFocusPhaseAsync(
             objectiveId,
-            Revu.Core.Data.Repositories.ObjectiveFocusPhases.FromIndex(focusPhaseIndex));
+            Revu.Core.Data.Repositories.ObjectiveFocusPhases.FromIndex(focusPhaseIndex),
+            session);
 
         // ── Structured criterion. Metric index 0 ("Free text only") clears it; 1..N
         //    map to ObjectiveCriteria.Metrics[index-1]. Op index 1 = "<=" else ">=".
@@ -359,10 +394,11 @@ public static partial class SidecarEndpoints
         {
             double.TryParse(valueText, out criteriaValue);
         }
-        await w.Objectives.UpdateCriteriaAsync(
+        await objectives.UpdateCriteriaAsync(
             objectiveId,
             metricKey,
             criteriaOpIndex == 1 ? "<=" : ">=",
-            criteriaValue);
+            criteriaValue,
+            session);
     }
 }
