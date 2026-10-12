@@ -162,17 +162,6 @@ public sealed partial class GameRepository
         return result is null ? 0 : Convert.ToInt32(result);
     }
 
-    public async Task<List<GameStats>> GetGamesForDateAsync(string dateStr)
-    {
-        using var conn = _factory.CreateConnection();
-
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM games WHERE date_played LIKE @datePat {CasualFilter} ORDER BY timestamp ASC";
-        cmd.Parameters.AddWithValue("@datePat", $"{dateStr}%");
-
-        return await ReadAllGamesAsync(cmd);
-    }
-
     public async Task<List<GameStats>> GetTodaysGamesAsync()
     {
         using var conn = _factory.CreateConnection();
@@ -184,24 +173,6 @@ public sealed partial class GameRepository
         // 3.14.1: today's list keeps remakes (labelled); rule input reads GetTodaysRuleGamesAsync.
         cmd.CommandText = $"SELECT games.*, {RemakeSql.IsRemakeColumn("games.game_id")} FROM games WHERE timestamp >= @ts {CasualFilter} ORDER BY timestamp ASC";
         cmd.Parameters.AddWithValue("@ts", todayTimestamp);
-
-        return await ReadAllGamesAsync(cmd);
-    }
-
-    public async Task<List<GameStats>> GetLossesAsync(string? champion = null)
-    {
-        using var conn = _factory.CreateConnection();
-
-        using var cmd = conn.CreateCommand();
-        if (!string.IsNullOrEmpty(champion) && champion != "All Champions")
-        {
-            cmd.CommandText = $"SELECT * FROM games WHERE win = 0 AND champion_name = @champ {CasualFilter} ORDER BY timestamp DESC";
-            cmd.Parameters.AddWithValue("@champ", champion);
-        }
-        else
-        {
-            cmd.CommandText = $"SELECT * FROM games WHERE win = 0 {CasualFilter} ORDER BY timestamp DESC";
-        }
 
         return await ReadAllGamesAsync(cmd);
     }
@@ -250,29 +221,6 @@ public sealed partial class GameRepository
         cmd.Parameters.AddWithValue("@cutoff", cutoff);
 
         return await ReadAllGamesAsync(cmd);
-    }
-
-    public async Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false)
-    {
-        using var conn = _factory.CreateConnection();
-
-        using var cmd = conn.CreateCommand();
-        if (lossesOnly)
-        {
-            cmd.CommandText = $"SELECT DISTINCT champion_name FROM games WHERE win = 0 {CasualFilter} ORDER BY champion_name";
-        }
-        else
-        {
-            cmd.CommandText = $"SELECT DISTINCT champion_name FROM games WHERE 1=1 {CasualFilter} ORDER BY champion_name";
-        }
-
-        var list = new List<string>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            list.Add(reader.GetString(0));
-        }
-        return list;
     }
 
     // ── Aggregation reads ────────────────────────────────────────────────

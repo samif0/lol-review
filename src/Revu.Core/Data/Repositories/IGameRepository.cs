@@ -151,14 +151,8 @@ public interface IGameHistoryQuery
     /// </summary>
     Task<int> GetReviewedCountAsync();
 
-    /// <summary>Get ranked/normal games played on a specific date (YYYY-MM-DD).</summary>
-    Task<List<GameStats>> GetGamesForDateAsync(string dateStr);
-
     /// <summary>Get ranked/normal games played today.</summary>
     Task<List<GameStats>> GetTodaysGamesAsync();
-
-    /// <summary>Get all losses, optionally filtered by champion (excludes casual modes).</summary>
-    Task<List<GameStats>> GetLossesAsync(string? champion = null);
 
     /// <summary>
     /// Get recent ranked/normal games that haven't been reviewed yet.
@@ -166,9 +160,6 @@ public interface IGameHistoryQuery
     /// content saved in the game row, related session_log row, or concept tags.
     /// </summary>
     Task<List<GameStats>> GetUnreviewedGamesAsync(int days = 3);
-
-    /// <summary>Get list of unique champion names from ranked/normal games.</summary>
-    Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false);
 
     /// <summary>Get the focus_next and mistakes from the most recent reviewed game.</summary>
     Task<ReviewFocus?> GetLastReviewFocusAsync(string? currentPuuid = null);
