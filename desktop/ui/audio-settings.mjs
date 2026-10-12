@@ -19,6 +19,7 @@ export const AUDIO_SETTINGS_COPY = Object.freeze({
   testStop: 'Stop test',
   testing: 'Speak to see the level. The test stops after 30 seconds.',
   testTimedOut: 'Microphone test stopped after 30 seconds.',
+  testEnded: 'The microphone was disconnected, so the test stopped.',
   tonePlayed: 'Test sound played.',
   toneFallback: 'The chosen output is not available. The test sound played on the system default.',
   toneFailed: 'Revu could not play a test sound.',
@@ -75,7 +76,8 @@ export function initializeAudioSettings({
     const select = ui[which];
     if (!select) return;
     const saved = readAudioPref(which, io);
-    const resolved = resolveSavedDevice(saved, list.devices, list);
+    // A host that cannot list devices cannot tell whether the saved one is connected.
+    const resolved = resolveSavedDevice(saved, list.available ? list.devices : null, list);
     const names = labels[which];
     names.clear();
     const options = [option('', AUDIO_COPY.systemDefault)];
@@ -169,6 +171,8 @@ export function initializeAudioSettings({
     let stream;
     try { stream = await mediaDevices.getUserMedia(constraints(resolved.deviceId)); }
     catch (error) {
+      // Stopped, hidden or replaced while the first request ran: never retry.
+      if (token !== testToken || disposed) return;
       if (resolved.deviceId && micErrorMessage(error, access) === null) {
         try { stream = await mediaDevices.getUserMedia(constraints('')); }
         catch (retry) { if (token === testToken) stopTest(micErrorMessage(retry, access) || MIC_COPY.busy, 'bad'); return; }
@@ -179,6 +183,9 @@ export function initializeAudioSettings({
     const current = { stream, context: null, source: null, frame: 0, timer: null };
     test = current;
     current.timer = setTimer(() => { if (test === current) stopTest(AUDIO_SETTINGS_COPY.testTimedOut); }, testLimitMs);
+    // An unplugged microphone ends its track; say so instead of showing a flat meter.
+    for (const track of attempt(() => stream.getAudioTracks?.() || stream.getTracks?.(), []) || [])
+      attempt(() => track.addEventListener?.('ended', () => { if (test === current) stopTest(AUDIO_SETTINGS_COPY.testEnded, 'bad'); }));
     try {
       current.context = new AudioContextCtor();
       const analyser = current.context.createAnalyser();
@@ -188,6 +195,8 @@ export function initializeAudioSettings({
       const samples = new Float32Array(analyser.fftSize);
       const tick = () => {
         if (test !== current) return;
+        // Another category or a search hid the card: the meter is out of sight.
+        if (outOfSight()) { stopTest(); return; }
         analyser.getFloatTimeDomainData(samples);
         setLevel(rmsLevel(samples) * 4);
         current.frame = requestFrame(tick);
@@ -199,10 +208,15 @@ export function initializeAudioSettings({
     if (ui.names && !ui.names.hidden) void refresh();
   }
 
+  function outOfSight() {
+    return !!(card.hidden || attempt(() => card.closest?.('[data-settings-section]')?.hidden, false));
+  }
+
   // ── device names ──────────────────────────────────────────────────────────
   async function showNames() {
     if (namesBusy || typeof mediaDevices?.getUserMedia !== 'function') return;
     namesBusy = true;
+    const hadFocus = document.activeElement === ui.showNames;
     if (ui.showNames) ui.showNames.disabled = true;
     try {
       const access = await microphoneAccess();
@@ -218,6 +232,11 @@ export function initializeAudioSettings({
     } finally {
       namesBusy = false;
       if (ui.showNames) ui.showNames.disabled = false;
+      // The row hides once names show; keep keyboard focus in the card.
+      if (hadFocus && !disposed) {
+        const next = ui.names?.hidden ? [ui.input, ui.output, ui.tone].find(node => node && !node.disabled) : ui.showNames;
+        attempt(() => next?.focus?.());
+      }
     }
   }
 

@@ -37,8 +37,9 @@ function fixture({ saved = {}, list = DEVICES, access = 'granted', gumGate = nul
   const ids = new Map(IDS.map(id => [id, new El(id)]));
   for (const id of ['audio-mic-meter', 'audio-input-missing', 'audio-output-missing', 'audio-names']) ids.get(id).hidden = true;
   const document = new EventTarget();
-  Object.assign(document, { hidden: false, visibilityState: 'visible', getElementById: id => ids.get(id) || null,
+  Object.assign(document, { hidden: false, visibilityState: 'visible', activeElement: null, getElementById: id => ids.get(id) || null,
     createElement: () => ({ value: '', textContent: '' }) });
+  for (const node of ids.values()) node.focus = () => { document.activeElement = node; };
   const scope = new EventTarget();
   const storage = new Map(Object.entries(saved).map(([key, value]) => [key, JSON.stringify(value)]));
   const calls = { gum: [], invoke: [], contexts: [] };
@@ -51,7 +52,7 @@ function fixture({ saved = {}, list = DEVICES, access = 'granted', gumGate = nul
     if (gumGate) await gumGate;
     if (gumError) throw Object.assign(new Error(gumError), { name: gumError });
     if (unlocks) mediaDevices.list = unlocks; // granting the microphone reveals names
-    const track = { stopped: false, stop() { this.stopped = true; } };
+    const track = Object.assign(new EventTarget(), { stopped: false, stop() { this.stopped = true; } });
     tracks.push(track);
     return { getTracks: () => [track], getAudioTracks: () => [track] };
   };
@@ -98,7 +99,10 @@ test('the Audio devices card lives under Playback & clips, outside the saved con
   assert.ok(card.length > 0 && playback.includes('id="audio-settings"'));
   const open = card.slice(0, card.indexOf('>'));
   assert.match(open, /data-settings-card/);
+  // settings.js marks a card dirty only through these attributes on a field's ancestors.
   assert.doesNotMatch(open, /data-config-group|data-native-group/, 'renderer-local choices never join dirty tracking');
+  assert.doesNotMatch(playback.slice(0, playback.indexOf('>')), /data-config-group|data-native-group/);
+  assert.doesNotMatch(card.slice(open.length, card.indexOf('</section>')), /data-config-group|data-native-group/);
   for (const word of ['audio', 'microphone', 'mic', 'input', 'output', 'speakers', 'headphones', 'narration', 'narrate', 'playback', 'sound', 'device'])
     assert.match(open, new RegExp(`data-search="[^"]*\\b${word}\\b`), word);
   for (const text of ['<h3>Audio devices</h3>', '>Narration microphone</label>', '>Playback output</label>', '>Test microphone</button>',
@@ -140,7 +144,6 @@ test('a choice saves at once with a short status, and never reaches the sidecar 
   await f.choose('audioInput', '');
   assert.deepEqual(f.saved('revu.narration.mic'), { deviceId: '', label: '' }, 'System default');
   assert.deepEqual(f.calls.invoke, []);
-  assert.equal(f.$('audio-settings').dataset, undefined, 'the card never carries a dirty flag');
   assert.deepEqual(f.calls.gum, []);
   f.card.dispose();
 });
@@ -176,6 +179,7 @@ test('hidden device names: Show device names asks once and closes the microphone
   await flush();
   assert.equal(f.$('audio-names').hidden, false);
   assert.deepEqual(options(f.$('audioInput')), [['', 'System default']]);
+  f.$('audio-show-names').focus();
   await f.click('audio-show-names');
   assert.deepEqual(f.calls.invoke, ['get_microphone_access']);
   assert.deepEqual(f.calls.gum, [{ audio: true, video: false }]);
@@ -183,6 +187,7 @@ test('hidden device names: Show device names asks once and closes the microphone
   assert.equal(f.$('audio-names').hidden, true);
   assert.equal(options(f.$('audioInput')).length, 4);
   assert.equal(f.$('audio-status').textContent, AUDIO_SETTINGS_COPY.namesShown);
+  assert.equal(f.document.activeElement, f.$('audioInput'), 'focus moves on when the row it sat in hides');
   assert.equal(f.calls.contexts.length, 0);
   f.card.dispose();
 
@@ -252,6 +257,57 @@ test('a test stopped while the microphone opens releases it as soon as it arrive
   assert.equal(f.calls.contexts.length, 0);
   assert.equal(f.$('audio-mic-meter').hidden, true);
   f.card.dispose();
+
+  // The saved microphone refuses its id after the test was stopped or Settings was
+  // left: the system default is never opened in its place.
+  for (const cancel of ['stop', 'pagehide']) {
+    let refuse;
+    const refused = fixture({ saved: { 'revu.narration.mic': { deviceId: 'mic-desk', label: 'Desk Mic' } },
+      gumGate: new Promise(resolve => { refuse = resolve; }), gumError: 'OverconstrainedError' });
+    await flush();
+    await refused.click('audio-mic-test');
+    if (cancel === 'stop') await refused.click('audio-mic-test');
+    else refused.scope.dispatchEvent(new Event('pagehide'));
+    refuse();
+    await flush();
+    assert.equal(refused.calls.gum.length, 1, cancel);
+    assert.equal(refused.tracks.length, 0, cancel);
+    assert.equal(refused.card.testing, false, cancel);
+    refused.card.dispose();
+  }
+});
+
+test('the microphone test stops when its card leaves sight or the microphone is unplugged', async () => {
+  const f = fixture();
+  await flush();
+  const section = { hidden: false };
+  f.$('audio-settings').closest = selector => (selector === '[data-settings-section]' ? section : null);
+  await f.click('audio-mic-test');
+  f.frames.shift()();
+  assert.equal(f.card.testing, true);
+  // Another Settings category opens: the section hides while the page stays visible.
+  section.hidden = true;
+  f.frames.shift()();
+  assert.equal(f.card.testing, false);
+  assert.equal(f.tracks[0].stopped, true);
+  assert.equal(f.calls.contexts[0].closed, true);
+  assert.equal(f.$('audio-status').textContent, '');
+  section.hidden = false;
+  // A search hides the card itself.
+  await f.click('audio-mic-test');
+  f.$('audio-settings').hidden = true;
+  f.frames.shift()();
+  assert.equal(f.card.testing, false);
+  assert.equal(f.tracks[1].stopped, true);
+  f.$('audio-settings').hidden = false;
+  // The microphone is unplugged mid-test.
+  await f.click('audio-mic-test');
+  f.tracks[2].dispatchEvent(new Event('ended'));
+  assert.equal(f.card.testing, false);
+  assert.equal(f.$('audio-status').textContent, AUDIO_SETTINGS_COPY.testEnded);
+  assert.equal(f.$('audio-status').classList.contains('bad'), true);
+  assert.equal(f.$('audio-mic-meter').hidden, true);
+  f.card.dispose();
 });
 
 test('microphone failures explain themselves and leave nothing open', async () => {
@@ -311,9 +367,13 @@ test('Play test sound plays a short, quiet tone on the chosen output, or says it
 test('a host without device access keeps the card readable and inert', async () => {
   const ids = new Map(IDS.map(id => [id, new El(id)]));
   const document = Object.assign(new EventTarget(), { getElementById: id => ids.get(id) || null, createElement: () => ({}) });
+  const saved = new Map([['revu.narration.mic', JSON.stringify({ deviceId: 'usb', label: 'USB Mic' })]]);
+  for (const id of ['audio-input-missing', 'audio-output-missing']) ids.get(id).hidden = true;
   const card = initializeAudioSettings({ document, scope: new EventTarget(), mediaDevices: null, AudioContextCtor: null,
-    storage: null, getInvoke: async () => null, setTimer: () => 0, clearTimer() {} });
+    storage: { getItem: key => saved.get(key) ?? null, setItem() {} }, getInvoke: async () => null, setTimer: () => 0, clearTimer() {} });
   await flush();
+  assert.equal(ids.get('audioInput').value, 'usb', 'the saved choice is kept');
+  assert.equal(ids.get('audio-input-missing').hidden, true, 'a host that cannot list devices never calls one missing');
   assert.equal(ids.get('audioInput').disabled, true); assert.equal(ids.get('audioOutput').disabled, true);
   assert.equal(ids.get('audio-mic-test').disabled, true); assert.equal(ids.get('audio-output-test').disabled, true);
   assert.equal(ids.get('audio-status').textContent, AUDIO_SETTINGS_COPY.unavailable);
