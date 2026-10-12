@@ -35,9 +35,16 @@ export async function backendRequest(hs, route, { method = 'GET', body, timeoutM
       chunks.push(value);
     }
   } finally { await reader.cancel(); }
-  const value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  if (!response.ok) {
-    const e = new Error(typeof value?.error === 'string' ? value.error : `Backend HTTP ${response.status}`);
+  // Status first: an empty or non-JSON error body still reports its HTTP status.
+  const text = Buffer.concat(chunks).toString('utf8');
+  let value = null, unreadable = false;
+  if (text.trim()) {
+    try { value = JSON.parse(text); } catch { unreadable = true; }
+  }
+  if (!response.ok || unreadable) {
+    const message = typeof value?.error === 'string' && value.error.trim() ? value.error
+      : response.ok ? 'The backend returned an unreadable response' : `Backend HTTP ${response.status}`;
+    const e = new Error(message);
     e.status = response.status;
     throw e;
   }
