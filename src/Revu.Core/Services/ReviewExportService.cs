@@ -74,7 +74,6 @@ public sealed class ReviewExportService : IReviewExportService
             {
                 var fileName = copy == 1 ? $"{stem}.md" : $"{stem}-{copy}.md";
                 var path = Path.Combine(folder, fileName);
-                if (File.Exists(path)) continue;
                 try
                 {
                     File.Move(temp, path, overwrite: false);
@@ -82,7 +81,7 @@ public sealed class ReviewExportService : IReviewExportService
                 }
                 catch (IOException) when (File.Exists(path) && copy < 100)
                 {
-                    // Another export took this name between the check and the move.
+                    // An earlier export this minute already has this name; take the next one.
                 }
             }
         }
