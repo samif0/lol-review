@@ -160,7 +160,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
         string intentionSource = "",
         DbWriteSession? session = null)
     {
-        using var lease = DbWriteSession.Lease(_factory, session);
+        // session_log has no unique index on game_id, so the check-then-insert below
+        // must hold the write lock throughout (BEGIN IMMEDIATE): two loggers racing for
+        // one game (game end vs a review save) would otherwise both insert, and every
+        // day stat would count the game twice.
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
         var conn = lease.Connection;
 
         var (sessionDate, sessionTimestamp) = await ResolveGameSessionDateAsync(conn, gameId);
@@ -208,6 +212,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
                 updateCmd.Parameters.AddWithValue("@intention_source", intentionSource);
                 updateCmd.Parameters.AddWithValue("@gameId", gameId);
                 await updateCmd.ExecuteNonQueryAsync();
+                lease.Complete();
                 return;
             }
         }
@@ -233,6 +238,7 @@ public sealed class SessionLogRepository : ISessionLogRepository
         insertCmd.Parameters.AddWithValue("@intention_source", intentionSource);
 
         await insertCmd.ExecuteNonQueryAsync();
+        lease.Complete();
     }
 
     private static async Task<(string SessionDate, long SessionTimestamp)> ResolveGameSessionDateAsync(
