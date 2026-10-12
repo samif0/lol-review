@@ -115,8 +115,8 @@ test('recording notes and meaningful objective state remain distinct from writte
   assert.equal(unknown.querySelector('.grow-meta').textContent, 'CS 150 · 12k dmg');
 });
 
-test('a remake reads Remake (not L), carries its token, and leaves the strip samples', async () => {
-  const f = fixture(async () => ({ view: 'today', items: [
+test('a remake reads Remake (not L), carries its token, and the strip shows the server counts without it', async () => {
+  const f = fixture(async () => ({ view: 'today', totals: { games: 2, wins: 1, reviewed: 1 }, items: [
     { gameId: 1, win: true, hasReview: true },
     { gameId: 2, win: false, winLossText: 'L', isRemake: true, hasReview: false },
     { gameId: 3, win: false, hasReview: false },
@@ -134,7 +134,7 @@ test('a remake reads Remake (not L), carries its token, and leaves the strip sam
 
   await f.hooks.loadView('today');
   const cells = f.$('strip').children.map(cell => [cell.querySelector('.k').textContent, cell.querySelector('.v').textContent]);
-  assert.deepEqual(cells.slice(0, 3), [['Total', '2'], ['Win Rate', '50%'], ['Reviewed', '1/2']]);
+  assert.deepEqual(cells, [['Games', '2'], ['Win rate', '50%'], ['Reviewed', '1/2']]);
   assert.equal(f.$('games-list').children.length, 3, 'the remake is still listed and reviewable');
 
   await f.fire('revu:remake-updated', { gameId: 2, isRemake: false });
@@ -245,4 +245,30 @@ test('a link arriving during an older History response remains applied when that
   assert.equal(f.$('games-list').children[0].dataset.action, 'watch_vod');
   assert.equal(f.hooks.rows[0].hasVod, true);
   assert.equal(f.requests.length, 1);
+});
+
+test('the stat strip shows the whole History from the server, not the loaded rows, without repeating the view', async () => {
+  const totals = { games: 181, wins: 94, reviewed: 62 };
+  const f = fixture(async ({ page }) => ({ view: 'history', heading: 'All games', totalCount: 184, hasMore: page === 0, totals,
+    items: [{ gameId: page + 1, win: true, hasReview: true }] }));
+  await f.hooks.loadView('history');
+  const cells = () => f.$('strip').children.map(cell => [cell.querySelector('.k').textContent, cell.querySelector('.v').textContent,
+    cell.querySelector('.s').textContent]);
+  assert.deepEqual(cells(), [['Games', '181', 'All history'], ['Win rate', '52%', '94 won'], ['Reviewed', '62/181', 'All history']]);
+  assert.equal(f.$('queue-cnt-text').textContent, 'Showing 1 of 184');
+  assert.equal(f.$('statusline').hidden, true, 'the status line does not repeat the view once loaded');
+  await f.hooks.loadMore();
+  assert.deepEqual(cells()[0], ['Games', '181', 'All history'], 'Load More does not move the numbers');
+  assert.equal(f.$('queue-cnt-text').textContent, 'Showing 2 of 184');
+  for (const [, , sub] of cells()) assert.doesNotMatch(sub, /LOADED|IN HISTORY|LINKED/);
+});
+
+test('a library that could not be read shows an error, not the empty state or a zero strip', async () => {
+  const f = fixture(async () => ({ view: 'history', items: [], totals: null,
+    errorText: "Revu couldn't read your games from its local database. Try again, or restart Revu." }));
+  await f.hooks.loadView('history');
+  assert.equal(f.$('errpanel').hidden, false);
+  assert.match(f.$('err-detail').textContent, /couldn't read your games/);
+  assert.equal(f.$('games-empty').hidden, true);
+  assert.equal(f.$('strip').hidden, true);
 });

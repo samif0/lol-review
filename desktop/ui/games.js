@@ -43,12 +43,10 @@ async function fetchGames(view, page) {
 }
 
 // ── render: header status line ──────────────────────────────────────────────
-function renderHeader(d) {
-  const parts = [];
-  parts.push(d.heading || 'Games');
-  parts.push(d.countText || `${d.totalCount ?? _rows.length} games`);
-  const statusB = document.querySelector('#statusline b');
-  if (statusB) statusB.textContent = parts.join(' · ');
+// Only says "Loading…" until the first answer; after that the command bar and
+// the stat strip carry the view, so the line would just repeat them.
+function renderHeader() {
+  show($('statusline'), false);
 }
 
 // ── render: workspace command bar (heading + count nudge) ────────────────────
@@ -78,54 +76,49 @@ function renderQueueBar(d) {
     return;
   }
 
-  // Non-queue views: calm count of what's loaded (History shows the all-time
-  // total; the rest show what's on screen).
+  // Non-queue views: calm count of what's listed (History pages through all
+  // of it; the rest show their whole list at once).
   if (bar) bar.classList.add('queue-clear');
   if (cnt) {
     if (_view === 'history') {
       const total = d.totalCount ?? shown;
-      cnt.textContent = `${shown} of ${total} loaded`;
+      cnt.textContent = `Showing ${shown} of ${total}`;
     } else if (shown === 0) {
-      cnt.textContent = 'nothing here yet';
+      cnt.textContent = 'Nothing here yet';
     } else {
       cnt.textContent = `${shown} game${shown === 1 ? '' : 's'}`;
     }
   }
 }
 
-// ── render: stat strip (at-a-glance over the rows currently loaded) ──────────
-// A remake (League early surrender) is listed but never counted: it is left out
-// of the games, win-rate and reviewed samples here, like every other count.
+// ── render: stat strip (the whole selected view, from the server) ───────────
+// The sidecar counts the entire view (History: every visible game, not just
+// the pages loaded), and a remake (League early surrender) is listed but never
+// counted, like every other count.
 const REMAKE_TITLE = 'Ended early. Does not count toward your rules, stats or review queue.';
 const isRemake = (g) => g?.isRemake === true;
+const STRIP_SCOPE = { queue: 'Last 14 days', today: 'Today', history: 'All history', vod: 'With recordings' };
 
 function renderStrip(d) {
-  const items = _rows;
-  const counted = items.filter((g) => !isRemake(g));
   const strip = $('strip');
   clear(strip);
+  const totals = d?.totals;
+  show(strip, !!totals);
+  if (!totals) return;
 
-  const wins = counted.filter((g) => g.win === true).length;
-  const reviewed = counted.filter((g) => g.reviewStateText === 'Reviewed' || g.hasReview === true).length;
-  const withVod = items.filter((g) => g.hasVod === true).length;
-  const wr = counted.length ? Math.round((wins / counted.length) * 100) : 0;
-
-  // The first cell reflects the view: History = all-time total; others = loaded.
-  const totalLabel = _view === 'history' ? 'IN HISTORY' : 'LOADED';
-  const totalVal = _view === 'history'
-    ? String(d.totalCount ?? items.length)
-    : String(counted.length);
-
+  const games = Math.max(0, Number(totals.games) || 0);
+  const wins = Math.max(0, Number(totals.wins) || 0);
+  const reviewed = Math.max(0, Number(totals.reviewed) || 0);
+  const scope = STRIP_SCOPE[_view] || '';
   const cells = [
-    { k: 'Total',    v: totalVal,                         sub: totalLabel,  flag: false },
-    { k: 'Win Rate', v: counted.length ? `${wr}%` : '—',  sub: 'LOADED',    flag: false },
-    { k: 'Reviewed', v: `${reviewed}/${counted.length}`,  sub: 'LOADED',    flag: false },
-    { k: 'VOD',      v: String(withVod),                  sub: 'LINKED',    flag: true  },
+    { k: 'Games',    v: String(games),                                         sub: scope },
+    { k: 'Win rate', v: games ? `${Math.round((wins / games) * 100)}%` : 'None', sub: `${wins} won` },
+    { k: 'Reviewed', v: `${reviewed}/${games}`,                                sub: scope },
   ];
 
   for (const c of cells) {
     const el = tpl('tpl-stat');
-    if (c.flag) el.classList.add('flag');
+    el.title = 'Remakes are listed but not counted.';
     el.querySelector('.k').textContent = c.k;
     el.querySelector('.v').textContent = c.v;
     el.querySelector('.s').textContent = c.sub;
@@ -308,7 +301,8 @@ function renderList(d) {
 
   if (items.length === 0) {
     show($('games-label'), false);
-    show($('games-empty'), true);
+    // A failed read shows the error panel, never "no games yet".
+    show($('games-empty'), !d?.errorText);
     const emptyH = $('games-empty-h');
     const emptyP = $('games-empty-p');
     if (emptyH) emptyH.textContent = (d && d.emptyMessage) || 'No games recorded yet.';
@@ -350,6 +344,7 @@ function renderSeg() {
 function renderError(err) {
   $('err-detail').textContent = (err && err.message) ? err.message : String(err);
   show($('errpanel'), true);
+  show($('statusline'), false);
 }
 function clearError() { show($('errpanel'), false); }
 
@@ -372,8 +367,9 @@ function playEntrance() {
 // ── top-level render ────────────────────────────────────────────────────────
 function render(d) {
   _data = d;
-  clearError();
-  renderHeader(d);
+  if (d?.errorText) renderError(new Error(d.errorText));
+  else clearError();
+  renderHeader();
   renderQueueBar(d);
   renderStrip(d);
   renderSeg();

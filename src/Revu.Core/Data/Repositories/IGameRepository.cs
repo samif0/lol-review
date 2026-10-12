@@ -256,6 +256,10 @@ public interface IGameHistoryQuery
     /// </summary>
     Task<int> GetReviewedCountAsync();
 
+    /// <summary>Games, wins and reviewed games across the whole visible library,
+    /// remakes excluded (the Match library stat strip).</summary>
+    Task<GameLibraryTotals> GetLibraryTotalsAsync();
+
     /// <summary>Get ranked/normal games played on a specific date (YYYY-MM-DD).</summary>
     Task<List<GameStats>> GetGamesForDateAsync(string dateStr);
 

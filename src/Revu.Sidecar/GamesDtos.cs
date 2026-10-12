@@ -36,7 +36,17 @@ public sealed record GamesDto(
     bool HasMore,
     bool IsEmpty,
     string EmptyMessage,
-    IReadOnlyList<GamesRowDto> Items);
+    IReadOnlyList<GamesRowDto> Items,
+    // The stat strip's numbers for the whole selected view (History: every
+    // visible game, not just the loaded pages). Remakes are never counted.
+    // Null when the view could not be loaded.
+    GamesTotalsDto? Totals = null,
+    // Set when the view could not be read: the page shows an error, never the
+    // "no games" empty state (Items is then empty or partial).
+    string? ErrorText = null);
+
+/// <summary>Counted games, wins and reviewed games for one Match library view.</summary>
+public sealed record GamesTotalsDto(int Games, int Wins, int Reviewed);
 
 /// <summary>
 /// One history game row. Mirrors the dashboard's GameDisplayItemDto (same
