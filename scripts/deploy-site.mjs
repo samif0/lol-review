@@ -3,7 +3,8 @@
 // never reach the production domain. The upload runs the wrangler version pinned
 // in proxy/package-lock.json. Usage (from the repository root):
 //   node scripts/deploy-site.mjs               guard, stage, deploy, remove the stage
-//   node scripts/deploy-site.mjs --stage-only  stage for a local `wrangler pages dev` preview
+//   node scripts/deploy-site.mjs --stage-only  stage without deploying, to inspect the upload
+// Local preview commands are in site/README.md.
 import { spawnSync } from 'node:child_process';
 import { copyFile, lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,8 +20,14 @@ const publicExtensions = new Set(['.html', '.css', '.js', '.png', '.jpg', '.jpeg
 const pagesConfigFiles = new Set(['_headers', '_redirects']);
 const privateRootFiles = new Set(['README.md', 'wrangler.toml', 'package.json', 'package-lock.json']);
 const privateDirectories = new Set(['tests', 'node_modules']);
-// Hidden entries and repo-internal directories never ship.
-const isPrivatePath = parts => parts.some(part => part.startsWith('.')) || privateDirectories.has(parts[0]);
+// RFC 8615: site/.well-known/ (security.txt, assetlinks.json, ...) exists only to be
+// served, so every regular file in it ships whatever its extension.
+const wellKnown = '.well-known';
+const isWellKnown = parts => parts.length > 1 && parts[0] === wellKnown;
+// Hidden entries (local tool state, OS metadata, env files) and repo-internal
+// directories never ship; only a top-level .well-known/ is exempt.
+const isPrivatePath = parts => parts.some((part, index) => part.startsWith('.') && !(index === 0 && part === wellKnown))
+  || privateDirectories.has(parts[0]);
 
 /** 'publish', 'skip' (repo-internal), or 'unknown' for a file under site/ (POSIX relative path). */
 export function classifySiteFile(relative) {
@@ -29,6 +36,7 @@ export function classifySiteFile(relative) {
   if (isPrivatePath(parts)) return 'skip';
   if (parts.length === 1 && privateRootFiles.has(relative)) return 'skip';
   if (parts.length === 1 && pagesConfigFiles.has(relative)) return 'publish';
+  if (isWellKnown(parts)) return 'publish';
   return publicExtensions.has(path.posix.extname(relative).toLowerCase()) ? 'publish' : 'unknown';
 }
 

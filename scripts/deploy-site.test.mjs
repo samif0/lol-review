@@ -29,20 +29,24 @@ async function tree(root, relative = '') {
 
 test('only public site files are classified for publishing', () => {
   for (const name of ['index.html', 'discord/index.html', 'styles.css', 'app.js', 'og-image.jpg', 'favicon.ico',
-    'revu.svg', 'robots.txt', 'sitemap.xml', '_headers', '_redirects']) assert.equal(classifySiteFile(name), 'publish', name);
+    'revu.svg', 'robots.txt', 'sitemap.xml', '_headers', '_redirects', '.well-known/security.txt',
+    '.well-known/assetlinks.json', '.well-known/apple-app-site-association'])
+    assert.equal(classifySiteFile(name), 'publish', name);
   for (const name of ['README.md', 'wrangler.toml', 'package.json', 'tests/index.js', 'tests/headers.test.mjs',
-    '.DS_Store', '.wrangler/state.json', 'node_modules/x/index.js', 'ui/.env']) assert.equal(classifySiteFile(name), 'skip', name);
-  for (const name of ['notes.md', 'data.json', 'docs/README.md', 'nested/_headers', '../index.html', 'a\\b.html', 'a//b.html'])
-    assert.equal(classifySiteFile(name), 'unknown', name);
+    '.DS_Store', '.wrangler/state.json', 'node_modules/x/index.js', 'ui/.env', '.well-known/.DS_Store',
+    'nested/.well-known/security.txt']) assert.equal(classifySiteFile(name), 'skip', name);
+  for (const name of ['notes.md', 'data.json', 'docs/README.md', 'nested/_headers', '../index.html', 'a\\b.html', 'a//b.html',
+    '.well-known']) assert.equal(classifySiteFile(name), 'unknown', name);
 });
 
 test('staging copies public files only and refuses unrecognized files', async t => {
   const root = await scratch(t), source = path.join(root, 'site'), destination = path.join(root, 'stage');
   for (const name of ['index.html', '_headers', 'discord/index.html', 'styles.css', 'README.md', 'wrangler.toml',
-    'tests/index.js', 'tests/page.test.mjs', '.DS_Store']) await file(source, name);
+    'tests/index.js', 'tests/page.test.mjs', '.DS_Store', '.wrangler/tmp/state.json', '.well-known/security.txt',
+    '.well-known/.DS_Store']) await file(source, name);
   await file(destination, 'stale.html', 'from an earlier stage');
   const published = await stageSite(source, destination);
-  assert.deepEqual(published, ['_headers', 'discord/index.html', 'index.html', 'styles.css']);
+  assert.deepEqual(published, ['.well-known/security.txt', '_headers', 'discord/index.html', 'index.html', 'styles.css']);
   assert.deepEqual(await tree(destination), published);
   await file(source, 'notes.md');
   await assert.rejects(stageSite(source, destination), /Unrecognized files in site\/.*: notes\.md$/);
