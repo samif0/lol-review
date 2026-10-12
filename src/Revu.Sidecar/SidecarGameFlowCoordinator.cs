@@ -48,6 +48,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
     IRecipient<GameStartedMessage>,
     IRecipient<GameInProgressMessage>,
     IRecipient<GameEndedMessage>,
+    IRecipient<GameCaptureDeferredMessage>,
     IRecipient<MissedReviewsDetectedMessage>,
     IRecipient<LcuConnectionChangedMessage>,
     IRecipient<QueueDetectedMessage>
@@ -100,8 +101,10 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
             }
             catch (Exception ex)
             {
+                // Unknown is not unsaved: offering a game that may already be saved would
+                // risk a duplicate save. This pass skips it; the next one asks again.
                 _logger.LogDebug(ex, "CheckGameSaved probe failed for {GameId}", gameId);
-                return false;
+                return true;
             }
         };
 
@@ -189,10 +192,19 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
         // thread so a slow DB write never stalls the monitor's tick loop.
         var stats = m.Stats;
         var isRecovered = m.IsRecovered;
-        _backgroundWork.TryRun("game-end persistence", () => PersistGameEndAsync(stats, isRecovered));
+        // The pre-game choices (mood / intent / practiced ids / session key) belong to
+        // this game: read and cleared now, on the monitor's thread, so a champ select
+        // that begins while the save runs can never lend its lobby to this game. A game
+        // whose capture was deferred had them kept when it ended; any other recovered
+        // game gets none (a stale champ select would mislabel it, mirror Shell).
+        var preGame = TakeDeferredPreGame(stats.GameId);
+        if (preGame is null && !isRecovered) preGame = PreGameState.Take(_liveState);
+        else if (!isRecovered) _liveState.SetGameInProgress(false);
+        _backgroundWork.TryRun("game-end persistence", () => PersistGameEndAsync(stats, isRecovered, preGame));
     }
 
-    private async Task PersistGameEndAsync(Revu.Core.Models.GameStats stats, bool isRecovered)
+    private async Task<ProcessGameEndResult?> PersistGameEndAsync(
+        Revu.Core.Models.GameStats stats, bool isRecovered, PreGameState? preGame)
     {
         try
         {
@@ -200,27 +212,32 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
             // guard the manual write endpoints use).
             await _write.BackupGuard.EnsureBackedUpAsync().ConfigureAwait(false);
 
-            // Read + clear the deferred pre-game snapshots (mood / intent /
-            // practiced ids / session key). Recovered games skip these entirely —
-            // a stale champ select would mislabel the wrong game (mirror Shell).
-            var (mood, intention, intentionSource, _, practicedIds, sessionKey, champSelectPosition, champSelectMap) =
-                _liveState.TakeForGameEnd();
+            // A recovered game is saved once. If the live capture (or an earlier pass)
+            // already stored it, that row and its live timeline stay as they are.
+            if (isRecovered && await _write.Games.GetAsync(stats.GameId).ConfigureAwait(false) is not null)
+            {
+                _logger.LogInformation("Recovered game {GameId} is already saved; nothing to add", stats.GameId);
+                ForgetMissedGame(stats.GameId);
+                return new ProcessGameEndResult(stats.GameId, IsSkipped: false, IsRecovered: true);
+            }
 
             // v3.10.1: the matchup goes on the row NOW. The capture already tried the
             // EOG payload and the live roster; what is still blank gets the champ-
             // select snapshot (this lobby only), then a role-prior estimate — both
-            // marked as estimates so the Match-V5 pass below confirms them.
-            ApplyMatchupFallbacks(stats, isRecovered, sessionKey, champSelectPosition, champSelectMap);
+            // marked as estimates so the Match-V5 pass below confirms them. A recovered
+            // game qualifies only with its own pre-game state (the tracked game).
+            ApplyMatchupFallbacks(stats, preGame is null, preGame?.SessionKey,
+                preGame?.ChampSelectPosition ?? "", preGame?.ChampSelectMap ?? "");
 
-            ProcessGameEndRequest request = isRecovered
+            ProcessGameEndRequest request = preGame is null
                 ? new ProcessGameEndRequest(stats, MentalRating: 5, PreGameMood: 0)
                 : new ProcessGameEndRequest(
                     stats,
                     MentalRating: 5,
-                    PreGameMood: mood,
-                    PreGamePracticedObjectiveIds: practicedIds.Count > 0 ? practicedIds : null,
-                    PregameIntention: intention,
-                    IntentionSource: intentionSource);
+                    PreGameMood: preGame.Mood,
+                    PreGamePracticedObjectiveIds: preGame.PracticedIds.Count > 0 ? preGame.PracticedIds : null,
+                    PregameIntention: preGame.Intention,
+                    IntentionSource: preGame.IntentionSource);
 
             var result = await _write.GameLifecycle
                 .ProcessGameEndAsync(request, isRecovered)
@@ -228,12 +245,14 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
 
             if (result.WasSaved && result.GameId is long gameId)
             {
+                ForgetMissedGame(gameId);
                 if (_recordingRegistrations is not null)
                     _backgroundWork.TryRun("post-game recording registration", () => _recordingRegistrations.ReconcileAsync(gameId));
                 // Promote champ-select draft prompt answers onto the real game row
-                // (idempotent upsert) — only for a non-recovered live flow that had
-                // a session key (mirror ShellViewModel.PromotePreGameDraftsAsync).
-                if (!isRecovered && !string.IsNullOrEmpty(sessionKey))
+                // (idempotent upsert) — only for a flow that had a session key: the
+                // live game, or the tracked game recovered with its own pre-game state
+                // (mirror ShellViewModel.PromotePreGameDraftsAsync).
+                if (preGame?.SessionKey is { Length: > 0 } sessionKey)
                 {
                     try
                     {
@@ -311,11 +330,13 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
                     isRemake = stats.IsRemake,
                 });
             }
+            return result;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to persist live game end");
             _eventHub.Publish("gameEnded", new { saved = false, error = ex.Message });
+            return null;
         }
     }
 
@@ -534,27 +555,6 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
         {
             _logger.LogWarning(ex, "Optional matchup note preparation failed for game {GameId}", gameId);
         }
-    }
-
-    public void Receive(MissedReviewsDetectedMessage m)
-    {
-        // Surface missed/unsaved finished games so the webview can prompt review.
-        // The capture for these still flows through the SAME ProcessGameEnd path
-        // when the user chooses to ingest them (future write endpoint); here we
-        // just announce them.
-        _eventHub.Publish("missedReviews", new
-        {
-            isPostGameReconcile = m.IsPostGameReconcile,
-            games = m.Games.Select(g => new
-            {
-                gameId = g.GameId,
-                timestamp = g.Timestamp,
-                championName = g.Stats.ChampionName,
-                win = g.Stats.Win,
-                enemyLaner = g.Stats.EnemyLaner,
-            }).ToList(),
-        });
-        _logger.LogInformation("LCU reported {Count} missed review(s) → SSE", m.Games.Count);
     }
 
     public void Receive(LcuConnectionChangedMessage m)

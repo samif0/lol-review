@@ -101,6 +101,9 @@ public static class IsolatedHostPolicy
         "/api/objective/games", "/api/objective/notes", "/api/objective", "/api/vod", "/api/derived", "/api/review",
         "/api/rules", "/api/tiltcheck", "/api/matchups", "/api/matchups/export", "/api/patterns", "/api/config",
         "/api/settings/status", "/api/settings/export", "/api/review/export", "/api/stint", "/api/corrections",
-        "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status"
+        "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status",
+        // In-memory list only. Saving one (POST /api/missed-games/resolve) also runs the
+        // post-game Riot and recording passes, so it stays denied when isolated.
+        "/api/missed-games"
     };
 }

@@ -29,6 +29,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("GET", "/api/future-download")]
     [InlineData("POST", "/api/bookmark/future-file-operation")]
     [InlineData("DELETE", "/api/review/delete")]
+    [InlineData("POST", "/api/missed-games/resolve")]
     public void ExternalAndUnauditedOperationsAreDenied(string method, string route) => Assert.False(IsolatedHostPolicy.Allows(method, route));
 
     [Theory]
@@ -39,6 +40,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("POST", "/api/bookmark/delete")]
     [InlineData("POST", "/API/EVENT/CORRECT/")]
     [InlineData("POST", "/api/correction/revert")]
+    [InlineData("GET", "/api/missed-games")]
     public void AuditedReviewAndDatabaseOperationsRemainAvailable(string method, string route) => Assert.True(IsolatedHostPolicy.Allows(method, route));
 
     [Theory]
