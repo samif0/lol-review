@@ -110,6 +110,15 @@ html.framed .vod-review-page .shell{padding:24px 32px 40px}
 .vod-review-page .vp-moments-empty{font:400 13px/1.65 var(--fb);padding:8px 0;letter-spacing:0}
 .vod-review-page #vp-bookmarks{max-height:480px;overflow-y:auto;padding:2px}
 .vod-review-page #vp-bookmarks .moment{padding:14px;gap:8px;min-width:0;border-radius:10px;background:var(--bg)}
+/* Rows are plain containers; the Watch button and the row controls act on their own. */
+.vod-review-page #vp-bookmarks .moment,.vod-review-page .vp-fix-row{cursor:default}
+.vod-review-page #vp-bookmarks .moment:hover,.vod-review-page .vp-fix-row:hover{transform:none;border-color:var(--gline2)}
+.vod-review-page #vp-bookmarks .ricon{padding:0;min-width:0;cursor:pointer}
+.vod-review-page #vp-bookmarks .ricon svg{display:block}
+.vod-review-page .vp-fix-when{cursor:pointer}
+.vod-review-page .vp-moment-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-top:10px;font:400 13px/1.5 var(--fb);color:#ffaaaa}
+.vod-review-page .vp-moment-status[hidden]{display:none}
+.vod-review-page .vp-moment-retry{padding:4px 10px;font-size:13px}
 .vod-review-page #vp-bookmarks :is(.mtl,.inp){font-size:14px;line-height:1.55}
 .vod-review-page #vp-bookmarks .b{font-size:12px;line-height:1.4;letter-spacing:0;text-transform:none}
 .vod-review-page .vp-wrap.vp-expanded .cols{grid-template-columns:minmax(0,1fr)}

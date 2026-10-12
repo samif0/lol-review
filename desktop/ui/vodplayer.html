@@ -372,9 +372,10 @@
     </div>
   </div>
 
+  <!-- A plain row: its controls stay separate, and the Watch button owns the jump. -->
   <template id="tpl-bookmark">
-    <div class="moment" data-action="jump" role="button" tabindex="0">
-      <div class="ricon" title="Jump to moment">▶</div>
+    <div class="moment">
+      <button type="button" class="ricon" data-action="jump" title="Watch moment" aria-label="Watch moment"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg></button>
       <div class="mbadges">
         <span class="b src vp-bm-src">Bookmark</span>
         <span class="b time vp-bm-time"></span>
@@ -419,15 +420,20 @@
         </select>
         <input class="inp vp-ev-note" type="text" placeholder="Add a note…" autocomplete="off">
       </div>
+      <!-- A failed note, tag or delete explains itself here and offers Retry. -->
+      <div class="vp-moment-status" hidden>
+        <span class="vp-moment-status-txt" role="status"></span>
+        <button type="button" class="key vp-moment-retry" data-action="retry_moment_write">Retry</button>
+      </div>
     </div>
   </template>
 
   <!-- One row of the "Corrections in this game" list: time, what changed, the state
        pill (applied / absorbed / orphaned), the reason when given, and Revert. The
-       row itself is a jump row (seeks to the corrected event). -->
+       time button seeks to the corrected event. -->
   <template id="tpl-fix-row">
-    <div class="vp-fix-row" data-action="jump" role="button" tabindex="0">
-      <span class="b time vp-fix-when"></span>
+    <div class="vp-fix-row">
+      <button type="button" class="b time vp-fix-when" data-action="jump"></button>
       <span class="vp-fix-what"></span>
       <span class="b vp-fix-state"></span>
       <span class="vp-fix-reason" hidden></span>
