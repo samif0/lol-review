@@ -136,6 +136,38 @@ public sealed class SidecarHostSessionTests : IDisposable
         Assert.Equal("next", replaced.RootElement.GetProperty("launchId").GetString());
     }
 
+    [Theory]
+    [InlineData(null, null, false)]                                   // fresh install: created fast
+    [InlineData("revu.db", 0, false)]                                 // current schema: ordinary launch
+    [InlineData("revu.db", -1, true)]                                 // one version behind: migrations run
+    [InlineData("lol_review.db", -1, true)]                           // legacy file name, behind
+    [InlineData("revu.db", int.MinValue, true)]                       // no version recorded at all
+    public void OnlyADatabaseBehindThisBackendAnnouncesAnUpgrade(string? fileName, int? offset, bool pending)
+    {
+        // The host lifts its short startup deadline only for a launch that announces an
+        // upgrade, so an ordinary launch must never announce one.
+        if (fileName is not null)
+        {
+            Directory.CreateDirectory(Data);
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                { DataSource = Path.Combine(Data, fileName), Pooling = false }.ToString());
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = offset == int.MinValue
+                ? "CREATE TABLE games(game_id INTEGER PRIMARY KEY);"
+                : """
+                  CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT);
+                  INSERT INTO schema_metadata VALUES('app_schema_version', $version);
+                  """;
+            command.Parameters.AddWithValue("$version", (Schema.CurrentAppSchemaVersion + (offset ?? 0)).ToString());
+            command.ExecuteNonQuery();
+        }
+
+        using var session = new SidecarHostSession(Data, Handshake, "upgrade-check");
+        Assert.Equal(pending, session.SchemaUpgradePending);
+        Assert.False(File.Exists(HandshakeFile));
+    }
+
     [Fact]
     public void MalformedHandshakeFailsBeforePublicationAndReleasesLease()
     {

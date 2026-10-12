@@ -14,6 +14,11 @@ public sealed class SidecarHostSession : IDisposable
     private readonly string _handshakePath;
     public string LaunchId { get; }
     public string DataDirectory => _lease.DataDirectory;
+    /// <summary>
+    /// True when an existing database is behind this backend's schema, so storage
+    /// preparation runs migrations and can take a while. New and current databases start fast.
+    /// </summary>
+    public bool SchemaUpgradePending { get; }
 
     public SidecarHostSession(string dataDirectory, string handshakeDirectory, string? launchId = null)
     {
@@ -28,7 +33,8 @@ public sealed class SidecarHostSession : IDisposable
             RejectLiveHandshake(_handshakePath);
             var database = Path.Combine(DataDirectory, "revu.db");
             if (!File.Exists(database)) database = Path.Combine(DataDirectory, AppDataMigrator.LegacyDatabaseFileName);
-            if (File.Exists(database)) DatabaseSchemaCompatibility.EnsureCompatible(database);
+            if (File.Exists(database))
+                SchemaUpgradePending = DatabaseSchemaCompatibility.EnsureCompatible(database) < Schema.CurrentAppSchemaVersion;
         }
         catch { _lease.Dispose(); throw; }
     }
@@ -46,9 +52,10 @@ public sealed class SidecarHostSession : IDisposable
     }
 
     /// <summary>
-    /// Tell the desktop host this launch owns the data and is preparing storage, which can
-    /// take a while on large libraries. It carries no port or token; <see cref="Publish"/>
-    /// replaces it once the API is listening, and disposal removes it.
+    /// Tell the desktop host this launch owns the data and is upgrading its schema, which can
+    /// take a while on large libraries. Only publish it when <see cref="SchemaUpgradePending"/>:
+    /// the host waits longer for a launch that announced it. It carries no port or token;
+    /// <see cref="Publish"/> replaces it once the API is listening, and disposal removes it.
     /// </summary>
     public void PublishStarting() => Write(new { state = "starting",
         apiVersion = ApiVersion, launchId = LaunchId, processId = Environment.ProcessId,

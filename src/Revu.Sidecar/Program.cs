@@ -16,8 +16,6 @@ using var hostSession = SidecarStartup.AcquireSession(isolatedHostTest);
 using var fileLog = new SidecarFileLoggerProvider(SidecarFileLoggerProvider.DefaultDirectory);
 AppDomain.CurrentDomain.UnhandledException += (_, e) => fileLog.WriteUnhandled(e.ExceptionObject);
 fileLog.Write(LogLevel.Information, "Revu.Sidecar", $"Sidecar {typeof(Program).Assembly.GetName().Version} starting (process {Environment.ProcessId})", null);
-// Storage preparation can take a while; let the host see that this launch is alive.
-hostSession.PublishStarting();
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -39,6 +37,9 @@ builder.Services.AddSidecarServices(isolatedHostTest);
 var bearerToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 var app = builder.Build();
 var backgroundWork = app.Services.GetRequiredService<SidecarBackgroundWork>();
+// Only a schema upgrade makes storage preparation slow; announce it so the host keeps
+// waiting. Every other launch stays under the host's short startup deadline.
+if (hostSession.SchemaUpgradePending) hostSession.PublishStarting();
 await app.InitializeStorageAsync(isolatedHostTest);
 app.UseSidecarApi(bearerToken, isolatedHostTest);
 app.MapSidecarEndpoints(SidecarJson.CreateOptions(), hostSession);
