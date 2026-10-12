@@ -34,6 +34,7 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
     private readonly LcuLiveState _live = new();
     private readonly SidecarBackgroundWork _work = new(NullLogger<SidecarBackgroundWork>.Instance);
     private WriteServices _write = null!;
+    private GameMonitorService _monitor = null!;
     private SidecarGameFlowCoordinator _flow = null!;
 
     public async Task InitializeAsync()
@@ -57,11 +58,11 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
 
         _write = new WriteServices(NullLoggerFactory.Instance, _work);
         var lcu = new IdleLcu();
-        var monitor = new GameMonitorService(new NoCredentials(), lcu, new ClosedGame(), new NoCapture(),
+        _monitor = new GameMonitorService(new NoCredentials(), lcu, new ClosedGame(), new NoCapture(),
             new NoHistory(), _messenger, NullLogger<GameMonitorService>.Instance);
         var hardStop = new HardStopEnforcer(_write.Rules, _write.Games, _write.HardStops, lcu, _hub, _live,
             NullLogger<HardStopEnforcer>.Instance);
-        _flow = new SidecarGameFlowCoordinator(_messenger, _hub, _live, monitor, _write, hardStop,
+        _flow = new SidecarGameFlowCoordinator(_messenger, _hub, _live, _monitor, _write, hardStop,
             NullLogger<SidecarGameFlowCoordinator>.Instance, _work);
         await _flow.StartAsync(default);
     }
@@ -298,6 +299,190 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
         Assert.Equal(MissedGameOutcome.Saved, await _flow.SaveMissedGameAsync(gameId));
         Assert.Equal(1, (await SavedRowAsync(gameId)).Events);
         Assert.Empty(_flow.MissedGames());
+    }
+
+    // What Settings recovery reads from match history: fresh stats, no live timeline.
+    private static MissedGameCandidate FromHistory(long gameId)
+    {
+        var stats = Game(gameId);
+        stats.LiveEvents = [];
+        return new MissedGameCandidate(gameId, stats.Timestamp, stats);
+    }
+
+    [Fact]
+    public async Task SettingsRecovery_SavesTheTrackedGameWithItsPreGameChoices_AndAWaitingGameWithItsTimeline()
+    {
+        long tracked = RunBase + 30, waiting = RunBase + 31;
+        var (reader, sub) = _hub.Subscribe();
+        using var _ = sub;
+
+        _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
+        _live.SetMood(4);
+        _live.SetIntent("Ward the river at 3:00", "typed", cleared: false);
+        _live.SetGameInProgress(true);
+        // The tracked game's capture failed; an older game waits on Home with its timeline.
+        _messenger.Send(new GameEndObservedMessage(tracked));
+        _messenger.Send(new GameCaptureDeferredMessage(tracked));
+        _messenger.Send(new MissedReviewsDetectedMessage(
+            [new MissedGameCandidate(waiting, 1_700_000_000, Game(waiting, "Lux", 1_700_000_000))]));
+        Drain(reader);
+
+        Assert.Equal(RecoveredGameSave.Saved, await _flow.SaveRecoveredGameAsync(FromHistory(tracked), default));
+        var (mood, intention, _) = await SavedRowAsync(tracked);
+        Assert.Equal(4, mood);
+        Assert.Equal("Ward the river at 3:00", intention);
+
+        Assert.Equal(RecoveredGameSave.Saved, await _flow.SaveRecoveredGameAsync(FromHistory(waiting), default));
+        Assert.Equal(1, (await SavedRowAsync(waiting)).Events);
+        Assert.Empty(_flow.MissedGames());
+
+        var seen = Drain(reader);
+        // Home's card drops the saved game at once.
+        Assert.Contains("\"games\":[]",
+            JsonSerializer.Serialize(seen.Last(e => e.Type == "missedReviews").Payload, SidecarJson.CreateOptions()));
+        // The older game is announced without moving the first-review guide or the live pages.
+        Assert.Contains(seen, e => e.Type == "gameRecovered" && JsonSerializer.Serialize(e.Payload).Contains($"\"gameId\":{waiting}"));
+        Assert.DoesNotContain(seen, e => e.Type == "gameEnded" && JsonSerializer.Serialize(e.Payload).Contains($"\"gameId\":{waiting}"));
+
+        // Already saved: neither saved again nor reported as recovered.
+        Assert.Equal(RecoveredGameSave.NotSaved, await _flow.SaveRecoveredGameAsync(FromHistory(waiting), default));
+    }
+
+    [Fact]
+    public async Task SettingsRecovery_LeavesAGameTheMonitorHandedOver_ToThatSave()
+    {
+        var gameId = RunBase + 32;
+        _messenger.Send(new MissedReviewsDetectedMessage([new MissedGameCandidate(gameId, 1_700_000_000, Game(gameId))]));
+        Assert.True(_monitor.TryClaimForSave(Game(gameId), out _)); // another save holds the game
+
+        Assert.Equal(RecoveredGameSave.NotSaved, await _flow.SaveRecoveredGameAsync(FromHistory(gameId), default));
+        Assert.Null(await _write.Games.GetAsync(gameId));
+        Assert.Empty(_flow.MissedGames()); // that save lands it; it no longer waits
+    }
+
+    [Fact]
+    public async Task HomeSaveAndSettingsRecoveryAtOnce_SaveTheGameOnce()
+    {
+        var gameId = RunBase + 33;
+        _messenger.Send(new MissedReviewsDetectedMessage([new MissedGameCandidate(gameId, 1_700_000_000, Game(gameId))]));
+
+        var home = _flow.SaveMissedGameAsync(gameId);
+        var settings = _flow.SaveRecoveredGameAsync(FromHistory(gameId), default);
+        await Task.WhenAll(home, settings).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True((await home == MissedGameOutcome.Saved) ^ (await settings == RecoveredGameSave.Saved));
+        Assert.Equal(1, (await SavedRowAsync(gameId)).Events);
+        Assert.Empty(_flow.MissedGames());
+    }
+
+    [Fact]
+    public async Task SavingAnOlderGameFromHome_IsAnnouncedAsRecovered_NotAsTheGameJustPlayed()
+    {
+        var gameId = RunBase + 34;
+        var (reader, sub) = _hub.Subscribe();
+        using var _ = sub;
+        _messenger.Send(new MissedReviewsDetectedMessage([new MissedGameCandidate(gameId, 1_700_000_000, Game(gameId))]));
+
+        Assert.Equal(MissedGameOutcome.Saved, await _flow.SaveMissedGameAsync(gameId));
+
+        var seen = Drain(reader);
+        var saved = Assert.Single(seen, e => e.Type == "gameRecovered");
+        Assert.Contains("\"saved\":true", JsonSerializer.Serialize(saved.Payload));
+        Assert.DoesNotContain(seen, e => e.Type == "gameEnded");
+    }
+
+    [Fact]
+    public async Task AGameWhoseSaveFails_WaitsOnHomeAgain_WithItsPreGameChoicesAndTimeline()
+    {
+        var gameId = RunBase + 35;
+        var (reader, sub) = _hub.Subscribe();
+        using var _ = sub;
+        _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
+        _live.SetMood(3);
+        _messenger.Send(new GameEndObservedMessage(gameId));
+
+        // The live save fails (here: a timestamp the database write cannot store).
+        var stats = Game(gameId);
+        var playedAt = stats.Timestamp;
+        stats.Timestamp = long.MaxValue;
+        _messenger.Send(new GameEndedMessage(stats));
+        await NextEventAsync(reader, [], "missedReviews");
+        Assert.Null(await _write.Games.GetAsync(gameId));
+        Assert.Equal([gameId], _flow.MissedGames().Select(g => g.GameId));
+
+        // Saved from Home once the fault is gone, with the choices made before the game.
+        stats.Timestamp = playedAt;
+        Assert.Equal(MissedGameOutcome.Saved, await _flow.SaveMissedGameAsync(gameId));
+        var (mood, _, events) = await SavedRowAsync(gameId);
+        Assert.Equal(3, mood);
+        Assert.Equal(1, events);
+        Assert.Empty(_flow.MissedGames());
+    }
+
+    [Fact]
+    public async Task ASettingsRecoveryWhoseSaveFails_Throws_AndTheGameWaitsOnHome()
+    {
+        var gameId = RunBase + 36;
+        var candidate = FromHistory(gameId);
+        var playedAt = candidate.Stats.Timestamp;
+        candidate.Stats.Timestamp = long.MaxValue;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _flow.SaveRecoveredGameAsync(candidate, default));
+        Assert.Equal([gameId], _flow.MissedGames().Select(g => g.GameId));
+
+        candidate.Stats.Timestamp = playedAt;
+        Assert.Equal(MissedGameOutcome.Saved, await _flow.SaveMissedGameAsync(gameId));
+        Assert.NotNull(await _write.Games.GetAsync(gameId));
+    }
+
+    [Fact]
+    public async Task ATrackedGameWhoseSettingsSaveFailed_KeepsItsTimeline_WhenItsAutomaticSaveLands()
+    {
+        var gameId = RunBase + 37;
+        _live.BeginChampSelect("Ahri", "Zed", "MIDDLE", "");
+        _live.SetMood(4);
+        _live.SetGameInProgress(true);
+        _messenger.Send(new GameEndObservedMessage(gameId));
+        _messenger.Send(new GameCaptureDeferredMessage(gameId));
+
+        // Settings recovery takes the tracked game with the timeline the monitor kept (Game
+        // carries one kill), and its save fails: the timeline now waits on Home, not in the
+        // monitor's store.
+        var claimed = Game(gameId);
+        var playedAt = claimed.Timestamp;
+        claimed.Timestamp = long.MaxValue;
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _flow.SaveRecoveredGameAsync(new MissedGameCandidate(gameId, playedAt, claimed), default));
+        Assert.Equal([gameId], _flow.MissedGames().Select(g => g.GameId));
+        claimed.Timestamp = playedAt; // the fault is gone
+
+        // The monitor's search still targets the game: match history lists it, with no timeline
+        // left in the store, and the automatic save lands.
+        var (reader, sub) = _hub.Subscribe();
+        using var _ = sub;
+        _messenger.Send(new GameEndedMessage(FromHistory(gameId).Stats, IsRecovered: true));
+        var saved = await NextEventAsync(reader, [], "gameEnded");
+        Assert.Contains("\"saved\":true", JsonSerializer.Serialize(saved.Payload));
+
+        var (mood, _, events) = await SavedRowAsync(gameId);
+        Assert.Equal(4, mood);
+        Assert.Equal(1, events);
+        Assert.Empty(_flow.MissedGames());
+    }
+
+    [Fact]
+    public void ACaptureDeferredWithAnUnknownGameId_StillTakesPagesOffTheInGameSurface()
+    {
+        var (reader, sub) = _hub.Subscribe();
+        using var _ = sub;
+        _live.SetGameInProgress(true);
+
+        _messenger.Send(new GameEndObservedMessage(0));
+        _messenger.Send(new GameCaptureDeferredMessage(0));
+
+        var ended = JsonSerializer.Serialize(Assert.Single(Drain(reader), e => e.Type == "gameEnded").Payload);
+        Assert.Contains("\"pending\":true", ended);
+        Assert.Contains("\"gameId\":null", ended);
     }
 
     [Fact]

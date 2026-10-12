@@ -66,6 +66,67 @@ public sealed class RecentGameRecoveryTests
     }
 
     [Fact]
+    public async Task AFailedSaveStopsRecoveryWithoutClaimingSuccess_AndAnnouncesTheGamesItSaved()
+    {
+        using var f = await Fixture.CreateAsync();
+        f.Lcu.Matches = [Match(1001), Match(1002)];
+        var saved = new List<long>();
+        f.SaveGame = (candidate, _) =>
+        {
+            // The coordinator throws when a save fails; that game then waits on Home.
+            if (candidate.GameId == 1002) throw new InvalidOperationException("Game 1002 could not be saved");
+            saved.Add(candidate.GameId);
+            return Task.FromResult(RecoveredGameSave.Saved);
+        };
+
+        var result = await f.Service.RecoverAsync();
+
+        Assert.False(result.Ok);
+        Assert.Equal(1, result.Recovered);
+        Assert.Contains("Couldn't finish recovery", result.Message);
+        Assert.Equal([1001L], saved);
+        Assert.Equal(1001, Assert.Single(f.Events, e => e.Type == "gamesRecovered").Payload.GetProperty("gameIds")[0].GetInt64());
+    }
+
+    [Fact]
+    public async Task AGameTheCoordinatorLeftToAnotherSave_IsNotReportedAsRecovered()
+    {
+        using var f = await Fixture.CreateAsync();
+        f.Lcu.Matches = [Match(1001)];
+        f.SaveGame = (_, _) => Task.FromResult(RecoveredGameSave.NotSaved); // the monitor's own save takes it
+
+        var result = await f.Service.RecoverAsync();
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal(0, result.Recovered);
+        Assert.Contains("No matches were recovered", result.Message);
+        Assert.Empty(f.Events);
+    }
+
+    [Fact]
+    public async Task WhileTheGameJustPlayedIsStillBeingSaved_RecoverySaysToTryAgain()
+    {
+        using var f = await Fixture.CreateAsync();
+        f.Lcu.Matches = [Match(1001), Match(1002)];
+        // The capture of the game just played runs with an unknown id: no game can be taken yet.
+        f.SaveGame = (candidate, _) => Task.FromResult(
+            candidate.GameId == 1001 ? RecoveredGameSave.Saved : RecoveredGameSave.Busy);
+
+        var result = await f.Service.RecoverAsync();
+
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal(1, result.Recovered);
+        Assert.StartsWith("Recovered 1 ranked game. Revu is still saving the game you just played. Try again in a minute.", result.Message);
+
+        f.SaveGame = (_, _) => Task.FromResult(RecoveredGameSave.Busy);
+        result = await f.Service.RecoverAsync();
+
+        Assert.Equal(0, result.Recovered);
+        Assert.StartsWith("Revu is still saving the game you just played. Try again in a minute.", result.Message);
+        Assert.DoesNotContain("No matches were recovered", result.Message);
+    }
+
+    [Fact]
     public async Task DisconnectedClientReturnsActionableResultWithoutStartingHistoryBackupOrWrites()
     {
         using var f = await Fixture.CreateAsync();
@@ -173,6 +234,7 @@ public sealed class RecentGameRecoveryTests
         public List<(string Type, JsonElement Payload)> Events { get; } = [];
         public int Backups { get; private set; }
         public Func<Task>? BeforeBackup { get; set; }
+        public Func<MissedGameCandidate, CancellationToken, Task<RecoveredGameSave>>? SaveGame { get; set; }
         public MissedGameDecisionRepository Decisions { get; }
         public RecentGameRecovery Service { get; }
         private string Root => Path.GetDirectoryName(Database.DatabasePath)!;
@@ -189,7 +251,13 @@ public sealed class RecentGameRecoveryTests
             var history = new MatchHistoryReconciliationService(Lcu, db.Games, Decisions, NullLogger<MatchHistoryReconciliationService>.Instance);
             var registrations = new RecordingRegistrationService(Path.Combine(Root, "Native"),
                 new RecordingLinkStore(db.ConnectionFactory), Backup, NullLogger<RecordingRegistrationService>.Instance);
-            Service = new(Lcu, history, lifecycle, db.Games, db.Config,
+            // The sidecar saves through the game-flow coordinator (MissedGamesFlowTests covers
+            // that path); here the lifecycle's own save stands in for it.
+            Service = new(Lcu, history, async (candidate, ct) => SaveGame is { } save
+                    ? await save(candidate, ct)
+                    : (await lifecycle.ReconcileMissedGamesAsync(new([candidate], []), ct)).IngestedCount > 0
+                        ? RecoveredGameSave.Saved : RecoveredGameSave.NotSaved,
+                db.Games, db.Config,
                 new VodService(db.Games, db.Vod, db.Config, NullLogger<VodService>.Instance), registrations, Work,
                 Backup, (type, payload) => Events.Add((type, JsonSerializer.SerializeToElement(payload))), NullLogger<RecentGameRecovery>.Instance);
         }

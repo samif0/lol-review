@@ -661,9 +661,18 @@ if (document.readyState === 'loading') {
   loadDashboard();
 }
 
-// Finished games Revu did not save: Home lists them with Save and Dismiss.
+// Finished games Revu did not save: Home lists them with Save and Dismiss. A saved game
+// joins the review inbox and today's games, so Home refetches them, but never while an
+// inline editor is open.
+const missedGamesOptions = {
+  onSaved: () => {
+    let editing = false;
+    try { editing = !!window.__revuActiveWork; } catch (_) { editing = false; }
+    if (!editing) void loadDashboard();
+  },
+};
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { void mountMissedGames(document); });
+  document.addEventListener('DOMContentLoaded', () => { void mountMissedGames(document, missedGamesOptions); });
 } else {
-  void mountMissedGames(document);
+  void mountMissedGames(document, missedGamesOptions);
 }

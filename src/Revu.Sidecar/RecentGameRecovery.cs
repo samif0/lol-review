@@ -7,9 +7,27 @@ namespace Revu.Sidecar;
 public sealed record RecentGameRecoveryResult(bool Ok, string Message, int Recovered = 0,
     int Matched = 0, int RecordingCount = 0);
 
-/// <summary>Explicit recovery reads trusted League history, then links recordings to saved identities.</summary>
+/// <summary>What saving one recovered game did.</summary>
+public enum RecoveredGameSave
+{
+    /// <summary>This call saved the game.</summary>
+    Saved,
+    /// <summary>Not saved here: it was saved another way, another save holds it, or the save gate declined it.</summary>
+    NotSaved,
+    /// <summary>The end-of-game capture of the game just played is still running; try again shortly.</summary>
+    Busy,
+}
+
+/// <summary>
+/// Explicit recovery reads trusted League history, then links recordings to saved identities.
+/// Each game is saved by <c>saveGame</c>: the game-flow coordinator's
+/// <see cref="SidecarGameFlowCoordinator.SaveRecoveredGameAsync"/>, the same path and gate as
+/// Home's Save, so a waiting or tracked game keeps its live timeline and pre-game choices. It
+/// answers what that call did, and throws when the save failed.
+/// </summary>
 public sealed class RecentGameRecovery(
-    ILcuClient lcu, IMatchHistoryReconciliationService history, IGameLifecycleWorkflowService lifecycle,
+    ILcuClient lcu, IMatchHistoryReconciliationService history,
+    Func<MissedGameCandidate, CancellationToken, Task<RecoveredGameSave>> saveGame,
     IGameRepository games, IConfigService config, IVodService scan, RecordingRegistrationService registrations,
     SidecarBackgroundWork work, Func<Task> ensureBackup, Action<string, object> publish,
     ILogger<RecentGameRecovery> logger)
@@ -48,6 +66,7 @@ public sealed class RecentGameRecovery(
                 return new(false, "League disconnected before recovery. Open the League client and try again.");
 
             var backedUp = false;
+            var busy = false;
             foreach (var candidate in candidates.DistinctBy(c => c.GameId).OrderBy(c => c.Timestamp))
             {
                 work.Stopping.ThrowIfCancellationRequested();
@@ -59,14 +78,18 @@ public sealed class RecentGameRecovery(
                 // The first backup can yield long enough for live capture to
                 // finish. Do not re-log that game's session with default mood.
                 if (await games.GetAsync(candidate.GameId) is not null) continue;
-                var result = await lifecycle.ReconcileMissedGamesAsync(
-                    new([candidate], []), work.Stopping);
-                if (result.IngestedCount > 0) recovered.Add(candidate.GameId);
+                switch (await saveGame(candidate, work.Stopping))
+                {
+                    case RecoveredGameSave.Saved: recovered.Add(candidate.GameId); break;
+                    // No game can be taken until the capture of the game just played settles.
+                    case RecoveredGameSave.Busy: busy = true; break;
+                }
             }
 
+            const string stillSaving = "Revu is still saving the game you just played. Try again in a minute.";
             var prefix = recovered.Count == 0
-                ? "No matches were recovered from League's latest 10 matches. If a match is missing, wait for League's match history to load and try again."
-                : $"Recovered {recovered.Count} {(recovered.Count == 1 ? "ranked game" : "ranked games")}.";
+                ? busy ? stillSaving : "No matches were recovered from League's latest 10 matches. If a match is missing, wait for League's match history to load and try again."
+                : $"Recovered {recovered.Count} {(recovered.Count == 1 ? "ranked game" : "ranked games")}." + (busy ? " " + stillSaving : "");
             work.Stopping.ThrowIfCancellationRequested();
             if (string.IsNullOrWhiteSpace((await config.LoadAsync()).AscentFolder))
                 return new(true, prefix + " Connect an Ascent recordings folder to link videos.", recovered.Count);

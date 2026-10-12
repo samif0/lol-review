@@ -26,7 +26,8 @@ public sealed record GameEndObservedMessage(long GameId, bool IsCasual = false);
 /// Sent when a tracked game's end-of-game capture fails or its end is missed, as the game is
 /// handed to match-history reconciliation. Its pre-game choices were kept when it ended
 /// (<see cref="GameEndObservedMessage"/>); the recovered <see cref="GameEndedMessage"/> for
-/// the same id uses them.
+/// the same id uses them. <paramref name="GameId"/> is 0 when the id is unknown: the game
+/// still ends for the pages, and it waits for the player on Home once match history lists it.
 /// </summary>
 public sealed record GameCaptureDeferredMessage(long GameId);
 
