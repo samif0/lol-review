@@ -66,7 +66,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
   }
   add('ascent-status');
   const config = { ascentFolder, clipsFolder: 'D:\\Clips', clipsMaxSizeMb: 2048, riotId: 'player#NA1', region: 'na1' };
-  let failRead = false;
+  let failRead = false, reads = 0;
   const invoke = async (command, args) => {
     requests.push({ command, args: args === undefined ? undefined : plain(args) });
     const response = await handler?.(command, args);
@@ -93,11 +93,11 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     show: (element, visible) => { if (element) element.hidden = !visible; },
     clearEl: element => { element.children = []; },
     getInvoke: async () => native ? invoke : null,
-    readSnapshot: async () => { if (failRead) throw new Error('Read interrupted'); return plain(config); },
+    readSnapshot: async () => { reads++; if (failRead) throw new Error(failRead); return plain(config); },
     preserveSettingsDraft, setTimeout, clearTimeout,
     console: { error() {}, warn() {}, info() {} },
   });
-  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings };`, context);
+  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings, loadConfig };`, context);
   context.hooks.render(plain(config));
   await context.hooks.loadAscentAccess();
   const emit = async (type, target) => {
@@ -110,7 +110,9 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
     render: () => context.hooks.render(plain(config)),
     payload: element => plain(context.hooks.collectPayload(element)),
-    failRead: () => { failRead = true; },
+    failRead: (message = 'Read interrupted') => { failRead = message; },
+    get reads() { return reads; },
+    load: () => context.hooks.loadConfig(),
     dirty: () => context.hooks.settingsDirty(),
     saveBeforeLeaving: () => context.hooks.saveDirtySettings(),
   };
@@ -251,6 +253,24 @@ test('failed connection saves keep the draft and allow retry without touching th
   assert.equal(f.$('ascent-save').disabled, false);
   assert.equal(f.$('ascent-scan').disabled, true);
   assert.equal(f.$('ascent-save-status').textContent, 'Folder cannot be accessed.');
+});
+
+test('a failed Settings read reports at once instead of retrying for ten seconds', async () => {
+  const f = await fixture();
+  f.failRead('Failed to fetch');
+  const before = f.reads, started = Date.now();
+  await f.load();
+  assert.equal(f.reads - before, 1);
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('a rejected save shows the sidecar sentence without the Electron IPC prefix', async () => {
+  const f = await fixture({ handler: command => {
+    if (command === 'save_config') throw new Error("Error invoking remote method 'revu:command': Error: Folder is locked.");
+  } });
+  await f.edit('clipsFolder', 'E:\\Clips'); await f.click('clips-save');
+  assert.equal(f.$('clips-save-status').textContent, 'Folder is locked.');
+  assert.equal(f.$('clipsFolder').value, 'E:\\Clips');
 });
 
 test('Ascent is discoverable as external recording in the Recording category', async () => {

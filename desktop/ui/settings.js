@@ -337,29 +337,19 @@ function renderError(err) {
 function clearError() { show($('errpanel'), false); }
 
 // ── load orchestration ──────────────────────────────────────────────────────
+// Electron waits for the sidecar before it loads the shell, so a failed read is
+// a real error: show it rather than retrying.
 let _loading = false;
 async function loadConfig() {
   if (_loading) return;
   _loading = true;
-  const maxAttempts = 25; // cold-start grace while the sidecar binds
   try {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        render(await fetchConfig());
-        // Status is a best-effort second read — never blocks the editable page.
-        loadStatus();
-        return;
-      } catch (err) {
-        const transient = /sidecar not ready|not ready|connection refused|failed to fetch/i.test(String(err));
-        if (transient && attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 400));
-          continue;
-        }
-        renderError(err);
-        console.error('[settings] load failed:', err);
-        return;
-      }
-    }
+    render(await fetchConfig());
+    // Status is a best-effort second read — never blocks the editable page.
+    loadStatus();
+  } catch (err) {
+    renderError(err);
+    console.error('[settings] load failed:', err);
   } finally {
     _loading = false;
   }
@@ -477,11 +467,10 @@ async function doReset(invoke, target) {
   }
 }
 
-// Normalize a sidecar/Electron error to a readable string (strip the HTTP prefix).
+// Electron prefixes errors that cross the IPC boundary; show the sidecar's sentence.
 function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
-  const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
-  return m ? m[1] : s;
+  return s.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:\w*Error:\s*)+/, '');
 }
 
 // ── App updates (Velopack) ───────────────────────────────────────────────────
