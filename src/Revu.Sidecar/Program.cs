@@ -16,6 +16,8 @@ using var hostSession = SidecarStartup.AcquireSession(isolatedHostTest);
 using var fileLog = new SidecarFileLoggerProvider(SidecarFileLoggerProvider.DefaultDirectory);
 AppDomain.CurrentDomain.UnhandledException += (_, e) => fileLog.WriteUnhandled(e.ExceptionObject);
 fileLog.Write(LogLevel.Information, "Revu.Sidecar", $"Sidecar {typeof(Program).Assembly.GetName().Version} starting (process {Environment.ProcessId})", null);
+// Storage preparation can take a while; let the host see that this launch is alive.
+hostSession.PublishStarting();
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

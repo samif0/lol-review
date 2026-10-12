@@ -78,13 +78,62 @@ public sealed class SidecarHostSessionTests : IDisposable
         Assert.False(File.Exists(HandshakeFile));
     }
 
-    [Fact]
-    public void LivePidWithClosedPortIsPreserved()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PidHandshakeIsStaleOnceTheLeaseIsHeldEvenWhenThePidWasReused(bool portStillListening)
     {
+        // Previously a live PID kept the file, so an unrelated process that inherited the
+        // dead sidecar's PID blocked every launch. Only a lease holder records a PID, and
+        // this session holds the lease, so the recorded owner cannot still be running.
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        if (!portStillListening) listener.Stop();
         Directory.CreateDirectory(Handshake);
-        File.WriteAllText(HandshakeFile, JsonSerializer.Serialize(new { port = 45678, processId = Environment.ProcessId }));
-        Assert.Throws<IOException>(() => new SidecarHostSession(Data, Handshake));
-        Assert.True(File.Exists(HandshakeFile));
+        File.WriteAllText(HandshakeFile, JsonSerializer.Serialize(new
+            { port, processId = Environment.ProcessId, launchId = "crashed-launch", token = "old" }));
+
+        using (var replacement = new SidecarHostSession(Data, Handshake, "replacement"))
+        {
+            replacement.Publish(45678, new string('A', 64));
+            using var handshake = JsonDocument.Parse(File.ReadAllText(HandshakeFile));
+            Assert.Equal("replacement", handshake.RootElement.GetProperty("launchId").GetString());
+        }
+        Assert.False(File.Exists(HandshakeFile));
+    }
+
+    [Fact]
+    public void StartingMarkerCarriesIdentityWithoutCredentialsAndIsReplacedThenRemoved()
+    {
+        using (var owner = new SidecarHostSession(Data, Handshake, "preparing-launch"))
+        {
+            owner.PublishStarting();
+            using (var marker = JsonDocument.Parse(File.ReadAllText(HandshakeFile)))
+            {
+                var root = marker.RootElement;
+                Assert.Equal("starting", root.GetProperty("state").GetString());
+                Assert.Equal("preparing-launch", root.GetProperty("launchId").GetString());
+                Assert.Equal(Environment.ProcessId, root.GetProperty("processId").GetInt32());
+                Assert.Equal(1, root.GetProperty("apiVersion").GetInt32());
+                Assert.False(root.TryGetProperty("token", out _));
+                Assert.False(root.TryGetProperty("port", out _));
+            }
+            owner.Publish(45678, new string('A', 64));
+            using var handshake = JsonDocument.Parse(File.ReadAllText(HandshakeFile));
+            Assert.False(handshake.RootElement.TryGetProperty("state", out _));
+            Assert.Equal(45678, handshake.RootElement.GetProperty("port").GetInt32());
+        }
+        Assert.False(File.Exists(HandshakeFile));
+
+        // A marker left by a killed launch never blocks the next owner.
+        Directory.CreateDirectory(Handshake);
+        File.WriteAllText(HandshakeFile, JsonSerializer.Serialize(new
+            { state = "starting", apiVersion = 1, launchId = "killed", processId = Environment.ProcessId }));
+        using var next = new SidecarHostSession(Data, Handshake, "next");
+        next.PublishStarting();
+        using var replaced = JsonDocument.Parse(File.ReadAllText(HandshakeFile));
+        Assert.Equal("next", replaced.RootElement.GetProperty("launchId").GetString());
     }
 
     [Fact]
