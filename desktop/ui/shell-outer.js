@@ -497,6 +497,12 @@ async function wireLiveAutoShow() {
         });
         break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
+      case 'gamesRecovered':
+        // Recovery can finish after the user leaves Settings. Refresh listing
+        // pages, while preserving all editors and in-progress session forms.
+        if (!inActiveEdit() && (frameHas('games.html') || frameHas('dashboard.html')))
+          frame?.contentWindow?.location.reload();
+        break;
       case 'vodLinked':
         // Recording discovery never navigates or reloads a working page.
         try {

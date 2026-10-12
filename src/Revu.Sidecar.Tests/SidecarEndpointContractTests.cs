@@ -231,6 +231,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/rule/update
         POST /api/settings/reset
         POST /api/settings/scan-vods
+        POST /api/settings/recover-games
         POST /api/settings/restore
         POST /api/stint/end
         POST /api/stint/start

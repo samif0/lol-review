@@ -49,6 +49,11 @@ test('only trusted main-frame IPC, command allowlist, and query encoding', () =>
   assert.equal(scan.method, 'POST');
   assert.deepEqual(scan.body, {});
   assert.throws(() => commandRequest('scan_vods', { folder: 'C:\\unconfigured' }));
+  const recovery = commandRequest('recover_missing_games');
+  assert.equal(recovery.route, '/api/settings/recover-games');
+  assert.equal(recovery.method, 'POST');
+  assert.deepEqual(recovery.body, {});
+  assert.throws(() => commandRequest('recover_missing_games', { games: [{ gameId: 1 }] }));
   assert.throws(() => commandRequest('save_config', { payload: { notes: 'x'.repeat(65536) } }));
   assert.equal(snapshotMedia('get_config', { filePath: 'secret' }), null);
   assert.deepEqual(snapshotMedia('get_patterns', { groups: [{ moments: [{ vodPath: 'vod', clipPath: 'clip' }] }] }), ['vod', 'clip']);

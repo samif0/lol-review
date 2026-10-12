@@ -227,7 +227,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 116);
+  assert.equal(Object.keys(COMMANDS).length, 117);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);
@@ -256,6 +256,10 @@ test('command declarations keep immutable envelopes, required arguments and exce
   assert.equal(COMMANDS.scan_vods.route, '/api/settings/scan-vods');
   assert.equal(COMMANDS.scan_vods.method, 'POST');
   assert.equal(COMMANDS.scan_vods.timeoutMs, 120_000);
+  assert.deepEqual(COMMANDS.recover_missing_games.args, {});
+  assert.equal(COMMANDS.recover_missing_games.route, '/api/settings/recover-games');
+  assert.equal(COMMANDS.recover_missing_games.method, 'POST');
+  assert.equal(COMMANDS.recover_missing_games.timeoutMs, 120_000);
   assert.equal(COMMANDS.share_clip.timeoutMs, 60_000);
   assert.equal(COMMANDS.extract_clip.timeoutMs, 280_000);
   assert.equal(COMMANDS.mix_clip_narration.timeoutMs, 280_000);

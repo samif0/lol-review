@@ -61,7 +61,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
   const account = group('account', ['riotId', 'region']);
   const review = group('review', ['autoMatchupNotesEnabled']);
   ids.get('autoMatchupNotesEnabled').setAttribute('role', 'switch');
-  for (const [id, action] of [['ascent-browse', 'pick_ascent'], ['ascent-disconnect', 'disconnect_ascent'], ['ascent-scan', 'scan_vods']]) {
+  for (const [id, action] of [['ascent-browse', 'pick_ascent'], ['ascent-disconnect', 'disconnect_ascent'], ['ascent-scan', 'scan_vods'], ['ascent-recover', 'recover_missing_games']]) {
     const button = add(id, 'BUTTON', action); button.group = ascent; ascent.children.push(button);
   }
   add('ascent-status');
@@ -133,10 +133,35 @@ test('automatic matchup notes default off, save only review preferences and keep
 
 test('browser preview disables folder access, scanning and connection writes without implying local availability', async () => {
   const f = await fixture({ native: false, ascentFolder: 'D:\\Ascent' });
-  for (const id of ['ascentFolder', 'ascent-browse', 'ascent-save', 'ascent-disconnect', 'ascent-scan']) assert.equal(f.$(id).disabled, true, id);
+  for (const id of ['ascentFolder', 'ascent-browse', 'ascent-save', 'ascent-disconnect', 'ascent-scan', 'ascent-recover']) assert.equal(f.$(id).disabled, true, id);
   assert.match(f.$('ascent-status').textContent, /Browser preview cannot access local recordings/);
-  await f.click('ascent-scan'); await f.click('ascent-disconnect');
+  await f.click('ascent-scan'); await f.click('ascent-recover'); await f.click('ascent-disconnect');
   assert.deepEqual(f.requests, []);
+});
+
+test('recovery uses saved configuration, prevents overlapping scans and explains disconnected League', async () => {
+  const recovery = deferred();
+  let response = recovery.promise;
+  const f = await fixture({ ascentFolder: 'D:\\Ascent', handler: command => command === 'recover_missing_games' ? response : undefined });
+  await f.edit('ascentFolder', 'E:\\Unsaved');
+  await f.click('ascent-recover');
+  assert.deepEqual(f.requests, []);
+  await f.click('ascent-discard');
+  const pending = f.click('ascent-recover');
+  await new Promise(resolve => setImmediate(resolve));
+  for (const id of ['ascentFolder', 'ascent-browse', 'ascent-disconnect', 'ascent-scan', 'ascent-recover']) assert.equal(f.$(id).disabled, true, id);
+  assert.match(f.$('ascent-status').textContent, /Recovering recent matches from League/);
+  await f.click('ascent-recover'); await f.click('ascent-scan');
+  assert.deepEqual(f.requests, [{ command: 'recover_missing_games', args: undefined }]);
+  recovery.resolve({ ok: true, recovered: 2, matched: 2, recordingCount: 65, message: 'Recovered 2 matches. Linked 2 recordings to matches.' });
+  await pending;
+  assert.equal(f.$('ascent-status').textContent, 'Recovered 2 matches. Linked 2 recordings to matches.');
+  assert.equal(f.$('ascent-recover').disabled, false);
+  response = { ok: false, recovered: 0, matched: 0, recordingCount: 0, message: 'Open League of Legends, sign in, and wait for Revu to connect, then try again.' };
+  await f.click('ascent-recover');
+  assert.match(f.$('ascent-status').textContent, /Open League of Legends/);
+  assert.equal(f.$('ascent-status').classList.contains('bad'), true);
+  assert.equal(f.$('ascent-scan').disabled, false);
 });
 
 test('picker cancellation is inert; connecting saves only its folder and preserves other category drafts', async () => {

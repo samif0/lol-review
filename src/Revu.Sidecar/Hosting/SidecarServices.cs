@@ -142,6 +142,18 @@ public static class SidecarServices
         services.AddSingleton<SidecarGameFlowCoordinator>();
         if (!isolatedHostTest) services.AddHostedService(sp => sp.GetRequiredService<SidecarGameFlowCoordinator>());
 
+        services.AddSingleton(sp =>
+        {
+            var write = sp.GetRequiredService<WriteServices>();
+            return new RecentGameRecovery(
+                sp.GetRequiredService<ILcuClient>(), sp.GetRequiredService<IMatchHistoryReconciliationService>(),
+                write.GameLifecycle, write.Games, write.Config, write.VodScan,
+                sp.GetRequiredService<RecordingRegistrationService>(), sp.GetRequiredService<SidecarBackgroundWork>(),
+                write.BackupGuard.EnsureBackedUpAsync,
+                (type, payload) => sp.GetRequiredService<SidecarEventHub>().Publish(type, payload),
+                sp.GetRequiredService<ILogger<RecentGameRecovery>>());
+        });
+
         services.AddHttpClient<IRiotChampionDataClient, RiotChampionDataClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<PreGameIntelService>();
         services.AddSingleton<PreGameSnapshotBuilder>();

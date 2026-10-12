@@ -36,6 +36,7 @@ let _baseline = {};
 let _savingGroup = null;
 let _ascentAvailable = null;
 let _ascentScanning = false;
+let _ascentRecovering = false;
 let _ascentScanResult = null;
 const _nativeBaseline = new Map();
 const CONFIG_FIELDS = [...TEXT_FIELDS, ...NUM_FIELDS, ...TOGGLE_FIELDS, 'windowResolution'];
@@ -92,12 +93,15 @@ function syncAscentControls() {
   $('ascent-save').textContent = folder ? 'Save folder' : 'Connect folder';
   $('ascent-disconnect').disabled = !ready || busy || !!_savingGroup || !folder;
   $('ascent-scan').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
+  $('ascent-recover').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
   group.querySelector('[data-action="discard_config"]').disabled = !ready || busy || !dirty;
   let text, tone;
   if (_ascentAvailable === null) text = 'Checking folder linking availability…';
   else if (!_ascentAvailable) text = 'Connect Ascent in the Revu desktop app. Browser preview cannot access local recordings.';
   else if (!_data) text = 'Loading your recordings folder…';
-  else if (_ascentScanning) text = 'Scanning Ascent recordings and linking matches…';
+  else if (_ascentScanning) text = _ascentRecovering
+    ? 'Recovering recent matches from League and linking recordings…'
+    : 'Scanning Ascent recordings and linking matches…';
   else if (dirty) text = $('ascentFolder').value.trim()
     ? 'Save this folder before scanning or linking recordings.'
     : 'Enter a folder to connect, or use Disconnect to stop automatic linking.';
@@ -391,7 +395,7 @@ function setStatusEl(el, text, tone, autoClear) {
 // ── single delegated action handler ─────────────────────────────────────────
 const ACTIONS = new Set([
   'save_config', 'discard_config', 'pick_ascent', 'pick_clips', 'pick_backup',
-  'disconnect_ascent', 'scan_vods',
+  'disconnect_ascent', 'scan_vods', 'recover_missing_games',
   'refresh_backups', 'export_data', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
   'run_backfill',
@@ -422,6 +426,7 @@ document.addEventListener('click', async (ev) => {
     if (action === 'save_config') return await doSave(invoke, target);
     if (action === 'disconnect_ascent') return await doSave(invoke, target, { disconnectAscent: true });
     if (action === 'scan_vods') return await doScanAscent(invoke);
+    if (action === 'recover_missing_games') return await doScanAscent(invoke, true);
     if (action in PICK_TARGETS) return await doPick(invoke, action);
     if (action === 'run_backfill') return await doBackfill(invoke, target);
     if (action === 'refresh_backups') return await loadStatus();
@@ -589,25 +594,32 @@ async function doSave(invoke, target, { disconnectAscent = false } = {}) {
   }
 }
 
-async function doScanAscent(invoke) {
+async function doScanAscent(invoke, recover = false) {
   const group = $('ascent-settings');
   const folder = String(_data?.ascentFolder || '').trim();
   if (!_ascentAvailable || _ascentScanning || _savingGroup || !folder || group?.dataset.dirty === 'true') return;
   _ascentScanning = true;
+  _ascentRecovering = recover;
   syncAscentControls();
   try {
-    const result = await invoke('scan_vods');
-    if (result?.ok !== true) throw new Error(result?.message || 'Could not scan this folder. Check the path and try again.');
+    const result = await invoke(recover ? 'recover_missing_games' : 'scan_vods');
+    if (result?.ok !== true) throw new Error(result?.message || (recover
+      ? 'Could not recover matches. Open the League client and try again.'
+      : 'Could not scan this folder. Check the path and try again.'));
     const matched = Number.isSafeInteger(result.matched) && result.matched >= 0 ? result.matched : null;
     const count = Number.isSafeInteger(result.recordingCount) && result.recordingCount >= 0 ? result.recordingCount : null;
-    const summary = matched !== null && count !== null
+    const scanSummary = matched !== null && count !== null
       ? `${matched} ${matched === 1 ? 'match linked' : 'matches linked'} · ${count} ${count === 1 ? 'recording found' : 'recordings found'}.`
       : 'Recording scan completed.';
+    const recovered = Number.isSafeInteger(result.recovered) && result.recovered >= 0 ? result.recovered : null;
+    const summary = recover && recovered !== null
+      ? `${recovered} ${recovered === 1 ? 'match recovered' : 'matches recovered'}. ${scanSummary}` : scanSummary;
     _ascentScanResult = { folder, text: String(result.message || '').trim() || summary, tone: 'good' };
   } catch (error) {
     _ascentScanResult = { folder, text: errText(error), tone: 'bad' };
   } finally {
     _ascentScanning = false;
+    _ascentRecovering = false;
     syncAscentControls();
   }
 }

@@ -22,6 +22,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("POST", "/api/config/save")]
     [InlineData("POST", "/api/settings/restore")]
     [InlineData("POST", "/api/settings/reset")]
+    [InlineData("POST", "/api/settings/recover-games")]
     [InlineData("GET", "/API/AUTH/status")]
     [InlineData("GET", "/API/UPDATE/check/")]
     [InlineData("GET", "/api/pregame")]

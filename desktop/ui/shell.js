@@ -144,6 +144,10 @@ async function wireLiveAutoShow() {
     const t = msg.type;
     const p = msg.payload || {};
     switch (t) {
+      case 'gamesRecovered':
+        if (!window.__revuActiveWork && (here('dashboard.html') || here('games.html')))
+          window.location.reload();
+        break;
       case 'vodLinked':
         window.dispatchEvent(new CustomEvent('revu:vod-linked', { detail: p }));
         break;

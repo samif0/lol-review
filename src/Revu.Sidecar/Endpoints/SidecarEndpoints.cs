@@ -17,6 +17,7 @@ public static partial class SidecarEndpoints
         MapPlanning(app, jsonOptions);
         MapMatchups(app, jsonOptions);
         MapSettings(app, jsonOptions);
+        MapRecovery(app, jsonOptions);
         MapAccounts(app, jsonOptions);
         MapEvidence(app, jsonOptions);
         MapMedia(app, jsonOptions);

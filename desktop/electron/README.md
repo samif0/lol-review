@@ -36,6 +36,12 @@ original files, so keep them in that folder. Disconnecting the folder stops futu
 imports and preserves already linked videos. Built-in recording is marked
 **Coming soon**, with its controls disabled until release; Ascent stays available.
 
+If the scan finds recordings but the games are missing from Revu, keep the League
+client open and use **Recover missing matches** in Settings → Recording. This
+imports eligible unsaved ranked solo/duo games from the client's latest 10 matches,
+honors previous dismissals, and scans the connected Ascent folder again. Scanning
+alone only links recordings to saved games; it does not import match history.
+
 For a separate local build, run `npm run package:dir` and open
 `../../artifacts/desktop-package/win-unpacked/revu-desktop.exe`. Quit the installed
 Revu first, including its tray process: both normal builds use your existing data.

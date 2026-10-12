@@ -110,6 +110,7 @@ const definitions = {
   run_backfill: post("/api/backfill/start", { payload: false, timeoutMs: 290_000 }),
   get_settings_status: get("/api/settings/status"),
   scan_vods: post("/api/settings/scan-vods", { payload: false, timeoutMs: 120_000 }),
+  recover_missing_games: post("/api/settings/recover-games", { payload: false, timeoutMs: 120_000 }),
   check_update: get("/api/update/check"),
   download_update: post("/api/update/download", {"payload":false}),
   apply_update: native({}, {"sideEffect":"apply-update-stop-sidecar-exit"}),
