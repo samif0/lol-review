@@ -44,11 +44,11 @@ public sealed class MatchupsSnapshotBuilder
     public const string LoadFailedReason = "Couldn't read your recent games.";
     public const int RecentGamesLimit = 30;
     /// <summary>Opponents missing and the player is signed in: the click looks them up first.</summary>
-    public const string EnemyLookupHint = "Opponents weren't recorded for this game — Revu will look them up from Riot when you click.";
+    public const string EnemyLookupHint = "Opponents weren't recorded for this game. Revu will look them up from Riot when you click.";
     /// <summary>Opponents missing and no Riot session: the click opens the form to add them.</summary>
-    public const string EnemyManualHint = "Opponents weren't recorded for this game — you'll add them when the card opens.";
+    public const string EnemyManualHint = "Opponents weren't recorded for this game. You'll add them when the card opens.";
     /// <summary>The game carries no lane; the pre-fill used the configured primary role, so the form opens for a check.</summary>
-    public const string LaneGuessHint = "Lane guessed from your primary role — check it when the card opens.";
+    public const string LaneGuessHint = "Lane guessed from your primary role. Check it when the card opens.";
 
     /// <summary>v3.10.1: the matchup was estimated at game end and Riot has not confirmed it yet.</summary>
     public const string EstimateLookupHint = "Estimated when the game ended. Revu checks it with Riot when you click.";

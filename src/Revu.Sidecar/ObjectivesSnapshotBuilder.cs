@@ -221,7 +221,7 @@ public sealed class ObjectivesSnapshotBuilder
             : masteryMet
                 ? "MASTERED"
                 : mastery.QualifyingGames == 0
-                    ? "MASTERY — NO DATA YET"
+                    ? "Mastery: no data yet"
                     : $"MASTERY {masteryPct}%  •  LOCKED";
 
         // Minis fill by games done; mastery/mental objectives by score arc

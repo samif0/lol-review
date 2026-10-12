@@ -112,7 +112,7 @@ public sealed class DashboardSnapshotBuilder
 
         // ── Adherence streak (behavioral) ───────────────────────────────────
         var adherenceStreak = await _rulesRepo.GetBehavioralAdherenceStreakAsync();
-        var adherenceSub = adherenceStreak > 0 ? "DAYS W/O RULE TRIPS" : "NO ACTIVE STREAK";
+        var adherenceSub = adherenceStreak > 0 ? "Days without rule trips" : "No active streak";
 
         // ── Start Block intent / End Block debrief ──────────────────────────
         // Prefer today's session. A block is "open" until it's ended, so if today
@@ -288,7 +288,7 @@ public sealed class DashboardSnapshotBuilder
             var baselineWins = last30.Sum(s => s.Wins);
 
             var winRateBaseline = baselineGames >= BaselineMinGames
-                ? $"30-DAY {(int)Math.Round(100.0 * baselineWins / baselineGames)}%"
+                ? $"30-day {(int)Math.Round(100.0 * baselineWins / baselineGames)}%"
                 : "";
             var winRateSub = string.IsNullOrEmpty(winRateBaseline)
                 ? recordLine
@@ -299,7 +299,7 @@ public sealed class DashboardSnapshotBuilder
             var ratedDays = last30.Where(s => s.AvgMental > 0).ToList();
             var ratedGames = ratedDays.Sum(s => s.Games);
             var avgMentalSub = ratedGames >= BaselineMinGames
-                ? $"30-DAY AVG {ratedDays.Sum(s => s.AvgMental * s.Games) / ratedGames:F1}"
+                ? $"30-day avg {ratedDays.Sum(s => s.AvgMental * s.Games) / ratedGames:F1}"
                 : "";
 
             return (winRateSub, avgMentalSub);
@@ -342,15 +342,15 @@ public sealed class DashboardSnapshotBuilder
                     AccentHex: p.Severity == "high" ? LossHex : GoldHex));
             }
 
-            var sub = reviewedCount == 0 ? "NONE YET" : "CROSS-GAME";
+            var sub = reviewedCount == 0 ? "None yet" : "Cross-game";
             return (reviewedCount, sub, new PatternsDto(Has: pending.Count > 0, Items: pending));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Dashboard: objective pattern load failed");
             // Reviewed count couldn't be read; degrade the nag to empty but keep
-            // the sub coherent ("NONE YET" since we report 0).
-            return (0, "NONE YET", new PatternsDto(Has: false, Items: Array.Empty<ObjectivePatternItemDto>()));
+            // the sub coherent ("None yet" since we report 0).
+            return (0, "None yet", new PatternsDto(Has: false, Items: Array.Empty<ObjectivePatternItemDto>()));
         }
     }
 
@@ -493,7 +493,7 @@ public sealed class DashboardSnapshotBuilder
         Kicker: "Next step · Start Block",
         Title: "Set your intent before you queue.",
         Detail: "A 30-second ritual: name one focus, check your priority objective, lock in.",
-        CtaLabel: "START BLOCK →",
+        CtaLabel: "Start a session",
         Action: "start_block");
 
     // ─────────────────────────────────────────────────────────────────────────

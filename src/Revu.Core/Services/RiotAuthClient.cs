@@ -221,9 +221,9 @@ public sealed class RiotAuthClient : IRiotAuthClient
                 "code_required" => "Please enter the code from your email.",
                 _ => message ?? "The request was rejected.",
             },
-            HttpStatusCode.TooManyRequests => "Too many attempts — wait a minute and try again.",
+            HttpStatusCode.TooManyRequests => "Too many attempts. Wait a minute and try again.",
             HttpStatusCode.BadGateway => "Couldn't send the email right now. Try again in a moment.",
-            HttpStatusCode.Unauthorized => "Session is no longer valid. Please log in again.",
+            HttpStatusCode.Unauthorized => "Session is no longer valid. Please sign in again.",
             _ => message ?? $"Unexpected server error ({(int)res.StatusCode}).",
         };
         throw new RiotAuthException(friendly);

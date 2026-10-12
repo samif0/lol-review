@@ -213,7 +213,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex)
             {
                 log.LogWarning(ex, "Auth: could not clear partial onboarding session");
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions);
+                return Results.Json(new { ok = false, error = "Couldn't reset the unfinished sign-in. Try again." }, jsonOptions);
             }
         });
 
@@ -261,7 +261,7 @@ public static partial class SidecarEndpoints
                 {
                     ok = true,
                     ranBackfill = false,
-                    text = "Sign in and link your Riot ID first — backfill needs your account.",
+                    text = "Sign in and link your Riot ID first. Backfill needs your account.",
                     enemy = new { scanned = 0, updated = 0, skipped = 0, failed = 0 },
                     laning = new { scanned = 0, updated = 0, skipped = 0, failed = 0 },
                 }, jsonOptions);
@@ -281,7 +281,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex)
             {
                 log.LogWarning(ex, "Backfill: enemy-laner leg failed");
-                return Results.Json(new { ok = false, error = $"Backfill failed: {ex.Message}" }, jsonOptions, statusCode: 502);
+                return Results.Json(new { ok = false, error = "Backfill couldn't finish. Check your connection and try again." }, jsonOptions, statusCode: 502);
             }
 
             // Map-state leg (v3.2): jungle-proximity events + death map-state stamps from
@@ -329,7 +329,7 @@ public static partial class SidecarEndpoints
             var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
             var text = totalUpdated > 0
                 ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
-                : "Nothing to backfill — every game already has its matchup data.";
+                : "Nothing to backfill. Every game already has its matchup data.";
 
             log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}",
                 enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned);

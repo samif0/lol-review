@@ -22,7 +22,7 @@ public static class DeathClasses
     /// <summary>(Key, short chip label, one-line meaning) in display order.</summary>
     public static readonly IReadOnlyList<(string Key, string Label, string Hint)> All =
     [
-        (Greed, "GREED", "Overstayed — wave, tower dive, one more trade"),
+        (Greed, "GREED", "Overstayed: wave, tower dive, one more trade"),
         (Vision, "VISION", "No ward coverage where the threat came from"),
         (Wave, "WAVE", "Overextended for the wave state"),
         (Cooldowns, "COOLDOWNS", "Fought without key spells (yours or theirs)"),
