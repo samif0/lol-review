@@ -449,17 +449,19 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         }
         else
         {
+            // Any spelling of the champion passes the gate (rows saved as "Kaisa" still
+            // gate a "Kai'Sa" champ select).
+            var sameChampion = ChampionSql.Matches(cmd, "oc.champion_name", "@championName", championName);
             cmd.CommandText = $"""
                 SELECT o.* FROM objectives o
                 WHERE o.status = 'active' AND o.{column} = 1
                   AND (
                         NOT EXISTS (SELECT 1 FROM objective_champions oc WHERE oc.objective_id = o.id)
                      OR EXISTS (SELECT 1 FROM objective_champions oc
-                                WHERE oc.objective_id = o.id AND oc.champion_name = @championName)
+                                WHERE oc.objective_id = o.id AND {sameChampion})
                   )
                 ORDER BY o.is_priority DESC, o.type ASC, o.created_at ASC
                 """;
-            cmd.Parameters.AddWithValue("@championName", championName);
         }
         return await ReadObjectivesAsync(cmd);
     }

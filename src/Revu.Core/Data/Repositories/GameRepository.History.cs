@@ -195,8 +195,8 @@ public sealed partial class GameRepository
         using var cmd = conn.CreateCommand();
         if (!string.IsNullOrEmpty(champion) && champion != "All Champions")
         {
-            cmd.CommandText = $"SELECT * FROM games WHERE win = 0 AND champion_name = @champ {CasualFilter} ORDER BY timestamp DESC";
-            cmd.Parameters.AddWithValue("@champ", champion);
+            var sameChampion = ChampionSql.Matches(cmd, "champion_name", "@champ", champion);
+            cmd.CommandText = $"SELECT * FROM games WHERE win = 0 AND {sameChampion} {CasualFilter} ORDER BY timestamp DESC";
         }
         else
         {

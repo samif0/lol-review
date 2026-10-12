@@ -207,14 +207,15 @@ public sealed class PromptsRepository : IPromptsRepository
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         // Champion gate: inclusive of objectives with no champion rows (they
-        // apply to all champions). NULL championName skips the clause.
+        // apply to all champions). NULL championName skips the clause. Any
+        // spelling of the champion passes ("Kaisa" rows gate a "Kai'Sa" pick).
         var championClause = string.IsNullOrEmpty(championName)
             ? ""
-            : """
+            : $"""
               AND (
                   NOT EXISTS (SELECT 1 FROM objective_champions oc WHERE oc.objective_id = o.id)
                OR EXISTS (SELECT 1 FROM objective_champions oc
-                          WHERE oc.objective_id = o.id AND oc.champion_name = @championName)
+                          WHERE oc.objective_id = o.id AND {ChampionSql.Matches(cmd, "oc.champion_name", "@championName", championName)})
               )
               """;
         cmd.CommandText = $"""
@@ -230,10 +231,6 @@ public sealed class PromptsRepository : IPromptsRepository
                      op.sort_order ASC, op.id ASC
             """;
         cmd.Parameters.AddWithValue("@phase", normalized);
-        if (!string.IsNullOrEmpty(championName))
-        {
-            cmd.Parameters.AddWithValue("@championName", championName);
-        }
 
         var results = new List<ActivePrompt>();
         using var reader = await cmd.ExecuteReaderAsync();

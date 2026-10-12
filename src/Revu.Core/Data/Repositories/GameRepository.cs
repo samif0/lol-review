@@ -231,8 +231,8 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
     {
         if (!string.IsNullOrWhiteSpace(champion) && champion != "All Champions")
         {
-            whereClauses.Add("champion_name = @champion");
-            cmd.Parameters.AddWithValue("@champion", champion);
+            // Every spelling of the champion ("Kai'Sa" from champ select finds "Kaisa" rows).
+            whereClauses.Add(ChampionSql.Matches(cmd, "champion_name", "@champion", champion));
         }
 
         if (win.HasValue)
