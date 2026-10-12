@@ -2541,7 +2541,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
    ════════════════════════════════════════════════════════════════════════════ */
 .pg-shell{max-width:680px}
 .pg-card{--cardbr:var(--gline2);border-color:color-mix(in srgb,var(--cardbr) 40%,var(--gline2));margin-bottom:12px}
-.pg-card .seclabel-in{font-family:var(--fm);font-size:var(--font-caption);letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);margin-bottom:10px}
+.pg-card .seclabel-in{display:block;font-family:var(--fm);font-size:var(--font-caption);letter-spacing:var(--label-spacing);text-transform:uppercase;color:var(--label-bright);margin-bottom:10px}
 .pg-card.obj .obj-sub{margin-top:16px}
 
 /* Live banner (cancelled / saved). */
@@ -2656,9 +2656,9 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .pb-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
 .pb-eyebrow{font-family:var(--fm);font-size:var(--font-label);letter-spacing:1.2px;text-transform:uppercase;color:var(--gold)}
 .pb-title{font-family:var(--fo);font-size:14px;font-weight:600;color:#fff}
-.p-row{margin-bottom:11px}
+.p-row{display:block;margin-bottom:11px}
 .p-row:last-child{margin-bottom:0}
-.p-label{font-family:var(--fb);font-size:12.5px;color:var(--t2);margin-bottom:7px;line-height:1.4}
+.p-label{display:block;font-family:var(--fb);font-size:12.5px;color:var(--t2);margin-bottom:7px;line-height:1.4}
 
 /* IN-GAME no-active card. */
 .noactive-p{font-family:var(--fb);font-size:13px;color:var(--t3);line-height:1.5}

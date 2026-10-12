@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revu: In Game</title>
+<title>Revu: In game</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
@@ -31,10 +31,10 @@
   </nav>
   <div class="shell pg-shell">
     <div class="eyebrow">Live</div>
-    <div class="hero"><h1 id="hero-title">In Game</h1></div>
+    <div class="hero"><h1 id="hero-title">In game</h1></div>
     <div class="statusline" id="statusline">
       <span class="dot" id="lcu-dot"></span>
-      <b>Cooldowns · Matchup · Your notes</b>
+      <b>Cooldowns, matchup and notes</b>
     </div>
 
     <!-- LIVE banner (game saved at end, etc). Data-driven. -->
@@ -47,7 +47,7 @@
     </div>
 
     <!-- ════ COOLDOWNS & INTEL ════ rotating deck -->
-    <div class="seclabel" id="intel-label">Cooldowns &amp; Intel</div>
+    <div class="seclabel" id="intel-label">Cooldowns and intel</div>
     <div class="glass card pg-intel" id="intel-wrap" hidden>
       <div class="intel-deck" id="intel-deck"></div>
       <div class="intel-foot">
@@ -64,7 +64,7 @@
       <div class="seclabel-in">Matchup</div>
       <div class="matchup-pairing" id="matchup-pairing" hidden></div>
       <div class="matchup-vs">
-        <span class="matchup-my" id="matchup-my">—</span>
+        <span class="matchup-my" id="matchup-my">…</span>
         <span class="matchup-x">vs</span>
         <span class="matchup-enemy" id="matchup-enemy">…</span>
       </div>
@@ -72,13 +72,13 @@
 
     <!-- ════ MATCHUP HISTORY ════ -->
     <div class="glass card pg-card mh" id="mh-card" hidden>
-      <div class="seclabel-in" id="mh-header">Your notes</div>
+      <div class="seclabel-in" id="mh-header">Matchup notes</div>
       <div id="mh-list"></div>
     </div>
 
     <!-- ════ YOUR PRE-GAME PROMPTS ════ answers carried from champ select -->
     <div class="glass card pg-card prompts" id="prompts-card" hidden>
-      <div class="seclabel-in">Your notes</div>
+      <div class="seclabel-in">Objective reminders</div>
       <div id="prompts-list"></div>
     </div>
 
@@ -117,10 +117,10 @@
   </template>
 
   <template id="tpl-prompt">
-    <div class="p-row">
-      <div class="p-label"></div>
+    <label class="p-row">
+      <span class="p-label"></span>
       <textarea class="pg-textarea p-input" rows="2" placeholder="Write your answer…"></textarea>
-    </div>
+    </label>
   </template>
 
   <script type="module" src="./pregame.js"></script>

@@ -13,7 +13,8 @@ const visibleText = html => html.replace(/<!--[\s\S]*?-->/g, '').replace(/<scrip
 const COPY_FILES = ['objectives.html', 'objectives.js', 'objective-labels.mjs', 'objective-progress.mjs',
   'objectivegames.html', 'objectivegames.js', 'objectivenotes.html', 'objectivenotes.js', 'rules.html', 'rules.js',
   'rule-labels.mjs', 'tiltcheck.html', 'tiltcheck.js', 'manualentry.js', 'onboarding.html', 'onboarding.js',
-  'matchups.html', 'matchups.js', 'patterns.html', 'patterns.js', 'tutorial.js', 'first-review-guide.mjs'];
+  'matchups.html', 'matchups.js', 'patterns.html', 'patterns.js', 'tutorial.js', 'first-review-guide.mjs',
+  'pregame.html', 'ingame.html'];
 
 function copyLines(name) {
   let text = read(name);
@@ -39,6 +40,22 @@ test('onboarding promises nothing Settings cannot do and says Sign in', () => {
   assert.match(html, /<div class="seclabel onb-sectitle">Sign in<\/div>/);
   for (const role of ['Top', 'Jungle', 'Mid', 'ADC', 'Support']) assert.match(html, new RegExp(`type="button">${role}</button>`));
   assert.doesNotMatch(read('onboarding.js'), /RANK DETECTED:/);
+});
+
+test('in-game cards have distinct titles and every pregame field has a label', () => {
+  const ingame = visibleText(read('ingame.html'));
+  const titles = [...ingame.matchAll(/<div class="seclabel-in"[^>]*>([^<]+)</g)].map(m => m[1]);
+  assert.ok(titles.includes('Matchup notes') && titles.includes('Objective reminders'), titles.join(', '));
+  assert.equal(new Set(titles).size, titles.length, 'no two cards share a title');
+  assert.match(ingame, /<h1 id="hero-title">In game<\/h1>/);
+
+  const pregame = visibleText(read('pregame.html'));
+  for (const id of ['intent-input', 'session-input']) assert.match(pregame, new RegExp(`<label[^>]*for="${id}"`), id);
+  for (const html of [pregame, ingame]) {
+    const prompt = html.match(/<template id="tpl-prompt">([\s\S]*?)<\/template>/)[1];
+    assert.match(prompt, /<label class="p-row">[\s\S]*<textarea[\s\S]*<\/label>/, 'prompt answers are labelled by their question');
+  }
+  assert.doesNotMatch(pregame, />PRIORITY<|>Lock In<|>Locked In</);
 });
 
 test('tilt check states one duration and makes no physiological claim', () => {
