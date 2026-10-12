@@ -42,6 +42,9 @@ public sealed partial class GameRepository
             "session_log",
             "vod_files",
             "game_events",
+            // The per-game event-processing coverage report. Its ON DELETE CASCADE
+            // never fires (foreign keys are off), so it is deleted explicitly.
+            "event_processing_reports",
             // v3.11 (schema v16): the corrections ledger keys on game_id too; a
             // deleted game must not leave dangling correction rows behind.
             "event_corrections",
@@ -248,13 +251,23 @@ public sealed partial class GameRepository
     // non-constant (or typo'd) table name throws instead of reaching SQLite.
     private static readonly HashSet<string> DeletableTables = new(StringComparer.Ordinal)
     {
-        "evidence_items", "session_log", "vod_files", "game_events", "event_corrections",
+        "evidence_items", "session_log", "vod_files", "game_events", "event_processing_reports",
+        "event_corrections",
         "derived_event_instances", "game_objectives", "game_concept_tags",
         "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
         "cleared_rule_breaks", "death_classifications", "game_summary",
         "review_concepts", "feature_values", "coach_moments", "vod_bookmarks",
         "coach_labels", "coach_inferences", "clip_narrations", "game_remakes",
     };
+
+    /// <summary>
+    /// Every table with a game_id column that a game delete accounts for: the rows it
+    /// deletes, plus the two it keeps on purpose (the missed_game_decisions tombstone
+    /// and the player's own matchup journal cards, detached). A schema test fails when a
+    /// new game-keyed table is missing here, instead of its rows silently orphaning.
+    /// </summary>
+    internal static IReadOnlySet<string> GameDeleteCoveredTables { get; } =
+        new HashSet<string>(DeletableTables.Concat(["missed_game_decisions", "matchups"]), StringComparer.Ordinal);
 
     private static string RequireDeletableTable(string table) =>
         DeletableTables.Contains(table)
