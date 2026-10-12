@@ -82,7 +82,10 @@ public sealed partial class BackupService : IBackupService
         try
         {
             Directory.CreateDirectory(backupDir);
-            await Task.Run(() => CreateVerifiedCopy(dbPath, dest, requireIntact: true)).ConfigureAwait(false);
+            // A game delete goes ahead either way, so its snapshot is kept even when
+            // quick_check finds a problem; it has its own budget and never evicts a good
+            // safety backup.
+            await Task.Run(() => CreateVerifiedCopy(dbPath, dest, requireIntact: !isDelete)).ConfigureAwait(false);
             _logger.LogInformation(
                 "Safety backup created: {Dest} (reason: {Reason}, size: {Size} bytes)",
                 dest, reason, new FileInfo(dest).Length);

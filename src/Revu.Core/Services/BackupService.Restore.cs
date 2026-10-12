@@ -123,8 +123,7 @@ public sealed partial class BackupService
         }
         catch (Exception ex) when (ex is InvalidDataException or SqliteException or IOException or UnauthorizedAccessException)
         {
-            DeleteQuietly(staged);
-            DeleteQuietly(staged + "-journal");
+            DeleteDatabaseFiles(staged);
             _logger.LogWarning(ex, "Restore refused: {File} did not validate", candidate.FileName);
             var reason = ex is InvalidDataException ? ex.Message : "That backup could not be read, so nothing was changed.";
             return new RestoreResult(false, null, reason);
@@ -132,18 +131,19 @@ public sealed partial class BackupService
 
         // 2) Back up the current DB first so the restore is itself reversible.
         string? preRestorePath = null;
+        var snapshotIsOnlineBackup = true;
         if (File.Exists(dbPath))
         {
             try
             {
                 preRestorePath = ResolveUniqueBackupPath(backupDir, PreRestorePrefix);
-                await Task.Run(() => CreateSnapshotOfLiveDatabase(dbPath, preRestorePath)).ConfigureAwait(false);
+                snapshotIsOnlineBackup = await Task.Run(() => CreateSnapshotOfLiveDatabase(dbPath, preRestorePath)).ConfigureAwait(false);
                 _logger.LogInformation("Pre-restore backup: {Path}", preRestorePath);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Pre-restore backup failed");
-                DeleteQuietly(staged);
+                DeleteDatabaseFiles(staged);
                 return new RestoreResult(false, null, "Could not back up your current data, so nothing was changed.");
             }
         }
@@ -163,7 +163,7 @@ public sealed partial class BackupService
             if (!await RetryFileOperationAsync(() => File.Move(path, aside), path).ConfigureAwait(false))
             {
                 RollBack(moved);
-                DeleteQuietly(staged);
+                DeleteDatabaseFiles(staged);
                 _logger.LogError("Restore could not move {File} aside", Path.GetFileName(path));
                 return new RestoreResult(false, preRestorePath,
                     $"Could not replace the current database because {Path.GetFileName(path)} is in use. Nothing was changed. Try again in a moment.");
@@ -180,13 +180,23 @@ public sealed partial class BackupService
         {
             _logger.LogError(ex, "Moving the restored database into place failed");
             RollBack(moved);
-            DeleteQuietly(staged);
+            DeleteDatabaseFiles(staged);
             return new RestoreResult(false, preRestorePath,
                 "Could not put the backup in place. Nothing was changed, and your pre-restore backup is safe.");
         }
 
-        // 4) The replaced files are covered by the pre-restore backup; drop them.
-        foreach (var (_, aside) in moved) DeleteQuietly(aside);
+        // 4) The replaced files are covered by the pre-restore backup; drop them. When that
+        //    backup had to fall back to a plain file copy, writes that were only in the old
+        //    -wal may be missing from it, so the replaced files stay beside the database.
+        if (snapshotIsOnlineBackup)
+        {
+            foreach (var (_, aside) in moved) DeleteQuietly(aside);
+        }
+        else if (moved.Count > 0)
+        {
+            _logger.LogWarning("The pre-restore backup is a plain file copy; keeping the replaced files {Files}",
+                string.Join(", ", moved.Select(m => Path.GetFileName(m.Aside))));
+        }
 
         // Clear pools AGAIN after the file is back in place. Any connection
         // that gets opened next must see the restored file, not cached state
@@ -245,19 +255,22 @@ public sealed partial class BackupService
     /// The pre-reset / pre-restore snapshot of the live database. The user may be
     /// replacing it BECAUSE it is damaged, so a failed integrity check keeps the copy
     /// rather than blocking, and if even the online backup cannot read it, the main file
-    /// is copied after a checkpoint as the last resort.
+    /// is copied after a checkpoint as the last resort. Returns false when that fallback
+    /// was used.
     /// </summary>
-    private void CreateSnapshotOfLiveDatabase(string dbPath, string destination)
+    private bool CreateSnapshotOfLiveDatabase(string dbPath, string destination)
     {
         try
         {
             CreateVerifiedCopy(dbPath, destination, requireIntact: false);
+            return true;
         }
         catch (Exception ex) when (ex is SqliteException or InvalidDataException)
         {
             _logger.LogWarning(ex, "Online backup of the live database failed; copying the file instead");
             CheckpointDatabase();
             File.Copy(dbPath, destination, overwrite: false);
+            return false;
         }
     }
 

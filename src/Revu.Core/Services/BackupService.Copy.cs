@@ -46,8 +46,7 @@ public sealed partial class BackupService
         }
         finally
         {
-            DeleteQuietly(temp);
-            DeleteQuietly(temp + "-journal");
+            DeleteDatabaseFiles(temp);
         }
     }
 
@@ -115,6 +114,16 @@ public sealed partial class BackupService
     {
         try { if (File.Exists(path)) File.Delete(path); }
         catch { /* best effort: a stray temp file is harmless */ }
+    }
+
+    // A temp database and whatever SQLite made beside it. The copied header says WAL
+    // until journal_mode=DELETE runs, so a failure before then can leave -wal and -shm.
+    private static void DeleteDatabaseFiles(string path)
+    {
+        DeleteQuietly(path);
+        DeleteQuietly(path + "-journal");
+        DeleteQuietly(path + "-wal");
+        DeleteQuietly(path + "-shm");
     }
 
     // ── Pruning ─────────────────────────────────────────────────────

@@ -41,6 +41,28 @@ public sealed class BackupServiceSafetyTests
         scope.Objectives.CreateWithPhasesAsync(title, "", "primary", "", "",
             practicePre: false, practiceIn: true, practicePost: false);
 
+    // Breaks one table's root page in place (an invalid b-tree page type): the file still
+    // opens and copies, but PRAGMA quick_check fails.
+    private static void DamageTablePage(TestDatabaseScope scope, string table)
+    {
+        SqliteConnection.ClearAllPools();
+        long page, pageSize;
+        using (var c = Open(scope.DatabasePath, SqliteOpenMode.ReadWrite))
+        {
+            using (var checkpoint = c.CreateCommand())
+            {
+                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                checkpoint.ExecuteNonQuery();
+            }
+            page = Scalar(c, $"SELECT rootpage FROM sqlite_schema WHERE type = 'table' AND name = '{table}'");
+            pageSize = Scalar(c, "PRAGMA page_size;");
+        }
+        Assert.True(page > 1);
+        using var file = new FileStream(scope.DatabasePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+        file.Position = (page - 1) * pageSize;
+        file.WriteByte(0xFF);
+    }
+
     // ── Backups ─────────────────────────────────────────────────────
 
     [Fact]
@@ -128,6 +150,25 @@ public sealed class BackupServiceSafetyTests
 
         await service.RunBackupAsync();
         Assert.Single(Directory.GetFiles(folder, "lol_review_backup_*.db"));
+    }
+
+    [Fact]
+    public async Task GameDeleteBackup_OfADamagedDatabase_IsStillKept()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        await SeedObjectiveAsync(scope, "LIVE");
+        DamageTablePage(scope, "objectives");
+        var service = Service(scope);
+
+        await service.CreateSafetyBackupAsync("delete-game-7");
+        await service.CreateSafetyBackupAsync("test");
+
+        // The delete goes ahead regardless, so its snapshot is kept; a routine safety
+        // backup still refuses a copy that fails quick_check.
+        Assert.Single(Directory.GetFiles(BackupDir(scope), "delete_backup_*.db"));
+        Assert.Empty(Directory.GetFiles(BackupDir(scope), "safety_backup_*.db"));
+        Assert.Empty(Directory.GetFiles(BackupDir(scope), "*.tmp*"));
     }
 
     // ── Restore ─────────────────────────────────────────────────────
@@ -221,6 +262,29 @@ public sealed class BackupServiceSafetyTests
         // The pre-restore backup holds what was replaced, including the latest write.
         using (var c = Open(result.PreRestoreBackupFilePath!))
             Assert.Equal(1, Scalar(c, "SELECT COUNT(*) FROM objectives WHERE title = 'AFTER_BACKUP'"));
+    }
+
+    [Fact]
+    public async Task Restore_KeepsTheReplacedFiles_WhenThePreRestoreBackupIsAPlainCopy()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var service = Service(scope);
+        await service.CreateSafetyBackupAsync("test");
+        var backup = (await service.ListBackupsAsync()).Single();
+        // A live file the online backup cannot read forces the plain-copy fallback.
+        SqliteConnection.ClearAllPools();
+        foreach (var sidecar in new[] { scope.DatabasePath + "-wal", scope.DatabasePath + "-shm" })
+            if (File.Exists(sidecar)) File.Delete(sidecar);
+        var unreadable = Enumerable.Repeat((byte)0x42, 8192).ToArray();
+        await File.WriteAllBytesAsync(scope.DatabasePath, unreadable);
+
+        var result = await service.RestoreFromBackupAsync(backup.FileName);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        var dataDir = Path.GetDirectoryName(scope.DatabasePath)!;
+        var kept = Assert.Single(Directory.GetFiles(dataDir, Path.GetFileName(scope.DatabasePath) + ".replaced-*.tmp"));
+        Assert.Equal(unreadable, await File.ReadAllBytesAsync(kept));
     }
 
     [WindowsFact]
