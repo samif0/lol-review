@@ -42,7 +42,19 @@ public sealed class GameEndCaptureService : IGameEndCaptureService
         {
             CoreDiagnostics.WriteVerbose(
                 $"LCU: GameEndCapture attempt={attempt + 1}/{GameConstants.EogStatsRetryAttempts}");
-            var eogData = await _lcuClient.GetEndOfGameStatsAsync(cancellationToken).ConfigureAwait(false);
+            JsonElement? eogData;
+            try
+            {
+                eogData = await _lcuClient.GetEndOfGameStatsAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // A transient error (a 5xx, a request timeout) costs this attempt only; the
+                // next one may still get the stats and the enrichment only they carry.
+                _logger.LogDebug(ex, "End-of-game stats request failed (attempt {Attempt}/{Attempts})",
+                    attempt + 1, GameConstants.EogStatsRetryAttempts);
+                eogData = null;
+            }
             if (eogData is JsonElement eog)
             {
                 // Dump full EOG JSON only when verbose diagnostics are enabled

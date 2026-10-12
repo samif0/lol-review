@@ -2,6 +2,7 @@ import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { objectiveMetaText } from './objective-labels.mjs';
+import { mountMissedGames } from './missed-games.mjs';
 
 // Revu desktop dashboard — data-driven renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_dashboard`.
@@ -667,4 +668,11 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', loadDashboard);
 } else {
   loadDashboard();
+}
+
+// Finished games Revu did not save: Home lists them with Save and Dismiss.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => { void mountMissedGames(document); });
+} else {
+  void mountMissedGames(document);
 }

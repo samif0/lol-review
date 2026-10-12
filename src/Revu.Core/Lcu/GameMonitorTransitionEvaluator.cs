@@ -73,10 +73,10 @@ internal sealed class GameMonitorTransitionEvaluator
             IsIdlePhase(phase)
             && !handleGameEnded  // don't reconcile on the same tick we just triggered EOG capture
             && (
-                // Transition from a game-related phase → idle (first time after game ends)
-                state.LastPhase is GamePhase.EndOfGame or GamePhase.PreEndOfGame
-                    or GamePhase.InProgress or GamePhase.GameStart or GamePhase.WaitingForStats
-                    or GamePhase.Reconnect
+                // An in-game phase straight to idle: the post-game phases (and with them the
+                // capture) were never seen. Leaving a post-game phase needs no check of its
+                // own: the capture that ran there arms ReconcilePending only when it failed.
+                state.LastPhase is GamePhase.InProgress or GamePhase.GameStart or GamePhase.Reconnect
                 // OR match history not yet available — keep retrying until monitor clears the flag
                 || state.ReconcilePending
             );

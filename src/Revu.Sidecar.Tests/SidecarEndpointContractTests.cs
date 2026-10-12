@@ -226,6 +226,7 @@ public sealed class SidecarEndpointContractTests
         GET /api/host/health
         GET /api/matchups
         GET /api/matchups/export
+        GET /api/missed-games
         GET /api/objective
         GET /api/objective/games
         GET /api/objective/notes
@@ -288,6 +289,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/matchup/from-game
         POST /api/matchup/notes
         POST /api/matchup/update
+        POST /api/missed-games/resolve
         POST /api/objective/complete
         POST /api/objective/create
         POST /api/objective/delete

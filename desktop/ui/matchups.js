@@ -1060,7 +1060,9 @@ async function wireLiveChannel() {
     const msg = event.payload || {};
     // Only a SAVED game changes what this page shows (a skipped casual game or
     // a remake leaves the journal's "last game" exactly where it was).
-    if (msg.type === 'gameEnded' && msg.payload && msg.payload.saved === true) requestRefresh();
+    // A recovered game saved during the next lobby arrives as 'gameRecovered'.
+    const ended = msg.type === 'gameEnded' || msg.type === 'gameRecovered';
+    if (ended && msg.payload && msg.payload.saved === true) requestRefresh();
   });
 
   // Ask the Electron host to open (or join) the SSE stream — idempotent; the shell

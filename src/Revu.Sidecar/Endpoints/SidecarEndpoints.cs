@@ -25,5 +25,6 @@ public static partial class SidecarEndpoints
         MapPatterns(app, jsonOptions);
         MapDiagnostics(app, jsonOptions);
         MapRecording(app, jsonOptions);
+        MapMissedGames(app, jsonOptions);
     }
 }
