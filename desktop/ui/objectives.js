@@ -803,6 +803,8 @@ function applyFirstReviewTutorialDefaults() {
   renderEventPicker();
   $('obj-options').open = true;
   $('f-title')?.focus();
+  // The tutorial's own pre-fill is not an edit: leaving asks only after the player changes it.
+  _formGuard.mark();
 }
 
 // Submit the form → create_objective or update_objective, then reload.

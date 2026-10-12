@@ -167,3 +167,29 @@ test('every form page registers the shared guard', async () => {
     assert.match(source, /registerLeaveGuard\(\{/, file);
   }
 });
+
+test('the first-review tutorial pre-fill is not an edit: leaving asks only after the player changes it', async () => {
+  const objectives = (await readFile(new URL('../ui/objectives.js', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
+  const start = objectives.indexOf('function applyFirstReviewTutorialDefaults()');
+  const prefill = objectives.slice(start, objectives.indexOf('\n}\n', start) + 2);
+  const ids = ['f-title', 'f-skill', 'f-type', 'f-pre', 'f-in', 'f-post', 'f-focus', 'f-crit-metric', 'f-crit-op',
+    'f-crit-val', 'f-criteria', 'f-desc'];
+  const fields = Object.fromEntries(ids.map(id => [id, field({ focus() {}, ...(/^f-(pre|in|post)$/.test(id) ? { type: 'checkbox' } : {}) })]));
+  const form = root(Object.values(fields));
+  const context = vm.createContext({ trackForm, form, fields, other: { focus() {} } });
+  vm.runInContext(`var _promptRows = [], _champs = [], _eventTypes = [];
+    const $ = id => fields[id] || other;
+    function setChecked(id, on) { const el = $(id); if (el) el.checked = !!on; }
+    function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : String(v); }
+    function syncTargetVisibility() {} function syncCriteriaVisibility() {}
+    function renderPromptRows() {} function renderChampChips() {} function renderEventPicker() {}
+    const _formGuard = trackForm(form, () => [_promptRows, _champs, _eventTypes]);
+    function openCreateForm() { for (const f of Object.values(fields)) { f.value = ''; f.checked = false; } _formGuard.mark(); }
+    ${prefill}
+    applyFirstReviewTutorialDefaults();
+    globalThis.guard = _formGuard;`, context);
+  assert.equal(fields['f-title'].value, 'Review every death', 'the real tutorial pre-fill ran');
+  assert.equal(context.guard.isDirty(), false);
+  fields['f-title'].value = 'Review every death before queueing';
+  assert.equal(context.guard.isDirty(), true);
+});
