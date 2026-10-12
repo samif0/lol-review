@@ -127,6 +127,7 @@ public sealed class EventCorrectionsLegacyImportTests
         await scope.Games.SaveAsync(TestGameStatsFactory.Create(GameId));
         using var conn = scope.OpenConnection();
         await Exec(conn, "DROP INDEX IF EXISTS idx_game_events_key");
+        await Exec(conn, "DROP INDEX IF EXISTS idx_game_events_unkeyed"); // a v15 database predates it too
         await Exec(conn, "ALTER TABLE game_events DROP COLUMN event_key");
         await Exec(conn, "DROP TABLE IF EXISTS event_corrections");
         var converted = await Insert(conn, "ALL_IN", 100, ConvertedDetails);
