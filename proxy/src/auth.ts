@@ -162,15 +162,19 @@ export async function handleVerify(request: Request, env: Env): Promise<Response
   if (!code) return badRequest("code_required");
   const rawEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (rawEmail && !isValidEmail(rawEmail)) return badRequest("invalid_email");
-  if (!rawEmail && env.REQUIRE_VERIFY_EMAIL === "1") {
+  const emailRequired = env.REQUIRE_VERIFY_EMAIL === "1";
+  if (!rawEmail && emailRequired) {
     return jsonResponse({ error: "email_required", message: "Update Revu, then request a new code." }, 400);
   }
 
   let email: string | null;
   if (rawEmail) {
     // Count the attempt first, so a guess can only consume a code that has
-    // seen at most MAX_CODE_ATTEMPTS attempts (this one included).
-    await bumpLoginAttempts(env.DB, rawEmail);
+    // seen at most MAX_CODE_ATTEMPTS attempts (this one included). Only once
+    // code-only verify is closed: until then a guesser just uses the uncounted
+    // code-only path, so counting here would protect nothing and would only
+    // let anyone who knows an email burn that user's codes.
+    if (emailRequired) await bumpLoginAttempts(env.DB, rawEmail);
     email = code.length > CODE_MAX_LENGTH
       ? null
       : await tryConsumeBoundLoginRequest(env.DB, await loginCodeHash(env, code), rawEmail);

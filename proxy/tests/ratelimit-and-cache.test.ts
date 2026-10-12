@@ -530,6 +530,14 @@ describe("POST /web/session", () => {
     expect(asked.searchParams.get("window")).toBe(String(30 * 60 * 1000));
   });
 
+  it("fails open when the DO's mint namespace is full, like an outage", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    stubSiteverify({ success: true, hostname: "revu.lol" });
+    const limiter = recordingLimiter(() => ({ allowed: false, reason: "full" }));
+    const res = await worker.fetch(sessionReq(), configured({ RATE_LIMITER: limiter.ns }), ctx());
+    expect(res.status).toBe(200);
+  });
+
   it("does not need the Riot key", async () => {
     stubSiteverify({ success: true, hostname: "revu.lol" });
     const res = await worker.fetch(sessionReq(), configured({ RIOT_API_KEY: "" }), ctx());

@@ -41,7 +41,11 @@ const PLATFORM_TO_REGIONAL: Record<string, string> = {
 export const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_TO_REGIONAL);
 
 export function regionalFor(platform: string): string | null {
-  return PLATFORM_TO_REGIONAL[platform.toLowerCase()] ?? null;
+  // Own-property check: a bare index on a plain object would resolve
+  // "__proto__" / "constructor" to a truthy non-string, and /rank would then
+  // build a Riot URL from that region with the API key attached.
+  const key = platform.toLowerCase();
+  return Object.hasOwn(PLATFORM_TO_REGIONAL, key) ? PLATFORM_TO_REGIONAL[key] : null;
 }
 
 /**
@@ -63,21 +67,34 @@ export const RIOT_TIMEOUT_MS = 10_000;
 /**
  * One Riot GET. The body is streamed through untouched (no text() decode and
  * re-encode: Match-V5 timelines are MB-scale and CPU on a Worker is scarce).
- * A Riot call that takes longer than RIOT_TIMEOUT_MS is a 504 riot_timeout.
+ * A Riot call whose response headers take longer than RIOT_TIMEOUT_MS is a 504
+ * riot_timeout. The timer stops once headers arrive: the same signal would
+ * otherwise also abort the streamed body, truncating a large timeline for a
+ * slow reader on the uncached path.
  */
 export async function riotGet(url: string, env: Env): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("Riot call timed out", "TimeoutError")),
+    RIOT_TIMEOUT_MS,
+  );
   let r: Response;
   try {
     r = await fetch(url, {
       headers: { "X-Riot-Token": env.RIOT_API_KEY },
-      signal: AbortSignal.timeout(RIOT_TIMEOUT_MS),
+      signal: controller.signal,
     });
   } catch (err) {
     const name = (err as Error)?.name;
     if (name === "TimeoutError" || name === "AbortError") {
-      return jsonResponse({ error: "riot_timeout" }, 504);
+      return jsonResponse(
+        { error: "riot_timeout", message: "Riot's servers took too long to answer. Try again in a moment." },
+        504,
+      );
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
   const headers = new Headers({ "Content-Type": "application/json" });
   const retryAfter = r.headers.get("Retry-After");

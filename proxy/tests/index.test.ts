@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { GlobalRateLimiter } from "../src/index";
 import { Env } from "../src/types";
 import { resetRiotBudget } from "../src/riot-budget";
-import { accountRegionalFor, RIOT_TIMEOUT_MS } from "../src/riot";
+import { accountRegionalFor, regionalFor, RIOT_TIMEOUT_MS } from "../src/riot";
 import { dbWithSessions, makeEnv, makeFakeDb, sha256Hex } from "./fakes";
 import { addSession, addUser, makeAuthState } from "./fake-auth";
 
@@ -79,7 +79,10 @@ describe("worker proxy", () => {
     db._failNext("FROM sessions");
     const response = await worker.fetch(authed("/match/NA1_123456?region=na1"), await env({ DB: db }));
     expect(response.status).toBe(503);
-    expect(await json(response)).toEqual({ error: "auth_unavailable" });
+    expect(await json(response)).toEqual({
+      error: "auth_unavailable",
+      message: "Revu's server is busy. Try again in a moment.",
+    });
   });
 
   it("validates match id shape before calling Riot", async () => {
@@ -88,6 +91,39 @@ describe("worker proxy", () => {
     const response = await worker.fetch(authed("/match/not-a-match-id?region=na1"), await env());
     expect(response.status).toBe(400);
     expect(await json(response)).toEqual({ error: "bad_request", message: "invalid matchId shape" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a region that only exists on Object.prototype and never calls Riot", async () => {
+    // The region map is a plain object, so a bare index lookup for
+    // "__proto__" / "constructor" returns a truthy non-string instead of
+    // null. The lookup must be an own-property check, or /rank would build
+    // https://__proto__.api.riotgames.com/... with the Riot key attached.
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const e = await env();
+
+    for (const region of ["__proto__", "constructor", "hasOwnProperty", "toString"]) {
+      expect(regionalFor(region)).toBeNull();
+      expect(accountRegionalFor(region)).toBeNull();
+      // Validation runs before the Riot budget is charged, so one session
+      // token covers every request here.
+      for (const path of [
+        `/account?riotId=a%23b&region=${region}`,
+        `/matches?puuid=abc&region=${region}`,
+        `/match/NA1_123456?region=${region}`,
+        `/timeline/NA1_123456?region=${region}`,
+        `/rank?puuid=abc&region=${region}`,
+      ]) {
+        const response = await worker.fetch(authed(path), e, ctx());
+
+        expect(response.status).toBe(400);
+        expect(await json(response)).toEqual({
+          error: "bad_request",
+          message: `unknown region '${region}'`,
+        });
+      }
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -182,7 +218,57 @@ describe("worker proxy", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timed out", "TimeoutError")));
     const response = await worker.fetch(authed("/account?riotId=A%23B&region=na1"), await env());
     expect(response.status).toBe(504);
-    expect(await json(response)).toEqual({ error: "riot_timeout" });
+    // The desktop shows `message` for a 504, so it must be a sentence, not the code.
+    expect(await json(response)).toEqual({
+      error: "riot_timeout",
+      message: "Riot's servers took too long to answer. Try again in a moment.",
+    });
+  });
+
+  it("aborts a Riot call whose headers don't arrive within the timeout", async () => {
+    // Only the timer functions are faked: the session lookup hashes the token
+    // with WebCrypto, which settles outside the fake clock, so wait (with
+    // setImmediate, still real) until the upstream fetch has actually started.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let signal: AbortSignal | undefined;
+      vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        signal = init.signal ?? undefined;
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal?.reason));
+        });
+      }));
+      const pending = worker.fetch(authed("/account?riotId=A%23B&region=na1"), await env());
+      while (!signal) await new Promise((r) => setImmediate(r));
+      await vi.advanceTimersByTimeAsync(RIOT_TIMEOUT_MS - 1);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const response = await pending;
+      expect(response.status).toBe(504);
+      expect((await json(response)).error).toBe("riot_timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops the timeout once headers arrive, so a slow body read isn't cut off", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let signal: AbortSignal | undefined;
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+        signal = init.signal ?? undefined;
+        return okJson({ puuid: "p" });
+      }));
+      const response = await worker.fetch(authed("/account?riotId=A%23B&region=na1"), await env());
+      expect(response.status).toBe(200);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(vi.getTimerCount()).toBe(0); // the timeout was cleared with the headers
+      await vi.advanceTimersByTimeAsync(RIOT_TIMEOUT_MS * 2);
+      expect(signal?.aborted).toBe(false);
+      expect(await json(response)).toEqual({ puuid: "p" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("maps any other upstream failure to 502 proxy_error", async () => {

@@ -11,7 +11,7 @@ import { hmacSha256Hex } from "../src/crypto";
 import { addLoginRequest, addSession, addUser } from "./fake-auth";
 import { makeRequest, nowSec, runScheduled, sha256Hex } from "./fakes";
 import { AUTH, body, call, lastCode, resetWebLimiters, stubFetch, webReq, webSetup } from "./web-fixtures";
-import worker from "../src/index";
+import worker, { GlobalRateLimiter } from "../src/index";
 
 let ipSeq = 0;
 
@@ -225,20 +225,37 @@ describe("desktop sign-in: verify", () => {
   });
 
   it("accepts the right code on the 5th bound attempt", async () => {
-    const { env, state } = webSetup();
+    const { env, state } = webSetup({ REQUIRE_VERIFY_EMAIL: "1" });
     addLoginRequest(state, { code: await sha256Hex("RIGHT123"), email: "five@example.com" });
     for (let i = 0; i < 4; i++) expect((await verify(env, { email: "five@example.com", code: `WRONG00${i}` })).status).toBe(400);
     expect((await verify(env, { email: "five@example.com", code: "RIGHT123" })).status).toBe(200);
   });
 
-  it("burns the code after 5 wrong bound attempts, on both verify paths", async () => {
-    const { env, state } = webSetup();
+  it("with REQUIRE_VERIFY_EMAIL=1, burns the code after 5 wrong bound attempts", async () => {
+    const { env, state } = webSetup({ REQUIRE_VERIFY_EMAIL: "1" });
     addLoginRequest(state, { code: await sha256Hex("RIGHT456"), email: "burn@example.com" });
     for (let i = 0; i < 5; i++) expect((await verify(env, { email: "burn@example.com", code: `WRONG00${i}` })).status).toBe(400);
     expect(state.loginRequests[0].attempts).toBe(5);
     expect((await verify(env, { email: "burn@example.com", code: "RIGHT456" })).status).toBe(400);
-    expect((await verify(env, { code: "RIGHT456" })).status).toBe(400);
     expect(state.sessions).toHaveLength(0);
+  });
+
+  it("a code burned by bound attempts can't be consumed by code-only verify either", async () => {
+    const { env, state } = webSetup();
+    addLoginRequest(state, { code: await sha256Hex("RIGHT789"), email: "burnt@example.com", attempts: 6 });
+    expect((await verify(env, { code: "RIGHT789" })).status).toBe(400);
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("while code-only verify is open, wrong bound guesses don't burn a user's code", async () => {
+    // Current desktop builds verify code-only, which is uncounted, so counting
+    // bound attempts would add no brute-force protection; it would only let
+    // anyone who knows an email lock that user out with a few requests.
+    const { env, state } = webSetup();
+    addLoginRequest(state, { code: await sha256Hex("VICTIM12"), email: "victim@example.com" });
+    for (let i = 0; i < 6; i++) expect((await verify(env, { email: "victim@example.com", code: `WRONG00${i}` })).status).toBe(400);
+    expect(state.loginRequests[0].attempts).toBe(0);
+    expect((await verify(env, { code: "VICTIM12" })).status).toBe(200);
   });
 
   it("REQUIRE_VERIFY_EMAIL=1 refuses code-only verify with a message the desktop shows", async () => {
@@ -314,6 +331,43 @@ describe("per-IP limit on the public sign-in routes", () => {
     expect(asked[0].searchParams.get("ns")).toBe("auth");
     expect(asked[0].searchParams.get("limit")).toBe("10");
     expect(asked[0].searchParams.get("key")).not.toContain("192.0.2.90");
+  });
+
+  it("fails open when the DO's auth namespace is full: one flood can't lock everyone out of sign-in", async () => {
+    // About 20k fresh address keys inside the 60 s window (an IPv6 /48 rotating
+    // its /64s, say) fills the namespace. "full" is not a per-key verdict, so
+    // the global cap falls back to its fail-open policy, as for an outage.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const rl = new GlobalRateLimiter({} as DurableObjectState, {} as Env);
+    const keyCall = (key: string) =>
+      rl
+        .fetch(new Request(`https://rl.internal/key?ns=auth&key=${key}&limit=10&window=60000`, { method: "POST" }))
+        .then((r) => r.json() as Promise<{ allowed: boolean; reason?: string }>);
+    for (let i = 0; i < 20_000; i++) await keyCall(`flood-${i}`);
+    expect(await keyCall("one-more")).toEqual({ allowed: false, reason: "full" });
+
+    const limiter = {
+      idFromName: () => ({}),
+      get: () => ({ fetch: (u: string, init?: RequestInit) => rl.fetch(new Request(u, init)) }),
+    } as unknown as DurableObjectNamespace;
+    const { env } = webSetup({ RATE_LIMITER: limiter });
+    const stub = stubFetch();
+    const sent = await login(env, "flooded@example.com");
+    expect(sent.status).toBe(200);
+    const signedIn = await verify(env, { email: "flooded@example.com", code: desktopCode(stub) });
+    expect(signedIn.status).toBe(200);
+  });
+
+  it("a per-key limit verdict from the DO still denies", async () => {
+    const limiter = {
+      idFromName: () => ({}),
+      get: () => ({ fetch: async () => new Response(JSON.stringify({ allowed: false, reason: "limit" })) }),
+    } as unknown as DurableObjectNamespace;
+    const { env } = webSetup({ RATE_LIMITER: limiter });
+    stubFetch();
+    const res = await login(env, "limited@example.com");
+    expect(res.status).toBe(429);
+    expect(await body(res)).toEqual({ error: "rate_limit_auth" });
   });
 });
 

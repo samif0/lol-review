@@ -21,7 +21,9 @@
  *   /key            Generic keyed fixed window: ns, key, limit, window (ms).
  *     Used for web-session mints per address, sign-in requests per address and
  *     clip view de-duplication. Namespaces are a fixed allowlist and each is
- *     capped in size; a full namespace denies (callers choose fail-open or not).
+ *     capped in size. A full namespace answers reason "full", which callers
+ *     treat like an outage (takeGlobalKey: sign-in and mints fail open, view
+ *     counting fails closed), so filling it can't lock everyone out.
  *
  * State lives in instance fields, never storage: it is best effort and resets
  * if the object is evicted while idle, which only ever forgives counters.
@@ -124,8 +126,8 @@ export class GlobalRateLimiter {
       for (const [k, e] of entries) {
         if (now - e.startMs >= e.windowMs) entries.delete(k);
       }
-      // Still full: deny rather than forget live entries an attacker could
-      // then replay. Callers decide whether a deny blocks or fails open.
+      // Still full: don't forget live entries an attacker could then replay.
+      // "full" is not a per-key deny; callers fall back to their outage policy.
       if (entries.size >= MAX_KEYS_PER_NAMESPACE) return { allowed: false, reason: "full" };
     }
     entries.set(key, { count: 1, startMs: now, windowMs });

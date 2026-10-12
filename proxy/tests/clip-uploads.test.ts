@@ -502,7 +502,11 @@ describe("multipart clip uploads", () => {
 
     const full = await setup([clip({ id: "Full001", user_id: USER, size_bytes: MAX_ACTIVE_CLIP_BYTES_PER_USER })]);
     const denied = await worker.fetch(
-      makeRequest(`${BASE}/clips`, { method: "POST", headers: { ...auth(), "Content-Type": "video/mp4" }, body: mp4Bytes() }),
+      makeRequest(`${BASE}/clips`, {
+        method: "POST",
+        headers: { ...auth(), "Content-Type": "video/mp4", "Content-Length": "16" },
+        body: mp4Bytes(),
+      }),
       full.e,
     );
     expect(denied.status).toBe(403);

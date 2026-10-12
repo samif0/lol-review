@@ -80,7 +80,11 @@ async function authOrDeny(request: Request, env: Env): Promise<DesktopAuth | Res
     session = await findSession(env.DB, fullHash);
   } catch (err) {
     console.error(JSON.stringify({ scope: "auth.session_lookup", error: (err as Error).message }));
-    return jsonResponse({ error: "auth_unavailable" }, 503, { "Retry-After": "5" });
+    return jsonResponse(
+      { error: "auth_unavailable", message: "Revu's server is busy. Try again in a moment." },
+      503,
+      { "Retry-After": "5" },
+    );
   }
   if (!session) return jsonResponse({ error: "invalid_token" }, 401);
   return { tokenHash: fullHash.slice(0, 16), fullHash, userId: session.user_id };

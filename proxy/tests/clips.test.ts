@@ -10,6 +10,24 @@ import { clip, json, makeEnv, makeFakeDb, makeFakeR2, makeRequest, mp4Bytes, sha
 // the way Workers hands one to a handler.
 const env = makeEnv;
 
+/** Minimal bytes that pass the webm (EBML header) magic-byte sniff. */
+function webmBytes(extra = 0): Uint8Array {
+  const head = [0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81, 0x01, 0x42, 0xf2, 0x81];
+  return new Uint8Array([...head, ...new Array(extra).fill(0)]);
+}
+
+/**
+ * Headers for an honest upload: the desktop client always declares
+ * Content-Length (ClipUploadService.cs), and the handler requires it.
+ */
+function uploadHeaders(token: string, body: Uint8Array, contentType = "video/mp4"): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": contentType,
+    "Content-Length": String(body.byteLength),
+  };
+}
+
 describe("clip sharing", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -49,14 +67,17 @@ describe("clip sharing", () => {
       get: () => ({ fetch: async () => { doCalls++; return new Response(JSON.stringify({ allowed: false })); } }),
     } as unknown as DurableObjectNamespace;
     const e = env({ DB: db, CLIPS: bucket, RATE_LIMITER: limiter, PER_TOKEN_RPS: "1" });
-    const upload = () => worker.fetch(
-      makeRequest("https://proxy.example/clips?title=x&champion=Lux&duration=3", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "video/mp4" },
-        body: mp4Bytes(),
-      }),
-      e,
-    );
+    const upload = () => {
+      const body = mp4Bytes();
+      return worker.fetch(
+        makeRequest("https://proxy.example/clips?title=x&champion=Lux&duration=3", {
+          method: "POST",
+          headers: uploadHeaders(token, body),
+          body,
+        }),
+        e,
+      );
+    };
     // A saturated Riot budget (and a per-token Riot cap of 1) doesn't touch uploads.
     expect((await upload()).status).toBe(201);
     expect((await upload()).status).toBe(201);
@@ -86,12 +107,13 @@ describe("clip sharing", () => {
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 42 });
     const { bucket, store } = makeFakeR2();
+    const body = mp4Bytes();
 
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips?title=Great%20gank&champion=LeeSin&duration=12", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: mp4Bytes(),
+        headers: uploadHeaders(sessionToken, body),
+        body,
       }),
       env({ DB: db, CLIPS: bucket }),
     );
@@ -148,43 +170,134 @@ describe("clip sharing", () => {
     const sessionToken = "session-fixedlen-badmagic";
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 88 });
-    const { bucket, store } = makeFakeR2();
-    const body = new TextEncoder().encode("<html><script>alert(1)</script></html>");
+    const { bucket, store, calls } = makeFakeR2();
+    const body = new Uint8Array(16).fill(0x41); // "AAAA...": neither ftyp nor EBML
 
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${sessionToken}`,
-          "Content-Type": "video/mp4",
-          "Content-Length": String(body.byteLength),
-        },
+        headers: uploadHeaders(sessionToken, body),
         body,
       }),
       env({ DB: db, CLIPS: bucket }),
     );
 
     expect(res.status).toBe(415);
-    expect((await json(res)).error).toBe("unsupported_media_type");
-    expect(store.size).toBe(0); // the stored object was deleted
+    const out = await json(res);
+    expect(out.error).toBe("unsupported_media_type");
+    expect(out.message).toBe("file content does not match the declared video type");
+    expect(calls.put).toBe(1); // streamed straight to R2 first...
+    expect(store.size).toBe(0); // ...then deleted, nothing left in R2
     expect(db._clips.size).toBe(0); // and no row was written
   });
 
-  it("known-length webm upload passes the post-put sniff", async () => {
-    const sessionToken = "session-webm";
-    const db = makeFakeDb([], { [await sha256Hex(sessionToken)]: 89 });
+  it("known-length path accepts a genuine webm (EBML) body", async () => {
+    const sessionToken = "session-fixedlen-webm";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 89 });
     const { bucket, store } = makeFakeR2();
-    const body = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, ...new Array(40).fill(0)]);
+    const body = webmBytes(32);
+
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/webm", "Content-Length": String(body.byteLength) },
+        headers: uploadHeaders(sessionToken, body, "video/webm"),
         body,
       }),
       env({ DB: db, CLIPS: bucket }),
     );
+
     expect(res.status).toBe(201);
     expect(store.size).toBe(1);
+    expect([...store.keys()][0]).toMatch(/\.webm$/);
+  });
+
+  it("rejects an upload without Content-Length (411) before reading the body", async () => {
+    // Without a declared length R2 can't stream the body natively, and the old
+    // fallback materialised up to the 100 MB cap in isolate memory (chunk array +
+    // merged copy, about 2x the cap, above the ~128 MB isolate limit). The desktop
+    // client always sets Content-Length, so the handler refuses to read an
+    // undeclared body at all: no bytes pulled, nothing stored.
+    const sessionToken = "session-nolength";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 1 });
+    const { bucket, store, calls } = makeFakeR2();
+
+    // highWaterMark 0: a default stream primes its queue by calling pull() at
+    // construction, which would flip the flag with no consumer. At 0 pull() only
+    // runs when someone actually reads.
+    let bodyRead = false;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          bodyRead = true;
+          controller.enqueue(mp4Bytes(32));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const res = await worker.fetch(
+      makeRequest("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
+        body,
+        // undici requires this for a stream body; the Workers runtime ignores it.
+        duplex: "half",
+      } as RequestInit),
+      env({ DB: db, CLIPS: bucket }),
+    );
+
+    expect(res.status).toBe(411);
+    const out = await json(res);
+    expect(out.error).toBe("length_required");
+    expect(out.message).toBe("Content-Length is required");
+    expect(bodyRead).toBe(false);
+    expect(calls.put).toBe(0);
+    expect(store.size).toBe(0);
+  });
+
+  it("rejects a malformed Content-Length (411) instead of parsing a prefix", async () => {
+    // parseInt("1e9") is 1, so a lenient parse would accept a bogus header and
+    // trust a length the body does not have.
+    const sessionToken = "session-badlength";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 1 });
+    const { bucket, store } = makeFakeR2();
+
+    for (const value of ["1e9", "16.0", "-16", "abc"]) {
+      const res = await worker.fetch(
+        makeRequest("https://proxy.example/clips", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4", "Content-Length": value },
+          body: mp4Bytes(),
+        }),
+        env({ DB: db, CLIPS: bucket }),
+      );
+      expect(res.status).toBe(411);
+      expect((await json(res)).error).toBe("length_required");
+    }
+    expect(store.size).toBe(0);
+  });
+
+  it("treats an explicit Content-Length: 0 as an empty body (400)", async () => {
+    const sessionToken = "session-zerolength";
+    const tokenHash = await sha256Hex(sessionToken);
+    const db = makeFakeDb([], { [tokenHash]: 1 });
+    const { bucket, store } = makeFakeR2();
+
+    const res = await worker.fetch(
+      makeRequest("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4", "Content-Length": "0" },
+        body: new Uint8Array(0),
+      }),
+      env({ DB: db, CLIPS: bucket }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await json(res)).message).toBe("empty body");
+    expect(store.size).toBe(0);
   });
 
   it("converts an R2 failure into a clean 502 clip_error (not an escaped 503)", async () => {
@@ -200,12 +313,13 @@ describe("clip sharing", () => {
       async get() { return null; },
       async delete() { /* noop */ },
     } as unknown as R2Bucket;
+    const body = mp4Bytes();
 
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: mp4Bytes(),
+        headers: uploadHeaders(sessionToken, body),
+        body,
       }),
       env({ DB: db, CLIPS: throwingBucket }),
     );
@@ -253,16 +367,19 @@ describe("clip sharing", () => {
     const sessionToken = "session-fakevid";
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 1 });
+    const { bucket, store } = makeFakeR2();
+    const body = new TextEncoder().encode("<html><script>alert(1)</script></html>");
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: new TextEncoder().encode("<html><script>alert(1)</script></html>"),
+        headers: uploadHeaders(sessionToken, body),
+        body,
       }),
-      env({ DB: db }),
+      env({ DB: db, CLIPS: bucket }),
     );
     expect(res.status).toBe(415);
     expect((await json(res)).error).toBe("unsupported_media_type");
+    expect(store.size).toBe(0);
   });
 
   it("rejects an upload once the per-user active-clip quota is reached", async () => {
@@ -272,39 +389,17 @@ describe("clip sharing", () => {
       clip({ id: `seed${String(i).padStart(3, "0")}`, user_id: 9 }),
     );
     const db = makeFakeDb(seeded, { [tokenHash]: 9 });
+    const body = mp4Bytes();
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: mp4Bytes(),
+        headers: uploadHeaders(sessionToken, body),
+        body,
       }),
       env({ DB: db }),
     );
     expect(res.status).toBe(403);
     expect((await json(res)).error).toBe("quota_exceeded");
-  });
-
-  it("rejects an oversized body even when Content-Length is absent/lying (streaming guard)", async () => {
-    // The memory-DoS fix: arrayBuffer() would buffer the whole body before the
-    // size check. We stream through a byte-counting guard that aborts at the
-    // cap, so a spoofed-small / missing Content-Length can't OOM the isolate.
-    const sessionToken = "session-stream";
-    const tokenHash = await sha256Hex(sessionToken);
-    const db = makeFakeDb([], { [tokenHash]: 1 });
-
-    // 101 MB of body (just over the 100 MB cap) with NO Content-Length header.
-    const oversized = new Uint8Array(101 * 1024 * 1024);
-    oversized.set(mp4Bytes(), 0); // valid magic bytes up front so only size rejects
-    const res = await worker.fetch(
-      makeRequest("https://proxy.example/clips", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: oversized,
-      }),
-      env({ DB: db }),
-    );
-    expect(res.status).toBe(413);
-    expect((await json(res)).error).toBe("payload_too_large");
   });
 
   it("post-insert recount rolls back a row that tipped the user over quota", async () => {
@@ -348,12 +443,13 @@ describe("clip sharing", () => {
         };
       },
     } as unknown as D1Database;
+    const body = mp4Bytes(32);
 
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/mp4" },
-        body: mp4Bytes(32),
+        headers: uploadHeaders(sessionToken, body),
+        body,
       }),
       env({ DB: racingDb, CLIPS: r2.bucket }),
     );
@@ -637,6 +733,9 @@ describe("clip view counter", () => {
     answer = async () => { throw new Error("DO down"); };
     await view(e, "198.51.100.4");
     expect(db._clips.get("View123")!.view_count).toBe(0); // fail closed
+    answer = async () => new Response(JSON.stringify({ allowed: false, reason: "full" }));
+    await view(e, "198.51.100.7");
+    expect(db._clips.get("View123")!.view_count).toBe(0); // a full namespace is an outage: still closed
     answer = async () => new Response(JSON.stringify({ allowed: true }));
     await view(e, "198.51.100.5");
     expect(db._clips.get("View123")!.view_count).toBe(1);

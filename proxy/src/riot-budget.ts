@@ -147,7 +147,12 @@ export async function chargeRiot(env: Env, caller: RiotCaller): Promise<Response
 
 /**
  * One slot of a global keyed window in the DO (namespaces: mint, view, auth).
- * Returns `whenUnavailable` when the DO is unbound or unreachable.
+ * Returns `whenUnavailable` when the DO can't give a per-key answer: it is
+ * unbound or unreachable, the namespace is full, or it rejected the request
+ * as malformed. Only a "limit" verdict (this key used up its window) is a
+ * real deny. Otherwise anyone able to fill a namespace with fresh keys (an
+ * IPv6 /48 rotating /64s, say) would lock every caller out of a route that is
+ * meant to fail open, such as sign-in.
  */
 export async function takeGlobalKey(
   env: Env,
@@ -160,7 +165,12 @@ export async function takeGlobalKey(
   const params = new URLSearchParams({ ns, key, limit: String(limit), window: String(windowMs) });
   const verdict = await askLimiter(env, "/key", params);
   if (!verdict) return whenUnavailable;
-  return verdict.allowed !== false;
+  if (verdict.allowed !== false) return true;
+  if (verdict.reason === "full" || verdict.reason === "bad_request") {
+    console.error(JSON.stringify({ scope: "ratelimit.key", ns, reason: verdict.reason }));
+    return whenUnavailable;
+  }
+  return false;
 }
 
 /** Test hook: forget every per-isolate bucket. */

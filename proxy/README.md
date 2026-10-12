@@ -127,6 +127,10 @@ Other limits (none of them touch the Riot budget):
 
 - `POST /auth/login` and `POST /auth/verify`: 5 per minute per address per
   isolate, and 10 per minute per address globally (Durable Object, fails open).
+  Each Durable Object namespace (auth, mint, view) holds at most 20,000 keys. A
+  full namespace counts as unavailable, not as a deny, so a flood of fresh
+  addresses can't lock everyone out: sign-in and web-session mints fail open,
+  and the view counter fails closed (the view simply isn't counted).
 - Sign-in emails: 3 per email per 15 minutes, and `EMAIL_DAILY_SEND_CAP` (default
   100) per UTC day across all users and both sign-in flows. Past the daily cap,
   both answer 503 `email_daily_cap` with a `Retry-After` to UTC midnight. Set it
@@ -156,23 +160,27 @@ Other limits (none of them touch the Riot budget):
 goes to its regional cluster (americas, asia, europe, sea). Account-V1 has no sea
 host, so OCE and SEA platforms use asia for it (Riot documents americas, asia and
 europe for Account-V1, each answering for every account). League-V4 is
-platform-routed. A Riot call that takes longer than 10 s is 504 `riot_timeout`;
-any other upstream failure is 502 `proxy_error`. A session lookup that D1 can't
-answer is 503 `auth_unavailable`, never a 401. Anything unexpected is a JSON 500
-`internal` with CORS headers.
+platform-routed. A Riot call whose response headers take longer than 10 s is
+504 `riot_timeout` (the body itself is not timed, so a large timeline still
+streams to a slow reader); any other upstream failure is 502 `proxy_error`. A
+session lookup that D1 can't answer is 503 `auth_unavailable`, never a 401. Both
+carry a `message` sentence, which the desktop shows as is. Anything unexpected
+is a JSON 500 `internal` with CORS headers.
 
 ### Desktop sign-in
 
 - `POST /auth/login` stores only a hash of the 8-character code (10 minutes,
   single use). A failed email send deletes its row and refunds the daily count,
   so it never throttles a retry.
-- `POST /auth/verify` with `{ email, code }` is bound to the email: every attempt
-  first adds 1 to `attempts` on that email's live desktop codes, then a code is
-  consumed only while `attempts <= 5`. `{ code }` alone is still accepted for
-  desktop builds that don't send the email yet; it can't consume a code that
-  bound attempts already burned. Set `REQUIRE_VERIFY_EMAIL = "1"` once desktop
-  builds that send the email are the norm; code-only verify then answers 400
-  `email_required`.
+- `POST /auth/verify` with `{ email, code }` is bound to the email. `{ code }`
+  alone is still accepted for desktop builds that don't send the email yet. Set
+  `REQUIRE_VERIFY_EMAIL = "1"` once desktop builds that send the email are the
+  norm. Code-only verify then answers 400 `email_required`, and every bound
+  attempt first adds 1 to `attempts` on that email's live desktop codes, so a
+  code is consumed only while `attempts <= 5`. Until then bound attempts are not
+  counted: a guesser would simply use the uncounted code-only path, so counting
+  would protect nothing and would only let anyone who knows an email burn that
+  user's codes. Neither path consumes a code whose `attempts` is above 5.
 - The first successful verify for a new email creates the account.
 - Web codes (purpose `web`) are refused here; desktop codes are refused at
   `/auth/web/email/verify`.
@@ -189,7 +197,7 @@ A session lookup D1 can't answer is 503 `auth_unavailable`. Errors are JSON
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). The body goes straight to R2; then one 16-byte ranged read checks the video magic bytes, and a mismatch is deleted and 415 `unsupported_media_type`. 30 per minute per user. 201 `{ id, url, expires_at }` |
+| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). `Content-Length` required (411 `length_required` without it), at most 100 MB. The body goes straight to R2; then one 16-byte ranged read checks the video magic bytes, and a mismatch is deleted and 415 `unsupported_media_type`. 30 per minute per user. 201 `{ id, url, expires_at }` |
 | POST | `/clips/uploads?title&champion&duration&size&narrated=0\|1` | owner | Start a multipart upload (`video/mp4` or `video/webm`, empty body). duration 1 to 610 s, size up to 2 GiB. 201 `{ id, part_size, part_count, expires_at }`. 6 per minute per user, at most 2 pending uploads |
 | PUT | `/clips/:id/parts/:n` | owner | Raw part bytes. `Content-Length` required and exact (`part_size`, last part is the remainder). 200 `{ part_number, etag }` |
 | POST | `/clips/:id/complete` | owner | `{ parts: [ { part_number, etag } ] }`. Idempotent. 201 `{ id, url, expires_at }` |
@@ -361,10 +369,11 @@ after a successful verify it upserts the email identity (best effort).
 
 Accepted risks (documented, not fixed):
 
-- Lockout: anyone who knows an email can burn its live codes with 5 bad
-  guesses, or use up the 3-per-15-minutes budget through the desktop
-  `/auth/login` (which can't run Turnstile). The workaround is to wait 15
-  minutes or sign in from the other surface.
+- Lockout: anyone who knows an email can burn its live web codes with 5 bad
+  guesses (its desktop codes too, once `REQUIRE_VERIFY_EMAIL = "1"`), or use up
+  the 3-per-15-minutes budget through the desktop `/auth/login` (which can't
+  run Turnstile). The workaround is to wait 15 minutes or sign in from the
+  other surface.
 - Email bombing and quota burn through `/auth/login`: bounded by the per-email
   cap, the global per-address limit and the daily ceiling, which pauses sign-in
   emails for everyone until UTC midnight once reached. That outage is the price
