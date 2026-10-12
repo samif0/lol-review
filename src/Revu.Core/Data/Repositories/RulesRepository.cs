@@ -249,11 +249,13 @@ public sealed class RulesRepository : IRulesRepository
 
     public async Task<IReadOnlyList<RuleViolation>> CheckViolationsAsync(
         IReadOnlyList<RuleCheckGame>? todaysGames = null,
-        int? mentalRating = null)
+        int? mentalRating = null,
+        DateTimeOffset? asOf = null)
     {
         var rules = await GetActiveAsync();
         var results = new List<RuleViolation>();
-        var now = DateTime.Now;
+        var at = asOf ?? DateTimeOffset.Now;
+        var now = at.LocalDateTime;
 
         foreach (var rule in rules)
         {
@@ -311,7 +313,7 @@ public sealed class RulesRepository : IRulesRepository
 
                             if (cooldownMinutes is int cd && cd > 0 && triggerTs > 0)
                             {
-                                var nowUnix = DateTimeOffset.Now.ToUnixTimeSeconds();
+                                var nowUnix = at.ToUnixTimeSeconds();
                                 var elapsedMin = (nowUnix - triggerTs) / 60;
                                 var remainingMin = cd - elapsedMin;
                                 if (remainingMin > 0)

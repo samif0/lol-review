@@ -119,8 +119,13 @@ public sealed class GameService : IGameService
                     .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
                     .ToList();
                 // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
-                // be evaluated retroactively from the post-game review rating.
-                var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null)
+                // be evaluated retroactively from the post-game review rating. Clock rules
+                // judge when the game was queued (its start), like the Rules evidence pass,
+                // not when it ended or was ingested.
+                DateTimeOffset? queuedAt = stats.Timestamp > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(stats.Timestamp)
+                    : null;
+                var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null, asOf: queuedAt)
                     .ConfigureAwait(false);
                 ruleBroken = violations.Any(v => v.Violated);
 
