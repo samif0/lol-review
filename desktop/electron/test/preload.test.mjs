@@ -29,7 +29,7 @@ test('preload installs only in the trusted top document and exposes no raw IPC m
   const { bridge } = loadPreload();
   assert.equal(bridge.kind, 'electron');
   assert.equal(bridge.version, 1);
-  assert.equal(bridge.capabilities.recorder, false);
+  assert.equal('recorder' in bridge.capabilities, false); // No recorder API is exposed; status is a command.
   assert.equal(bridge.capabilities.updates, false);
   assert.equal(bridge.capabilities.narration, false);
   assert.ok(Object.isFrozen(bridge.capabilities));
@@ -79,13 +79,14 @@ test('window bridge maps only fixed actions to its native channel', async () => 
   await bridge.window.setFocus();
   assert.deepEqual(calls, [['revu:window', 'minimize'], ['revu:window', 'setFocus']]);
   assert.equal(bridge.window.execute, undefined);
+  assert.deepEqual(Object.keys(bridge.window), ['minimize', 'toggleMaximize', 'close', 'unminimize', 'show', 'setFocus']);
 });
 
 test('normal host advertises migrated capabilities and external links use a dedicated channel', async () => {
   const { bridge, calls } = loadPreload({ isolated: false });
   assert.equal(bridge.capabilities.updates, true);
   assert.equal(bridge.capabilities.externalLinks, true);
-  assert.equal(bridge.capabilities.recorder, true); // API support; native readiness is get_recording_status.
+  assert.equal('recorder' in bridge.capabilities, false); // Recording status is get_recording_status.
   await bridge.openExternal('https://revu.gg');
   assert.deepEqual(calls, [['revu:open-external', 'https://revu.gg']]);
 });

@@ -27,7 +27,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
     try { await bridge.invoke('arbitrary_fetch', {url:'http://127.0.0.1'}); } catch { rejected = true; }
     return { version: bridge.version, kind: bridge.kind, node: typeof window.require,
       process: typeof window.process, noCredentials: !('token' in bridge) && !('port' in bridge),
-      recorder: bridge.capabilities.recorder, recording, background, commands, rejected, hasConfig: !!status };
+      recording, background, commands, rejected, hasConfig: !!status };
   })()`);
   assert.equal(boundary.version, 1); assert.equal(boundary.kind, 'electron');
   assert.equal(boundary.node, 'undefined'); assert.equal(boundary.process, 'undefined');

@@ -127,9 +127,6 @@ const definitions = {
   get_microphone_access: native(),
   open_microphone_settings: native(),
   open_log_folder: native(),
-  review_vod: native({"gameId":"integer?"}),
-  open_review: native({"gameId":"integer?"}),
-  take_next_step: native(),
 };
 
 for (const definition of Object.values(definitions)) {

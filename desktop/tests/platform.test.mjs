@@ -3,11 +3,11 @@ import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 import { COMMANDS, validateCommand } from '../ui/platform/commands.mjs';
-import { createPlatform, trustedTop, resolveAssetUrl } from '../ui/platform/index.mjs';
+import { createPlatform, hostError, trustedTop, resolveAssetUrl } from '../ui/platform/index.mjs';
 
-function page(origin = 'https://revu.test') {
+function page(origin = 'https://revu.test', { protocol, search = '' } = {}) {
   const scope = new EventTarget();
-  scope.location = { origin };
+  scope.location = { origin, protocol: protocol ?? (URL.canParse(origin) ? new URL(origin).protocol : ''), search };
   scope.top = scope;
   return scope;
 }
@@ -69,6 +69,39 @@ test('cross-origin and opaque-origin iframes cannot inherit the desktop bridge',
     client.dispose();
   }
   assert.equal(trustedTop({ get top() { throw new Error('cross-origin access'); } }), null);
+});
+
+test('a hosted page without its bridge is a visible host failure, never a browser preview', async () => {
+  const shell = page('revu-app://ui');
+  const child = page('revu-app://ui');
+  child.top = shell;
+  for (const scope of [shell, child]) {
+    const client = createPlatform({ scope });
+    await assert.rejects(client.getInvoke(), /could not connect to its desktop host/);
+    await assert.rejects(client.invoke('get_config'), /could not connect to its desktop host/);
+    client.dispose();
+  }
+  // The UI smoke deliberately opts the shell into preview fixtures.
+  const preview = createPlatform({ scope: page('revu-app://ui', { search: '?preview=samples' }) });
+  assert.equal(await preview.getInvoke(), null);
+  preview.dispose();
+});
+
+test('Electron IPC wrappers are stripped once so pages show the host sentence', async () => {
+  const wrapped = new Error("Error invoking remote method 'revu:command': Error: Revu couldn't open its database: the file revu.db is marked read-only.");
+  const client = createPlatform({ scope: page(), adapterFactory: () => host({
+    capabilities: { commands: true, narration: true },
+    invoke: async () => { throw wrapped; },
+    saveNarration: async () => { throw new Error("Error invoking remote method 'revu:narration-save': TypeError: Invalid narration sync"); },
+  }) });
+  await assert.rejects(client.invoke('get_vod', { gameId: 9 }), error =>
+    error.message === "Revu couldn't open its database: the file revu.db is marked read-only." && error.cause === wrapped);
+  await assert.rejects(client.saveNarration(new Uint8Array(4), {}), { message: 'Invalid narration sync' });
+  client.dispose();
+  const plain = new Error('Error: kept as is');
+  assert.equal(hostError(plain), plain);
+  assert.equal(hostError('text failure'), 'text failure');
+  assert.equal(hostError(new Error("Error invoking remote method 'revu:command': Error: Error: inner")).message, 'Error: inner');
 });
 
 test('invalid preload version is an explicit host failure, never sample-data fallback', async () => {
@@ -220,14 +253,16 @@ test('events, native window methods, links and recorder operations remain narrow
   assert.equal(win.arbitraryMethod, undefined);
   await assert.rejects(win.close(), /Window action unavailable/);
   await assert.rejects(client.listen('arbitrary-ipc', () => {}), /Unsupported desktop event/);
-  await assert.rejects(client.recorderStatus(), /capability unavailable/);
+  assert.equal(client.recorderStatus, undefined); // Recording status is the get_recording_status command.
+  assert.equal(win.startDragging, undefined); // app-region CSS owns frameless dragging.
   await assert.rejects(client.openExternal('file:///C:/private'), /Unsupported external URL/);
   await assert.rejects(client.openExternal('https://revu.example'), /capability unavailable/);
   client.dispose();
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 116);
+  assert.equal(Object.keys(COMMANDS).length, 113);
+  for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);
