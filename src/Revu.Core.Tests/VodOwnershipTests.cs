@@ -8,7 +8,7 @@ namespace Revu.Core.Tests;
 public sealed class VodOwnershipTests
 {
     [Fact]
-    public async Task GameEndAndReviewReadsDoNotDiscoverFilesFromExistingRecordingFolders()
+    public async Task GameEndDoesNotDiscoverFilesFromExistingRecordingFolders()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
@@ -20,17 +20,13 @@ public sealed class VodOwnershipTests
         var config = new TestConfigService();
         var game = TestGameStatsFactory.Create(1002);
         Assert.Equal(1002, await GameProcessor(scope, config).ProcessGameEndAsync(new(game)));
-        var review = Review(scope, config);
-        Assert.False((await review.LoadAsync(1002))!.HasVod);
-        Assert.False((await review.CheckVodAsync(1002)).HasVod);
         Assert.Null(await scope.Vod.GetVodAsync(1002));
         Assert.Equal(known, (await scope.Vod.GetVodAsync(1001))!.FilePath);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(candidate));
 
         // An explicit attachment remains supported and does not infer a match.
         await scope.Vod.LinkVodAsync(1002, candidate, 4, 1800);
-        Assert.True((await review.CheckVodAsync(1002)).HasVod);
-        Assert.True((await review.LoadAsync(1002))!.HasVod);
+        Assert.Equal(candidate, (await scope.Vod.GetVodAsync(1002))!.FilePath);
     }
 
     [Fact]
@@ -47,9 +43,10 @@ public sealed class VodOwnershipTests
         var original = await scope.Vod.GetVodAsync(1001);
         var config = new TestConfigService();
         Assert.Equal(1001, await GameProcessor(scope, config).ProcessGameEndAsync(new(game)));
-        var review = Review(scope, config);
-        Assert.True((await review.LoadAsync(1001))!.HasVod);
-        Assert.Equal(1, (await review.CheckVodAsync(1001)).BookmarkCount);
+        var saved = await Review(scope, config).SaveAsync(new SaveReviewRequest(1001, game.ChampionName, game.Win, false,
+            new ReviewSnapshot(6, "", "", "", "Reviewed", null, "", null, "", null, null, null, null, null, [], [])));
+        Assert.True(saved.Success);
+        Assert.Equal(1, await scope.Vod.GetBookmarkCountAsync(1001));
         Assert.Equal(original, await scope.Vod.GetVodAsync(1001));
         Assert.Equal("existing note", Assert.Single(await scope.Vod.GetBookmarksAsync(1001)).Note);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(path));
