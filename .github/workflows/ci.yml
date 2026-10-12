@@ -88,11 +88,21 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Keeps the ~100 MB third-party archive between runs. The key changes with
+      # the script, so a new pin starts a new cache, and the script hashes a
+      # cached archive against the pin before use, downloading again on a
+      # mismatch. Releases skip the cache and always download fresh.
+      - name: Restore the pinned ffmpeg archive
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}\ffmpeg-archive
+          key: ffmpeg-win64-${{ hashFiles('scripts/Get-PinnedFfmpeg.ps1') }}
+
       # The same pinned, checksum-verified binary release.yml packages, so the
       # packaged smoke below exercises the release layout.
       - name: Download ffmpeg (pinned + checksum-verified)
         shell: pwsh
-        run: ./scripts/Get-PinnedFfmpeg.ps1
+        run: ./scripts/Get-PinnedFfmpeg.ps1 -ArchiveCache (Join-Path $env:RUNNER_TEMP 'ffmpeg-archive')
 
       - name: Build Windows app directory
         working-directory: desktop
