@@ -36,9 +36,8 @@ import { getInvoke, getListen } from './platform/index.mjs';
 function setText(id, text) { const el = $(id); if (el) el.textContent = text ?? ''; }
 function tpl(id) { const t = $(id); return t ? t.content.firstElementChild.cloneNode(true) : null; }
 
-// Which surface are we on? shell.js stamps data-page on its <script>.
-const PAGE = (document.querySelector('script[data-page]')?.dataset.page) || 'pregame';
-const IS_INGAME = PAGE === 'ingame';
+// Which surface are we on? Both pages load this script; the file name decides.
+const IS_INGAME = /(^|\/)ingame\.html$/i.test(window.location.pathname || '');
 
 // ── module state ──────────────────────────────────────────────────────────────
 let _data = null;
