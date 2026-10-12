@@ -83,6 +83,27 @@ public sealed class MatchupsRepository : IMatchupsRepository
         return await ReadSingleAsync(cmd);
     }
 
+    public async Task<IReadOnlyDictionary<long, MatchupLinkedGame>> GetLinkedGamesAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        // No raw_stats and no per-card round trip: the journal used to load each linked
+        // game whole, once per card.
+        cmd.CommandText = $"""
+            SELECT g.game_id, COALESCE(g.timestamp, 0), COALESCE(g.win, 0), {RemakeSql.IsRemakeColumn("g.game_id")}
+            FROM games g
+            WHERE g.game_id IN (SELECT m.game_id FROM matchups m WHERE m.game_id > 0)
+            """;
+        var games = new Dictionary<long, MatchupLinkedGame>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var gameId = reader.GetInt64(0);
+            games[gameId] = new MatchupLinkedGame(gameId, reader.GetInt64(1), reader.GetInt64(2) != 0, reader.GetInt64(3) != 0);
+        }
+        return games;
+    }
+
     public async Task<bool> UpdateAsync(
         long id,
         string? lane,
