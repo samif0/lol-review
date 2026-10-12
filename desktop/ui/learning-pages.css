@@ -1,7 +1,7 @@
 /* Guidance and form rhythm inherit the app's neutral theme. */
 .page-intro{max-width:68ch;margin:10px 0 28px;color:var(--muted);font-size:15px;line-height:1.7}
 .field-help{margin:0;color:var(--muted);font-size:14px;line-height:1.65}
-body .shell :is(.obj-field-k,.rv-field-k,.pat-nk){
+body .shell :is(.obj-field-k,.rv-field-k){
   color:var(--text);font-size:14px;font-weight:500;line-height:1.55;letter-spacing:0;text-transform:none;
 }
 body .shell .obj-field-hint{color:var(--muted);font-size:13px;font-weight:400;line-height:1.55;letter-spacing:0}
@@ -51,13 +51,13 @@ body .objectives-shell :is(.obj-card,.obj-mini,.obj-done){
   background:var(--surface)!important;border:1px solid var(--border)!important;
   border-radius:16px!important;padding:24px;margin:0;box-shadow:none;
 }
-body .objectives-shell :is(#active-label,#focus-label,#spotted-label){
+body .objectives-shell :is(#active-label,#focus-label){
   color:var(--text);font-size:16px;font-weight:600;line-height:1.5;margin:0 0 16px;
 }
-body .objectives-shell :is(#focus-label,#spotted-label){
+body .objectives-shell #focus-label{
   flex-direction:column;align-items:flex-start;gap:4px;margin-top:36px;
 }
-.objectives-shell :is(#focus-label,#spotted-label) .n{font-size:13px;font-weight:400;opacity:1}
+.objectives-shell #focus-label .n{font-size:13px;font-weight:400;opacity:1}
 .objectives-shell .obj-completed-toggle{margin-top:36px}
 .objectives-shell .obj-card-mastery{margin-top:16px;padding-top:0;border-top:0}
 .objectives-shell :is(.obj-card-actrow,.obj-mini-actrow,.obj-done-actrow){margin-top:20px;padding-top:16px}
