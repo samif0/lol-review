@@ -72,7 +72,6 @@ public sealed class SidecarWriteScope : IDisposable
         // ── Services the save_review endpoint composes ──────────────────────
         Config = new TestConfigService();
         ClipService = new ClipService(Config, NullLogger<ClipService>.Instance);
-        CoachNotifier = new NullCoachSidecarNotifier();
 
         // ReviewWorkflowService.SaveAsync is the contract-critical write path
         // (null-passthrough / no-clobber semantics live here). Wired with its
@@ -87,7 +86,6 @@ public sealed class SidecarWriteScope : IDisposable
             MatchupNotes,
             Evidence,
             Config,
-            CoachNotifier,
             NullLogger<ReviewWorkflowService>.Instance);
     }
 
@@ -124,8 +122,6 @@ public sealed class SidecarWriteScope : IDisposable
     public TestConfigService Config { get; }
 
     public ClipService ClipService { get; }
-
-    public NullCoachSidecarNotifier CoachNotifier { get; }
 
     public ReviewWorkflowService ReviewWorkflow { get; }
 

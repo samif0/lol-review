@@ -79,7 +79,7 @@ public sealed class VodOwnershipTests
         scope.DerivedEvents, config, NullLogger<GameService>.Instance);
     private static ReviewWorkflowService Review(TestDatabaseScope scope, IConfigService config) => new(
         scope.Games, scope.ConceptTags, scope.Vod, scope.SessionLog, scope.Objectives, scope.ReviewDrafts,
-        scope.MatchupNotes, scope.Evidence, config, new NullCoachSidecarNotifier(), NullLogger<ReviewWorkflowService>.Instance);
+        scope.MatchupNotes, scope.Evidence, config, NullLogger<ReviewWorkflowService>.Instance);
 
     private sealed class MediaFolder : IDisposable
     {

@@ -55,30 +55,6 @@ public sealed record ChampSelectCancelledMessage;
 public sealed record LcuConnectionChangedMessage(bool IsConnected);
 
 /// <summary>
-/// Sent after a game is permanently deleted (rows purged from games + all
-/// child tables, clip files removed). ViewModels that cache lists or
-/// computed stats derived from the deleted game should refresh.
-/// </summary>
-public sealed record GameDeletedMessage(long GameId);
-
-/// <summary>v2.16.6: a VOD bookmark or clip was created, retagged, or
-/// deleted. Lets the review/post-game pages re-run the bookmark→objective
-/// auto-merge live instead of waiting for the user to leave + re-enter.</summary>
-public sealed record BookmarkChangedMessage(long GameId);
-
-/// <summary>Sent after a game is marked reviewed (including a skip-review
-/// from a list view). Lets other open list views refresh their unreviewed /
-/// reviewed bucketing without a full reload.</summary>
-public sealed record GameReviewedMessage(long GameId);
-
-/// <summary>
-/// Sent after the Match-V5 backfill writes lane matchup metadata. Open game
-/// lists should reload so old rows can switch from "champion vs enemy" to
-/// role-aware duo labels when participant maps become available.
-/// </summary>
-public sealed record GameMatchupsBackfilledMessage(int Updated);
-
-/// <summary>
 /// v3.7 (hard stop): the client is sitting in a queue — LCU gameflow phase
 /// <see cref="GamePhase.Matchmaking"/> (searching) or <see cref="GamePhase.ReadyCheck"/>
 /// (match found, accept pending). Sent on EVERY monitor tick while either phase

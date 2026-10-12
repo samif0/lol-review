@@ -460,7 +460,6 @@ public sealed class ReviewWorkflowServiceTests
             scope.MatchupNotes,
             scope.Evidence,
             new TestConfigService(new AppConfig { RequireReviewNotes = requireReviewNotes }),
-            new NullCoachSidecarNotifier(),
             NullLogger<ReviewWorkflowService>.Instance);
     }
 

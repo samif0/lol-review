@@ -101,9 +101,8 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();
 
-        // Review-save's coach notifier is a no-op; clip extraction is on demand.
+        // Clip extraction is on demand.
         services.AddSingleton<IClipService, ClipService>();
-        services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         // On-demand objective auto-clipper (POST /api/clip/auto-objectives). Reuses
         // the ClipService + the objective/event/evidence repos registered here.
         services.AddSingleton<IAutoClipService, AutoClipService>();
