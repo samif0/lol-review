@@ -59,6 +59,30 @@ test('objective game results use the shared result names, and a remake is never 
   assert.equal(context.resultOf({ resultText: 'Remake', win: true }), 'remake');
 });
 
+test('objective game results read as a word to screen readers, not as W or L', async () => {
+  const row = template(await read('objectivegames.html'), 'tpl-game');
+  assert.match(row, /<span class="og-grow-wl"><span class="og-grow-wl-short" aria-hidden="true"><\/span><span class="sr-only og-grow-wl-name"><\/span><\/span>/);
+  assert.match(await read('learning-pages.css'), /\.sr-only\{position:absolute;width:1px;height:1px;[^}]*overflow:hidden/);
+
+  // A minimal element: every selector resolves to its own child node.
+  const node = () => {
+    const children = {};
+    const el = { dataset: {}, attributes: {}, textContent: '', title: '',
+      setAttribute: (k, v) => { el.attributes[k] = v; }, remove() {},
+      querySelector: sel => (children[sel] ||= node()) };
+    return el;
+  };
+  const { context } = await runPage('objectivegames.js', '?id=7');
+  const row42 = node();
+  context.tpl = () => row42;
+  context.buildGame({ gameId: 42, resultText: 'L', win: false, championName: 'Jinx', hasVod: true });
+  const wl = row42.querySelector('.og-grow-wl');
+  assert.equal(wl.querySelector('.og-grow-wl-short').textContent, 'L');
+  assert.equal(wl.querySelector('.og-grow-wl-name').textContent, 'Loss');
+  assert.equal(wl.dataset.result, 'loss');
+  assert.equal(wl.attributes['aria-label'], undefined, 'no name on the generic span');
+});
+
 test('objective notes clips keep one control and sentence-case section headings', async () => {
   const html = await read('objectivenotes.html');
   assert.doesNotMatch(template(html, 'tpl-clip'), /role="button"/);

@@ -58,7 +58,6 @@ function renderEvidence(d) {
 
   for (const e of items) {
     const el = tpl('tpl-ev');
-    el.dataset.polarity = String(e.polarityLabel || 'neutral').toLowerCase();
     el.querySelector('.og-ev-title').textContent = e.title || '';
     el.querySelector('.og-ev-meta').textContent = e.metaText || '';
     const note = el.querySelector('.og-ev-note');
@@ -85,10 +84,11 @@ function buildGame(g) {
   // Result color comes from the shared result tokens, not the server's legacy hex.
   const wl = el.querySelector('.og-grow-wl');
   const result = resultOf(g);
-  wl.textContent = g.resultText || '';
   wl.dataset.result = result;
   wl.title = RESULT_NAMES[result];
-  wl.setAttribute('aria-label', RESULT_NAMES[result]);
+  // The visible W or L is a glyph; screen readers read the result word instead.
+  wl.querySelector('.og-grow-wl-short').textContent = g.resultText || '';
+  wl.querySelector('.og-grow-wl-name').textContent = RESULT_NAMES[result];
 
   el.querySelector('.og-grow-champ').textContent = g.championName || '';
   el.querySelector('.og-grow-kda').textContent = g.kdaText || '';
