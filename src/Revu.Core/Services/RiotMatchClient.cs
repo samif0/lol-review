@@ -77,7 +77,9 @@ public sealed class RiotMatchClient : IRiotMatchClient
 
             try
             {
-                var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                // Disposed on every path, including the 429 retry below, so a long walk
+                // never holds a connection until GC.
+                using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
 
                 if ((int)res.StatusCode == 429 && attempt < MaxRateLimitRetries)
                 {
@@ -109,7 +111,10 @@ public sealed class RiotMatchClient : IRiotMatchClient
 
                 return await res.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct).ConfigureAwait(false);
             }
-            catch (TaskCanceledException) { throw; }
+            // Only the CALLER's cancellation propagates. HttpClient's own timeout also
+            // surfaces as TaskCanceledException, but that is a failed lookup: null, per the
+            // contract, so one slow proxy response costs one game, not the whole backfill.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "{What} {MatchId} fetch errored", what, matchId);
