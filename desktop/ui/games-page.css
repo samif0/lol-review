@@ -33,6 +33,8 @@ body.games-page #games-list .gamerow-game:focus-visible{background:var(--surface
 .games-page #games-list .gamerow-cue .arr{font-size:17px;transform:none}
 .games-page #games-list .gamerow-game:hover .gamerow-cue{color:var(--text)}
 .games-page .loadmore{font-size:14px;letter-spacing:0;text-transform:none}
+/* Five views: the tabs wrap instead of overflowing a narrow window. */
+.games-page .seg{flex-wrap:wrap}
 /* Remove from history: quiet, always visible, never mistaken for the row's action. */
 body.games-page #games-list .gamerow-remove{padding:2px 0;min-height:0;border:0!important;background:none!important;box-shadow:none;
   color:var(--muted)!important;font:400 12px/1.5 var(--fb);letter-spacing:0;text-transform:none;text-decoration:underline;

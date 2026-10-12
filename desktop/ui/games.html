@@ -35,6 +35,7 @@
         <button data-action="view" data-view="today" role="tab" aria-selected="false">Today</button>
         <button data-action="view" data-view="history" role="tab" aria-selected="false">History</button>
         <button data-action="view" data-view="vod" role="tab" aria-selected="false">With recordings</button>
+        <button data-action="view" data-view="removed" role="tab" aria-selected="false">Removed</button>
       </div>
     </div>
 
@@ -51,8 +52,9 @@
       <div class="games-empty-p" id="games-empty-p">Keep Revu open during a Ranked Solo/Duo game, or add a game manually.</div>
     </div>
 
-    <!-- Remove from history is a soft hide: the game and its notes stay saved, and
-         Undo brings it back. -->
+    <!-- Remove from history is a soft hide: the game and its notes stay saved, Undo
+         brings it back, and the Removed view restores it later. The same toast
+         reports a removal or restore that failed (without Undo). -->
     <div class="games-undo" id="games-undo" role="status" aria-live="polite" hidden>
       <span id="games-undo-text"></span>
       <button class="games-undo-btn" id="games-undo-btn" type="button" data-action="undo_hide">Undo</button>

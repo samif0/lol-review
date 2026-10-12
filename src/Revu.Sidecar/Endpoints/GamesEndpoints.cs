@@ -20,9 +20,9 @@ public static partial class SidecarEndpoints
             return Results.Json(snapshot, jsonOptions);
         });
 
-        // ── GET /api/games[?view=queue|today|history|vod][&page=N] (token-gated) ─────
-        // Read-only games-workspace snapshot. view selects one of the four list views
-        // (Queue=unreviewed 14d / Today / History / VOD-on-disk); unknown/missing →
+        // ── GET /api/games[?view=queue|today|history|vod|removed][&page=N] (token-gated) ─────
+        // Read-only games-workspace snapshot. view selects one of the five list views
+        // (Queue=unreviewed 14d / Today / History / VOD-on-disk / Removed); unknown/missing →
         // queue. page is the zero-based History page (offset page*30); ignored by the
         // single-shot views. hasMore is true only on History when more pages remain.
         app.MapGet("/api/games", async (string? view, int? page, GamesSnapshotBuilder builder, CancellationToken ct) =>

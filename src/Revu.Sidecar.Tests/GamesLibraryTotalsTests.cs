@@ -104,6 +104,36 @@ public sealed class GamesLibraryTotalsTests
     }
 
     [Fact]
+    public async Task RemovedView_ListsRemovedLibraryGamesNewestFirst_AndARestoredGameMovesBackToHistory()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        for (var id = 8301L; id <= 8304; id++)
+            await scope.SeedGameAsync(gameId: id, win: id % 2 == 1, timestamp: 1_700_000_000 + id);
+        using (var conn = scope.OpenConnection())
+        using (var cmd = conn.CreateCommand())
+        {
+            // A hidden casual game was never in the Match library, so it is not offered back.
+            cmd.CommandText = "UPDATE games SET queue_type = 'ARAM' WHERE game_id = 8304";
+            await cmd.ExecuteNonQueryAsync();
+        }
+        foreach (var id in new long[] { 8301, 8302, 8304 }) await scope.Games.SetHiddenAsync(id, true);
+        var builder = Builder(scope);
+
+        var removed = await builder.BuildAsync(view: "removed");
+        Assert.Equal("removed", removed.View);
+        Assert.Equal(new long[] { 8302, 8301 }, removed.Items.Select(row => row.GameId));
+        Assert.Null(removed.ErrorText);
+        Assert.Null(removed.Totals); // removed games count toward nothing
+        Assert.False(removed.HasMore);
+        Assert.Equal(new long[] { 8303 }, (await builder.BuildAsync(view: "history")).Items.Select(row => row.GameId));
+
+        await scope.Games.SetHiddenAsync(8302, false);
+        Assert.Equal(new long[] { 8301 }, (await builder.BuildAsync(view: "removed")).Items.Select(row => row.GameId));
+        Assert.Equal(new long[] { 8303, 8302 }, (await builder.BuildAsync(view: "history")).Items.Select(row => row.GameId));
+    }
+
+    [Fact]
     public async Task AFailedRead_IsLoggedAsAWarningAndShownAsAnError_NotAsAnEmptyLibrary()
     {
         using var scope = new SidecarWriteScope();
@@ -117,7 +147,7 @@ public sealed class GamesLibraryTotalsTests
         }
 
         var logger = new RecordingLogger();
-        foreach (var view in new[] { "history", "queue", "today", "vod" })
+        foreach (var view in new[] { "history", "queue", "today", "vod", "removed" })
         {
             var dto = await Builder(scope, logger).BuildAsync(view: view);
             Assert.False(string.IsNullOrWhiteSpace(dto.ErrorText));
@@ -125,7 +155,7 @@ public sealed class GamesLibraryTotalsTests
             Assert.Null(dto.Totals);
             Assert.Empty(dto.Items);
         }
-        Assert.Equal(4, logger.Levels.Count(level => level == LogLevel.Warning));
+        Assert.Equal(5, logger.Levels.Count(level => level == LogLevel.Warning));
     }
 
     private sealed class RecordingLogger : ILogger<GamesSnapshotBuilder>

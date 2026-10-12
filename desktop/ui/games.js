@@ -13,8 +13,9 @@ import { getInvoke } from './platform/index.mjs';
 //     properties only.
 //   • ONE delegated [data-action] click handler.
 //
-// VIEWS: a 4-way SERVER-SIDE segmented control mirroring the WinUI GamesPage —
-// Queue (unreviewed, 14d) / Today / History (paged) / VOD (on-disk recordings).
+// VIEWS: a SERVER-SIDE segmented control mirroring the WinUI GamesPage —
+// Queue (unreviewed, 14d) / Today / History (paged) / VOD (on-disk recordings),
+// plus Removed (games removed from history, each with Restore).
 // Switching a view refetches from the backend (the server owns each view's data
 // source); History additionally supports append-mode "Load More" paging
 // (?page=N). Recording-link notifications update existing rows in place.
@@ -23,10 +24,10 @@ import { getInvoke } from './platform/index.mjs';
 
 // ── module state ────────────────────────────────────────────────────────────
 // _data    : the last loaded snapshot (server-owned per view).
-// _view    : active view key — 'queue' | 'today' | 'history' | 'vod'.
+// _view    : active view key — 'queue' | 'today' | 'history' | 'vod' | 'removed'.
 // _page    : current History page (0-based); only History paginates.
 // _rows    : accumulated rows across appended pages (History Load More).
-const VIEWS = ['queue', 'today', 'history', 'vod'];
+const VIEWS = ['queue', 'today', 'history', 'vod', 'removed'];
 let _data = null;
 let _view = 'queue';
 let _page = 0;
@@ -84,6 +85,8 @@ function renderQueueBar(d) {
     if (_view === 'history') {
       const total = d.totalCount ?? shown;
       cnt.textContent = `Showing ${shown} of ${total}`;
+    } else if (_view === 'removed') {
+      cnt.textContent = shown === 0 ? 'No removed games' : `${shown} removed game${shown === 1 ? '' : 's'}`;
     } else if (shown === 0) {
       cnt.textContent = 'Nothing here yet';
     } else {
@@ -160,10 +163,17 @@ function buildRow(g) {
   const ratio = typeof g.kdaRatio === 'number' ? g.kdaRatio : parsedRatio ? Number(parsedRatio[1]) : null;
   kdaR.textContent = Number.isFinite(ratio) && ratio >= 0 ? `${Number(ratio.toFixed(2))} KDA` : ratioText;
 
+  // History rows offer Remove from history; the Removed view offers Restore.
   const remove = el.querySelector('.gamerow-remove');
   if (remove) {
     remove.dataset.gameId = String(g.gameId ?? '');
-    remove.setAttribute('aria-label', `Remove ${champ.textContent} from history`);
+    if (_view === 'removed') {
+      remove.dataset.action = 'restore_game';
+      remove.textContent = 'Restore';
+      remove.setAttribute('aria-label', `Restore ${champ.textContent} to history`);
+    } else {
+      remove.setAttribute('aria-label', `Remove ${champ.textContent} from history`);
+    }
   }
   updateRowRecording(el, g);
   return el;
@@ -248,12 +258,15 @@ async function refreshLinkedVodList() {
   }
 }
 
-// ── Remove from history (soft hide with Undo) ───────────────────────────────
+// ── Remove from history (soft hide with Undo) and Restore ──────────────────
 // set_game_hidden keeps the game and everything tied to it; a hidden game
 // leaves every list, count, streak and the review queue. The list and strip
 // update in place (History pages and scroll stay put), and Undo restores it.
+// Later, the Removed view lists it again with Restore. A failed write is told
+// in the toast, never as the page's "Couldn't load your games" panel.
 const UNDO_MS = 10_000;
-let _undo = null;       // { game, index, view, timer } for the latest removal
+let _undo = null;       // { game, index, view } for the latest removal while Undo is offered
+let _toastTimer = 0;
 let _shiftedRows = 0;   // History rows removed since the last page fetch
 
 function adjustTotals(game, sign) {
@@ -272,6 +285,40 @@ function renderRows() {
   renderList(_data);
 }
 
+// The sidecar's sentence, without the Electron IPC prefix.
+function errText(err) {
+  const s = (err && err.message) ? err.message : String(err);
+  return s.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:\w*Error:\s*)+/, '');
+}
+
+const matchName = (game) => game.championName
+  ? `${game.championName}${game.enemyChampion ? ` vs ${game.enemyChampion}` : ''}` : 'The match';
+
+function showToast(text, undo = null) {
+  clearTimeout(_toastTimer);
+  _undo = undo;
+  $('games-undo-text').textContent = text;
+  $('games-undo-btn').disabled = false;
+  show($('games-undo-btn'), !!undo);
+  show($('games-undo'), true);
+  _toastTimer = setTimeout(dismissUndo, UNDO_MS);
+}
+
+function dismissUndo() {
+  clearTimeout(_toastTimer);
+  _undo = null;
+  show($('games-undo'), false);
+}
+
+// Rebuilding the list drops the focused button: keep keyboard focus in the
+// list, on the row that took its place (or Undo when the list is now empty).
+function focusAfterRemoval(index) {
+  const rows = $('games-list').children;
+  const target = rows.length ? rows[Math.min(index, rows.length - 1)]
+    : _undo ? $('games-undo-btn') : $('seg')?.querySelector('button.on');
+  target?.focus?.({ preventScroll: true });
+}
+
 async function setHidden(gameId, hidden) {
   const invoke = await getInvoke();
   if (!invoke) { console.info(`[games] (preview) set_game_hidden ${gameId} ${hidden}`); return false; }
@@ -288,26 +335,16 @@ async function hideGame(button) {
     if (!await setHidden(gameId, true)) { button.disabled = false; return; }
   } catch (err) {
     button.disabled = false;
-    renderError(err);
+    showToast(`Couldn't remove this game. ${errText(err)}`);
     console.error('[games] remove from history failed:', err);
     return;
   }
   const [game] = _rows.splice(index, 1);
   if (_view === 'history') _shiftedRows++;
   adjustTotals(game, -1);
+  showToast(`${matchName(game)} was removed from history. You can restore it from Removed.`, { game, index, view: _view });
   renderRows();
-  if (_undo) clearTimeout(_undo.timer);
-  const name = game.championName ? `${game.championName}${game.enemyChampion ? ` vs ${game.enemyChampion}` : ''}` : 'The match';
-  $('games-undo-text').textContent = `${name} was removed from history.`;
-  $('games-undo-btn').disabled = false;
-  show($('games-undo'), true);
-  _undo = { game, index, view: _view, timer: setTimeout(dismissUndo, UNDO_MS) };
-}
-
-function dismissUndo() {
-  if (_undo) clearTimeout(_undo.timer);
-  _undo = null;
-  show($('games-undo'), false);
+  focusAfterRemoval(index);
 }
 
 async function undoHide() {
@@ -317,8 +354,7 @@ async function undoHide() {
   try {
     if (!await setHidden(undo.game.gameId, false)) { $('games-undo-btn').disabled = false; return; }
   } catch (err) {
-    $('games-undo-btn').disabled = false;
-    renderError(err);
+    showToast(`Couldn't bring ${matchName(undo.game)} back. ${errText(err)}`, undo);
     console.error('[games] undo remove from history failed:', err);
     return;
   }
@@ -329,6 +365,27 @@ async function undoHide() {
   if (_view === 'history') _shiftedRows = Math.max(0, _shiftedRows - 1);
   adjustTotals(undo.game, 1);
   renderRows();
+}
+
+// Removed view: Restore puts the game back in every list, count and streak.
+async function restoreGame(button) {
+  const gameId = button.dataset.gameId;
+  const index = _rows.findIndex((g) => String(g.gameId) === gameId);
+  if (!gameId || index < 0 || _loading || button.disabled || _view !== 'removed') return;
+  button.disabled = true;
+  try {
+    if (!await setHidden(gameId, false)) { button.disabled = false; return; }
+  } catch (err) {
+    button.disabled = false;
+    showToast(`Couldn't restore this game. ${errText(err)}`);
+    console.error('[games] restore to history failed:', err);
+    return;
+  }
+  const [game] = _rows.splice(index, 1);
+  adjustTotals(game, -1);
+  showToast(`${matchName(game)} is back in your history.`);
+  renderRows();
+  focusAfterRemoval(index);
 }
 
 function knownBoolean(value, label, yes, no) {
@@ -388,15 +445,18 @@ function renderList(d) {
   const sub = $('games-sub');
   if (sub) sub.textContent = `${items.length} shown`;
 
+  // Every loaded History row was removed but later pages still hold games:
+  // offer Load More, never "No games recorded yet".
+  const morePages = _view === 'history' && !!(d && d.hasMore);
   if (items.length === 0) {
     show($('games-label'), false);
     // A failed read shows the error panel, never "no games yet".
-    show($('games-empty'), !d?.errorText);
+    show($('games-empty'), !d?.errorText && !morePages);
     const emptyH = $('games-empty-h');
     const emptyP = $('games-empty-p');
     if (emptyH) emptyH.textContent = (d && d.emptyMessage) || 'No games recorded yet.';
     if (emptyP) emptyP.textContent = emptyHint(_view);
-    show($('loadwrap'), false);
+    show($('loadwrap'), morePages);
     return;
   }
 
@@ -405,7 +465,7 @@ function renderList(d) {
   for (const g of items) host.appendChild(buildRow(g));
 
   // Load More only on History when the server says there's another page.
-  show($('loadwrap'), _view === 'history' && !!(d && d.hasMore));
+  show($('loadwrap'), morePages);
 }
 
 function emptyHint(view) {
@@ -413,6 +473,7 @@ function emptyHint(view) {
     case 'queue':   return 'New Ranked Solo/Duo games appear here while Revu is open. Find older games in History, or add one manually.';
     case 'today':   return 'Games you play today show up here for a same-day review.';
     case 'vod':     return 'Games with an available recording appear here. Connect your Ascent recordings folder in Settings → Recording, then scan to link existing videos.';
+    case 'removed': return 'Games you remove from history are listed here, so you can restore them.';
     case 'history':
     default:        return 'Keep Revu open during a Ranked Solo/Duo game, or use Add a game manually.';
   }
@@ -539,7 +600,8 @@ async function loadMore() {
 // open_review = clicking a whole game row (→ review page).
 // load_more   = History pagination (append next page).
 // hide_game   = Remove from history on a row; undo_hide = its Undo.
-const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo_hide']);
+// restore_game = Restore on a row in the Removed view.
+const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo_hide', 'restore_game']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -578,6 +640,7 @@ document.addEventListener('click', async (ev) => {
 
   if (action === 'hide_game') { await hideGame(target); return; }
   if (action === 'undo_hide') { await undoHide(); return; }
+  if (action === 'restore_game') { await restoreGame(target); return; }
 
   // Manual Entry — log a game by hand (moved here from the nav rail).
   if (action === 'manual_entry') {
@@ -589,7 +652,7 @@ document.addEventListener('click', async (ev) => {
 // Keyboard activation for the role="button" game rows (Enter / Space).
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
-  // A real button inside a row (Remove from history) handles its own keys.
+  // A real button inside a row (Remove from history, Restore) handles its own keys.
   if (ev.target.tagName === 'BUTTON') return;
   const target = ev.target.closest('[data-action][role="button"]');
   if (!target) return;

@@ -19,6 +19,8 @@ public enum GamesView
     Today = 1,
     History = 2,
     Vod = 3,
+    /// <summary>Games removed from history, listed so they can be restored.</summary>
+    Removed = 4,
 }
 
 /// <summary>
@@ -77,6 +79,8 @@ public sealed class GamesSnapshotBuilder
     // Queue window: unreviewed games from the last 14 days (mirrors the VM's
     // GetUnreviewedGamesAsync(days:14) call).
     private const int QueueDays = 14;
+    // Removed view: the most recent games removed from history.
+    private const int RemovedLimit = 200;
 
     // ── Mockup palette (TODO: extract to Revu.Core; mirrors DashboardSnapshotBuilder) ─
     private const string AccentHex = "#9d8bff";
@@ -149,6 +153,12 @@ public sealed class GamesSnapshotBuilder
                     games = await LoadVodGamesAsync();
                     totalCount = games.Count;
                     totals = TotalsOf(games);
+                    break;
+
+                case GamesView.Removed:
+                    // Removed games count toward nothing, so the view has no stat strip.
+                    games = await _gameHistory.GetRemovedGamesAsync(limit: RemovedLimit);
+                    totalCount = games.Count;
                     break;
 
                 case GamesView.History:
@@ -237,7 +247,7 @@ public sealed class GamesSnapshotBuilder
 
     /// <summary>
     /// Parse the <c>?view=</c> query param into a <see cref="GamesView"/>.
-    /// Accepts the named keys (queue/today/history/vod) case-insensitively;
+    /// Accepts the named keys (queue/today/history/vod/removed) case-insensitively;
     /// anything else (null, empty, garbage) defaults to Queue — the WinUI page's
     /// initial SelectedViewIndex.
     /// </summary>
@@ -246,15 +256,17 @@ public sealed class GamesSnapshotBuilder
         "today" => GamesView.Today,
         "history" => GamesView.History,
         "vod" => GamesView.Vod,
+        "removed" => GamesView.Removed,
         _ => GamesView.Queue,
     };
 
-    /// <summary>Stable lowercase view key echoed back in the DTO (queue/today/history/vod).</summary>
+    /// <summary>Stable lowercase view key echoed back in the DTO (queue/today/history/vod/removed).</summary>
     private static string ViewKey(GamesView view) => view switch
     {
         GamesView.Today => "today",
         GamesView.History => "history",
         GamesView.Vod => "vod",
+        GamesView.Removed => "removed",
         _ => "queue",
     };
 
@@ -266,6 +278,7 @@ public sealed class GamesSnapshotBuilder
         GamesView.Today => ("Today's games", "No games logged today."),
         GamesView.History => ("All games", "No games recorded yet."),
         GamesView.Vod => ("Games with recordings", "No recordings are linked yet."),
+        GamesView.Removed => ("Removed games", "No removed games."),
         _ => ("Games", "No games found."),
     };
 

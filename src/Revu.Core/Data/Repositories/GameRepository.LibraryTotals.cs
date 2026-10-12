@@ -1,5 +1,7 @@
 #nullable enable
 
+using Revu.Core.Models;
+
 namespace Revu.Core.Data.Repositories;
 
 /// <summary>Counted games in the whole Match library: remakes and hidden games excluded.</summary>
@@ -41,5 +43,24 @@ public sealed partial class GameRepository
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync()) return new GameLibraryTotals(0, 0, 0);
         return new GameLibraryTotals(reader.GetInt32(0), reader.GetInt32(1), reader.GetInt32(2));
+    }
+
+    // The Match library "Removed" view: games the player removed from history,
+    // newest first, so any of them can be restored. The same queues as the
+    // library (CasualFilter's ranked + manual), but only hidden rows.
+    public async Task<List<GameStats>> GetRemovedGamesAsync(int limit = 200)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"
+            SELECT games.*, {RemakeSql.IsRemakeColumn("games.game_id")}
+            FROM games
+            WHERE COALESCE(is_hidden, 0) = 1
+              AND COALESCE(queue_type, '') IN ('Ranked Solo/Duo', 'Manual')
+            ORDER BY timestamp DESC
+            LIMIT @limit";
+        cmd.Parameters.AddWithValue("@limit", Math.Max(limit, 0));
+
+        return await ReadAllGamesAsync(cmd);
     }
 }

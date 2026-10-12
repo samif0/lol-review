@@ -8,6 +8,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 function fixture(reply = async () => ({ items: [] }), { invoke } = {}) {
   const ids = new Map(), listeners = new Map(), windowListeners = new Map(), requests = [], writes = [];
+  let focused = null;
   const scope = { location: { href: 'games.html' }, scrollX: 0, scrollY: 310,
     addEventListener(type, callback) { windowListeners.set(type, callback); },
     scrollTo({ left, top }) { this.scrollX = left; this.scrollY = top; } };
@@ -31,6 +32,7 @@ function fixture(reply = async () => ({ items: [] }), { invoke } = {}) {
         return this.parent?.closest(selector) || null;
       },
       click() { return emit('click', this); },
+      focus() { focused = node; },
     };
     return node;
   }
@@ -44,7 +46,7 @@ function fixture(reply = async () => ({ items: [] }), { invoke } = {}) {
     for (const handler of listeners.get(type) || []) await handler(event);
     return event;
   }
-  const segments = ['queue', 'today', 'history', 'vod'].map(view => {
+  const segments = ['queue', 'today', 'history', 'vod', 'removed'].map(view => {
     const button = element(); button.dataset = { action: 'view', view }; return button;
   });
   $('seg').selectors.set('button', segments);
@@ -72,7 +74,7 @@ function fixture(reply = async () => ({ items: [] }), { invoke } = {}) {
   });
   vm.runInContext(`${source}\n globalThis.hooks = { buildRow, loadView, loadMore,
     get view() { return _view; }, get rows() { return _rows; } };`, context);
-  return { $, hooks: context.hooks, scope, requests, writes, segments, emit,
+  return { $, hooks: context.hooks, scope, requests, writes, segments, emit, get focused() { return focused; },
     linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
     fire: (type, detail) => windowListeners.get(type)?.({ detail }) };
 }
@@ -285,6 +287,10 @@ function library(ids, size = 2) {
   return {
     hidden,
     reply: async ({ view, page }) => {
+      if (view === 'removed') {
+        const removed = ids.filter(id => hidden.has(id)).reverse().map(game);
+        return { view, heading: 'Removed games', totalCount: removed.length, hasMore: false, totals: null, items: removed };
+      }
       const list = visible(), counted = list.map(game);
       return { view, page, pageSize: size, totalCount: list.length, hasMore: (page + 1) * size < list.length,
         totals: { games: counted.length, wins: counted.filter(g => g.win).length, reviewed: counted.filter(g => g.hasReview).length },
@@ -313,9 +319,12 @@ test('Remove from history hides the game in place and Undo brings it back, witho
   assert.deepEqual(strip(), ['2', '100%', '1/2']);
   assert.equal(f.$('queue-cnt-text').textContent, 'Showing 2 of 2');
   assert.equal(f.$('games-undo').hidden, false);
-  assert.equal(f.$('games-undo-text').textContent, 'Champ2 vs Zed was removed from history.');
+  assert.equal(f.$('games-undo-btn').hidden, false);
+  assert.equal(f.$('games-undo-text').textContent, 'Champ2 vs Zed was removed from history. You can restore it from Removed.');
   assert.equal(f.scope.location.href, 'games.html', 'removing never opens the review');
   assert.equal(f.requests.length, 1, 'no refetch: History pages and scroll stay');
+  assert.equal(f.focused, f.$('games-list').children[1], 'keyboard focus moves to the row that took its place');
+  assert.equal(f.focused.dataset.gameId, '3');
 
   const undo = f.$('games-undo-btn'); undo.dataset.action = 'undo_hide';
   await f.emit('click', undo);
@@ -325,8 +334,9 @@ test('Remove from history hides the game in place and Undo brings it back, witho
   assert.equal(f.$('games-undo').hidden, true);
 });
 
-test('a failed removal keeps the row and explains the error; Enter on the button never opens the review', async () => {
-  const f = fixture(library([1, 2], 30).reply, { invoke: async () => { throw new Error('The database is busy.'); } });
+test('a failed removal keeps the row and explains the error in the toast; Enter on the button never opens the review', async () => {
+  const f = fixture(library([1, 2], 30).reply,
+    { invoke: async () => { throw new Error("Error invoking remote method 'revu:command': Error: The database is busy."); } });
   await f.hooks.loadView('history');
   const remove = f.$('games-list').children[0].querySelector('.gamerow-remove');
   const key = await f.emit('keydown', remove, { key: 'Enter' });
@@ -334,10 +344,82 @@ test('a failed removal keeps the row and explains the error; Enter on the button
   assert.equal(f.scope.location.href, 'games.html');
   await f.emit('click', remove);
   assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2]);
-  assert.equal(f.$('errpanel').hidden, false);
-  assert.equal(f.$('err-detail').textContent, 'The database is busy.');
-  assert.equal(f.$('games-undo-text').textContent, '', 'nothing was removed, so nothing is offered to undo');
+  assert.notEqual(f.$('errpanel').hidden, false, 'a failed write is not the "Couldn\'t load your games" panel');
+  assert.equal(f.$('games-undo').hidden, false);
+  assert.equal(f.$('games-undo-text').textContent, "Couldn't remove this game. The database is busy.");
+  assert.equal(f.$('games-undo-btn').hidden, true, 'nothing was removed, so nothing is offered to undo');
   assert.equal(remove.disabled, false);
+});
+
+test('a failed Undo says so and keeps Undo offered to try again', async () => {
+  const lib = library([1, 2], 30);
+  let fail = false;
+  const f = fixture(lib.reply, { invoke: async (command, args) => {
+    if (fail) throw new Error('The database is busy.');
+    return lib.invoke(command, args);
+  } });
+  await f.hooks.loadView('history');
+  await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  fail = true;
+  const undo = f.$('games-undo-btn'); undo.dataset.action = 'undo_hide';
+  await f.emit('click', undo);
+  assert.equal(f.$('games-undo-text').textContent, "Couldn't bring Champ1 vs Zed back. The database is busy.");
+  assert.equal(undo.hidden, false); assert.equal(undo.disabled, false);
+  assert.notEqual(f.$('errpanel').hidden, false);
+  fail = false;
+  await f.emit('click', undo);
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2]);
+  assert.equal(f.$('games-undo').hidden, true);
+});
+
+test('the Removed view lists removed games with Restore, and Restore puts one back in History', async () => {
+  const lib = library([1, 2, 3], 30);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  await f.emit('click', f.$('games-list').children[1].querySelector('.gamerow-remove'));
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [2]);
+
+  await f.emit('click', f.segments.find(segment => segment.dataset.view === 'removed'));
+  assert.equal(f.hooks.view, 'removed');
+  assert.deepEqual(f.requests.at(-1).args, { view: 'removed', page: 0 });
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [3, 1]);
+  assert.equal(f.$('strip').hidden, true, 'removed games count toward nothing');
+  assert.equal(f.$('queue-cnt-text').textContent, '2 removed games');
+  const restore = f.$('games-list').children[0].querySelector('.gamerow-remove');
+  assert.equal(restore.textContent, 'Restore');
+  assert.equal(restore.dataset.action, 'restore_game');
+  assert.equal(restore.getAttribute('aria-label'), 'Restore Champ3 vs Zed to history');
+
+  await f.emit('click', restore);
+  assert.deepEqual(f.writes.at(-1), { command: 'set_game_hidden', args: { payload: { gameId: 3, hidden: false } } });
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1]);
+  assert.equal(f.$('games-undo-text').textContent, 'Champ3 vs Zed is back in your history.');
+  assert.equal(f.$('games-undo-btn').hidden, true);
+  assert.equal(f.$('queue-cnt-text').textContent, '1 removed game');
+  assert.equal(f.scope.location.href, 'games.html', 'restoring never opens the review');
+  assert.equal(f.focused, f.$('games-list').children[0]);
+
+  await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), []);
+  assert.equal(f.$('games-empty').hidden, false);
+  assert.match(f.$('games-empty-p').textContent, /restore them/);
+
+  await f.hooks.loadView('history');
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2, 3]);
+});
+
+test('removing every loaded History row keeps Load More instead of saying there are no games', async () => {
+  const lib = library([1, 2, 3, 4], 2);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  for (let i = 0; i < 2; i++) await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), []);
+  assert.equal(f.$('games-empty').hidden, true);
+  assert.equal(f.$('loadwrap').hidden, false);
+  assert.equal(f.focused, f.$('games-undo-btn'), 'with no row left, focus lands on Undo');
+  await f.hooks.loadMore();
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [3, 4]);
 });
 
 test('Load More after a removal re-reads the shifted page so no game is skipped', async () => {

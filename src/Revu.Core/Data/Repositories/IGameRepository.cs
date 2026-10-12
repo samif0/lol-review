@@ -260,6 +260,10 @@ public interface IGameHistoryQuery
     /// remakes excluded (the Match library stat strip).</summary>
     Task<GameLibraryTotals> GetLibraryTotalsAsync();
 
+    /// <summary>Ranked and manual games removed from history (hidden), newest
+    /// first, for the Match library's Removed view.</summary>
+    Task<List<GameStats>> GetRemovedGamesAsync(int limit = 200);
+
     /// <summary>Get ranked/normal games played on a specific date (YYYY-MM-DD).</summary>
     Task<List<GameStats>> GetGamesForDateAsync(string dateStr);
 
