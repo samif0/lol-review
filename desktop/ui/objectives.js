@@ -3,6 +3,7 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
 import { renderObjectiveProgress } from './objective-progress.mjs';
+import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
 
 // Revu desktop — Objectives page renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_objectives`.
@@ -600,6 +601,7 @@ function openCreateForm() {
   $('form-submit').textContent = 'Create learning objective';
   resetFormFields();
   revealForm();
+  _formGuard.mark();
 }
 
 // Open the form in edit mode for objId. Active + completed objectives both edit
@@ -679,6 +681,7 @@ async function openEditForm(id) {
   // participate in the same complete save payload.
   $('obj-options').open = true;
   $('f-title').focus();
+  _formGuard.mark();
 }
 
 // Map the persisted phasesSummary ("PRE + IN", "ALL CHAMPIONS"…) → checkbox set.
@@ -800,6 +803,8 @@ function applyFirstReviewTutorialDefaults() {
   renderEventPicker();
   $('obj-options').open = true;
   $('f-title')?.focus();
+  // The tutorial's own pre-fill is not an edit: leaving asks only after the player changes it.
+  _formGuard.mark();
 }
 
 // Submit the form → create_objective or update_objective, then reload.
@@ -1044,6 +1049,11 @@ document.addEventListener('change', (ev) => {
     ev.target.value = '';
   }
 });
+
+// Sidebar navigation asks before discarding an open, edited objective form.
+const _formGuard = trackForm($('obj-form'), () => [_promptRows, _champs, _eventTypes]);
+registerLeaveGuard({ isDirty: _formGuard.isDirty,
+  flush: async () => { await submitForm($('form-submit')); return $('obj-form').hidden; } });
 
 // ── boot ────────────────────────────────────────────────────────────────────
 if (document.readyState === 'loading') {

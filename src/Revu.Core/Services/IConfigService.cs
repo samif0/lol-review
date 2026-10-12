@@ -63,7 +63,6 @@ public interface IConfigService
     string RiotPuuid { get; }
     string PrimaryRole { get; }
     bool OnboardingSkipped { get; }
-    bool SidebarAnimationEnabled { get; }
     bool MinimizeDuringGame { get; }
 
     /// <summary>v2.17.8: auto-fill Timeline Inbox from derived game events.</summary>

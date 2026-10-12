@@ -30,6 +30,7 @@ function node(id = '', tag = 'DIV', action = '') {
     closest(selector) {
       if (selector === '[data-action]') return this.dataset.action ? this : null;
       if (selector === '[data-config-group]') return this.group || null;
+      if (selector === '[data-settings-section]') return this.section || null;
       if (selector === '.set-toggle[role="switch"]') return this.getAttribute('role') === 'switch' ? this : null;
       return null;
     },
@@ -45,11 +46,13 @@ function node(id = '', tag = 'DIV', action = '') {
 }
 
 async function fixture({ native = true, ascentFolder = '', handler } = {}) {
-  const ids = new Map(), groups = [], listeners = new Map(), requests = [];
+  const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [];
+  const sections = { ascent: 'recording', clips: 'playback', account: 'account', review: 'playback' };
   const add = (id, tag, action) => { const element = node(id, tag, action); ids.set(id, element); return element; };
   const group = (name, fieldNames) => {
     const element = add(`${name}-settings`);
     element.dataset.configGroup = name;
+    element.section = { dataset: { settingsSection: sections[name] } };
     for (const id of fieldNames) element.children.push(add(id, 'INPUT'));
     element.children.push(add(`${name}-save`, 'BUTTON', 'save_config'), add(`${name}-discard`, 'BUTTON', 'discard_config'));
     const status = add(`${name}-save-status`); status.saveStatus = true; element.children.push(status);
@@ -66,7 +69,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
   }
   add('ascent-status');
   const config = { ascentFolder, clipsFolder: 'D:\\Clips', clipsMaxSizeMb: 2048, riotId: 'player#NA1', region: 'na1' };
-  let failRead = false;
+  let failRead = false, reads = 0;
   const invoke = async (command, args) => {
     requests.push({ command, args: args === undefined ? undefined : plain(args) });
     const response = await handler?.(command, args);
@@ -83,34 +86,61 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(callback);
     },
-    querySelectorAll: selector => selector === '[data-config-group]' ? groups : [],
-    querySelector: () => null,
+    querySelectorAll: selector => selector === '[data-config-group]' ? groups
+      : selector === '[data-config-group][data-dirty="true"]' ? groups.filter(group => group.dataset.dirty === 'true') : [],
+    querySelector: selector => selector.startsWith('[data-config-group][data-dirty="true"]')
+      ? groups.find(group => group.dataset.dirty === 'true') || null
+      : selector.startsWith('[data-settings-category=')
+        ? { click: () => categoryClicks.push(selector.match(/"(.*?)"/)[1]) } : null,
   };
   const context = vm.createContext({
     document, window: {}, $: id => ids.get(id) || null,
     show: (element, visible) => { if (element) element.hidden = !visible; },
     clearEl: element => { element.children = []; },
     getInvoke: async () => native ? invoke : null,
-    readSnapshot: async () => { if (failRead) throw new Error('Read interrupted'); return plain(config); },
+    readSnapshot: async () => { reads++; if (failRead) throw new Error(failRead); return plain(config); },
     preserveSettingsDraft, setTimeout, clearTimeout,
     console: { error() {}, warn() {}, info() {} },
   });
-  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload };`, context);
+  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings, loadConfig };`, context);
   context.hooks.render(plain(config));
   await context.hooks.loadAscentAccess();
   const emit = async (type, target) => {
     for (const listener of listeners.get(type) || []) await listener({ target, preventDefault() {} });
   };
   return {
-    ids, groups: { ascent, clips, account, review }, config, requests,
+    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks,
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
     render: () => context.hooks.render(plain(config)),
     payload: element => plain(context.hooks.collectPayload(element)),
-    failRead: () => { failRead = true; },
+    failRead: (message = 'Read interrupted') => { failRead = message; },
+    get reads() { return reads; },
+    load: () => context.hooks.loadConfig(),
+    dirty: () => context.hooks.settingsDirty(),
+    saveBeforeLeaving: () => context.hooks.saveDirtySettings(),
   };
 }
+
+test('leaving Settings sees unsaved cards in hidden categories and saves each one as its own button would', async () => {
+  const f = await fixture();
+  assert.equal(f.dirty(), false);
+  await f.edit('clipsFolder', 'E:\\Clips'); await f.edit('region', 'euw1');
+  assert.equal(f.dirty(), true);
+  assert.equal(await f.saveBeforeLeaving(), true);
+  assert.deepEqual(f.requests.filter(request => request.command === 'save_config').map(request => request.args.payload),
+    [{ clipsFolder: 'E:\\Clips', clipsMaxSizeMb: 2048 }, { riotId: 'player#NA1', region: 'euw1' }]);
+  assert.equal(f.dirty(), false);
+  assert.deepEqual(f.categoryClicks, [], 'a successful save leaves the category as it was');
+
+  const failing = await fixture({ handler: command => command === 'save_config' ? { ok: false, message: 'Disk is full.' } : undefined });
+  await failing.edit('clipsFolder', 'F:\\Clips');
+  assert.equal(await failing.saveBeforeLeaving(), false, 'a card that cannot save keeps the player on Settings');
+  assert.equal(failing.$('clipsFolder').value, 'F:\\Clips');
+  assert.equal(failing.$('clips-save-status').textContent, 'Disk is full.');
+  assert.deepEqual(failing.categoryClicks, ['playback'], 'Settings opens the category of the card that could not save');
+});
 
 test('automatic matchup notes default off, save only review preferences and keep unrelated drafts', async () => {
   const f = await fixture();
@@ -255,6 +285,24 @@ test('failed connection saves keep the draft and allow retry without touching th
   assert.equal(f.$('ascent-save').disabled, false);
   assert.equal(f.$('ascent-scan').disabled, true);
   assert.equal(f.$('ascent-save-status').textContent, 'Folder cannot be accessed.');
+});
+
+test('a failed Settings read reports at once instead of retrying for ten seconds', async () => {
+  const f = await fixture();
+  f.failRead('Failed to fetch');
+  const before = f.reads, started = Date.now();
+  await f.load();
+  assert.equal(f.reads - before, 1);
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('a rejected save shows the sidecar sentence without the Electron IPC prefix', async () => {
+  const f = await fixture({ handler: command => {
+    if (command === 'save_config') throw new Error("Error invoking remote method 'revu:command': Error: Folder is locked.");
+  } });
+  await f.edit('clipsFolder', 'E:\\Clips'); await f.click('clips-save');
+  assert.equal(f.$('clips-save-status').textContent, 'Folder is locked.');
+  assert.equal(f.$('clipsFolder').value, 'E:\\Clips');
 });
 
 test('Ascent is discoverable as external recording in the Recording category', async () => {

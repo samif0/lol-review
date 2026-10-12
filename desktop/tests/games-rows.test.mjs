@@ -6,8 +6,9 @@ import vm from 'node:vm';
 const source = (await readFile(new URL('../ui/games.js', import.meta.url), 'utf8')).replace(/^import .*?;\r?\n/gm, '');
 const plain = value => JSON.parse(JSON.stringify(value));
 
-function fixture(reply = async () => ({ items: [] })) {
-  const ids = new Map(), listeners = new Map(), windowListeners = new Map(), requests = [];
+function fixture(reply = async () => ({ items: [] }), { invoke } = {}) {
+  const ids = new Map(), listeners = new Map(), windowListeners = new Map(), requests = [], writes = [];
+  let focused = null;
   const scope = { location: { href: 'games.html' }, scrollX: 0, scrollY: 310,
     addEventListener(type, callback) { windowListeners.set(type, callback); },
     scrollTo({ left, top }) { this.scrollX = left; this.scrollY = top; } };
@@ -31,6 +32,7 @@ function fixture(reply = async () => ({ items: [] })) {
         return this.parent?.closest(selector) || null;
       },
       click() { return emit('click', this); },
+      focus() { focused = node; },
     };
     return node;
   }
@@ -44,7 +46,7 @@ function fixture(reply = async () => ({ items: [] })) {
     for (const handler of listeners.get(type) || []) await handler(event);
     return event;
   }
-  const segments = ['queue', 'today', 'history', 'vod'].map(view => {
+  const segments = ['queue', 'today', 'history', 'vod', 'removed'].map(view => {
     const button = element(); button.dataset = { action: 'view', view }; return button;
   });
   $('seg').selectors.set('button', segments);
@@ -59,16 +61,20 @@ function fixture(reply = async () => ({ items: [] })) {
         }
         const cue = node.querySelector('.gamerow-cue');
         cue.appendChild(element()); const arrow = element(); arrow.textContent = '→'; cue.appendChild(arrow);
+        const remove = element(); remove.tagName = 'BUTTON'; remove.dataset.action = 'hide_game';
+        node.selectors.set('.gamerow-remove', [remove]); node.appendChild(remove);
       } else if (name === 'tpl-stat') {
         for (const selector of ['.k', '.v', '.s']) node.selectors.set(selector, [element()]);
       }
       return node;
     },
     readSnapshot: async (command, sample, args) => { requests.push({ command, sample, args: plain(args) }); return reply(args); },
+    getInvoke: async () => invoke ? async (command, args) => { writes.push({ command, args: plain(args) }); return invoke(command, args); } : null,
+    setTimeout: () => 0, clearTimeout() {},
   });
   vm.runInContext(`${source}\n globalThis.hooks = { buildRow, loadView, loadMore,
     get view() { return _view; }, get rows() { return _rows; } };`, context);
-  return { $, hooks: context.hooks, scope, requests, segments, emit,
+  return { $, hooks: context.hooks, scope, requests, writes, segments, emit, get focused() { return focused; },
     linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
     fire: (type, detail) => windowListeners.get(type)?.({ detail }) };
 }
@@ -115,8 +121,8 @@ test('recording notes and meaningful objective state remain distinct from writte
   assert.equal(unknown.querySelector('.grow-meta').textContent, 'CS 150 · 12k dmg');
 });
 
-test('a remake reads Remake (not L), carries its token, and leaves the strip samples', async () => {
-  const f = fixture(async () => ({ view: 'today', items: [
+test('a remake reads Remake (not L), carries its token, and the strip shows the server counts without it', async () => {
+  const f = fixture(async () => ({ view: 'today', totals: { games: 2, wins: 1, reviewed: 1 }, items: [
     { gameId: 1, win: true, hasReview: true },
     { gameId: 2, win: false, winLossText: 'L', isRemake: true, hasReview: false },
     { gameId: 3, win: false, hasReview: false },
@@ -134,7 +140,7 @@ test('a remake reads Remake (not L), carries its token, and leaves the strip sam
 
   await f.hooks.loadView('today');
   const cells = f.$('strip').children.map(cell => [cell.querySelector('.k').textContent, cell.querySelector('.v').textContent]);
-  assert.deepEqual(cells.slice(0, 3), [['Total', '2'], ['Win Rate', '50%'], ['Reviewed', '1/2']]);
+  assert.deepEqual(cells, [['Games', '2'], ['Win rate', '50%'], ['Reviewed', '1/2']]);
   assert.equal(f.$('games-list').children.length, 3, 'the remake is still listed and reviewable');
 
   await f.fire('revu:remake-updated', { gameId: 2, isRemake: false });
@@ -245,4 +251,185 @@ test('a link arriving during an older History response remains applied when that
   assert.equal(f.$('games-list').children[0].dataset.action, 'watch_vod');
   assert.equal(f.hooks.rows[0].hasVod, true);
   assert.equal(f.requests.length, 1);
+});
+
+test('the stat strip shows the whole History from the server, not the loaded rows, without repeating the view', async () => {
+  const totals = { games: 181, wins: 94, reviewed: 62 };
+  const f = fixture(async ({ page }) => ({ view: 'history', heading: 'All games', totalCount: 184, hasMore: page === 0, totals,
+    items: [{ gameId: page + 1, win: true, hasReview: true }] }));
+  await f.hooks.loadView('history');
+  const cells = () => f.$('strip').children.map(cell => [cell.querySelector('.k').textContent, cell.querySelector('.v').textContent,
+    cell.querySelector('.s').textContent]);
+  assert.deepEqual(cells(), [['Games', '181', 'All history'], ['Win rate', '52%', '94 won'], ['Reviewed', '62/181', 'All history']]);
+  assert.equal(f.$('queue-cnt-text').textContent, 'Showing 1 of 184');
+  assert.equal(f.$('statusline').hidden, true, 'the status line does not repeat the view once loaded');
+  await f.hooks.loadMore();
+  assert.deepEqual(cells()[0], ['Games', '181', 'All history'], 'Load More does not move the numbers');
+  assert.equal(f.$('queue-cnt-text').textContent, 'Showing 2 of 184');
+  for (const [, , sub] of cells()) assert.doesNotMatch(sub, /LOADED|IN HISTORY|LINKED/);
+});
+
+test('a library that could not be read shows an error, not the empty state or a zero strip', async () => {
+  const f = fixture(async () => ({ view: 'history', items: [], totals: null,
+    errorText: "Revu couldn't read your games from its local database. Try again, or restart Revu." }));
+  await f.hooks.loadView('history');
+  assert.equal(f.$('errpanel').hidden, false);
+  assert.match(f.$('err-detail').textContent, /couldn't read your games/);
+  assert.equal(f.$('games-empty').hidden, true);
+  assert.equal(f.$('strip').hidden, true);
+});
+
+// A tiny sidecar: History pages over the visible games, honoring set_game_hidden.
+function library(ids, size = 2) {
+  const hidden = new Set();
+  const visible = () => ids.filter(id => !hidden.has(id));
+  const game = id => ({ gameId: id, championName: `Champ${id}`, enemyChampion: 'Zed', win: id % 2 === 1, hasReview: id === 1 });
+  return {
+    hidden,
+    reply: async ({ view, page }) => {
+      if (view === 'removed') {
+        const removed = ids.filter(id => hidden.has(id)).reverse().map(game);
+        return { view, heading: 'Removed games', totalCount: removed.length, hasMore: false, totals: null, items: removed };
+      }
+      const list = visible(), counted = list.map(game);
+      return { view, page, pageSize: size, totalCount: list.length, hasMore: (page + 1) * size < list.length,
+        totals: { games: counted.length, wins: counted.filter(g => g.win).length, reviewed: counted.filter(g => g.hasReview).length },
+        items: list.slice(page * size, page * size + size).map(game) };
+    },
+    invoke: async (command, { payload }) => {
+      assert.equal(command, 'set_game_hidden');
+      if (payload.hidden) hidden.add(payload.gameId); else hidden.delete(payload.gameId);
+      return { ok: true, ...payload };
+    },
+  };
+}
+
+test('Remove from history hides the game in place and Undo brings it back, without reloading the library', async () => {
+  const lib = library([1, 2, 3], 30);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  const strip = () => f.$('strip').children.map(cell => cell.querySelector('.v').textContent);
+  assert.deepEqual(strip(), ['3', '67%', '1/3']);
+  const second = f.$('games-list').children[1].querySelector('.gamerow-remove');
+  assert.equal(second.getAttribute('aria-label'), 'Remove Champ2 vs Zed from history');
+
+  await f.emit('click', second);
+  assert.deepEqual(f.writes, [{ command: 'set_game_hidden', args: { payload: { gameId: 2, hidden: true } } }]);
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 3]);
+  assert.deepEqual(strip(), ['2', '100%', '1/2']);
+  assert.equal(f.$('queue-cnt-text').textContent, 'Showing 2 of 2');
+  assert.equal(f.$('games-undo').hidden, false);
+  assert.equal(f.$('games-undo-btn').hidden, false);
+  assert.equal(f.$('games-undo-text').textContent, 'Champ2 vs Zed was removed from history. You can restore it from Removed.');
+  assert.equal(f.scope.location.href, 'games.html', 'removing never opens the review');
+  assert.equal(f.requests.length, 1, 'no refetch: History pages and scroll stay');
+  assert.equal(f.focused, f.$('games-list').children[1], 'keyboard focus moves to the row that took its place');
+  assert.equal(f.focused.dataset.gameId, '3');
+
+  const undo = f.$('games-undo-btn'); undo.dataset.action = 'undo_hide';
+  await f.emit('click', undo);
+  assert.deepEqual(f.writes.at(-1), { command: 'set_game_hidden', args: { payload: { gameId: 2, hidden: false } } });
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2, 3]);
+  assert.deepEqual(strip(), ['3', '67%', '1/3']);
+  assert.equal(f.$('games-undo').hidden, true);
+});
+
+test('a failed removal keeps the row and explains the error in the toast; Enter on the button never opens the review', async () => {
+  const f = fixture(library([1, 2], 30).reply,
+    { invoke: async () => { throw new Error("Error invoking remote method 'revu:command': Error: The database is busy."); } });
+  await f.hooks.loadView('history');
+  const remove = f.$('games-list').children[0].querySelector('.gamerow-remove');
+  const key = await f.emit('keydown', remove, { key: 'Enter' });
+  assert.notEqual(key.defaultPrevented, true);
+  assert.equal(f.scope.location.href, 'games.html');
+  await f.emit('click', remove);
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2]);
+  assert.notEqual(f.$('errpanel').hidden, false, 'a failed write is not the "Couldn\'t load your games" panel');
+  assert.equal(f.$('games-undo').hidden, false);
+  assert.equal(f.$('games-undo-text').textContent, "Couldn't remove this game. The database is busy.");
+  assert.equal(f.$('games-undo-btn').hidden, true, 'nothing was removed, so nothing is offered to undo');
+  assert.equal(remove.disabled, false);
+});
+
+test('a failed Undo says so and keeps Undo offered to try again', async () => {
+  const lib = library([1, 2], 30);
+  let fail = false;
+  const f = fixture(lib.reply, { invoke: async (command, args) => {
+    if (fail) throw new Error('The database is busy.');
+    return lib.invoke(command, args);
+  } });
+  await f.hooks.loadView('history');
+  await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  fail = true;
+  const undo = f.$('games-undo-btn'); undo.dataset.action = 'undo_hide';
+  await f.emit('click', undo);
+  assert.equal(f.$('games-undo-text').textContent, "Couldn't bring Champ1 vs Zed back. The database is busy.");
+  assert.equal(undo.hidden, false); assert.equal(undo.disabled, false);
+  assert.notEqual(f.$('errpanel').hidden, false);
+  fail = false;
+  await f.emit('click', undo);
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2]);
+  assert.equal(f.$('games-undo').hidden, true);
+});
+
+test('the Removed view lists removed games with Restore, and Restore puts one back in History', async () => {
+  const lib = library([1, 2, 3], 30);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  await f.emit('click', f.$('games-list').children[1].querySelector('.gamerow-remove'));
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [2]);
+
+  await f.emit('click', f.segments.find(segment => segment.dataset.view === 'removed'));
+  assert.equal(f.hooks.view, 'removed');
+  assert.deepEqual(f.requests.at(-1).args, { view: 'removed', page: 0 });
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [3, 1]);
+  assert.equal(f.$('strip').hidden, true, 'removed games count toward nothing');
+  assert.equal(f.$('queue-cnt-text').textContent, '2 removed games');
+  const restore = f.$('games-list').children[0].querySelector('.gamerow-remove');
+  assert.equal(restore.textContent, 'Restore');
+  assert.equal(restore.dataset.action, 'restore_game');
+  assert.equal(restore.getAttribute('aria-label'), 'Restore Champ3 vs Zed to history');
+
+  await f.emit('click', restore);
+  assert.deepEqual(f.writes.at(-1), { command: 'set_game_hidden', args: { payload: { gameId: 3, hidden: false } } });
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1]);
+  assert.equal(f.$('games-undo-text').textContent, 'Champ3 vs Zed is back in your history.');
+  assert.equal(f.$('games-undo-btn').hidden, true);
+  assert.equal(f.$('queue-cnt-text').textContent, '1 removed game');
+  assert.equal(f.scope.location.href, 'games.html', 'restoring never opens the review');
+  assert.equal(f.focused, f.$('games-list').children[0]);
+
+  await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), []);
+  assert.equal(f.$('games-empty').hidden, false);
+  assert.match(f.$('games-empty-p').textContent, /restore them/);
+
+  await f.hooks.loadView('history');
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 2, 3]);
+});
+
+test('removing every loaded History row keeps Load More instead of saying there are no games', async () => {
+  const lib = library([1, 2, 3, 4], 2);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  for (let i = 0; i < 2; i++) await f.emit('click', f.$('games-list').children[0].querySelector('.gamerow-remove'));
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), []);
+  assert.equal(f.$('games-empty').hidden, true);
+  assert.equal(f.$('loadwrap').hidden, false);
+  assert.equal(f.focused, f.$('games-undo-btn'), 'with no row left, focus lands on Undo');
+  await f.hooks.loadMore();
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [3, 4]);
+});
+
+test('Load More after a removal re-reads the shifted page so no game is skipped', async () => {
+  const lib = library([1, 2, 3, 4, 5, 6], 2);
+  const f = fixture(lib.reply, { invoke: lib.invoke });
+  await f.hooks.loadView('history');
+  await f.emit('click', f.$('games-list').children[1].querySelector('.gamerow-remove'));
+  await f.hooks.loadMore();
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 3, 4, 5]);
+  await f.hooks.loadMore();
+  assert.deepEqual(plain(f.hooks.rows).map(g => g.gameId), [1, 3, 4, 5, 6]);
+  assert.equal(f.$('loadwrap').hidden, true);
 });

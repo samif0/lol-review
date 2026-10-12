@@ -56,6 +56,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   const el = id => document.getElementById(id);
   if (!el('recording-settings')) return;
   if (el('recording-coming-soon')) el('recording-coming-soon').hidden = BUILT_IN_RECORDING_AVAILABLE;
+  if (el('recording-controls')) el('recording-controls').hidden = !BUILT_IN_RECORDING_AVAILABLE;
   let disposed = false, polling = false, savingRecording = false, model = null, timer = null, onVisibility = null;
   let backgroundValue = null;
   scope.addEventListener('pagehide', () => {

@@ -6,8 +6,7 @@ import vm from 'node:vm';
 // Exercise the actual subscription callbacks without loading window chrome.
 async function subscribe(file, page) {
   const source = await readFile(new URL(`../ui/${file}`, import.meta.url), 'utf8');
-  const outer = file === 'shell-outer.js';
-  const end = source.indexOf(outer ? '\nwireLiveAutoShow();' : '\nif (!FRAMED) wireLiveAutoShow();');
+  const end = source.indexOf('\nwireLiveAutoShow();');
   const code = source.slice(source.indexOf('async function wireLiveAutoShow()'), end);
   const events = [], navigations = [], calls = [];
   let callback, subscriptions = 0;
@@ -31,7 +30,7 @@ async function subscribe(file, page) {
 }
 
 test('recovery refreshes listing pages after leaving Settings but preserves editors', async () => {
-  for (const shell of ['shell-outer.js', 'shell.js']) {
+  for (const shell of ['shell-outer.js']) {
   for (const page of ['dashboard.html', 'games.html', 'settings.html', 'review.html', 'vodplayer.html']) {
     const f = await subscribe(shell, page);
     f.recover();
@@ -57,13 +56,4 @@ test('persistent shell forwards a recording link only to relevant current pages 
       assert.deepEqual(f.events[0].detail, { gameId: 42 });
     }
   }
-});
-
-test('standalone shell forwards the same narrow recording event without reloading the page', async () => {
-  const f = await subscribe('shell.js', 'vodplayer.html');
-  assert.equal(f.subscriptions, 1);
-  assert.equal(f.events.length, 1);
-  assert.equal(f.events[0].type, 'revu:vod-linked');
-  assert.deepEqual(f.events[0].detail, { gameId: 42 });
-  assert.equal(f.scope.location.href, 'vodplayer.html');
 });

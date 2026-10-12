@@ -3,6 +3,7 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { initializeRecordingSettings } from './recording-settings.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
+import { registerLeaveGuard } from './leave-guard.mjs';
 
 // Each editable card saves only its own fields through the existing platform
 // boundary. Refreshes preserve drafts in other categories. Recording and startup
@@ -340,29 +341,19 @@ function renderError(err) {
 function clearError() { show($('errpanel'), false); }
 
 // ── load orchestration ──────────────────────────────────────────────────────
+// Electron waits for the sidecar before it loads the shell, so a failed read is
+// a real error: show it rather than retrying.
 let _loading = false;
 async function loadConfig() {
   if (_loading) return;
   _loading = true;
-  const maxAttempts = 25; // cold-start grace while the sidecar binds
   try {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        render(await fetchConfig());
-        // Status is a best-effort second read — never blocks the editable page.
-        loadStatus();
-        return;
-      } catch (err) {
-        const transient = /sidecar not ready|not ready|connection refused|failed to fetch/i.test(String(err));
-        if (transient && attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 400));
-          continue;
-        }
-        renderError(err);
-        console.error('[settings] load failed:', err);
-        return;
-      }
-    }
+    render(await fetchConfig());
+    // Status is a best-effort second read — never blocks the editable page.
+    loadStatus();
+  } catch (err) {
+    renderError(err);
+    console.error('[settings] load failed:', err);
   } finally {
     _loading = false;
   }
@@ -482,11 +473,10 @@ async function doReset(invoke, target) {
   }
 }
 
-// Normalize a sidecar/Electron error to a readable string (strip the HTTP prefix).
+// Electron prefixes errors that cross the IPC boundary; show the sidecar's sentence.
 function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
-  const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
-  return m ? m[1] : s;
+  return s.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:\w*Error:\s*)+/, '');
 }
 
 // ── App updates (Velopack) ───────────────────────────────────────────────────
@@ -746,9 +736,40 @@ function nativeValues(group) {
 document.addEventListener('input', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
 document.addEventListener('change', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
 
+// ── leaving with unsaved cards (shared leave guard) ─────────────────────────
+// Sidebar navigation asks before dropping any card's unsaved edits, including
+// cards in a hidden category. "Save and leave" saves each dirty card exactly as
+// its own button would; a card that cannot save keeps the player here.
+const settingsDirty = () => !!document.querySelector('[data-config-group][data-dirty="true"],[data-native-group][data-dirty="true"]');
+async function saveDirtySettings() {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  for (const group of document.querySelectorAll('[data-config-group][data-dirty="true"]')) {
+    await doSave(invoke, group.querySelector('[data-action="save_config"]'));
+  }
+  for (const group of document.querySelectorAll('[data-native-group][data-dirty="true"]')) {
+    const kind = group.dataset.nativeGroup, status = $(`${kind}-settings-status`);
+    $(`save-${kind}-settings`)?.click();
+    for (let waited = 0; status?.textContent === 'Saving…' && waited < 15000; waited += 100) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  if (!settingsDirty()) return true;
+  showFirstUnsavedCard();
+  return false;
+}
+// A card that could not save may sit in a hidden category, where its error and
+// validation message are out of sight: open that category, so Stay lands on it.
+function showFirstUnsavedCard() {
+  const card = document.querySelector('[data-config-group][data-dirty="true"],[data-native-group][data-dirty="true"]');
+  const category = card?.closest('[data-settings-section]')?.dataset.settingsSection;
+  if (category) document.querySelector(`[data-settings-category="${category}"]`)?.click();
+}
+
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
   initializeSettingsNavigation();
+  registerLeaveGuard({ isDirty: settingsDirty, flush: saveDirtySettings });
   for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
   for (const [id, groupId] of [['recording-settings-status', 'recording-settings'], ['background-settings-status', 'background-settings']]) {
     new MutationObserver(() => {

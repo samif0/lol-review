@@ -78,6 +78,10 @@ body.settings-page .settings-text-button:hover:not(:disabled),body.settings-page
 .settings-page .set-status.bad,.settings-page [data-save-status].bad{color:var(--text);font-weight:600}
 .settings-page .settings-status-box{background:transparent;border:0;padding:0;border-radius:0}
 .settings-page #recording-status{color:var(--muted);line-height:1.65}
+/* Built-in recording is not released: one Coming soon line under Ascent. */
+body.settings-page #recording-settings{padding:16px 0 18px}
+.settings-page #recording-settings .settings-title-row{flex-wrap:nowrap}
+.settings-page #recording-settings .settings-card-description{margin:0}
 .settings-page .settings-inline-note{display:block;background:transparent;border:0;padding:18px 0 0;font-size:13px;line-height:1.7;color:var(--muted);margin:0}
 .settings-page .settings-inline-note a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
 body.settings-page details.set-card{display:block;padding:0;overflow:hidden}
@@ -87,9 +91,10 @@ body.settings-page details.set-card{display:block;padding:0;overflow:hidden}
 .settings-page details.set-card[open]>summary::after{content:'−'}
 .settings-page details.set-card>summary span{display:block;margin-top:5px;font-size:13px;line-height:1.65;font-weight:400;color:var(--muted)}
 .settings-page .settings-disclosure-body{display:flex;flex-direction:column;gap:18px;border:0;padding:0 0 26px}
-body.settings-page .set-danger>summary{color:var(--text)!important}
-body.settings-page .set-danger-btn{background:transparent!important;border-color:var(--muted)!important;color:var(--text)!important}
-body.settings-page .set-danger-btn:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--text)!important;color:var(--text)!important}
+/* Reset all data is the one destructive control here: it keeps the shared danger treatment. */
+body.settings-page .set-danger>summary{color:var(--danger)!important}
+body.settings-page .set-danger-btn{background:transparent!important;border-color:#674148!important;color:var(--danger)!important}
+body.settings-page .set-danger-btn:hover:not(:disabled){background:#352328!important;border-color:var(--danger)!important;color:var(--danger)!important}
 .settings-page .set-acct-status{display:flex;align-items:center;gap:8px;font-family:inherit;font-size:13px;color:var(--muted)}
 .settings-page .set-acct-status.on{color:var(--text)}
 .settings-page .set-acct-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);box-shadow:none}

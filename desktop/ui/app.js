@@ -92,20 +92,23 @@ function renderNextStep(d) {
 
 // v3.3: active coaching stint context under the intent copy — stint name,
 // blocks so far, and the with-coach / solo split. Hidden when no stint runs.
+// Starting a stint left the app in v3.3.3, so End stint is the only way out of
+// an old one (its blocks keep their stint history).
 function renderStintLine(d) {
   const el = $('nextstep-stint');
-  if (!el) return;
+  const text = $('nextstep-stint-text');
+  if (!el || !text) return;
   const st = d.stint;
   if (!st || !st.name) {
     el.hidden = true;
-    el.textContent = '';
+    text.textContent = '';
     return;
   }
-  const parts = [`Stint · ${st.name}`, `${st.blocksTotal ?? 0} blocks`];
+  const parts = [`Coaching stint · ${st.name}`, `${st.blocksTotal ?? 0} blocks`];
   if ((st.blocksTotal ?? 0) > 0) {
-    parts.push(`${st.blocksWithCoach ?? 0} w/ coach · ${st.blocksSolo ?? 0} solo`);
+    parts.push(`${st.blocksWithCoach ?? 0} with coach · ${st.blocksSolo ?? 0} solo`);
   }
-  el.textContent = parts.join(' · ');
+  text.textContent = parts.join(' · ');
   el.hidden = false;
 }
 
@@ -305,32 +308,17 @@ function honorIntentDeepLink(d) {
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
-// The sidecar (C# backend) is spawned at app start and takes a moment to bind.
-// If the first load races ahead of it, fetch throws "sidecar not ready" — so we
-// retry a few times with backoff before surfacing an error. This makes a cold
-// start self-heal instead of showing "Couldn't load the dashboard."
+// Electron waits for the sidecar to answer before it loads the shell, so a
+// failed load is a real error: show it rather than retrying.
 let _loading = false;
 async function loadDashboard() {
   if (_loading) return;
   _loading = true;
-  const maxAttempts = 25;       // ~25 × 400ms ≈ 10s of startup grace
   try {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const data = await fetchDashboard();
-        render(data);
-        return;
-      } catch (err) {
-        const transient = /sidecar not ready|not ready|connection refused|failed to fetch/i.test(String(err));
-        if (transient && attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 400));
-          continue;
-        }
-        renderError(err);
-        console.error('[dashboard] load failed:', err);
-        return;
-      }
-    }
+    render(await fetchDashboard());
+  } catch (err) {
+    renderError(err);
+    console.error('[dashboard] load failed:', err);
   } finally {
     _loading = false;
   }
@@ -572,7 +560,8 @@ function openEndBlockEditor(cta) {
 //                rendered on the dashboard.
 // open_review  = clicking a whole unreviewed row (→ review page, deferred).
 // review_vod   = the separate VOD-evidence hint (→ vod viewer, deferred).
-const ACTIONS = new Set(['start_block', 'end_block', 'run_reset', 'skip_review', 'review_vod', 'take_next_step', 'open_review']);
+// end_stint    = End stint beside the coaching stint line → invoke('end_stint'), reload.
+const ACTIONS = new Set(['start_block', 'end_block', 'run_reset', 'skip_review', 'review_vod', 'take_next_step', 'open_review', 'end_stint']);
 
 // Nav-only stubs: no backend command yet.
 const DEFERRED = new Set(['take_next_step']);
@@ -625,6 +614,8 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
+  if (action === 'end_stint' && !window.confirm('End this coaching stint? Its sessions keep their history.')) return;
+
   const invoke = await getInvoke();
   if (!invoke) {
     // Browser preview: no backend to talk to. Acknowledge the click in console.
@@ -638,8 +629,8 @@ document.addEventListener('click', async (ev) => {
   const canDisable = 'disabled' in target;
   if (canDisable) target.disabled = true;
   try {
-    // Only GROUP A write commands (run_reset, skip_review) reach this dynamic
-    // site — start_block / open_review / review_vod / deferred return earlier —
+    // Only GROUP A write commands (run_reset, skip_review, end_stint) reach this
+    // dynamic site — start_block / open_review / review_vod / deferred return earlier —
     // so every command here takes a single `payload` arg. Wrap accordingly.
     await invoke(action, { payload: args });
     await loadDashboard();

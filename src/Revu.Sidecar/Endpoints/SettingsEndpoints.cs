@@ -192,7 +192,6 @@ public static partial class SidecarEndpoints
             }
             if (body.TiltFixMode is not null) cfg.TiltFixMode = body.TiltFixMode.Value;
             if (body.RequireReviewNotes is not null) cfg.RequireReviewNotes = body.RequireReviewNotes.Value;
-            if (body.SidebarAnimationEnabled is not null) cfg.SidebarAnimationEnabled = body.SidebarAnimationEnabled.Value;
             // Window size: null/blank = unchanged; "default" stores "" (built-in size);
             // "maximized" / "WxH" store as-is; garbage is rejected (unchanged).
             if (ConfigSaveGuards.TryResolveWindowResolution(body.WindowResolution, out var windowRes)) cfg.WindowResolution = windowRes;

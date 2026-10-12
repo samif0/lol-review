@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const outer = await readFile(new URL('../ui/shell-outer.js', import.meta.url), 'utf8');
-const standalone = await readFile(new URL('../ui/shell.js', import.meta.url), 'utf8');
 class CustomEvent { constructor(type, options) { this.type = type; this.detail = options.detail; } }
 
 // Run the real subscription callback of the persistent shell against one framed page.
@@ -36,23 +35,6 @@ test('narration and share progress events reach only the VOD player frame, uncha
     if (page !== 'vodplayer.html') { assert.equal(shell.events.length, 0, page); continue; }
     assert.deepEqual(shell.events.map(event => event.type), ['revu:clip-narration-updated', 'revu:clip-share-progress']);
     assert.deepEqual(shell.events.map(event => event.detail), [narration, share]);
-  }
-});
-
-test('a standalone VOD player forwards the same two events to itself', async () => {
-  // shell.js resolves pages from its own location; a VOD page receives both events.
-  const code = standalone.slice(standalone.indexOf('async function wireLiveAutoShow()'), standalone.indexOf('\nif (!FRAMED) wireLiveAutoShow();'));
-  for (const page of ['vodplayer.html', 'review.html']) {
-    const events = [];
-    let callback;
-    const context = vm.createContext({ window: { location: { pathname: `/${page}` }, dispatchEvent: event => events.push(event) },
-      getInvoke: async () => async () => {}, getListen: async () => async (_name, listener) => { callback = listener; }, CustomEvent });
-    vm.runInContext(`${code}\nglobalThis.ready = wireLiveAutoShow();`, context);
-    await context.ready;
-    callback({ payload: { type: 'clipShareProgress', payload: { bookmarkId: 1, phase: 'done' } } });
-    callback({ payload: { type: 'clipNarrationUpdated', payload: { bookmarkId: 1 } } });
-    assert.deepEqual(events.map(event => event.type), page === 'vodplayer.html'
-      ? ['revu:clip-share-progress', 'revu:clip-narration-updated'] : [], page);
   }
 });
 

@@ -64,7 +64,6 @@ public sealed class ConfigSnapshotBuilder
             BackupFolder: cfg.BackupFolder ?? "",
             TiltFixMode: cfg.TiltFixMode,
             RequireReviewNotes: cfg.RequireReviewNotes,
-            SidebarAnimationEnabled: cfg.SidebarAnimationEnabled,
             WindowResolution: cfg.WindowResolution ?? "",
             MinimizeDuringGame: cfg.MinimizeDuringGame,
             AutoTimelineClippingEnabled: cfg.AutoTimelineClippingEnabled,
@@ -99,7 +98,6 @@ public sealed record ConfigDto(
     // NOTE name mismatch (mirror WinUI): config.TiltFixMode <- VM TiltFixEnabled.
     bool TiltFixMode,
     bool RequireReviewNotes,
-    bool SidebarAnimationEnabled,
     // Main-window size: "" = built-in default (1600x1000), "maximized", or "WxH".
     // Applied by the Electron host on launch + live on Settings save.
     string WindowResolution,

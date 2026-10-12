@@ -7,7 +7,6 @@ import vm from 'node:vm';
 // page's request deadline. The UI treats a deadline as "still working" and picks the result
 // up from SSE (auto-clip) or by asking again, which joins the same download.
 const outer = await readFile(new URL('../ui/shell-outer.js', import.meta.url), 'utf8');
-const standalone = await readFile(new URL('../ui/shell.js', import.meta.url), 'utf8');
 const player = await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8');
 class CustomEvent { constructor(type, options) { this.type = type; this.detail = options.detail; } }
 const timeout = () => new Error("Error invoking remote method 'revu:command': TimeoutError: The operation was aborted due to timeout");
@@ -34,22 +33,6 @@ test('auto-clip progress reaches only the VOD player frame, unchanged', async ()
     shell.emit('autoClipProgress', progress);
     if (page !== 'vodplayer.html') { assert.equal(shell.events.length, 0, page); continue; }
     assert.deepEqual(shell.events.map(event => [event.type, event.detail]), [['revu:auto-clip-progress', progress]]);
-  }
-});
-
-test('a standalone VOD player forwards auto-clip progress to itself too', async () => {
-  const code = standalone.slice(standalone.indexOf('async function wireLiveAutoShow()'), standalone.indexOf('\nif (!FRAMED) wireLiveAutoShow();'));
-  const progress = { gameId: 42, batch: 'b1', finished: true, ok: true, created: 3 };
-  for (const page of ['vodplayer.html', 'review.html']) {
-    const events = [];
-    let callback;
-    const context = vm.createContext({ window: { location: { pathname: `/${page}` }, dispatchEvent: event => events.push(event) },
-      getInvoke: async () => async () => {}, getListen: async () => async (_name, listener) => { callback = listener; }, CustomEvent });
-    vm.runInContext(`${code}\nglobalThis.ready = wireLiveAutoShow();`, context);
-    await context.ready;
-    callback({ payload: { type: 'autoClipProgress', payload: progress } });
-    assert.deepEqual(events.map(event => [event.type, event.detail]),
-      page === 'vodplayer.html' ? [['revu:auto-clip-progress', progress]] : [], page);
   }
 });
 

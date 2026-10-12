@@ -152,6 +152,14 @@ public interface IGameHistoryQuery
     /// </summary>
     Task<int> GetReviewedCountAsync();
 
+    /// <summary>Games, wins and reviewed games across the whole visible library,
+    /// remakes excluded (the Match library stat strip).</summary>
+    Task<GameLibraryTotals> GetLibraryTotalsAsync();
+
+    /// <summary>Ranked and manual games removed from history (hidden), newest
+    /// first, for the Match library's Removed view.</summary>
+    Task<List<GameStats>> GetRemovedGamesAsync(int limit = 200);
+
     /// <summary>Get ranked/normal games played today.</summary>
     Task<List<GameStats>> GetTodaysGamesAsync();
 

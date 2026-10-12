@@ -176,7 +176,7 @@ function registerIpc() {
   ipcMain.handle('revu:window', (event, action) => {
     validateSender(event, window.webContents);
     switch (action) {
-      case 'minimize': window.minimize(); break;
+      case 'minimize': if (window.isVisible()) window.minimize(); break; // never re-show a tray-hidden window
       case 'toggleMaximize': window.isMaximized() ? window.unmaximize() : window.maximize(); break;
       case 'close': window.close(); break;
       case 'unminimize': window.restore(); break;

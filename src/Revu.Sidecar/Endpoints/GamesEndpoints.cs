@@ -20,9 +20,9 @@ public static partial class SidecarEndpoints
             return Results.Json(snapshot, jsonOptions);
         });
 
-        // ── GET /api/games[?view=queue|today|history|vod][&page=N] (token-gated) ─────
-        // Read-only games-workspace snapshot. view selects one of the four list views
-        // (Queue=unreviewed 14d / Today / History / VOD-on-disk); unknown/missing →
+        // ── GET /api/games[?view=queue|today|history|vod|removed][&page=N] (token-gated) ─────
+        // Read-only games-workspace snapshot. view selects one of the five list views
+        // (Queue=unreviewed 14d / Today / History / VOD-on-disk / Removed); unknown/missing →
         // queue. page is the zero-based History page (offset page*30); ignored by the
         // single-shot views. hasMore is true only on History when more pages remain.
         app.MapGet("/api/games", async (string? view, int? page, GamesSnapshotBuilder builder, CancellationToken ct) =>
@@ -109,7 +109,7 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
-        // GET /api/stint — the active stint + block counts for the Settings stint card.
+        // GET /api/stint — the active stint + block counts (get_stint; Home reads the stint from its snapshot).
         // READ-only; no backup guard. Uses the WRITE-graph stints repo (its read
         // methods are plain SELECTs — same precedent as GET /api/objectives/active).
         // stint is null when none is running.
@@ -213,6 +213,26 @@ public static partial class SidecarEndpoints
                 }
             }
             return Results.Json(new { ok = true, backupPath }, jsonOptions);
+        });
+
+        // POST /api/game/hide  { gameId, hidden } — Match library "Remove from history".
+        // A soft hide with Undo, never a delete: every row tied to the game stays, and
+        // is_hidden keeps it out of every list, count, streak and the review queue
+        // (CasualFilter / VisibleGamesJoin). A hard stop that only held because of
+        // this game is re-checked, as for a remake.
+        app.MapPost("/api/game/hide", async (GameHiddenBody body, WriteServices w, HardStopEnforcer hardStop,
+            ILogger<Program> log) =>
+        {
+            if (body is null || body.GameId <= 0)
+                return Results.BadRequest(new { error = "gameId required" });
+            if (await w.Games.GetAsync(body.GameId) is null)
+                return Results.NotFound(new { error = "game not found" });
+            await w.BackupGuard.EnsureBackedUpAsync();
+            await w.Games.SetHiddenAsync(body.GameId, body.Hidden);
+            try { await hardStop.ReevaluateAsync(); }
+            catch (Exception ex) { log.LogDebug(ex, "Hard stop re-evaluation after hiding game {GameId} failed", body.GameId); }
+            log.LogInformation("Game {GameId} {Change} the Match library", body.GameId, body.Hidden ? "removed from" : "restored to");
+            return Results.Json(new { ok = true, gameId = body.GameId, hidden = body.Hidden }, jsonOptions);
         });
 
         // POST /api/game/manual — write a manual game row + log it + record objective
