@@ -17,10 +17,12 @@ export function validateHandshake(value, { launchId, processId, dataDirectory })
 
 // One authenticated request to the owned backend. A rejected request carries the
 // HTTP status so callers can tell a definitive refusal from a lost response.
-export async function backendRequest(hs, route, { method = 'GET', body, timeoutMs = 10000 } = {}) {
+// Aborting `signal` disconnects, which the backend sees as the request being cancelled.
+export async function backendRequest(hs, route, { method = 'GET', body, timeoutMs = 10000, signal } = {}) {
   if (!route.startsWith('/api/') || route.includes('#')) throw new Error('Invalid backend route');
+  const timeout = AbortSignal.timeout(timeoutMs);
   const response = await fetch(`http://127.0.0.1:${hs.port}${route}`, {
-    method, redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
+    method, redirect: 'error', signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
     headers: { Authorization: `Bearer ${hs.token}`, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -74,7 +76,7 @@ const quiet = Object.freeze({ info() {}, warn() {}, error() {} });
 
 // A failed write is never retried: losing its response does not mean it failed.
 export class Sidecar {
-  #child; #handshake; #stopping = false; #ready = false; #stopPromise;
+  #child; #handshake; #stopping = false; #ready = false; #stopPromise; #requests = new AbortController();
   constructor({ dataRoot, executable, isolated = false, onExit = () => {}, onPreparing = () => {}, log = quiet, stderrLog = null,
     preparingTimeoutMs = 10 * 60_000, spawnProcess = spawn }) {
     this.dataRoot = dataRoot;
@@ -167,7 +169,17 @@ export class Sidecar {
     const hs = this.#handshake;
     if (!hs) throw new Error('Sidecar unavailable');
     if (!route.startsWith('/api/') || route.includes('#')) throw new Error('Invalid backend route');
-    return backendRequest(hs, route, options);
+    return backendRequest(hs, route, { ...options, signal: this.#requests.signal });
+  }
+  /**
+   * Abort every request still in flight. Quit calls this for long jobs it stopped
+   * waiting on: the backend sees the disconnect, stops ffmpeg or the backfill through
+   * the request's cancellation, and keeps nothing partial. Later requests are unaffected.
+   */
+  cancelRequests() {
+    const inFlight = this.#requests;
+    this.#requests = new AbortController();
+    inFlight.abort();
   }
   async events(signal, onEvent) {
     while (!signal.aborted) {

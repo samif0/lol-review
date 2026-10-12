@@ -131,4 +131,7 @@ test('an already-exited failing child cannot pass shutdown as successful', async
   assert.doesNotThrow(() => requireCleanBackendExit({ exitCode: 0, signalCode: null }, true));
   assert.throws(() => requireCleanBackendExit({ exitCode: null, signalCode: 'SIGTERM' }, true), /did not finish cleanly/);
   assert.throws(() => requireCleanBackendExit({ exitCode: 0, signalCode: null }, true, true), /did not finish cleanly/);
+  // Only an exit the host forced is marked, so quit can tell it from a backend reporting a failed drain.
+  assert.throws(() => requireCleanBackendExit({ exitCode: null, signalCode: 'SIGTERM' }, true, true), error => error.forced === true);
+  assert.throws(() => requireCleanBackendExit(child, true), error => error.forced === false);
 });

@@ -123,6 +123,21 @@ test('a backend that exits during startup leaves its stderr and exit code in the
   } finally { await rm(base, { recursive: true, force: true }); }
 });
 
+test('cancelling a request reaches the backend as a disconnect before any reply', async () => {
+  let arrived, closed;
+  const received = new Promise(resolve => { arrived = resolve; });
+  const disconnected = new Promise(resolve => { closed = resolve; });
+  const { server, hs } = await serve((req, res) => { req.resume(); arrived(); res.on('close', () => closed(res.writableEnded)); });
+  try {
+    const controller = new AbortController();
+    const extract = backendRequest(hs, '/api/clip/extract', { method: 'POST', body: {}, timeoutMs: 280_000, signal: controller.signal });
+    await received;
+    controller.abort();
+    await assert.rejects(extract, error => error.name === 'AbortError' && error.status === undefined);
+    assert.equal(await disconnected, false, 'the backend saw the client leave without a reply');
+  } finally { server.close(); }
+});
+
 // A stand-in for the backend process: the test drives its handshake and exit.
 function fakeProcess(onSpawn) {
   const children = [];
@@ -161,4 +176,41 @@ test('an announced upgrade gets a longer but finite wait, then the backend is en
     assert.equal(preparing, 1);
     assert.equal(children[0].signalCode, 'SIGTERM', 'a stuck upgrade cannot leave the backend running');
   } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test('quit cancels abandoned requests, then still stops the backend gracefully', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'Revu.SidecarCancel.'));
+  let child, extractArrived, extractClosed;
+  const extractReceived = new Promise(resolve => { extractArrived = resolve; });
+  const extractDisconnected = new Promise(resolve => { extractClosed = resolve; });
+  const routes = [];
+  const { server, hs } = await serve((req, res) => {
+    routes.push(req.url);
+    req.resume();
+    const json = value => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
+    if (req.url === '/api/host') json({ apiVersion: 1, launchId: child.launchId, processId: child.pid,
+      dataDirectory: path.join(child.root, 'LoLReviewData') });
+    else if (req.url === '/api/health') json({ status: 'ready' });
+    else if (req.url === '/api/clip/extract') { extractArrived(); res.on('close', () => extractClosed(res.writableEnded)); }
+    else if (req.url === '/api/host/shutdown') { json({ ok: true }); setImmediate(() => child.exit(0)); }
+    else { res.writeHead(404); res.end(); }
+  });
+  try {
+    const { spawnProcess } = fakeProcess(async (spawned, env) => {
+      child = Object.assign(spawned, { launchId: env.REVU_HOST_LAUNCH_ID, root: env.REVU_DATA_ROOT });
+      await writeHandshake(env, { apiVersion: 1, launchId: env.REVU_HOST_LAUNCH_ID, processId: spawned.pid,
+        dataDirectory: path.join(env.REVU_DATA_ROOT, 'LoLReviewData'), port: hs.port, token: hs.token });
+    });
+    const sidecar = new Sidecar({ dataRoot: base, executable: path.join(base, 'Revu.Sidecar.exe'), spawnProcess });
+    await sidecar.start();
+    const extract = sidecar.request('/api/clip/extract', { method: 'POST', body: {}, timeoutMs: 280_000 });
+    await extractReceived;
+    sidecar.cancelRequests();
+    await assert.rejects(extract, error => error.name === 'AbortError');
+    assert.equal(await extractDisconnected, false);
+    await sidecar.stop();
+    assert.equal(child.exitCode, 0);
+    assert.equal(child.signalCode, null, 'the shutdown request itself was not cancelled');
+    assert.deepEqual(routes, ['/api/host', '/api/health', '/api/clip/extract', '/api/host/shutdown']);
+  } finally { server.close(); await rm(base, { recursive: true, force: true }); }
 });

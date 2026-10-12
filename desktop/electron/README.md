@@ -56,7 +56,7 @@ changes. The backend independently validates isolated storage and copied config.
 
 The main process owns exactly one sidecar. Shutdown fences new commands, lets
 submitted HTTP requests finish under their existing deadlines (long jobs such as
-a backfill are waited on for at most 35 seconds and logged), and asks the
+a backfill are waited on for at most 35 seconds, then logged and cancelled), and asks the
 backend to drain background writes and release its database lease. A sidecar
 that announced a schema upgrade gets 10 minutes instead of the 20-second startup
 deadline; a login launch stays hidden unless the upgrade runs long. Only its own

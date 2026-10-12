@@ -21,7 +21,8 @@ let window, backend, eventAbort, configuration, native, afterShutdown, splash, p
 let recording, background, recorderReady = false, recorderAttached = false, recordingPrepared = false;
 let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
-let backendCrashed = false, restartAfterFailure = false, recovering = false, framePage = '';
+// abandonedWork: quit cancelled a long job, so its backend may need to be ended.
+let backendCrashed = false, restartAfterFailure = false, recovering = false, abandonedWork = false, framePage = '';
 const media = new MediaRegistry();
 const packageEvents = [];
 const pendingCommands = new Set();
@@ -64,10 +65,15 @@ protocol.registerSchemesAsPrivileged([
 async function shutdown() {
   // Submitted writes, including final pagehide drafts, retain their own HTTP
   // timeouts. Closing the window never retries or cancels an accepted write;
-  // only long jobs can outlast the drain bound, and those are logged.
+  // only long jobs can outlast the drain bound. Those are logged and cancelled, so
+  // the backend stops them (ffmpeg, backfill) and saves nothing partial.
   await shutdownOwnedApp({ pendingCommands, drainTimeoutMs: QUIT_DRAIN_MS,
-    onAbandoned: remaining => hostLog.warn('Closing without waiting for: '
-      + remaining.map(operation => commandNames.get(operation) || 'command').join(', ')),
+    onAbandoned: remaining => {
+      abandonedWork = true;
+      hostLog.warn('Closing without waiting for: '
+        + remaining.map(operation => commandNames.get(operation) || 'command').join(', ') + '; cancelling them');
+      backend?.cancelRequests();
+    },
     abortEvents: () => eventAbort?.abort(), releaseMedia: () => media.clear(),
     stopBackend: async () => {
       try { await recording?.shutdown(); }
@@ -98,8 +104,9 @@ app.on('before-quit', createQuitHandler({
     process.exitCode = 1;
     hostLog.error('Revu could not finish closing', error);
     // After a backend crash its unclean stop is expected; the user already chose.
+    // Ending a backend that was still stopping a cancelled long job is logged above.
     if (restartAfterFailure) relaunch();
-    else if (!backendCrashed && !configuration?.smoke)
+    else if (!backendCrashed && !(abandonedWork && error?.forced) && !configuration?.smoke)
       dialog.showErrorBox('Revu could not finish closing', String(error?.message || error));
   },
   exit: () => { hostLog.info(`Revu exited (code ${process.exitCode || 0})`); app.exit(process.exitCode || 0); },
