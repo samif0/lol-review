@@ -12,8 +12,9 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// Game-end durability: a slow end-of-game capture still saves the game, a failed or missed
-/// capture recovers the tracked game from match history with its live timeline, and a League
-/// client drop never throws the timeline away.
+/// capture recovers the tracked game from match history with its live timeline, a League
+/// client drop never throws the timeline away, and one game's id or timeline never reaches
+/// the next game.
 /// </summary>
 public sealed partial class GameMonitorServiceTests
 {
@@ -350,5 +351,50 @@ public sealed partial class GameMonitorServiceTests
         await service.TickOnceAsync();
 
         Assert.Equal(captured ? 1 : 0, capture.Calls);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AGameWhoseStartWasMissed_NeverTakesThePreviousGamesIdOrTimeline(bool captured)
+    {
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var live = new FakeLiveEventApi { Available = true, Events = [Kill(100)] };
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, CurrentGameId = 8600,
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress]),
+        };
+        var capture = new FakeGameEndCaptureService(); // game P: the EOG stats never arrive
+        var history = new FakeMatchHistoryReconciliationService(); // ...and match history lags
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger, capture, history, live);
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await WaitUntilAsync(() => live.EventFetches > 0, "the collector read game P's kill feed");
+        lcu.Phases = new([GamePhase.EndOfGame, GamePhase.Lobby]);
+        await service.TickOnceAsync(); // P is deferred; its timeline waits in the store
+        await service.TickOnceAsync(); // Lobby: match history does not list P yet
+        Assert.Equal(8600, Assert.Single(collector.CaptureDeferred).GameId);
+
+        // Game C: the client was unreachable from its champ select to its end, so the monitor
+        // goes from the lobby straight to C's end-of-game screen.
+        lcu.CurrentGameId = 8700;
+        lcu.Phases = new([GamePhase.EndOfGame]);
+        capture.Result = captured ? TestGameStatsFactory.Create(8700) : null;
+        await service.TickOnceAsync();
+
+        Assert.DoesNotContain(capture.LastEvents, e => e.EventType == GameEvent.EventTypes.Kill);
+        if (captured)
+        {
+            var ended = Assert.Single(collector.GameEnded);
+            Assert.Equal(8700, ended.Stats.GameId);
+            Assert.Empty(KillTimes(ended.Stats));
+        }
+        else
+        {
+            Assert.Equal([8600L, 8700L], collector.CaptureDeferred.Select(m => m.GameId));
+        }
     }
 }

@@ -384,6 +384,9 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
         _state.GameInProgressNotified = false;
         _state.GameStartedNotified = false;
         _collectorStoppedUnseen = false;
+        // A new game: its id is read when it starts or ends, never carried over from the
+        // last one (a collector still reading its game keeps that game's id).
+        if (_eventCollector is null) _captureGameId = 0;
 
         var modeLabel = _state.CurrentGameIsCasual ? "casual" : "ranked/normal";
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);

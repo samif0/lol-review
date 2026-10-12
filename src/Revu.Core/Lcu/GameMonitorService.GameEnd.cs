@@ -90,12 +90,14 @@ public sealed partial class GameMonitorService
         _processingReport = null;
 
         // The game id the collector read at game start; the post-game session still carries
-        // it when that lookup failed.
-        if (_captureGameId <= 0)
-        {
-            _captureGameId = await TryGetCurrentGameIdAsync(cancellationToken).ConfigureAwait(false);
-        }
-        var gameId = _captureGameId;
+        // it when that lookup failed, or when the monitor missed the game's start.
+        var gameId = _captureGameId > 0
+            ? _captureGameId
+            : await TryGetCurrentGameIdAsync(cancellationToken).ConfigureAwait(false);
+        // Used up: the next game reads its own id, so a game whose start the monitor
+        // missed never takes this game's id (and with it this game's stored timeline).
+        _captureGameId = 0;
+
         if (gameId > 0)
         {
             // Never replaces a stored timeline with an empty one (a second game-end pass,
@@ -459,9 +461,10 @@ public sealed partial class GameMonitorService
         // The game is over as far as the monitor can tell: re-arm the one-shots.
         _state.GameInProgressNotified = false;
         _state.GameStartedNotified = false;
+        var gameId = _captureGameId;
+        _captureGameId = 0;
         if (_state.CurrentGameIsCasual) return;
 
-        var gameId = _captureGameId;
         if (gameId > 0)
         {
             StorePendingEvidence(gameId, events, report, roster);
