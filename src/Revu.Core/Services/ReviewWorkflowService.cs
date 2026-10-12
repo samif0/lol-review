@@ -224,10 +224,10 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 WentWell = request.Snapshot.WentWell.Trim(),
                 FocusNext = request.Snapshot.FocusNext.Trim(),
                 SpottedProblems = request.Snapshot.SpottedProblems.Trim(),
-                OutsideControl = request.Snapshot.OutsideControl?.Trim() ?? existingGame?.OutsideControl ?? "",
-                WithinControl = request.Snapshot.WithinControl?.Trim() ?? existingGame?.WithinControl ?? "",
+                OutsideControl = request.Snapshot.OutsideControl?.Trim() ?? existingGame.OutsideControl ?? "",
+                WithinControl = request.Snapshot.WithinControl?.Trim() ?? existingGame.WithinControl ?? "",
                 Attribution = request.Snapshot.Attribution.Trim(),
-                PersonalContribution = request.Snapshot.PersonalContribution?.Trim() ?? existingGame?.PersonalContribution ?? "",
+                PersonalContribution = request.Snapshot.PersonalContribution?.Trim() ?? existingGame.PersonalContribution ?? "",
             };
 
             // improvement_note: null → keep the stored note (LogGameAsync writes it
