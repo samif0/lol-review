@@ -363,7 +363,7 @@ html.framed .shell{padding-left:40px}
 
 /* ── data-driven additions (not in mockup body): error panel ── */
 .errpanel{border-color:rgba(var(--neutral-rgb),0.45);background:rgba(var(--neutral-rgb),0.06)}
-.errpanel .vline{color:var(--loss)}
+.errpanel .vline{color:var(--error)}
 
 /* ── GAMES PAGE ──────────────────────────────────────────────────────────────
    Page-specific classes ONLY. Reuses the shared kit: .glass / .primary (queue
@@ -621,7 +621,7 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 .obj-evtpill.on::before{opacity:1;box-shadow:0 0 7px -1px var(--evt)}
 @media(prefers-reduced-motion:reduce){.obj-evtpill{transition:color .16s ease,background .16s ease,border-color .16s ease}}
 
-.obj-form-err{font-family:var(--fb);font-size:12px;color:var(--loss);line-height:1.45}
+.obj-form-err{font-family:var(--fb);font-size:12px;color:var(--error);line-height:1.45}
 .obj-form-act{display:flex;justify-content:flex-end;gap:9px;margin-top:4px}
 .obj-form-submit{margin-top:0;align-self:auto;font-size:11px;padding:11px 22px}
 .obj-ghost{font-family:var(--fm);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--t3);
@@ -872,7 +872,7 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 .rv-deletebtn:hover{color:#fff;background:rgba(var(--neutral-rgb),0.14);border-color:rgba(var(--neutral-rgb),0.55)}
 .rv-deletebtn:disabled{opacity:0.55;cursor:default}
 .rv-commit-msg.ok{color:var(--win)}
-.rv-commit-msg.err{color:var(--loss)}
+.rv-commit-msg.err{color:var(--error)}
 /* Skip's two-tap confirm state — the first tap arms it (loss tint) so the
    irreversible no-notes commit is never one misclick away from Save. */
 .rv-skipbtn.rv-skip-confirm{color:var(--loss);border-color:rgba(var(--neutral-rgb),0.55)}
@@ -1297,7 +1297,7 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 .tc-cancelbtn:disabled{opacity:0.5;cursor:default}
 .tc-ritual-msg{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--t3)}
 .tc-ritual-msg.ok{color:var(--win)}
-.tc-ritual-msg.err{color:var(--loss)}
+.tc-ritual-msg.err{color:var(--error)}
 
 /* ── 5-STEP WIZARD chrome (progress / nav / menus / breathing / before-after) ── */
 /* progress dots */
@@ -1426,8 +1426,8 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 .pat-mstrip{display:flex;align-items:center;gap:12px;padding:13px 16px;position:relative}
 .pat-rtag{font-family:var(--fm);font-size:9px;font-weight:700;letter-spacing:1px;padding:4px 9px;border-radius:7px;flex-shrink:0;
   border:1px solid currentColor;background:rgba(255,255,255,0.03)}
-.pat-rtag.loss{color:var(--loss)}
-.pat-rtag.win{color:var(--win)}
+.pat-rtag.loss{color:var(--result-loss)}
+.pat-rtag.win{color:var(--result-win)}
 .pat-mstrip .pat-mtitle{flex:1;min-width:0;font-size:14px;font-weight:600;color:#fff;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pat-mstrip .pat-glabel{font-family:var(--fm);font-size:10px;letter-spacing:0.5px;color:var(--gold);flex-shrink:0}
@@ -1887,9 +1887,9 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .vp-autoclip-btn:active:not(:disabled){transform:translateY(0);transition-duration:.06s}
 .vp-autoclip-btn:disabled{opacity:0.62;cursor:default;transform:none;filter:none}
 .vp-autoclip-meta{font-family:var(--fm);font-size:9.5px;letter-spacing:0.25px;color:var(--t3);line-height:1.35}
-.vp-autoclip-meta.err{color:var(--loss)}
+.vp-autoclip-meta.err{color:var(--error)}
 .vp-clip-hint{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--win);margin-top:7px;line-height:1.4}
-.vp-clip-hint.err{color:var(--loss)}
+.vp-clip-hint.err{color:var(--error)}
 
 /* ── MOMENTS INBOX (right) ── */
 .vp-moments-card{padding:16px 18px}
@@ -1940,7 +1940,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 #vp-bm-add:disabled{opacity:0.6;cursor:default;transform:none;filter:none}
 .mini .keycap{margin-left:6px;font-size:9px;padding:1px 6px}
 .vp-bm-hint{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--win);margin-top:2px}
-.vp-bm-hint.err{color:var(--loss)}
+.vp-bm-hint.err{color:var(--error)}
 
 /* ── Timeline corrections panel (v3.11, vodcorrections.js) ── */
 .vp-fix-keys{font-family:var(--fm);font-size:9px;letter-spacing:0.3px;color:var(--t4);line-height:1.5;margin-bottom:8px;position:relative}
@@ -2032,7 +2032,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
   background:rgba(var(--primary-rgb),0.10)}
 .vp-share-btn.is-uploading{color:var(--primary-ink);border-color:rgba(var(--primary-rgb),0.7);
   background:linear-gradient(180deg,var(--primary),var(--gold));box-shadow:0 8px 18px -10px rgba(var(--primary-rgb),0.8)}
-.vp-share-btn.is-error{color:var(--loss);border-color:rgba(var(--neutral-rgb),0.58);
+.vp-share-btn.is-error{color:var(--error);border-color:rgba(var(--neutral-rgb),0.58);
   background:rgba(var(--neutral-rgb),0.10)}
 /* Shared state — calm green confirmation, no longer the loud gold CTA. */
 .vp-share-btn.is-shared{color:var(--win);border-color:rgba(var(--primary-rgb),0.45);
@@ -2057,7 +2057,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:all;cursor:text}
 .vp-share-url.is-status{color:var(--t3);border-color:var(--gline2);background:rgba(255,255,255,0.04);
   cursor:default;user-select:none}
-.vp-share-url.err{color:var(--loss);border-color:rgba(var(--neutral-rgb),0.48);background:rgba(var(--neutral-rgb),0.10)}
+.vp-share-url.err{color:var(--error);border-color:rgba(var(--neutral-rgb),0.48);background:rgba(var(--neutral-rgb),0.10)}
 
 /* ── Login-to-share panel (email → OTP) ──
    Rendered as a CENTERED POPOVER (fixed, column-agnostic) so it appears in the
@@ -2084,7 +2084,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
   background:linear-gradient(180deg,var(--primary),var(--accent));border-color:transparent;
   transition:transform .16s cubic-bezier(0.22,1,0.36,1),filter .16s ease}
 .vp-sharelogin .addbtn:hover{transform:translateY(-1px);filter:brightness(1.06)}
-.vp-sl-err{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--loss);line-height:1.4}
+.vp-sl-err{font-family:var(--fm);font-size:10px;letter-spacing:0.3px;color:var(--error);line-height:1.4}
 
 /* ════════════════════════════════════════════════════════════════════════════
    OBJECTIVE-FRAMED VIEWER — the VOD page opens framed on ONE objective at a time
@@ -2182,7 +2182,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .vp-objclip-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 18px -8px rgba(var(--primary-rgb),0.7)}
 .vp-objclip-btn:disabled{opacity:0.6;cursor:wait}
 .vp-objclip-hint{font-family:var(--fb);font-size:8.5px;color:var(--t4);margin-top:5px;text-align:center}
-.vp-objclip-hint.err{color:var(--loss)}
+.vp-objclip-hint.err{color:var(--error)}
 
 /* Dimmed timeline ticks — every event NOT tied to the focused objective collapses
    to a faint short tick (still click-to-seek; code shows on hover via .evbar-nolabel).
@@ -2259,7 +2259,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .set-card .seclabel{margin-bottom:2px}
 .set-status{font-family:var(--fb);font-size:12px;color:var(--t4);line-height:1.45}
 .set-status.good{color:var(--win)}
-.set-status.bad{color:var(--loss)}
+.set-status.bad{color:var(--error)}
 .set-status[hidden]{display:none}
 
 /* Inline button row inside a settings card (Browse / Scan / Export / Refresh).
@@ -2340,7 +2340,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .set-saverow{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-top:18px}
 .set-savestatus{font-family:var(--fm);font-size:11px;letter-spacing:0.4px;color:var(--t3);margin-right:auto}
 .set-savestatus.good{color:var(--win)}
-.set-savestatus.bad{color:var(--loss)}
+.set-savestatus.bad{color:var(--error)}
 .set-spacer{height:28px}
 
 @media (prefers-reduced-motion: reduce){
@@ -2368,7 +2368,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .bracket-blue .seclabel{color:var(--accent)}
 
 .me-form{display:flex;flex-direction:column;gap:14px;max-width:700px}
-.me-error{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--loss)}
+.me-error{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--error)}
 
 /* CHAMPION + RESULT + KDA header card */
 .me-headrow{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
@@ -2381,8 +2381,8 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .me-result{display:flex;gap:16px}
 .me-radio{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:var(--fb);font-size:13px;font-weight:600}
 .me-radio input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
-.me-radio .rwin{color:var(--win)}
-.me-radio .rloss{color:var(--loss)}
+.me-radio .rwin{color:var(--result-win)}
+.me-radio .rloss{color:var(--result-loss)}
 .me-kda{display:flex;align-items:flex-start;gap:9px}
 .me-kda-cell{display:flex;flex-direction:column;align-items:center;gap:5px}
 .me-num{width:54px;height:46px;text-align:center;font-family:var(--fo);font-size:21px;font-weight:700;color:#fff;
@@ -2531,7 +2531,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 
 /* Shared footer — inline error + busy spinner. */
 .onb-foot{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:16px}
-.onb-error{font-family:var(--fb);font-size:13px;color:var(--loss);text-align:center;line-height:1.4;
+.onb-error{font-family:var(--fb);font-size:13px;color:var(--error);text-align:center;line-height:1.4;
   text-shadow:var(--tsh)}
 .onb-spin{width:24px;height:24px;border-radius:50%;border:2px solid rgba(var(--primary-rgb),0.25);
   border-top-color:var(--accent);animation:onb-spin 0.8s linear infinite}
@@ -2762,7 +2762,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 /* Copy feedback — flashButton() swaps the label and adds ok / err for a beat
    on the hero COPY ALL (.mj-btn-last) and the per-card Copy (.mj-act). */
 .mj-btn-last.ok,.mj-act.ok{color:var(--win);border-color:rgba(var(--primary-rgb),0.55)}
-.mj-btn-last.err,.mj-act.err{color:var(--loss);border-color:rgba(var(--neutral-rgb),0.55)}
+.mj-btn-last.err,.mj-act.err{color:var(--error);border-color:rgba(var(--neutral-rgb),0.55)}
 
 /* CREATE / EDIT FORM — blue-rimmed glass panel (reuses .obj-form-* layout).
    Lane select capped so it doesn't stretch; the champion grid is your side
@@ -2835,7 +2835,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 .mj-saved{font-family:var(--fm);font-size:8.5px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:var(--win)}
 .mj-saved[hidden]{display:none}
 /* Inline save failure — loss-tinted line under the notes; the text stays put. */
-.mj-card-err{font-family:var(--fb);font-size:12px;color:var(--loss);line-height:1.45;margin-top:8px}
+.mj-card-err{font-family:var(--fb);font-size:12px;color:var(--error);line-height:1.45;margin-top:8px}
 .mj-card-err[hidden]{display:none}
 
 /* EMPTY STATE — calm, centered (no cards at all). */
@@ -2862,7 +2862,13 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
   --glass:var(--surface);--glass2:var(--surface-raised);--gline:var(--border);--gline2:var(--border);
   --font-ui:'Segoe UI',system-ui,sans-serif;
   --fo:var(--font-ui);--fb:var(--font-ui);--fm:var(--font-ui);
-  --font-caption:12px;--font-small:13px;--font-control:14px;--font-body:15px;
+  /* Meaning colors, named as in site/tokens.css. Error text never borrows --loss
+     or --muted (both are grey here); results use the quiet green and red pair. */
+  --error:#ffaaaa;--result-win:#9ed7b9;--result-loss:#e6a5a8;
+  /* Type scale: 11px is the smallest text the app renders. */
+  --font-label:11px;--font-caption:12px;--font-small:13px;--font-control:14px;--font-body:15px;
+  /* Spacing scale on a 4px grid. */
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;
   --tsh:none;--label-spacing:0;--label-bright:var(--muted);
   --sidebar-width:248px;--titlebar-height:44px;--banner-height:40px;--radius:12px;
 }
@@ -2999,6 +3005,12 @@ body :is(.set-danger-btn,.rv-deletebtn,.vp-clipdel-btn,.obj-act-danger,.mj-act-d
   [data-action="delete_rule"],[data-action="delete_objective"],[data-action="delete_card"]){
   background:transparent!important;color:var(--danger)!important;border-color:#674148!important}
 body :is(.set-danger-btn,.rv-deletebtn,.vp-clipdel-btn,.obj-act-danger,.mj-act-del):hover:not(:disabled){background:#352328!important;color:var(--danger)!important}
+/* Match results read the same on every page: the quiet green and red pair, always
+   beside the W, L or result word so color is never the only cue. */
+body :is(.grow-wl,.og-grow-wl,.home-review-result)[data-result="win"]{color:var(--result-win)}
+body :is(.grow-wl,.og-grow-wl,.home-review-result)[data-result="loss"]{color:var(--result-loss)}
+/* A button reporting a failure (copy, share) keeps the error color over the neutral button reset. */
+body :is(.mj-btn-last.err,.mj-act.err,.vp-share-btn.is-error){color:var(--error)!important}
 body .winbtn{border:0!important;border-radius:0!important;background:transparent!important;width:46px;padding:0;font-size:13px}
 body .winbtn.winbtn-close:hover{background:#aa3441!important;color:#fff!important}
 body .updbar-x{background:transparent!important;font-size:20px;padding:0}
