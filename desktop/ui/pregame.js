@@ -1,6 +1,7 @@
 import { $, show, clear } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke, getListen } from './platform/index.mjs';
+import { registerLeaveGuard } from './leave-guard.mjs';
 
 // Revu desktop — Pre-Game / In-Game live page renderer.
 //
@@ -43,7 +44,7 @@ const IS_INGAME = /(^|\/)ingame\.html$/i.test(window.location.pathname || '');
 let _data = null;
 // Live champ-select context, overlaid on top of the static snapshot by SSE ticks.
 let _live = { myChampion: '', enemyChampion: '', myPosition: '', participantMapJson: '', sessionKey: null };
-const _draftTimers = new Map(); // promptId -> debounce timer
+const _draftTimers = new Map(); // promptId -> { text, timer } awaiting its debounced save
 
 // ── data fetch ────────────────────────────────────────────────────────────────
 async function fetchPregame() {
@@ -255,15 +256,27 @@ function renderPromptBlocks(blocks) {
 }
 
 function scheduleDraftSave(promptId, text) {
-  if (_draftTimers.has(promptId)) clearTimeout(_draftTimers.get(promptId));
-  _draftTimers.set(promptId, setTimeout(async () => {
-    _draftTimers.delete(promptId);
-    const invoke = await getInvoke();
-    if (!invoke) { console.info('[pregame] (preview) draft save', promptId); return; }
-    try { await invoke('save_pregame_draft', { payload: { promptId, text } }); }
-    catch (err) { console.error('[pregame] draft save failed:', err); }
-  }, 500));
+  if (_draftTimers.has(promptId)) clearTimeout(_draftTimers.get(promptId).timer);
+  _draftTimers.set(promptId, { text, timer: setTimeout(() => saveDraftNow(promptId), 500) });
 }
+
+async function saveDraftNow(promptId) {
+  const pending = _draftTimers.get(promptId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  _draftTimers.delete(promptId);
+  const invoke = await getInvoke();
+  if (!invoke) { console.info('[pregame] (preview) draft save', promptId); return; }
+  try { await invoke('save_pregame_draft', { payload: { promptId, text: pending.text } }); }
+  catch (err) { console.error('[pregame] draft save failed:', err); }
+}
+
+// The game starting moves this page to the in-game surface (the shell's
+// auto-show or the gameInProgress handler below). Save answers still inside
+// their debounce first so the last keystrokes are not lost; never block it.
+const flushDrafts = () => Promise.all([..._draftTimers.keys()].map(saveDraftNow)).then(() => true);
+registerLeaveGuard({ autosave: flushDrafts });
+window.addEventListener('pagehide', () => { void flushDrafts(); });
 
 // ── INTENT carry-over card (PreGamePage only) ─────────────────────────────────
 let _intentSource = '';
@@ -570,7 +583,7 @@ function handleLcuEvent(type, payload) {
       break;
     case 'gameInProgress':
       // Your game has begun. On the pre-game page, hop to the in-game subset.
-      if (!IS_INGAME) { window.location.href = 'ingame.html'; }
+      if (!IS_INGAME) { void flushDrafts().then(() => { window.location.href = 'ingame.html'; }); }
       else { setBanner('In game; good luck.', 'ok'); }
       break;
     case 'gameStarted':
