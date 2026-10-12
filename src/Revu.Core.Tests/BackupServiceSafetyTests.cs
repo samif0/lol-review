@@ -153,6 +153,37 @@ public sealed class BackupServiceSafetyTests
     }
 
     [Fact]
+    public async Task AutomaticUserBackup_WithNoFolderChosen_GoesToTheDefaultLocation()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var service = Service(scope, new AppConfig { BackupEnabled = true, BackupFolder = "" });
+
+        await service.RunBackupAsync();
+
+        Assert.Single(Directory.GetFiles(BackupDir(scope), "lol_review_backup_*.db"));
+        // The default location is Revu's backups folder, so it can be restored from Settings.
+        Assert.Contains(await service.ListBackupsAsync(), b => b.Label.StartsWith("User backup", StringComparison.Ordinal));
+    }
+
+    [WindowsFact]
+    public async Task AutomaticUserBackup_IntoAFolderThatIsNotLocal_IsSkipped_WithoutTouchingIt()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var folder = Path.Combine(Path.GetDirectoryName(scope.DatabasePath)!, "user-backups");
+        Directory.CreateDirectory(folder);
+
+        // The device form names a real, reachable folder, so only the path policy stops it;
+        // the share is a documentation address that nothing should ever try to reach.
+        foreach (var notLocal in new[] { @"\\?\" + folder, @"\\192.0.2.1\backups" })
+            await Service(scope, new AppConfig { BackupEnabled = true, BackupFolder = notLocal }).RunBackupAsync();
+
+        Assert.Empty(Directory.GetFiles(folder));
+        Assert.False(Directory.Exists(BackupDir(scope)) && Directory.GetFiles(BackupDir(scope), "lol_review_backup_*.db").Length > 0);
+    }
+
+    [Fact]
     public async Task GameDeleteBackup_OfADamagedDatabase_IsStillKept()
     {
         using var scope = new TestDatabaseScope();

@@ -10,7 +10,8 @@ namespace Revu.Sidecar.Tests;
 /// <summary>
 /// H5: clip cleanup deletes old clips, so /api/config/save refuses a clips folder that is,
 /// contains or sits inside a recordings folder, and refuses it as a whole (no field of
-/// that save lands). The mapping runs through the real ConfigService.UpdateAsync.
+/// that save lands). A newly chosen Ascent, clips or backup folder must also be on this PC.
+/// The mapping runs through the real ConfigService.UpdateAsync.
 /// </summary>
 public sealed class ConfigSaveClipsFolderTests : IDisposable
 {
@@ -81,6 +82,30 @@ public sealed class ConfigSaveClipsFolderTests : IDisposable
         var service = Service();
 
         Assert.Null(await SaveAsync(service, new { tiltFixMode = true }));
+        Assert.True((await Service().LoadAsync()).TiltFixMode);
+    }
+
+    [WindowsFact]
+    public async Task ANewNetworkFolder_IsRejectedWhole_ButOneSavedEarlierDoesNotBlockSaves()
+    {
+        var service = Service();
+        foreach (var field in new[] { "ascentFolder", "clipsFolder", "backupFolder" })
+        {
+            var error = await SaveAsync(service, new Dictionary<string, object>
+            {
+                [field] = @"\\nas.invalid\share\revu",
+                ["tiltFixMode"] = true,
+            });
+            Assert.NotNull(error);
+            Assert.DoesNotContain("\u2014", error);
+        }
+        var unchanged = await Service().LoadAsync();
+        Assert.False(unchanged.TiltFixMode);
+        Assert.Equal("", unchanged.BackupFolder);
+
+        // A value saved before this check, sent back unchanged by the Settings page.
+        await File.WriteAllTextAsync(ConfigPath, """{ "backup_folder": "\\\\nas.invalid\\share\\revu" }""");
+        Assert.Null(await SaveAsync(service, new { backupFolder = @"\\nas.invalid\share\revu", tiltFixMode = true }));
         Assert.True((await Service().LoadAsync()).TiltFixMode);
     }
 

@@ -1,6 +1,7 @@
 #nullable enable
 
 using Revu.Core.Data;
+using Revu.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Revu.Core.Services;
@@ -10,7 +11,8 @@ namespace Revu.Core.Services;
 /// 1. Safety backups: always-on, stored next to the live DB in the user data root,
 ///    no config needed, tiered retention (the last 3, the newest per day for 7 days,
 ///    the newest per week for 4 weeks). Game-delete backups have their own budget.
-/// 2. User backups: stored in the user-configured folder, at most one a day, same
+/// 2. User backups: when the Settings toggle is on, stored in the chosen local folder
+///    (or beside the safety backups when none is chosen), at most one a day, same
 ///    tiered retention with a longer recent tier.
 /// Every backup is an SQLite online backup (consistent while other connections write),
 /// passes PRAGMA quick_check, and is written to a temp file before it takes its name.
@@ -111,27 +113,24 @@ public sealed partial class BackupService : IBackupService
     /// <inheritdoc />
     public async Task RunBackupAsync()
     {
-        string folder;
+        AppConfig cfg;
         try
         {
-            if (!_config.BackupEnabled)
-            {
-                _logger.LogDebug("User database backup is disabled");
-                return;
-            }
-            folder = _config.BackupFolder;
+            cfg = await _config.LoadAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "User database backup skipped: settings unavailable");
             return;
         }
-
-        if (string.IsNullOrEmpty(folder))
+        if (!cfg.BackupEnabled)
         {
-            _logger.LogDebug("Backup enabled but no folder configured");
+            _logger.LogDebug("User database backup is disabled");
             return;
         }
+
+        var dbPath = _connectionFactory.DatabasePath;
+        if (!TryResolveUserBackupFolder(cfg.BackupFolder, dbPath, out var folder)) return;
 
         // At most one routine backup a day. The newest file's timestamp comes from its
         // name (yyyyMMdd_HHmmss) rather than the OS mtime, which copies and sync tools
@@ -155,7 +154,6 @@ public sealed partial class BackupService : IBackupService
             return;
         }
 
-        var dbPath = _connectionFactory.DatabasePath;
         if (!File.Exists(dbPath))
         {
             _logger.LogWarning("Database file not found for backup");
@@ -175,6 +173,45 @@ public sealed partial class BackupService : IBackupService
         }
 
         await PruneTieredAsync(folder, UserPrefix, UserRetention).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Where the automatic backup goes. A blank setting means Revu's own backups folder
+    /// beside the database (the "Default backup location" in Settings), where these
+    /// backups also show up in the restore list. A chosen folder is used only when it is
+    /// local and exists. The raw setting is checked with LocalPathPolicy BEFORE any file
+    /// check, because even asking whether a <c>\\server\share</c> folder exists connects to
+    /// that host, and the backup would copy the whole database there on every launch.
+    /// </summary>
+    private bool TryResolveUserBackupFolder(string? configured, string dbPath, out string folder)
+    {
+        var chosen = (configured ?? "").Trim();
+        if (chosen.Length == 0)
+        {
+            folder = Path.Combine(Path.GetDirectoryName(dbPath)!, "backups");
+            try
+            {
+                Directory.CreateDirectory(folder);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Automatic backup skipped: the default backup folder {Folder} could not be created", folder);
+                return false;
+            }
+            _logger.LogDebug("No backup folder chosen; using the default {Folder}", folder);
+            return true;
+        }
+        if (!LocalPathPolicy.TryGetLocalFullPath(chosen, out folder))
+        {
+            _logger.LogWarning("Automatic backup skipped: the backup folder is not a folder on this PC ({Folder})", chosen);
+            return false;
+        }
+        if (!Directory.Exists(folder))
+        {
+            _logger.LogWarning("Automatic backup skipped: the backup folder {Folder} does not exist", folder);
+            return false;
+        }
+        return true;
     }
 
     // ── v2.15.0 reset + revert ──────────────────────────────────────

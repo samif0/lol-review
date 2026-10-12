@@ -173,8 +173,10 @@ public static partial class SidecarEndpoints
     {
             // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
             var ascentSet = ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent);
+            if (ascentSet && IsNewNonLocalFolder(ascent, cfg.AscentFolder)) return NonLocalFolderError("Ascent recordings");
             if (ascentSet) cfg.AscentFolder = ascent;
             var clipsSet = ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips);
+            if (clipsSet && IsNewNonLocalFolder(clips, cfg.ClipsFolder)) return NonLocalFolderError("clips");
             if (clipsSet) cfg.ClipsFolder = clips;
             if ((ascentSet || clipsSet) && ClipsFolderConflict(cfg) is { } conflict) return conflict;
             // Server-side clamp mirroring the Settings page (100–50000 MB). This value
@@ -182,7 +184,11 @@ public static partial class SidecarEndpoints
             // make the next clip extraction delete EVERY clip in the folder.
             if (body.ClipsMaxSizeMb is not null) cfg.ClipsMaxSizeMb = Math.Clamp(body.ClipsMaxSizeMb.Value, 100, 50_000);
             if (body.BackupEnabled is not null) cfg.BackupEnabled = body.BackupEnabled.Value;
-            if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup)) cfg.BackupFolder = backup;
+            if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup))
+            {
+                if (IsNewNonLocalFolder(backup, cfg.BackupFolder)) return NonLocalFolderError("backups");
+                cfg.BackupFolder = backup;
+            }
             if (body.TiltFixMode is not null) cfg.TiltFixMode = body.TiltFixMode.Value;
             if (body.RequireReviewNotes is not null) cfg.RequireReviewNotes = body.RequireReviewNotes.Value;
             if (body.SidebarAnimationEnabled is not null) cfg.SidebarAnimationEnabled = body.SidebarAnimationEnabled.Value;
@@ -213,6 +219,19 @@ public static partial class SidecarEndpoints
             if (body.OnboardingSkipped is not null) cfg.OnboardingSkipped = body.OnboardingSkipped.Value;
             return null;
     }
+
+    // Revu writes to and scans these folders on its own, every launch. A folder on a network
+    // share (\\server\share) would make it connect to that host, and the automatic backup
+    // would copy the whole database there, so a NEWLY chosen folder must be on this PC
+    // (LocalPathPolicy). A value saved before this check is left alone, so the Settings page
+    // sending it back unchanged never blocks an unrelated save.
+    internal static bool IsNewNonLocalFolder(string resolved, string? current) =>
+        resolved.Length > 0
+        && !string.Equals(resolved, (current ?? "").Trim(), StringComparison.OrdinalIgnoreCase)
+        && !LocalPathPolicy.IsLocal(resolved);
+
+    private static string NonLocalFolderError(string purpose) =>
+        $"Choose a folder on this PC for your {purpose}. Network share paths aren't supported.";
 
     // H5: clip cleanup deletes old clips from the clips folder, so that folder must never
     // be, contain, or sit inside a folder of game recordings (the Ascent folder or Revu's
