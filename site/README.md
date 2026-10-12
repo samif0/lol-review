@@ -20,8 +20,12 @@ update `tokens.css` to match.
 ## Files
 
 - `index.html` + `app.js`: home page and the in-browser web review tool;
-  `turnstile-ready.js` reserves the Turnstile onload callback before the
-  async loader runs, and `version-chip.js` refreshes the header pill version
+  `web-review-lib.js` holds its DOM-free helpers (review notes kept per
+  match id, error copy) so `tests/` can run them; `turnstile-ready.js`
+  reserves the Turnstile onload callback before the async loader runs, and
+  `version-chip.js` refreshes the header pill version. The region list in
+  `index.html` must match the platforms in `proxy/src/riot.ts` (a test
+  checks it)
 - `learn.html` + `download.js`: desktop app page; `download.js` rewrites the
   download button href from the latest GitHub release on page load and falls
   back to the static installer URL
@@ -79,8 +83,10 @@ python -m http.server 8000
 # open http://localhost:8000
 ```
 
-The clip page accepts `?proxy=http://localhost:8787` (localhost or 127.0.0.1
-only) to read clips from a local `wrangler dev` proxy.
+When the page itself is served from localhost or 127.0.0.1, the clip page
+accepts `?proxy=http://localhost:8787` (a loopback proxy only) to read clips
+from a local `wrangler dev` proxy. On revu.lol the parameter is ignored, and
+the clip CSP only allows port 8787 on loopback.
 
 ## Local account dev
 

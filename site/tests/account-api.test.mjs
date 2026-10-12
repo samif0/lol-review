@@ -242,6 +242,7 @@ test('errorCopy returns the exact contract strings', () => {
     turnstile_failed: "We couldn't verify your browser. Try again.",
     rate_limit_auth: 'Too many attempts. Wait a minute and try again.',
     email_send_failed: "Couldn't send the email right now. Try again in a moment.",
+    email_daily_cap: 'Revu has sent all the sign-in emails it can for today. Try again after midnight UTC.',
     code_required: 'Enter the code from your email.',
     invalid_or_expired_code: 'That code is invalid or expired. Request a new one.',
     sign_in_unavailable: 'Sign in is unavailable right now. Try again later.',

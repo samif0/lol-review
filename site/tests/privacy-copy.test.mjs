@@ -35,6 +35,19 @@ test('Remote delete is not promised as immediate', () => {
   assert.match(text, /as soon as Revu can reach its server while you are signed in/);
 });
 
+test('Sign-in code retention and the IP hash are disclosed', () => {
+  assert.match(text, /pending sign-in codes \(deleted within about two hours\)/);
+  assert.match(text, /deleted about an hour after the code expires, whether or not it was used/);
+  assert.match(text, /one-way hash of your IP address in memory for at most an hour/);
+  assert.match(text, /never written to Revu's database/);
+});
+
+test('Private review notes are never described as a shared clip title', () => {
+  assert.match(text, /Revu does not use your private review notes as the title/);
+  assert.match(text, /reloading a clip does not count as a new view/);
+  assert.match(text, /Review notes are kept separately for each match/);
+});
+
 test('The policy has no em or en dashes', () => {
   assert.doesNotMatch(html, /[\u2013\u2014]/);
 });
