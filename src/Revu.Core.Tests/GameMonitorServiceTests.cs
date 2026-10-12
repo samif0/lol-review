@@ -850,8 +850,15 @@ public sealed partial class GameMonitorServiceTests
             return Task.FromResult(phase);
         }
 
+        /// <summary>The EOG endpoint's answers in order: a payload, or an exception it throws; null once used up.</summary>
+        public Queue<object> EndOfGameAnswers { get; } = new();
+
         public Task<System.Text.Json.JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) =>
-            Task.FromResult<System.Text.Json.JsonElement?>(null);
+            EndOfGameAnswers.TryDequeue(out var answer)
+                ? answer is Exception error
+                    ? Task.FromException<System.Text.Json.JsonElement?>(error)
+                    : Task.FromResult<System.Text.Json.JsonElement?>((System.Text.Json.JsonElement)answer)
+                : Task.FromResult<System.Text.Json.JsonElement?>(null);
 
         public int CancelMatchmakingCalls { get; private set; }
 

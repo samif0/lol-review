@@ -452,4 +452,26 @@ public sealed partial class GameMonitorServiceTests
         Assert.Contains(100, KillTimes(recovered.Stats));
         Assert.Empty(collector.MissedGamesDetected);
     }
+
+    [Fact]
+    public async Task TransientEndOfGameErrors_CostOneAttemptEach_NotTheCapture()
+    {
+        var lcu = new FakeLcuClient();
+        lcu.EndOfGameAnswers.Enqueue(new HttpRequestException("EOG endpoint returned 503"));
+        lcu.EndOfGameAnswers.Enqueue(new TaskCanceledException("The request timed out")); // HttpClient timeout
+        lcu.EndOfGameAnswers.Enqueue(JsonSerializer.SerializeToElement(new
+        {
+            gameId = 9500,
+            gameLength = 1500,
+            queueType = "RANKED_SOLO_5x5",
+            localPlayer = new { teamId = 100, championName = "Ahri", stats = new { CHAMPIONS_KILLED = 3, WIN = "1" } },
+        }));
+        var capture = new GameEndCaptureService(lcu, NullLogger<GameEndCaptureService>.Instance);
+
+        var stats = await capture.CaptureAsync([], roster: null);
+
+        Assert.NotNull(stats);
+        Assert.Equal(9500, stats!.GameId);
+        Assert.Empty(lcu.EndOfGameAnswers);
+    }
 }
