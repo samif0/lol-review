@@ -302,7 +302,7 @@ function renderRail() {
 
   moms.slice(batchStart, batchEnd).forEach((m, i) => host.appendChild(buildMomRow(m, batchStart + i)));
   show($('pat-batches'), moms.length > MOMENT_BATCH_SIZE);
-  $('pat-batch-label').textContent = `${batchStart + 1}–${batchEnd} of ${moms.length}`;
+  $('pat-batch-label').textContent = `${batchStart + 1}-${batchEnd} of ${moms.length}`;
   $('pat-batch-prev').disabled = batchStart === 0;
   $('pat-batch-next').disabled = batchEnd >= moms.length;
 }

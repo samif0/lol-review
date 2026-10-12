@@ -466,7 +466,7 @@ function openCreateForm(prefill) {
   if (prefill && Number(prefill.gameId) > 0) {
     _formGameId = Number(prefill.gameId);
     const when = prefill.gameLabel ? `${prefill.gameLabel} · ` : '';
-    const note = prefill.note ? ` — ${prefill.note}` : '';
+    const note = prefill.note ? `: ${prefill.note}` : '';
     $('f-game').textContent = `${when}game ${prefill.gameId}${note}`;
     show($('f-game-wrap'), true);
   } else {

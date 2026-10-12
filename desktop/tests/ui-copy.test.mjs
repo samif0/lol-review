@@ -9,6 +9,29 @@ const read = name => readFileSync(new URL(name, ui), 'utf8');
 const visibleText = html => html.replace(/<!--[\s\S]*?-->/g, '').replace(/<script[\s\S]*?<\/script>/g, '')
   .replace(/<style[\s\S]*?<\/style>/g, '').replace(/<svg[\s\S]*?<\/svg>/g, '');
 
+// Pages and scripts this copy pass covers.
+const COPY_FILES = ['objectives.html', 'objectives.js', 'objective-labels.mjs', 'objective-progress.mjs',
+  'objectivegames.html', 'objectivegames.js', 'objectivenotes.html', 'objectivenotes.js', 'rules.html', 'rules.js',
+  'rule-labels.mjs', 'tiltcheck.html', 'tiltcheck.js', 'manualentry.js', 'onboarding.html', 'onboarding.js',
+  'matchups.html', 'matchups.js', 'patterns.html', 'patterns.js', 'tutorial.js', 'first-review-guide.mjs'];
+
+function copyLines(name) {
+  let text = read(name);
+  text = name.endsWith('.html') ? visibleText(text) : text.replace(/\/\*[\s\S]*?\*\//g, '');
+  return text.split(/\r?\n/)
+    .map(line => (name.endsWith('.html') ? line : line.replace(/(^|[^:'"`])\/\/.*$/, '$1')))
+    // Console messages are for developers; translation keys match what the sidecar sends.
+    .filter(line => !/console\.|\['MASTERY — NO DATA YET'/.test(line));
+}
+
+test('player-facing copy uses words or a plain hyphen, never an em or en dash', () => {
+  for (const name of COPY_FILES) {
+    copyLines(name).forEach((line, i) => {
+      assert.doesNotMatch(line, /[–—]/, `${name}:${i + 1}: ${line.trim()}`);
+    });
+  }
+});
+
 test('tilt check states one duration and makes no physiological claim', () => {
   const html = visibleText(read('tiltcheck.html'));
   const js = read('tiltcheck.js');

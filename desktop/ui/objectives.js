@@ -592,7 +592,7 @@ async function openEditForm(id) {
     // Surface on the always-visible statusline (the form is still closed, so its
     // own #form-err wouldn't show). Non-destructive: the objective is left intact.
     const statusB = document.querySelector('#statusline b');
-    if (statusB) statusB.textContent = "Couldn't load that learning objective to edit — try again.";
+    if (statusB) statusB.textContent = "Couldn't load that learning objective to edit. Try again.";
     return;
   }
 

@@ -25,7 +25,7 @@ export function recordLabel(text, now = new Date()) {
     .replace(' THIS WEEK', ' this week')
     .replace(' · OVERRIDDEN ', ' · Overridden ')
     // Win-loss records use a plain hyphen: "1W-2L".
-    .replace(/(\d+W)\s*[–—]\s*(\d+L)/g, '$1-$2');
+    .replace(/(\d+W)\s*[\u2013\u2014]\s*(\d+L)/g, '$1-$2');
 }
 
 /** The rule-check banner prints its own "Then" label, so a plan written as

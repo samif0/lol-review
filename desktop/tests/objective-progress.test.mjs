@@ -145,8 +145,8 @@ test('rendering labels the current practice stage and keeps unknown success dist
   t.after(() => { if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument; });
 
   renderObjectiveProgress(f.card, { score: 0, masteryQualifyingGames: 0, masteryPct: 0 });
-  assert.equal(f.node('.obj-success-value').textContent, '—');
-  assert.equal(f.node('.obj-days-value').textContent, '—');
+  assert.equal(f.node('.obj-success-value').textContent, 'No data yet');
+  assert.equal(f.node('.obj-days-value').textContent, 'No data yet');
   assert.equal(f.node('.obj-games-value').textContent, '0');
   assert.equal(f.node('.obj-games-target').textContent, 'At least 3 games');
   assert.equal(f.node('.obj-days-target').textContent, '5 days needed');

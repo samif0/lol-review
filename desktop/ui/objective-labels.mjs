@@ -8,7 +8,7 @@ const LABELS = new Map([
   ['PREGAME', 'Pre-game'], ['INGAME', 'In-game'], ['POSTGAME', 'Post-game'],
   ['PRE', 'Pre-game'], ['IN', 'In-game'], ['POST', 'Post-game'], ['ALL PHASES', 'All phases'],
   ['ACTIVE', 'Active'], ['COMPLETED', 'Completed'],
-  ['MASTERED', 'Mastered'], ['MASTERY — NO DATA YET', 'Mastery — no data yet'],
+  ['MASTERED', 'Mastered'], ['MASTERY — NO DATA YET', 'Mastery: no data yet'],
   ['LOCKED', 'Locked'], ['NOT MEASURED YET', 'Not measured yet'],
 ]);
 

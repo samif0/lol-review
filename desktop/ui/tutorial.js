@@ -84,7 +84,7 @@ if (!window.__revuFirstReviewTutorialLoaded) {
     const steps = [
       ['Choose one learning objective', 'Pick a skill to practice. Give it a clear name; detailed tracking can wait.', 'Choose a learning objective', 'objectives.html'],
       ['Play with a focus', 'Start a session from Home, then play League. Check recording settings before you queue.', 'Go to Home', 'dashboard.html?intent=startblock'],
-      ['Review one useful moment', 'Open a match, watch its recording when available, and write what you will try next.', 'Open a match', validGame ? `review.html?gameId=${gameId}` : 'games.html'],
+      ['Review one useful moment', 'Open a match, watch its VOD when available, and write what you will try next.', 'Open a match', validGame ? `review.html?gameId=${gameId}` : 'games.html'],
     ];
     steps.forEach(([title, copy, action, href], index) => {
       const row = element('li', `review-guide-item${index === stage ? ' is-current' : ''}${index < stage ? ' is-complete' : ''}`);
