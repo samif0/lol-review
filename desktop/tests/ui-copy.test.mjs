@@ -48,6 +48,9 @@ test('in-game cards have distinct titles and every pregame field has a label', (
   assert.ok(titles.includes('Matchup notes') && titles.includes('Objective reminders'), titles.join(', '));
   assert.equal(new Set(titles).size, titles.length, 'no two cards share a title');
   assert.match(ingame, /<h1 id="hero-title">In game<\/h1>/);
+  // pregame.js swaps the static title for the snapshot's header, which must keep the wording.
+  assert.match(read('pregame.js'), /setText\('mh-header', mh\.headerText/);
+  assert.match(JSON.parse(read('sample-pregame.json')).matchupHistory.headerText, /^Matchup notes vs /);
 
   const pregame = visibleText(read('pregame.html'));
   for (const id of ['intent-input', 'session-input']) assert.match(pregame, new RegExp(`<label[^>]*for="${id}"`), id);
