@@ -7,9 +7,16 @@ namespace Revu.Sidecar;
 public sealed record RecentGameRecoveryResult(bool Ok, string Message, int Recovered = 0,
     int Matched = 0, int RecordingCount = 0);
 
-/// <summary>Explicit recovery reads trusted League history, then links recordings to saved identities.</summary>
+/// <summary>
+/// Explicit recovery reads trusted League history, then links recordings to saved identities.
+/// Each game is saved by <c>saveGame</c>: the game-flow coordinator's
+/// <see cref="SidecarGameFlowCoordinator.SaveRecoveredGameAsync"/>, the same path and gate as
+/// Home's Save, so a waiting or tracked game keeps its live timeline and pre-game choices. It
+/// answers whether that call saved the game, and throws when the save failed.
+/// </summary>
 public sealed class RecentGameRecovery(
-    ILcuClient lcu, IMatchHistoryReconciliationService history, IGameLifecycleWorkflowService lifecycle,
+    ILcuClient lcu, IMatchHistoryReconciliationService history,
+    Func<MissedGameCandidate, CancellationToken, Task<bool>> saveGame,
     IGameRepository games, IConfigService config, IVodService scan, RecordingRegistrationService registrations,
     SidecarBackgroundWork work, Func<Task> ensureBackup, Action<string, object> publish,
     ILogger<RecentGameRecovery> logger)
@@ -59,9 +66,7 @@ public sealed class RecentGameRecovery(
                 // The first backup can yield long enough for live capture to
                 // finish. Do not re-log that game's session with default mood.
                 if (await games.GetAsync(candidate.GameId) is not null) continue;
-                var result = await lifecycle.ReconcileMissedGamesAsync(
-                    new([candidate], []), work.Stopping);
-                if (result.IngestedCount > 0) recovered.Add(candidate.GameId);
+                if (await saveGame(candidate, work.Stopping)) recovered.Add(candidate.GameId);
             }
 
             var prefix = recovered.Count == 0

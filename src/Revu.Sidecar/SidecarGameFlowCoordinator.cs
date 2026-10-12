@@ -338,6 +338,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
         {
             _logger.LogError(ex, "Failed to persist live game end");
             _eventHub.Publish(GameEndEventType(isRecovered, preGame), new { saved = false, error = ex.Message });
+            OfferAgainAfterFailedSave(stats, preGame);
             return null;
         }
     }

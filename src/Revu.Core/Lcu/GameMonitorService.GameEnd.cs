@@ -43,11 +43,19 @@ public sealed partial class GameMonitorService
     // reconcile saves it as a recovered game end; 0 when there is none or its id is unknown.
     private long _reconcileTargetGameId;
 
-    // Games this session already handed to the save path. Match history can list a game
-    // before its background save lands, so reconciliation never offers these again.
+    // Games this session already handed to the save path, by the monitor or by a save the
+    // player started (TryClaimForSave). Match history can list a game before its background
+    // save lands, so reconciliation never offers these again; a save that did not write its
+    // game releases it (ReleaseHandOff). The sidecar reads these and the timeline store from
+    // other threads, under _handOffGate.
     private const int MaxRememberedGames = 16;
     private readonly HashSet<long> _publishedGameIds = [];
-    private readonly Queue<long> _publishedGameOrder = new();
+    private readonly List<long> _publishedGameOrder = [];
+    private readonly object _handOffGate = new();
+
+    // The game whose end-of-game capture is running (0 when its id is unknown); null when none.
+    // That capture publishes the game itself, so a player's save never takes it meanwhile.
+    private long? _capturingGameId;
 
     // The collector reads the game (127.0.0.1:2999), not the League client, so it keeps
     // running while the client is away. It is finished once its game stops answering.
@@ -128,6 +136,7 @@ public sealed partial class GameMonitorService
         _captureCts = budget;
         _captureTaskGameId = gameId;
         _captureTaskReport = report;
+        lock (_handOffGate) _capturingGameId = gameId;
         _captureTask = CaptureWithinBudgetAsync(liveEvents, roster, budget.Token);
 
         try
@@ -174,37 +183,46 @@ public sealed partial class GameMonitorService
         _captureCts?.Dispose();
         _captureCts = null;
 
-        GameStats? stats = null;
-        if (task.IsCompletedSuccessfully)
+        try
         {
-            stats = task.Result;
-        }
-        else if (task.IsCanceled)
-        {
-            if (cancellationToken.IsCancellationRequested) return; // shutting down
-            _logger.LogWarning("End-of-game stats did not arrive within {Seconds}s; the game goes to reconciliation",
-                CaptureRetryBudget.TotalSeconds);
-        }
-        else
-        {
-            _logger.LogWarning(task.Exception?.GetBaseException(), "End-of-game capture failed; the game goes to reconciliation");
-        }
+            GameStats? stats = null;
+            if (task.IsCompletedSuccessfully)
+            {
+                stats = task.Result;
+            }
+            else if (task.IsCanceled)
+            {
+                if (cancellationToken.IsCancellationRequested) return; // shutting down
+                _logger.LogWarning("End-of-game stats did not arrive within {Seconds}s; the game goes to reconciliation",
+                    CaptureRetryBudget.TotalSeconds);
+            }
+            else
+            {
+                _logger.LogWarning(task.Exception?.GetBaseException(), "End-of-game capture failed; the game goes to reconciliation");
+            }
 
-        if (stats is null)
-        {
-            DeferToReconciliation(gameId);
-            return;
-        }
+            if (stats is null)
+            {
+                DeferToReconciliation(gameId);
+                return;
+            }
 
-        stats.EventProcessingReport = report;
-        TakePendingEvidence(stats.GameId, out _);
-        PublishGameEnded(stats, isRecovered: false);
+            stats.EventProcessingReport = report;
+            TakePendingEvidence(stats.GameId, out _);
+            PublishGameEnded(stats, isRecovered: false);
+        }
+        finally
+        {
+            // Handed to the save path or to reconciliation: a player's save may take it from here.
+            lock (_handOffGate) _capturingGameId = null;
+        }
     }
 
     /// <summary>
     /// The tracked game will not be captured live: reconcile it from match history. Its
     /// timeline already waits in the evidence store, and the sidecar kept its pre-game
-    /// choices when the game end was observed.
+    /// choices when the game end was observed. With an unknown id the game still ends for
+    /// the pages; any unsaved game found later waits for the player on Home.
     /// </summary>
     private void DeferToReconciliation(long gameId)
     {
@@ -214,6 +232,7 @@ public sealed partial class GameMonitorService
         if (gameId <= 0)
         {
             _logger.LogWarning("The ended game's id is unknown; any unsaved game found later waits for the player on Home");
+            _messenger.Send(new GameCaptureDeferredMessage(0));
             return;
         }
         _reconcileTargetGameId = gameId;
@@ -259,25 +278,96 @@ public sealed partial class GameMonitorService
 
     private void RememberPublished(long gameId)
     {
-        if (gameId <= 0 || !_publishedGameIds.Add(gameId)) return;
-        _publishedGameOrder.Enqueue(gameId);
-        while (_publishedGameOrder.Count > MaxRememberedGames)
+        lock (_handOffGate)
         {
-            _publishedGameIds.Remove(_publishedGameOrder.Dequeue());
+            if (gameId <= 0 || !_publishedGameIds.Add(gameId)) return;
+            _publishedGameOrder.Add(gameId);
+            while (_publishedGameOrder.Count > MaxRememberedGames)
+            {
+                _publishedGameIds.Remove(_publishedGameOrder[0]);
+                _publishedGameOrder.RemoveAt(0);
+            }
         }
     }
 
-    private IReadOnlyList<MissedGameCandidate> WithoutPublished(IReadOnlyList<MissedGameCandidate> candidates) =>
-        candidates.Any(c => _publishedGameIds.Contains(c.GameId))
-            ? candidates.Where(c => !_publishedGameIds.Contains(c.GameId)).ToList()
-            : candidates;
+    /// <summary>Hand a game to the save path once: false when it already was.</summary>
+    private bool TryHandOff(long gameId)
+    {
+        lock (_handOffGate)
+        {
+            if (gameId <= 0 || _publishedGameIds.Contains(gameId)) return false;
+            RememberPublished(gameId);
+            return true;
+        }
+    }
+
+    private bool IsHandedOff(long gameId)
+    {
+        lock (_handOffGate) return _publishedGameIds.Contains(gameId);
+    }
+
+    /// <summary>
+    /// A save the player started (Home's Save, Settings recovery) takes an unsaved game: the
+    /// live timeline still waiting for it joins <paramref name="stats"/>, and the monitor never
+    /// hands that game to the save path itself (a tracked game's search ends). False when the
+    /// game is not free to take: <paramref name="handedOff"/> is true when the monitor handed
+    /// it to its own save (or its capture is running), which keeps the game whole; false while
+    /// a capture whose game id is unknown runs (try again shortly). Safe to call from any thread.
+    /// </summary>
+    public bool TryClaimForSave(GameStats stats, out bool handedOff)
+    {
+        lock (_handOffGate)
+        {
+            handedOff = stats.GameId > 0
+                && (_publishedGameIds.Contains(stats.GameId) || _capturingGameId == stats.GameId);
+            if (handedOff || _capturingGameId <= 0 || !TryHandOff(stats.GameId)) return false;
+        }
+        AttachPendingEvidence(stats);
+        return true;
+    }
+
+    /// <summary>
+    /// The save of a handed-over game did not write it (it failed, or the save path declined
+    /// a player's save): reconciliation may offer the game again. Safe to call from any thread.
+    /// </summary>
+    public void ReleaseHandOff(long gameId)
+    {
+        lock (_handOffGate)
+        {
+            if (_publishedGameIds.Remove(gameId)) _publishedGameOrder.Remove(gameId);
+        }
+    }
+
+    private IReadOnlyList<MissedGameCandidate> WithoutPublished(IReadOnlyList<MissedGameCandidate> candidates)
+    {
+        lock (_handOffGate)
+        {
+            return candidates.Any(c => _publishedGameIds.Contains(c.GameId))
+                ? candidates.Where(c => !_publishedGameIds.Contains(c.GameId)).ToList()
+                : candidates;
+        }
+    }
+
+    /// <summary>
+    /// The tracked game was saved another way (Settings recovery, Home's Save): its search is
+    /// over. True when this ended it.
+    /// </summary>
+    private bool EndSearchIfTrackedGameSaved()
+    {
+        var gameId = _reconcileTargetGameId;
+        if (gameId <= 0 || !(IsHandedOff(gameId) || CheckGameSaved?.Invoke(gameId) == true)) return false;
+        _logger.LogInformation("Game {GameId} was saved another way; the post-game search for it ends", gameId);
+        _reconcileTargetGameId = 0;
+        return true;
+    }
 
     /// <summary>
     /// Look for the just-finished game in match history. The tracked game (its capture
     /// failed or its end was missed) is saved at once as a recovered game end, carrying its
     /// live timeline, lobby and pre-game choices; any other unsaved game the pass finds
-    /// waits for the player. With a tracked game, only finding it ends the retries, so an
-    /// older unsaved game never stands in for the one just played.
+    /// waits for the player. With a tracked game, only finding it (or its save by another
+    /// path, such as Settings recovery) ends the retries, so an older unsaved game never
+    /// stands in for the one just played.
     /// </summary>
     private async Task<bool> TryPublishPostGameReconcileAsync(CancellationToken cancellationToken)
     {
@@ -288,19 +378,28 @@ public sealed partial class GameMonitorService
 
         CoreDiagnostics.WriteVerbose($"LCU: TryPublishPostGameReconcile count={candidates.Count} target={_reconcileTargetGameId}");
 
-        if (candidates.Count == 0)
-            return false;
-
         var targetGameId = _reconcileTargetGameId;
         var tracked = targetGameId > 0 ? candidates.FirstOrDefault(c => c.GameId == targetGameId) : null;
-        if (tracked is not null)
+        // Not listed as unsaved: it may have been saved another way meanwhile.
+        var savedElsewhere = tracked is null && EndSearchIfTrackedGameSaved();
+        if (savedElsewhere) targetGameId = 0;
+        if (candidates.Count == 0)
+            return savedElsewhere;
+
+        if (tracked is not null && TryHandOff(tracked.GameId))
         {
             AttachPendingEvidence(tracked.Stats);
             _logger.LogInformation("Recovered the just-finished game {GameId} from match history", tracked.GameId);
             PublishGameEnded(tracked.Stats, isRecovered: true);
         }
+        else if (tracked is not null)
+        {
+            // A save the player started took it since the lookup.
+            EndSearchIfTrackedGameSaved();
+        }
 
-        var others = tracked is null ? candidates : candidates.Where(c => c.GameId != tracked.GameId).ToList();
+        // Every game handed over by now (the tracked one, a player's save) never waits on Home.
+        var others = WithoutPublished(candidates);
         if (others.Count > 0)
         {
             foreach (var candidate in others) AttachPendingEvidence(candidate.Stats);
@@ -348,6 +447,15 @@ public sealed partial class GameMonitorService
         Services.EventProcessing.ProcessingReport? report,
         LiveRoster? roster)
     {
+        lock (_handOffGate) return StorePendingEvidenceLocked(gameId, events, report, roster);
+    }
+
+    private PendingEvidence StorePendingEvidenceLocked(
+        long gameId,
+        List<GameEvent> events,
+        Services.EventProcessing.ProcessingReport? report,
+        LiveRoster? roster)
+    {
         if (_pendingEvidence.TryGetValue(gameId, out var stored))
         {
             var merged = new PendingEvidence(
@@ -371,9 +479,12 @@ public sealed partial class GameMonitorService
 
     private bool TakePendingEvidence(long gameId, out PendingEvidence evidence)
     {
-        if (!_pendingEvidence.Remove(gameId, out evidence!)) return false;
-        _pendingEvidenceOrder.Remove(gameId);
-        return true;
+        lock (_handOffGate)
+        {
+            if (!_pendingEvidence.Remove(gameId, out evidence!)) return false;
+            _pendingEvidenceOrder.Remove(gameId);
+            return true;
+        }
     }
 
     internal static List<GameEvent> MergeEvents(List<GameEvent> stored, List<GameEvent> fresh)

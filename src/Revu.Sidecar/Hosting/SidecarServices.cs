@@ -150,7 +150,7 @@ public static class SidecarServices
             var write = sp.GetRequiredService<WriteServices>();
             return new RecentGameRecovery(
                 sp.GetRequiredService<ILcuClient>(), sp.GetRequiredService<IMatchHistoryReconciliationService>(),
-                write.GameLifecycle, write.Games, write.Config, write.VodScan,
+                sp.GetRequiredService<SidecarGameFlowCoordinator>().SaveRecoveredGameAsync, write.Games, write.Config, write.VodScan,
                 sp.GetRequiredService<RecordingRegistrationService>(), sp.GetRequiredService<SidecarBackgroundWork>(),
                 write.BackupGuard.EnsureBackedUpAsync,
                 (type, payload) => sp.GetRequiredService<SidecarEventHub>().Publish(type, payload),

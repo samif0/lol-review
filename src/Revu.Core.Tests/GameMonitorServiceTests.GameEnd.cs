@@ -454,6 +454,205 @@ public sealed partial class GameMonitorServiceTests
     }
 
     [Fact]
+    public async Task APlayersSave_TakesTheDeferredTrackedGameWithItsTimeline_AndTheSearchForItEnds()
+    {
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var live = new FakeLiveEventApi { Available = true, Events = [Kill(100)] };
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, CurrentGameId = 8150,
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress]),
+        };
+        var history = new FakeMatchHistoryReconciliationService(); // match history lags
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger,
+            new FakeGameEndCaptureService(), history, live);
+        var clock = DateTime.UtcNow;
+        service.UtcNow = () => clock;
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await WaitUntilAsync(() => live.EventFetches > 0, "the collector read the kill feed");
+        lcu.Phases = new([GamePhase.EndOfGame, GamePhase.Lobby]);
+        await service.TickOnceAsync(); // the capture fails: the game goes to reconciliation
+        await service.TickOnceAsync(); // Lobby: not listed yet
+        Assert.Equal(1, history.Calls);
+
+        // Settings recovery reaches the game first: it takes the timeline the monitor kept.
+        var stats = TestGameStatsFactory.Create(8150, champion: "Ahri");
+        Assert.True(service.TryClaimForSave(stats, out var handedOff));
+        Assert.False(handedOff);
+        Assert.Contains(100, KillTimes(stats));
+
+        // Match history lists it now; the monitor never saves it again or offers it on Home,
+        // and its search ends instead of polling for an hour.
+        history.Result = [new MissedGameCandidate(8150, 1_710_000_000, TestGameStatsFactory.Create(8150))];
+        clock = clock.AddMinutes(1);
+        await service.TickOnceAsync();
+        Assert.Equal(2, history.Calls);
+        clock = clock.AddMinutes(10);
+        await service.TickOnceAsync(); // the one startup check the search held back
+        var calls = history.Calls;
+        clock = clock.AddMinutes(10);
+        await service.TickOnceAsync();
+        Assert.Equal(calls, history.Calls);
+        Assert.Empty(collector.GameEnded);
+        Assert.Empty(collector.MissedGamesDetected);
+        Assert.False(service.TryClaimForSave(TestGameStatsFactory.Create(8150), out handedOff));
+        Assert.True(handedOff);
+    }
+
+    [Fact]
+    public async Task ATrackedGameSavedAnotherWay_EndsTheSearch()
+    {
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, CurrentGameId = 8160,
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress, GamePhase.EndOfGame, GamePhase.Lobby]),
+        };
+        var history = new FakeMatchHistoryReconciliationService();
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger,
+            new FakeGameEndCaptureService(), history);
+        var saved = new HashSet<long>();
+        service.CheckGameSaved = saved.Contains;
+        var clock = DateTime.UtcNow;
+        service.UtcNow = () => clock;
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync(); // the capture fails: the game goes to reconciliation
+        Assert.Equal(8160, Assert.Single(collector.CaptureDeferred).GameId);
+        await service.TickOnceAsync(); // Lobby: not listed yet
+        Assert.Equal(1, history.Calls);
+
+        saved.Add(8160); // saved by a path the monitor did not see (match history now skips it)
+        clock = clock.AddMinutes(1);
+        await service.TickOnceAsync();
+        Assert.Equal(2, history.Calls);
+        clock = clock.AddMinutes(10);
+        await service.TickOnceAsync(); // the one startup check the search held back
+        var calls = history.Calls;
+        clock = clock.AddMinutes(10);
+        await service.TickOnceAsync();
+        Assert.Equal(calls, history.Calls);
+        Assert.Empty(collector.GameEnded);
+    }
+
+    [Fact]
+    public async Task APlayersSave_NeverTakesAGameTheMonitorHandedOver_OrOneWhoseCaptureIsRunning()
+    {
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, CurrentGameId = 9150,
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress, GamePhase.WaitingForStats, GamePhase.EndOfGame]),
+        };
+        var slowEog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var capture = new FakeGameEndCaptureService { Result = TestGameStatsFactory.Create(9150), Gate = slowEog.Task };
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger, capture,
+            new FakeMatchHistoryReconciliationService());
+        service.CaptureInlineWait = TimeSpan.FromMilliseconds(50);
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync(); // the capture is still retrying
+        Assert.NotNull(service.PendingCapture);
+        Assert.False(service.TryClaimForSave(TestGameStatsFactory.Create(9150), out var handedOff));
+        Assert.True(handedOff);
+        // An older game is free to take meanwhile.
+        Assert.True(service.TryClaimForSave(TestGameStatsFactory.Create(7000), out _));
+
+        slowEog.SetResult();
+        await service.PendingCapture!;
+        await service.TickOnceAsync(); // the capture publishes the game
+        Assert.Single(collector.GameEnded);
+        Assert.False(service.TryClaimForSave(TestGameStatsFactory.Create(9150), out handedOff));
+        Assert.True(handedOff);
+    }
+
+    [Fact]
+    public async Task WhileACaptureWithAnUnknownGameIdRuns_APlayersSaveWaits()
+    {
+        var messenger = new StrongReferenceMessenger();
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, // the game id lookup fails
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress, GamePhase.WaitingForStats]),
+        };
+        var slowEog = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var capture = new FakeGameEndCaptureService { Result = TestGameStatsFactory.Create(9160), Gate = slowEog.Task };
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger, capture,
+            new FakeMatchHistoryReconciliationService());
+        service.CaptureInlineWait = TimeSpan.FromMilliseconds(50);
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.NotNull(service.PendingCapture);
+        Assert.False(service.TryClaimForSave(TestGameStatsFactory.Create(9160), out var handedOff));
+        Assert.False(handedOff); // not known to be the captured game: try again shortly
+
+        slowEog.SetResult();
+        await service.PendingCapture!;
+        await service.TickOnceAsync();
+        Assert.True(service.TryClaimForSave(TestGameStatsFactory.Create(7000), out _));
+    }
+
+    [Fact]
+    public async Task AGameWhoseSaveFailed_IsOfferedAgainByTheNextPass()
+    {
+        // As in Reconciliation_NeverOffersAGameThisSessionAlreadyPublished, but the save of the
+        // captured game fails and the sidecar releases it.
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 420, Phases = new([GamePhase.ChampSelect, GamePhase.InProgress]) };
+        var capture = new FakeGameEndCaptureService { Result = TestGameStatsFactory.Create(9310) };
+        var history = new FakeMatchHistoryReconciliationService
+        {
+            Result = [new MissedGameCandidate(9310, 1_710_000_000, TestGameStatsFactory.Create(9310))],
+        };
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger, capture, history);
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        lcu.ThrowOnNextPhase = true;
+        await service.TickOnceAsync();
+        lcu.ThrowOnNextPhase = false;
+        lcu.Phases = new([GamePhase.EndOfGame, GamePhase.Lobby]);
+        await service.TickOnceAsync();
+        Assert.Single(collector.GameEnded);
+
+        service.ReleaseHandOff(9310); // its save failed
+
+        await service.TickOnceAsync(); // Lobby: the armed reconcile runs
+        Assert.Equal([9310L], Assert.Single(collector.MissedGamesDetected).Games.Select(g => g.GameId));
+    }
+
+    [Fact]
+    public async Task ACaptureThatFailsWithAnUnknownGameId_StillEndsTheGameForThePages()
+    {
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, // the game id lookup fails at start and end
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress, GamePhase.EndOfGame]),
+        };
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger,
+            new FakeGameEndCaptureService(), new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+
+        Assert.Equal(0, Assert.Single(collector.CaptureDeferred).GameId);
+        Assert.Empty(collector.GameEnded);
+    }
+
+    [Fact]
     public async Task TransientEndOfGameErrors_CostOneAttemptEach_NotTheCapture()
     {
         var lcu = new FakeLcuClient();

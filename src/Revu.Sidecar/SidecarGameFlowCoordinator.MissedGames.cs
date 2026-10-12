@@ -25,6 +25,13 @@ namespace Revu.Sidecar;
 /// fills the list again after a restart. Changes are announced as the
 /// <c>missedReviews</c> event for the Home card.
 /// </para>
+///
+/// <para>
+/// Settings' "Recover missing matches" (<see cref="RecentGameRecovery"/>) saves through the
+/// same path and gate as Home's Save, so a waiting or tracked game keeps its live timeline
+/// and pre-game choices whichever way the player saves it. A game whose save fails waits
+/// on Home again.
+/// </para>
 /// </summary>
 public sealed partial class SidecarGameFlowCoordinator
 {
@@ -73,26 +80,34 @@ public sealed partial class SidecarGameFlowCoordinator
                 _liveState.SetGameInProgress(false);
                 return;
             }
-            if (_deferredPreGame.Remove(m.GameId)) _deferredPreGameOrder.Remove(m.GameId);
-            _deferredPreGame[m.GameId] = PreGameState.Take(_liveState);
-            _deferredPreGameOrder.Add(m.GameId);
-            while (_deferredPreGameOrder.Count > MaxDeferredPreGame)
-            {
-                _deferredPreGame.Remove(_deferredPreGameOrder[0]);
-                _deferredPreGameOrder.RemoveAt(0);
-            }
+            KeepDeferredPreGame(m.GameId, PreGameState.Take(_liveState));
+        }
+    }
+
+    // Under _missedGate. Bounded; the oldest entry goes first.
+    private void KeepDeferredPreGame(long gameId, PreGameState state)
+    {
+        if (_deferredPreGame.Remove(gameId)) _deferredPreGameOrder.Remove(gameId);
+        _deferredPreGame[gameId] = state;
+        _deferredPreGameOrder.Add(gameId);
+        while (_deferredPreGameOrder.Count > MaxDeferredPreGame)
+        {
+            _deferredPreGame.Remove(_deferredPreGameOrder[0]);
+            _deferredPreGameOrder.RemoveAt(0);
         }
     }
 
     public void Receive(GameCaptureDeferredMessage m)
     {
-        if (m.GameId <= 0) return;
-        _logger.LogInformation("Game {GameId} goes to match-history reconciliation; its pre-game choices are kept for the save", m.GameId);
+        if (m.GameId > 0)
+            _logger.LogInformation("Game {GameId} goes to match-history reconciliation; its pre-game choices are kept for the save", m.GameId);
+        else
+            _logger.LogInformation("A game whose id is unknown ended without its stats; once match history lists it, it waits on Home");
         // The game is over: pages leave the live surface now, and the save follows once match
-        // history has the game (gameEnded again, saved). A player already in the next lobby
-        // or game stays where they are.
+        // history has the game (gameEnded again, saved), or the player saves it from Home when
+        // its id is unknown. A player already in the next lobby or game stays where they are.
         if (NextFlowIsLive()) return;
-        _eventHub.Publish("gameEnded", new { gameId = m.GameId, saved = false, pending = true });
+        _eventHub.Publish("gameEnded", new { gameId = m.GameId > 0 ? m.GameId : (long?)null, saved = false, pending = true });
     }
 
     /// <summary>
@@ -102,16 +117,18 @@ public sealed partial class SidecarGameFlowCoordinator
     private bool NextFlowIsLive() => _liveState.SessionKey is not null || _liveState.IsGameInProgress;
 
     /// <summary>
-    /// The event a finished game is announced with. Pages leave the live surface on
-    /// <c>gameEnded</c>, so a recovered game whose flow closed when it ended, saved while the
-    /// player is already in the next lobby or game, is announced as <c>gameRecovered</c>.
+    /// The event a finished game is announced with. Pages leave the live surface and the
+    /// first-review guide moves on <c>gameEnded</c>, which belongs to the game just played.
+    /// A recovered game is announced as <c>gameRecovered</c> when it has no pre-game state of
+    /// its own (an older game saved from Home or Settings), or when the player is already in
+    /// the next lobby or game (its own flow closed when it ended).
     /// </summary>
     private string GameEndEventType(bool isRecovered, PreGameState? preGame) =>
-        isRecovered && preGame is not null && NextFlowIsLive() ? "gameRecovered" : "gameEnded";
+        isRecovered && (preGame is null || NextFlowIsLive()) ? "gameRecovered" : "gameEnded";
 
     /// <summary>
-    /// The tracked game's automatic save runs under the same gate as Home's Save, so the two
-    /// never both pass the already-saved check for one game.
+    /// The tracked game's automatic save runs under the same gate as Home's Save and Settings
+    /// recovery, so no two of them both pass the already-saved check for one game.
     /// </summary>
     private async Task PersistRecoveredGameAsync(Revu.Core.Models.GameStats stats, PreGameState? preGame)
     {
@@ -194,10 +211,12 @@ public sealed partial class SidecarGameFlowCoordinator
             var candidate = FindMissedGame(gameId);
             if (candidate is null) return MissedGameOutcome.NotFound;
 
-            var result = await PersistGameEndAsync(candidate.Stats, isRecovered: true, TakeDeferredPreGame(gameId))
-                .ConfigureAwait(false);
-            if (result is null) return MissedGameOutcome.Failed;
-            if (result.WasSaved) return MissedGameOutcome.Saved;
+            switch (await PersistPlayerSaveAsync(candidate.Stats).ConfigureAwait(false))
+            {
+                // Saved now, already saved, or the monitor's own save is about to land with it.
+                case PlayerSave.Saved or PlayerSave.SavedElsewhere: return MissedGameOutcome.Saved;
+                case PlayerSave.Busy or PlayerSave.Failed: return MissedGameOutcome.Failed;
+            }
 
             await _write.GameLifecycle.ReconcileMissedGamesAsync(
                 new ReconcileMissedGamesRequest(SelectedGames: [], DismissedGameIds: [gameId])).ConfigureAwait(false);
@@ -230,6 +249,88 @@ public sealed partial class SidecarGameFlowCoordinator
         {
             _missedResolve.Release();
         }
+    }
+
+    /// <summary>
+    /// Settings' "Recover missing matches" saves one game League's match history lists,
+    /// through the same path and gate as Home's Save: a game waiting on Home keeps the live
+    /// timeline the monitor attached, the tracked game keeps its timeline and pre-game
+    /// choices, and a game the monitor is saving itself is left to that save. True when this
+    /// call saved the game; throws when its save failed (it then waits on Home).
+    /// </summary>
+    internal async Task<bool> SaveRecoveredGameAsync(MissedGameCandidate candidate, CancellationToken cancellationToken)
+    {
+        await _missedResolve.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var waiting = FindMissedGame(candidate.GameId);
+            var stats = waiting is not null && waiting.Stats.LiveEvents.Count >= candidate.Stats.LiveEvents.Count
+                ? waiting.Stats
+                : candidate.Stats;
+            return await PersistPlayerSaveAsync(stats).ConfigureAwait(false) switch
+            {
+                PlayerSave.Saved => true,
+                PlayerSave.Failed => throw new InvalidOperationException($"Game {candidate.GameId} could not be saved"),
+                // Saved another way, declined by the save gate, or a capture is still running.
+                _ => false,
+            };
+        }
+        finally
+        {
+            _missedResolve.Release();
+        }
+    }
+
+    private enum PlayerSave { Saved, SavedElsewhere, Busy, Declined, Failed }
+
+    /// <summary>
+    /// A save the player started (Home's Save, Settings recovery), under
+    /// <see cref="_missedResolve"/>. The game takes the live timeline the monitor still keeps
+    /// for it and its own pre-game choices. A game already saved, or one the monitor hands to
+    /// its own save (a live capture, the tracked game), no longer waits. Busy while a capture
+    /// whose game id is unknown runs.
+    /// </summary>
+    private async Task<PlayerSave> PersistPlayerSaveAsync(Revu.Core.Models.GameStats stats)
+    {
+        var elsewhere = await _write.Games.GetAsync(stats.GameId).ConfigureAwait(false) is not null;
+        if (elsewhere || !_gameMonitor.TryClaimForSave(stats, out elsewhere))
+        {
+            if (!elsewhere) return PlayerSave.Busy;
+            ForgetMissedGame(stats.GameId);
+            return PlayerSave.SavedElsewhere;
+        }
+
+        var result = await PersistGameEndAsync(stats, isRecovered: true, TakeDeferredPreGame(stats.GameId))
+            .ConfigureAwait(false);
+        if (result is null) return PlayerSave.Failed; // it waits on Home again
+        if (result.WasSaved) return PlayerSave.Saved;
+        // Declined by the save gate: match history may offer it again.
+        _gameMonitor.ReleaseHandOff(stats.GameId);
+        return PlayerSave.Declined;
+    }
+
+    /// <summary>
+    /// A save that failed (a database error) keeps its game: it waits on Home with the live
+    /// timeline and pre-game choices it carried, and match history may offer it again.
+    /// </summary>
+    private void OfferAgainAfterFailedSave(Revu.Core.Models.GameStats stats, PreGameState? preGame)
+    {
+        _gameMonitor.ReleaseHandOff(stats.GameId);
+        if (stats.GameId <= 0) return;
+        bool added;
+        lock (_missedGate)
+        {
+            if (preGame is not null && !_deferredPreGame.ContainsKey(stats.GameId)) KeepDeferredPreGame(stats.GameId, preGame);
+            added = !_missedGames.Exists(g => g.GameId == stats.GameId);
+            if (added)
+            {
+                _missedGames = _missedGames
+                    .Append(new MissedGameCandidate(stats.GameId, stats.Timestamp, stats))
+                    .OrderByDescending(static g => g.Timestamp)
+                    .ToList();
+            }
+        }
+        if (added) PublishMissedGames(isPostGameReconcile: false);
     }
 
     private MissedGameCandidate? FindMissedGame(long gameId)
