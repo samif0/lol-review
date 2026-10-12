@@ -44,7 +44,8 @@ public sealed class WriteServices : IDisposable
     public WriteServices(
         ILoggerFactory loggerFactory,
         SidecarBackgroundWork? backgroundWork = null,
-        Revu.Core.Lcu.ILcuClient? lcu = null)
+        Revu.Core.Lcu.ILcuClient? lcu = null,
+        IConfigService? sharedConfig = null)
     {
         _backgroundWork = backgroundWork;
         _logger = loggerFactory.CreateLogger<WriteServices>();
@@ -58,7 +59,12 @@ public sealed class WriteServices : IDisposable
         // Core dependencies the write repos/services need (mirrors the read graph
         // in Program.cs, but bound to the WRITE factory).
         services.AddSingleton<IProtectedSecretStore, ProtectedSecretStore>();
-        services.AddSingleton<IConfigService, ConfigService>();
+        // One ConfigService for the whole sidecar (the read graph's, injected by DI).
+        // config.json is a file, not the database, so the read/write split adds nothing;
+        // two instances kept separate caches and locks, so reads went stale after a save
+        // and two writers could replace the file under each other.
+        if (sharedConfig is not null) services.AddSingleton(sharedConfig);
+        else services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<IBackupService, BackupService>();
 
         // Repositories the daily-loop writes need. GameRepository implements

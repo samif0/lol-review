@@ -10,11 +10,29 @@ namespace Revu.Core.Services;
 /// </summary>
 public interface IConfigService
 {
-    /// <summary>Load config from disk (or return defaults if not found).</summary>
+    /// <summary>
+    /// Load config from disk. Defaults only when config.json does not exist; a file
+    /// that exists but cannot be read throws rather than being replaced by defaults.
+    /// </summary>
     Task<AppConfig> LoadAsync();
 
     /// <summary>Persist the full config to disk.</summary>
     Task SaveAsync(AppConfig config);
+
+    /// <summary>
+    /// Load, change and save as one step, so concurrent writers cannot lose each
+    /// other's update. <paramref name="mutate"/> edits the loaded config and returns
+    /// false to leave the file untouched. Returns whether a save happened.
+    /// <see cref="ConfigService"/> holds one lock across all three steps; this default
+    /// serves simple in-memory implementations.
+    /// </summary>
+    async Task<bool> UpdateAsync(Func<AppConfig, bool> mutate)
+    {
+        var config = await LoadAsync().ConfigureAwait(false);
+        if (!mutate(config)) return false;
+        await SaveAsync(config).ConfigureAwait(false);
+        return true;
+    }
 
     /// <summary>
     /// Explicitly clear the Riot session (token + email + expiry) — the ONLY path

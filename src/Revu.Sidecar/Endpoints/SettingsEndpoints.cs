@@ -124,13 +124,44 @@ public static partial class SidecarEndpoints
         // otherwise zero clips_folder/backup_folder over the real values,
         // which is exactly how all three got blanked while riot_* survived. A DELIBERATE
         // clear (the Clear button) sends the FolderClearSentinel, which maps to "".
+        //
+        // H6: the load, the field mapping and the save run under ONE ConfigService lock
+        // (UpdateAsync), so a concurrent writer (sign-in, resolve, sign-out) cannot lose
+        // its update, and a config.json that exists but cannot be read throws instead of
+        // being replaced with defaults plus this body's fields.
         app.MapPost("/api/config/save", async (SaveConfigBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null) return Results.BadRequest(new { error = "body required" });
             await w.BackupGuard.EnsureBackedUpAsync();
 
-            var cfg = await w.Config.LoadAsync();
+            string? rejected = null;
+            try
+            {
+                await w.Config.UpdateAsync(cfg =>
+                {
+                    rejected = ApplyConfigSave(body, cfg);
+                    return rejected is null;
+                });
+            }
+            catch (IOException ex)
+            {
+                log.LogWarning(ex, "Config save refused: config.json could not be read");
+                return Results.Json(new { ok = false, error = "Your settings could not be read right now, so nothing was changed. Try again." },
+                    jsonOptions, statusCode: 503);
+            }
+            if (rejected is not null) return Results.BadRequest(new { error = rejected });
+            log.LogInformation("Config saved via sidecar.");
+            return Results.Json(new { ok = true }, jsonOptions);
+        });
 
+    }
+
+    /// <summary>
+    /// Maps a /api/config/save body onto the freshly loaded config (null = unchanged).
+    /// Returns a user-facing error to reject the whole save, or null to save it.
+    /// </summary>
+    internal static string? ApplyConfigSave(SaveConfigBody body, Revu.Core.Models.AppConfig cfg)
+    {
             // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
             if (ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent)) cfg.AscentFolder = ascent;
             if (ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips)) cfg.ClipsFolder = clips;
@@ -168,11 +199,6 @@ public static partial class SidecarEndpoints
             // OnboardingSkipped=true (mirror OnboardingViewModel.FinishRoleAsync). The
             // login path leaves this null — /api/auth/resolve already set it false.
             if (body.OnboardingSkipped is not null) cfg.OnboardingSkipped = body.OnboardingSkipped.Value;
-
-            await w.Config.SaveAsync(cfg);
-            log.LogInformation("Config saved via sidecar.");
-            return Results.Json(new { ok = true }, jsonOptions);
-        });
-
+            return null;
     }
 }

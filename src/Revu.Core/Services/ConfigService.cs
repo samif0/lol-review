@@ -134,29 +134,60 @@ public sealed class ConfigService : IConfigService
         await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
-            // Expiry-clobber guard (P-020/P-023 class): RiotSessionExpiresAt lives only
-            // in plaintext config.json (no DPAPI mirror). A read-modify-write handler
-            // that didn't touch the session carries expiry=0; persisting that 0 would
-            // log the user out even though the token is valid. Treat a 0/absent expiry
-            // on a normal save as "leave the stored expiry unchanged" by carrying the
-            // current on-disk value forward. A real sign-out goes through
-            // ClearSessionAsync (which sets _clearingSession to bypass this).
-            if (!_clearingSession && config.RiotSessionExpiresAt <= 0)
-            {
-                var priorExpiry = ReadPersistedExpiry();
-                if (priorExpiry > 0) config.RiotSessionExpiresAt = priorExpiry;
-            }
-
-            var persistable = PersistSecretsAndCreateSanitizedConfig(config);
-            Directory.CreateDirectory(_configDir);
-            var json = JsonSerializer.Serialize(persistable, JsonOptions);
-            await WriteFileAtomicAsync(_configFile, json).ConfigureAwait(false);
-            _cached = HydrateSecrets(persistable);
+            await SaveUnlockedAsync(config).ConfigureAwait(false);
         }
         finally
         {
             _lock.Release();
         }
+    }
+
+    /// <summary>
+    /// Load, mutate and save under ONE lock hold, so two read-modify-write handlers can
+    /// never lose each other's update (a sign-out undone by a Settings save, a resolved
+    /// PUUID blanked by a stale copy). <paramref name="mutate"/> edits a fresh copy of
+    /// the on-disk config and returns false to leave the file untouched. An existing but
+    /// unreadable config.json throws here, so a writer can never persist defaults.
+    /// </summary>
+    public async Task<bool> UpdateAsync(Func<AppConfig, bool> mutate)
+    {
+        ArgumentNullException.ThrowIfNull(mutate);
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var current = await LoadFromDiskAsync().ConfigureAwait(false);
+            _cached = current;
+            var working = CloneConfig(current);
+            if (!mutate(working)) return false;
+            await SaveUnlockedAsync(working).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private async Task SaveUnlockedAsync(AppConfig config)
+    {
+        // Expiry-clobber guard (P-020/P-023 class): RiotSessionExpiresAt lives only
+        // in plaintext config.json (no DPAPI mirror). A read-modify-write handler
+        // that didn't touch the session carries expiry=0; persisting that 0 would
+        // log the user out even though the token is valid. Treat a 0/absent expiry
+        // on a normal save as "leave the stored expiry unchanged" by carrying the
+        // current on-disk value forward. A real sign-out goes through
+        // ClearSessionAsync (which sets _clearingSession to bypass this).
+        if (!_clearingSession && config.RiotSessionExpiresAt <= 0)
+        {
+            var priorExpiry = ReadPersistedExpiry();
+            if (priorExpiry > 0) config.RiotSessionExpiresAt = priorExpiry;
+        }
+
+        var persistable = PersistSecretsAndCreateSanitizedConfig(config);
+        Directory.CreateDirectory(_configDir);
+        var json = JsonSerializer.Serialize(persistable, JsonOptions);
+        await WriteFileAtomicAsync(_configFile, json).ConfigureAwait(false);
+        _cached = HydrateSecrets(persistable);
     }
 
     public async Task ClearSessionAsync()
@@ -262,72 +293,207 @@ public sealed class ConfigService : IConfigService
         }
     }
 
+    // H6: defaults are returned ONLY when config.json does not exist (first run, or a
+    // loss with no .bak). A file that exists but cannot be read right now (antivirus,
+    // a sync tool, another reader) is retried briefly and then THROWS: every writer is a
+    // read-modify-write, so a fabricated default config would be saved over the real one.
+    // A file that reads but is not valid JSON is kept as .corrupt-*, then the .bak is
+    // tried, and only then defaults.
     private async Task<AppConfig> LoadFromDiskAsync()
     {
-        TryRestoreFromBackup();
-        try
+        var json = await ReadConfigTextAsync().ConfigureAwait(false);
+        if (json is null) return HydrateSecrets(new AppConfig());
+
+        var config = ParseOrRecover(json);
+        if (!TryMigrateSecretsFromConfig(config, out var migrated))
         {
-            if (File.Exists(_configFile))
+            return config;
+        }
+
+        var sanitized = CreateSanitizedConfig(config);
+        if (migrated)
+        {
+            try
             {
-                var json = await File.ReadAllTextAsync(_configFile).ConfigureAwait(false);
-                var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
-                if (!TryMigrateSecretsFromConfig(config, out var migrated))
-                {
-                    return config;
-                }
-
-                var sanitized = CreateSanitizedConfig(config);
-                if (migrated)
-                {
-                    Directory.CreateDirectory(_configDir);
-                    var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-                    // keepBackup: false — the file being replaced still holds the
-                    // plaintext tokens this write exists to remove.
-                    await WriteFileAtomicAsync(_configFile, sanitizedJson, keepBackup: false).ConfigureAwait(false);
-                }
-
-                return HydrateSecrets(sanitized);
+                Directory.CreateDirectory(_configDir);
+                var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
+                // keepBackup: false — the file being replaced still holds the
+                // plaintext tokens this write exists to remove.
+                await WriteFileAtomicAsync(_configFile, sanitizedJson, keepBackup: false).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The secrets are already in the store; the rewrite is retried next load.
+                _logger.LogWarning(ex, "Could not rewrite sanitized config at {Path}", _configFile);
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not read config from {Path}", _configFile);
-            BackupCorruptConfig();
-        }
-        return HydrateSecrets(new AppConfig());
+
+        return HydrateSecrets(sanitized);
     }
 
     private AppConfig LoadFromDiskSync(bool allowMigrationWrite = true)
     {
-        TryRestoreFromBackup();
-        try
+        var json = ReadConfigText();
+        if (json is null) return HydrateSecrets(new AppConfig());
+
+        var config = ParseOrRecover(json);
+        if (!TryMigrateSecretsFromConfig(config, out var migrated))
         {
-            if (File.Exists(_configFile))
+            return config;
+        }
+
+        var sanitized = CreateSanitizedConfig(config);
+        if (migrated && allowMigrationWrite)
+        {
+            try
             {
-                var json = File.ReadAllText(_configFile);
-                var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
-                if (!TryMigrateSecretsFromConfig(config, out var migrated))
-                {
-                    return config;
-                }
-
-                var sanitized = CreateSanitizedConfig(config);
-                if (migrated && allowMigrationWrite)
-                {
-                    Directory.CreateDirectory(_configDir);
-                    var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
-                    WriteFileAtomic(_configFile, sanitizedJson, keepBackup: false);
-                }
-
-                return HydrateSecrets(sanitized);
+                Directory.CreateDirectory(_configDir);
+                var sanitizedJson = JsonSerializer.Serialize(sanitized, JsonOptions);
+                WriteFileAtomic(_configFile, sanitizedJson, keepBackup: false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Could not rewrite sanitized config at {Path}", _configFile);
             }
         }
-        catch (Exception ex)
+
+        return HydrateSecrets(sanitized);
+    }
+
+    // Short waits for a sharing violation (antivirus, backup or sync tools) to clear.
+    private static readonly int[] ReadRetryDelaysMs = [50, 100, 200];
+
+    /// <summary>config.json's text, or null when the file does not exist (after
+    /// trying the .bak). Throws when it exists but stays unreadable.</summary>
+    private async Task<string?> ReadConfigTextAsync()
+    {
+        for (var attempt = 0; ; attempt++)
         {
-            _logger.LogWarning(ex, "Could not read config from {Path}", _configFile);
-            BackupCorruptConfig();
+            if (!ConfigFileExists()) return null;
+            try
+            {
+                await using var stream = OpenConfigForRead(useAsync: true);
+                using var reader = new StreamReader(stream);
+                return await reader.ReadToEndAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex) when ((ex is FileNotFoundException or DirectoryNotFoundException)
+                                       && attempt < ReadRetryDelaysMs.Length)
+            {
+                // Vanished between the check and the open: look again (and try the .bak).
+            }
+            catch (Exception ex) when (IsRetryableRead(ex, attempt))
+            {
+                _logger.LogDebug(ex, "config.json busy; retrying read");
+                await Task.Delay(ReadRetryDelaysMs[attempt]).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw Unreadable(ex);
+            }
         }
-        return HydrateSecrets(new AppConfig());
+    }
+
+    private string? ReadConfigText()
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            if (!ConfigFileExists()) return null;
+            try
+            {
+                using var stream = OpenConfigForRead(useAsync: false);
+                using var reader = new StreamReader(stream);
+                return reader.ReadToEnd();
+            }
+            catch (Exception ex) when ((ex is FileNotFoundException or DirectoryNotFoundException)
+                                       && attempt < ReadRetryDelaysMs.Length)
+            {
+                // Vanished between the check and the open: look again.
+            }
+            catch (Exception ex) when (IsRetryableRead(ex, attempt))
+            {
+                _logger.LogDebug(ex, "config.json busy; retrying read");
+                Thread.Sleep(ReadRetryDelaysMs[attempt]);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw Unreadable(ex);
+            }
+        }
+    }
+
+    private bool ConfigFileExists()
+    {
+        if (File.Exists(_configFile)) return true;
+        TryRestoreFromBackup();
+        return File.Exists(_configFile);
+    }
+
+    // Shared read + delete access so an atomic replace (File.Move over this file)
+    // from a writer never collides with this read handle.
+    private FileStream OpenConfigForRead(bool useAsync) =>
+        new(_configFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 4096, useAsync: useAsync);
+
+    private static bool IsRetryableRead(Exception ex, int attempt) =>
+        (ex is IOException or UnauthorizedAccessException)
+        && ex is not (FileNotFoundException or DirectoryNotFoundException)
+        && attempt < ReadRetryDelaysMs.Length;
+
+    private IOException Unreadable(Exception inner)
+    {
+        _logger.LogError(inner, "config.json at {Path} exists but cannot be read; refusing to use defaults", _configFile);
+        return new IOException("Your settings file could not be read right now. Nothing was changed; try again.", inner);
+    }
+
+    private AppConfig ParseOrRecover(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "config.json at {Path} is not valid JSON", _configFile);
+            var kept = BackupCorruptConfig();
+            if (TryReadBackupConfig(out var recovered))
+            {
+                // Put the last good copy back only once the corrupt one is preserved.
+                if (kept)
+                {
+                    try
+                    {
+                        File.Copy(BackupPathFor(_configFile), _configFile, overwrite: true);
+                        _logger.LogWarning("Restored config.json from its .bak after a corrupt read");
+                    }
+                    catch (Exception copyEx) when (copyEx is IOException or UnauthorizedAccessException)
+                    {
+                        _logger.LogWarning(copyEx, "Could not put config.json.bak back in place");
+                    }
+                }
+                return recovered;
+            }
+            _logger.LogWarning("No usable config.json.bak; running on default settings until the next save");
+            return new AppConfig();
+        }
+    }
+
+    private bool TryReadBackupConfig(out AppConfig recovered)
+    {
+        recovered = new AppConfig();
+        var bak = BackupPathFor(_configFile);
+        try
+        {
+            if (!File.Exists(bak)) return false;
+            var parsed = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(bak), JsonOptions);
+            if (parsed is null) return false;
+            recovered = parsed;
+            return true;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "config.json.bak is not usable either");
+            return false;
+        }
     }
 
     // ── Atomic write + corruption recovery ──────────────────────────
@@ -427,24 +593,25 @@ public sealed class ConfigService : IConfigService
     }
 
     /// <summary>
-    /// Preserve an unreadable/corrupt config.json so a parse failure doesn't
-    /// silently discard the user's settings. Best-effort: a missing or
-    /// already-gone file is fine, and any IO error here must not block the
-    /// fall-back-to-defaults load path.
+    /// Preserve a corrupt config.json so a parse failure doesn't silently discard the
+    /// user's settings. Best-effort: returns false when no copy could be made, and the
+    /// caller then leaves the corrupt file where it is.
     /// </summary>
-    private void BackupCorruptConfig()
+    private bool BackupCorruptConfig()
     {
         try
         {
-            if (!File.Exists(_configFile)) return;
+            if (!File.Exists(_configFile)) return false;
             var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var dest = $"{_configFile}.corrupt-{stamp}";
             File.Copy(_configFile, dest, overwrite: true);
             _logger.LogWarning("Backed up unreadable config to {Path}", dest);
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not back up corrupt config from {Path}", _configFile);
+            return false;
         }
     }
 

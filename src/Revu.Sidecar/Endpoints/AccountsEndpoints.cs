@@ -91,20 +91,24 @@ public static partial class SidecarEndpoints
                 var result = await w.RiotAuth.VerifyAsync(body.Code.Trim().ToUpperInvariant(), ct);
                 await w.BackupGuard.EnsureBackedUpAsync();
 
-                var cfg = await w.Config.LoadAsync();
-                cfg.RiotSessionToken = result.SessionToken;
-                // Prefer the email the frontend carried over from the login step; fall back
-                // to whatever's already stored so a re-verify doesn't blank it.
-                if (!string.IsNullOrWhiteSpace(body.Email)) cfg.RiotSessionEmail = body.Email.Trim();
-                cfg.RiotSessionExpiresAt = result.ExpiresAt;
-                await w.Config.SaveAsync(cfg);
+                var email = "";
+                await w.Config.UpdateAsync(cfg =>
+                {
+                    cfg.RiotSessionToken = result.SessionToken;
+                    // Prefer the email the frontend carried over from the login step; fall back
+                    // to whatever's already stored so a re-verify doesn't blank it.
+                    if (!string.IsNullOrWhiteSpace(body.Email)) cfg.RiotSessionEmail = body.Email.Trim();
+                    cfg.RiotSessionExpiresAt = result.ExpiresAt;
+                    email = cfg.RiotSessionEmail;
+                    return true;
+                });
 
                 log.LogInformation("Auth: session verified + persisted (expires {ExpiresAt}).", result.ExpiresAt);
 
                 // 3.14: signed in now, so narrations waiting on sign-in get transcribed and
                 // deferred remote clip deletes go out. The renderer never calls transcribe itself.
                 work.TryRun("narration sign-in sweep", () => NarrationStartup.OnSignedInAsync(services, log));
-                return Results.Json(new { ok = true, email = cfg.RiotSessionEmail }, jsonOptions);
+                return Results.Json(new { ok = true, email }, jsonOptions);
             }
             catch (RiotAuthException ex)
             {
@@ -144,11 +148,16 @@ public static partial class SidecarEndpoints
                 var account = await w.RiotAuth.ResolveAccountAsync(cfg.RiotSessionToken, riotId, regionLower, ct);
 
                 await w.BackupGuard.EnsureBackedUpAsync();
-                cfg.RiotId = riotId;
-                cfg.RiotRegion = regionLower;
-                cfg.RiotPuuid = account.Puuid;
-                cfg.OnboardingSkipped = false; // login path: rely on RiotProxyEnabled + role
-                await w.Config.SaveAsync(cfg);
+                // Re-read under the config lock: cfg is stale after the network call, and
+                // saving it would undo any Settings save made in between.
+                await w.Config.UpdateAsync(fresh =>
+                {
+                    fresh.RiotId = riotId;
+                    fresh.RiotRegion = regionLower;
+                    fresh.RiotPuuid = account.Puuid;
+                    fresh.OnboardingSkipped = false; // login path: rely on RiotProxyEnabled + role
+                    return true;
+                });
 
                 // Best-effort rank detection (display-only; never throws).
                 var rank = await w.RiotAuth.GetSoloRankAsync(cfg.RiotSessionToken, account.Puuid, regionLower, ct);
@@ -181,11 +190,7 @@ public static partial class SidecarEndpoints
             // save no longer clears anything). Reset OnboardingSkipped separately.
             await w.Config.ClearSessionAsync();
             if (cfg.OnboardingSkipped)
-            {
-                var fresh = await w.Config.LoadAsync();
-                fresh.OnboardingSkipped = false;
-                await w.Config.SaveAsync(fresh);
-            }
+                await w.Config.UpdateAsync(fresh => { fresh.OnboardingSkipped = false; return true; });
 
             if (!string.IsNullOrWhiteSpace(token))
             {
