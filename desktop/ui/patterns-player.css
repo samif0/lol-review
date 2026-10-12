@@ -101,6 +101,15 @@ body .pat-stage.pat-expanded .pat-transport {
   box-shadow: none !important;
 }
 
+/* Transport icons are inline SVGs sized by their own attributes. */
+.vp-transport .tbtn-icon {
+  display: inline-flex;
+}
+
+.vp-transport .tbtn-icon svg {
+  display: block;
+}
+
 @media (max-width: 600px) {
   body .pat-stage.pat-expanded .pat-mstrip,
   body .pat-stage.pat-expanded .pat-transport {

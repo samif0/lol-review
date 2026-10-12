@@ -83,8 +83,8 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
         for(let i=0;i<10;i++)key('-');
         const slowest=state();
         key('=');const equalsIncrease=state();
-        key('m');await tick();const mutedOnce=state(),muteGlyphOnce=mute.querySelector('.tbtn-icon')?.textContent;
-        key('m');await tick();const mutedTwice=state(),muteGlyphTwice=mute.querySelector('.tbtn-icon')?.textContent;
+        key('m');await tick();const mutedOnce=state(),muteGlyphOnce=mute.querySelector('.tbtn-icon')?.dataset.icon;
+        key('m');await tick();const mutedTwice=state(),muteGlyphTwice=mute.querySelector('.tbtn-icon')?.dataset.icon;
         for(let i=0;i<6;i++)key('ArrowDown');
         const smallestStep=state();key('ArrowUp');const largerStep=state();key('ArrowDown');
         const beforeGuards=state();

@@ -24,7 +24,7 @@ function fixture(t, modalExpand = true) {
     constructor(tag, parent = null) {
       this.tagName = tag.toUpperCase(); this.ownerDocument = doc;
       this.parentElement = parent; this.children = []; this.attributes = new Map();
-      this.listeners = new Map();
+      this.listeners = new Map(); this.dataset = {};
       this.disabled = false; this.isConnected = true;
       const classes = new Set();
       this.classList = { contains: value => classes.has(value), toggle(value) {
@@ -44,6 +44,24 @@ function fixture(t, modalExpand = true) {
     removeEventListener(type, fn) { this.listeners.get(type)?.delete(fn); }
     emit(type, event = {}) { for (const fn of this.listeners.get(type) || []) fn(event); }
     contains(el) { return el === this || this.children.some(child => child.contains(el)); }
+    get firstChild() { return this.children[0] || null; }
+    appendChild(child) { return this.insertBefore(child, null); }
+    insertBefore(child, reference) {
+      child.parentElement?.removeChild(child);
+      const index = reference ? this.children.indexOf(reference) : -1;
+      this.children.splice(index < 0 ? this.children.length : index, 0, child);
+      child.parentElement = this;
+      return child;
+    }
+    removeChild(child) { this.children = this.children.filter(node => node !== child); child.parentElement = null; return child; }
+    querySelector(selector) {
+      for (const child of this.children) {
+        if (selector === `.${child.className}`) return child;
+        const nested = child.querySelector(selector);
+        if (nested) return nested;
+      }
+      return null;
+    }
     closest(selector) {
       for (let node = this; node; node = node.parentElement) {
         if (selector === 'select' || selector === 'button') {
@@ -61,6 +79,8 @@ function fixture(t, modalExpand = true) {
     }
     focus() { doc.activeElement = this; doc.emit('focusin', { target: this }); }
   }
+  doc.createElement = tag => new Element(tag);
+  doc.createElementNS = (_namespace, tag) => new Element(tag);
   const html = new Element('html');
   const body = doc.body = new Element('body', html);
   const shell = new Element('main', body);
@@ -284,34 +304,46 @@ test('speed shortcuts traverse supported rates, clamp at both ends and sync the 
 
 test('mute and expansion shortcuts ignore held-key repeats and preserve nested hint markup', t => {
   const f = fixture(t, false);
-  const icons = new Map();
+  const hints = new Map();
   for (const button of [f.mute, f.fs, f.play]) {
-    const icon = { textContent: '' };
-    icons.set(button, icon);
-    button.querySelector = selector => selector === '.tbtn-icon' ? icon : null;
+    const hint = new f.Element('kbd', button); hint.textContent = 'key';
+    hints.set(button, hint);
     Object.defineProperty(button, 'textContent', { set() { assert.fail('Replacing button text would erase its key hint'); } });
   }
+  const icon = button => button.querySelector('.tbtn-icon');
+  // Monochrome SVG icons replace the emoji-capable glyphs; no text is ever written.
+  const assertIcon = (button, name) => {
+    const holder = icon(button);
+    assert.equal(holder.dataset.icon, name);
+    assert.equal(holder.getAttribute('aria-hidden'), 'true');
+    assert.deepEqual(holder.children.map(child => child.tagName), ['SVG']);
+    assert.equal(holder.children[0].getAttribute('stroke'), 'currentColor');
+    assert.equal(holder.textContent ?? '', '');
+    assert.equal(button.children.at(-1), hints.get(button), 'the key hint stays after the icon');
+  };
   f.transport.attachVideo({ clickToToggle: false });
+  assertIcon(f.mute, 'volume');
   f.video.src = '';
   const press = (key, extra) => f.transport.handleShortcut(shortcutEvent(key, f.doc.body, extra));
   assert.equal(press('M'), true);
   assert.equal(f.video.muted, true);
-  assert.equal(icons.get(f.mute).textContent, '🔇');
+  assertIcon(f.mute, 'muted');
   assert.equal(f.mute.title, 'Unmute (M)');
   assert.equal(f.mute.getAttribute('aria-label'), 'Unmute');
   press('m', { repeat: true }); assert.equal(f.video.muted, true);
   press('m'); assert.equal(f.video.muted, false);
-  assert.equal(icons.get(f.mute).textContent, '🔊');
+  assertIcon(f.mute, 'volume');
   assert.equal(f.mute.title, 'Mute (M)');
   press('F'); assert.equal(f.transport.isExpanded(), true);
-  assert.equal(icons.get(f.fs).textContent, '🗗');
+  assertIcon(f.fs, 'restore');
   assert.equal(f.fs.title, 'Restore layout (F or Esc)');
   assert.equal(f.fs.getAttribute('aria-keyshortcuts'), 'F Escape');
   press('f', { repeat: true }); assert.equal(f.transport.isExpanded(), true);
   press('Escape'); assert.equal(f.transport.isExpanded(), false);
-  assert.equal(icons.get(f.fs).textContent, '⛶');
-  f.video.emit('play'); assert.equal(icons.get(f.play).textContent, '❚❚');
-  f.transport.unload(); assert.equal(icons.get(f.play).textContent, '▶');
+  assertIcon(f.fs, 'enlarge');
+  f.video.emit('play'); assertIcon(f.play, 'pause');
+  f.transport.unload(); assertIcon(f.play, 'play');
+  assert.equal(f.play.children.filter(child => child.className === 'tbtn-icon').length, 1, 'icons swap in place');
 });
 
 test('transport shortcuts preserve consumed, chorded, composing and editable key events', t => {

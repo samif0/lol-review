@@ -24,6 +24,8 @@ html.framed .vod-review-page .shell{padding:24px 32px 40px}
 .vod-review-page .vp-video{max-height:72vh;aspect-ratio:16/9;object-fit:contain;border-radius:0;background:#000}
 .vod-review-page .vp-transport-card{padding:12px 0;border:0!important;border-radius:0!important;background:transparent!important}
 .vod-review-page .vp-transport{gap:10px 14px}
+.vod-review-page .vp-transport .tbtn-icon{display:inline-flex}
+.vod-review-page .vp-transport .tbtn-icon svg{display:block}
 .vod-review-page .transport-options{gap:8px}
 .vod-review-page .vp-timeline-card{padding:16px;border-radius:14px!important;background:var(--surface)!important}
 .vod-review-page .vp-tl-row{gap:16px}
