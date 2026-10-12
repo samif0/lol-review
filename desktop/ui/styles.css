@@ -2341,41 +2341,25 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 
 
 
-/* Corner-bracketed card — gold + neutral variants (mirrors CornerBracketedCard). */
-.bracket{position:relative}
-.bracket::after{content:'';position:absolute;top:9px;left:9px;width:14px;height:14px;
-  border-top:1.5px solid var(--gline);border-left:1.5px solid var(--gline);border-radius:3px 0 0 0;pointer-events:none;opacity:0.7}
-.bracket-gold{border-color:rgba(var(--primary-rgb),0.4)}
-.bracket-gold::after{border-top-color:rgba(var(--primary-rgb),0.7);border-left-color:rgba(var(--primary-rgb),0.7);opacity:1}
-.bracket-gold .seclabel{color:var(--gold)}
-
 /* ════════════════════════════════════════════════════════════════════════════
-   MANUAL ENTRY PAGE (manualentry.html / manualentry.js) — hand-log a game +
-   minimal review, backed by GET /api/objectives/active + POST /api/game/manual.
-   Reuses the shared kit (.card / .bracket / .seclabel / .eyebrow / .hero / .cta /
-   .errpanel). House palette + system font, .16s hovers, motion-guarded. */
-/* Blue-accent bracket variant (objectives card) — complements .bracket-gold. */
-.bracket-blue{border-color:rgba(var(--primary-rgb),0.4)}
-.bracket-blue::after{border-top-color:rgba(var(--primary-rgb),0.7);border-left-color:rgba(var(--primary-rgb),0.7);opacity:1}
-.bracket-blue .seclabel{color:var(--accent)}
+   ADD A GAME MANUALLY (manualentry.html / manualentry.js): hand-log a game and
+   a minimal review, backed by GET /api/objectives/active + POST /api/game/manual.
+   Reuses the shared kit (.card / .seclabel / .eyebrow / .hero / .cta / .errpanel). */
 
 .me-form{display:flex;flex-direction:column;gap:14px;max-width:700px}
-.me-error{font-family:var(--fm);font-size:11px;letter-spacing:0.5px;color:var(--error)}
+.me-error{font-size:var(--font-small);line-height:1.5;color:var(--error)}
 
 /* CHAMPION + RESULT + KDA header card */
 .me-headrow{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
 .me-headcol{display:flex;flex-direction:column;gap:12px;min-width:180px;flex:1}
-.me-champ{font-family:var(--fo);font-size:22px;font-weight:700;color:var(--gold);
-  background:transparent;border:none;border-bottom:2px solid rgba(var(--primary-rgb),0.5);
-  padding:4px 2px 6px;outline:none;min-width:180px}
-.me-champ::placeholder{color:rgba(var(--primary-rgb),0.45)}
-.me-champ:focus{border-bottom-color:var(--gold)}
-.me-result{display:flex;gap:16px}
+.me-champ{width:100%;min-width:180px;padding:10px 13px}
+.me-result{border:0;margin:0;padding:0;min-width:0}
+.me-result .me-radio{margin-right:var(--space-4)}
 .me-radio{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-family:var(--fb);font-size:13px;font-weight:600}
 .me-radio input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
 .me-radio .rwin{color:var(--result-win)}
 .me-radio .rloss{color:var(--result-loss)}
-.me-kda{display:flex;align-items:flex-start;gap:9px}
+.me-kda{display:flex;align-items:flex-end;gap:9px}
 .me-kda-cell{display:flex;flex-direction:column;align-items:center;gap:5px}
 .me-num{width:54px;height:46px;text-align:center;font-family:var(--fo);font-size:21px;font-weight:700;color:#fff;
   background:rgba(var(--bg-rgb),0.45);border:1px solid var(--gline2);border-radius:11px;outline:none;
@@ -2393,9 +2377,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
   text-shadow:0 2px 16px rgba(var(--primary-rgb),0.45)}
 
 /* PERFORMANCE / NOTES fields */
-.me-field-lbl{font-family:var(--fm);font-size:var(--font-label);letter-spacing:var(--label-spacing);text-transform:uppercase;
-  color:var(--label-bright);margin:14px 0 7px}
-.me-field-lbl:first-of-type{margin-top:4px}
+.me-field-lbl{display:block;font-size:var(--font-caption);color:var(--label-bright);margin:0 0 var(--space-2)}
 .me-input{width:100%;font-family:var(--fb);font-size:13px;color:#fff;
   background:rgba(var(--bg-rgb),0.45);border:1px solid var(--gline2);border-radius:11px;padding:11px 13px;outline:none;resize:vertical;
   box-shadow:0 1px 0 rgba(255,255,255,0.04) inset;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Revu: Manual Entry</title>
+<title>Revu: Add a game manually</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
@@ -30,80 +30,71 @@
     <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
   </nav>
   <div class="shell">
-    <div class="eyebrow">Manual Entry</div>
-    <div class="hero"><h1>Log a Game</h1></div>
-    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Hand-log a game that wasn't auto-captured.</b></div>
+    <div class="eyebrow">Match library</div>
+    <div class="hero"><h1>Add a game manually</h1></div>
+    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Log a game Revu didn't capture.</b></div>
 
-    <div class="me-form">
-      <!-- Top-of-form error (champion required / save failed) -->
-      <div class="me-error" id="me-error" hidden></div>
+    <div class="me-form" id="me-form">
+      <!-- Top-of-form error (champion or result missing / save failed) -->
+      <div class="me-error" id="me-error" role="alert" hidden></div>
 
       <!-- CHAMPION + RESULT + KDA -->
-      <div class="card bracket bracket-gold">
+      <div class="card">
         <div class="me-headrow">
           <div class="me-headcol">
-            <input class="me-champ" id="me-champ" type="text" placeholder="Champion Name" autocomplete="off">
-            <div class="me-result">
-              <label class="me-radio"><input type="radio" name="result" id="me-win"> <span class="rwin">Victory</span></label>
-              <label class="me-radio"><input type="radio" name="result" id="me-loss" checked> <span class="rloss">Defeat</span></label>
-            </div>
+            <label class="me-field-lbl" for="me-champ">Champion</label>
+            <input class="me-champ" id="me-champ" type="text" placeholder="e.g., Ahri" autocomplete="off" required aria-required="true">
+            <fieldset class="me-result">
+              <legend class="me-field-lbl">Result</legend>
+              <label class="me-radio"><input type="radio" name="result" id="me-win" value="win" required> <span class="rwin">Victory</span></label>
+              <label class="me-radio"><input type="radio" name="result" id="me-loss" value="loss"> <span class="rloss">Defeat</span></label>
+            </fieldset>
           </div>
           <div class="me-kda">
             <div class="me-kda-cell">
-              <input class="me-num" id="me-k" inputmode="numeric" value="0" aria-label="Kills">
-              <div class="me-kda-lbl">K</div>
+              <label class="me-kda-lbl" for="me-k">Kills</label>
+              <input class="me-num" id="me-k" inputmode="numeric" value="0">
             </div>
-            <span class="me-kda-sep">/</span>
+            <span class="me-kda-sep" aria-hidden="true">/</span>
             <div class="me-kda-cell">
-              <input class="me-num" id="me-d" inputmode="numeric" value="0" aria-label="Deaths">
-              <div class="me-kda-lbl">D</div>
+              <label class="me-kda-lbl" for="me-d">Deaths</label>
+              <input class="me-num" id="me-d" inputmode="numeric" value="0">
             </div>
-            <span class="me-kda-sep">/</span>
+            <span class="me-kda-sep" aria-hidden="true">/</span>
             <div class="me-kda-cell">
-              <input class="me-num" id="me-a" inputmode="numeric" value="0" aria-label="Assists">
-              <div class="me-kda-lbl">A</div>
+              <label class="me-kda-lbl" for="me-a">Assists</label>
+              <input class="me-num" id="me-a" inputmode="numeric" value="0">
             </div>
           </div>
         </div>
       </div>
 
-      <!-- MENTAL RATING -->
-      <div class="card bracket">
-        <div class="seclabel">Mental Rating</div>
+      <!-- MENTAL RATING (same question as the Review page) -->
+      <div class="card">
+        <label class="seclabel" for="me-mental">How focused and calm were you? <span class="n">1 to 10</span></label>
         <div class="me-slrow">
-          <input type="range" class="me-range" id="me-mental" min="1" max="10" step="1" value="5"
-                 aria-label="Mental rating, 1 to 10">
-          <span class="me-slval" id="me-mental-val">5</span>
+          <input type="range" class="me-range" id="me-mental" min="1" max="10" step="1" value="5">
+          <span class="me-slval" id="me-mental-val" aria-hidden="true">5</span>
         </div>
       </div>
 
-      <!-- LEARNING OBJECTIVES (collapsed when none active) -->
-      <div class="card bracket bracket-blue" id="me-obj-card" hidden>
-        <div class="seclabel">Learning Objectives</div>
+      <!-- YOUR PRACTICE (collapsed when no learning objective is active) -->
+      <div class="card" id="me-obj-card" hidden>
+        <div class="seclabel">Your practice</div>
         <div id="me-obj-list"></div>
       </div>
 
-      <!-- PERFORMANCE REVIEW -->
-      <div class="card bracket">
-        <div class="seclabel">Performance Review</div>
-        <div class="me-field-lbl">What went well?</div>
-        <textarea class="me-input me-multi" id="me-well" rows="3" placeholder="Good plays, decisions, mechanics…"></textarea>
-        <div class="me-field-lbl">What could improve?</div>
-        <textarea class="me-input me-multi" id="me-mistakes" rows="3" placeholder="Deaths, missed plays, bad decisions…"></textarea>
-        <div class="me-field-lbl">Focus for next game</div>
-        <input class="me-input" id="me-focus" type="text" placeholder="What will you focus on improving?" autocomplete="off">
-      </div>
-
-      <!-- ADDITIONAL NOTES -->
-      <div class="card bracket">
-        <div class="seclabel">Additional Notes</div>
-        <textarea class="me-input me-multi" id="me-notes" rows="3" placeholder="Any other notes about this game…"></textarea>
+      <!-- REFLECTION: the Review page's takeaway field (stored the same way). -->
+      <div class="card">
+        <label class="seclabel" for="me-notes">One thing to take into your next game</label>
+        <textarea class="me-input me-multi" id="me-notes" rows="3" placeholder="One decision to repeat or change, and why…"></textarea>
+        <p class="field-help">You can add the rest of your reflection on this match's Review page later.</p>
       </div>
 
       <!-- ACTIONS -->
       <div class="me-actions">
         <button class="me-cancel" id="me-cancel" data-action="cancel" type="button">Cancel</button>
-        <button class="cta me-save" id="me-save" data-action="save" type="button">Save Game Entry</button>
+        <button class="cta me-save" id="me-save" data-action="save" type="button">Save game</button>
       </div>
     </div>
 
@@ -128,11 +119,11 @@
         </div>
         <label class="me-toggle">
           <input type="checkbox" class="me-obj-practiced">
-          <span class="me-toggle-track"><span class="me-toggle-knob"></span></span>
-          <span class="me-toggle-lbl">Not practiced</span>
+          <span class="me-toggle-track" aria-hidden="true"><span class="me-toggle-knob"></span></span>
+          <span class="me-toggle-lbl">Practiced</span>
         </label>
       </div>
-      <input class="me-input me-obj-note" type="text" placeholder="How did you execute on this?" autocomplete="off">
+      <input class="me-input me-obj-note" type="text" placeholder="How did it go? (optional)" autocomplete="off">
     </div>
   </template>
 
