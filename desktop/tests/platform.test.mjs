@@ -86,7 +86,7 @@ test('commands preserve read/write envelopes and backend failures across review 
     ['get_pregame', { myChampion: 'Kai\'Sa', participantMap: '{"3":"Ally"}' }],
     ['save_event_correction', { payload: { gameId: 9, correctionId: 2, gameTimeSeconds: 123.5 } }],
     ['add_bookmark', { payload: { gameId: 9, timeSeconds: 100, note: 'spacing' } }],
-    ['save_config', { payload: { clipsFolder: 'D:\\Clips', sidebarAnimationEnabled: false } }],
+    ['save_config', { payload: { clipsFolder: 'D:\\Clips', minimizeDuringGame: false } }],
     ['auth_login', { payload: { email: 'test@example.invalid', password: 'fixture-only' } }],
     ['save_export_file', { fileName: 'review.md', markdown: '# Review\n' }],
     ['copy_text_to_clipboard', { text: '# Review\nKeep the wave near turret.' }],

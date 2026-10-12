@@ -109,7 +109,7 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
-        // GET /api/stint — the active stint + block counts for the Settings stint card.
+        // GET /api/stint — the active stint + block counts (get_stint; Home reads the stint from its snapshot).
         // READ-only; no backup guard. Uses the WRITE-graph stints repo (its read
         // methods are plain SELECTs — same precedent as GET /api/objectives/active).
         // stint is null when none is running.
