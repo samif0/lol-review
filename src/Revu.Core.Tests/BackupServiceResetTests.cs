@@ -304,6 +304,10 @@ public sealed class BackupServiceResetTests
         // 2026-09-05 / 2026-07-10: this method deleted AppDataPaths.ConfigPath —
         // the developer's LIVE config.json — every time the Core suite ran with a
         // temp database. The config that belongs to a database is the one beside it.
+        // This test writes and then deletes the process-global config.json, so it must
+        // never run against anything but the suite's own temp data root.
+        Assert.True(TestDataRoot.IsUnderTemp(Revu.Core.Data.AppDataPaths.ConfigPath),
+            $"AppDataPaths.ConfigPath ({Revu.Core.Data.AppDataPaths.ConfigPath}) is outside the temp folder");
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
         var scopedConfig = Path.Combine(Path.GetDirectoryName(scope.DatabasePath)!, "config.json");

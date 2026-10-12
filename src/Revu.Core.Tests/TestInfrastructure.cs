@@ -94,12 +94,16 @@ internal sealed class TestDatabaseScope : IDisposable
 
     public void Dispose()
     {
+        // Pooled shared-cache connections keep test.db open; without clearing them
+        // the delete fails silently and every scope leaks a database under %TEMP%.
+        SqliteConnection.ClearAllPools();
         try
         {
             Directory.Delete(_rootDirectory, recursive: true);
         }
-        catch
+        catch (Exception ex)
         {
+            Console.Error.WriteLine($"Test database folder not removed: {_rootDirectory} ({ex.Message})");
         }
     }
 }
