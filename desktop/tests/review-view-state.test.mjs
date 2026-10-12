@@ -1128,7 +1128,7 @@ test('Export review continues to use the native save dialog and reports save or 
   }
 });
 
-test('a failed draft autosave shows Draft not saved with Retry and keeps navigation on the page until it saves', async t => {
+test('a failed draft autosave shows Draft not saved with Retry and keeps navigation on the page unless the player leaves it', async t => {
   let fail = true;
   const f = fixture(t, command => {
     if (command === 'save_review_draft' && fail) throw new Error('Sidecar unavailable');
@@ -1139,11 +1139,18 @@ test('a failed draft autosave shows Draft not saved with Retry and keeps navigat
   f.fields[1].value = 'My debrief'; f.hooks.markDraftDirty(); await f.hooks.flushDraft();
   assert.equal(f.$('rv-draft-status').hidden, false, 'the failure is visible without interrupting typing');
   assert.equal(f.$('rv-draft-retry').hidden, false);
-  const messages = [];
-  assert.equal(await f.hooks.flushReviewWrites(text => messages.push(text)), false, 'the Review/VOD switch stays on the page');
+  const messages = [], confirms = [];
+  let leave = false;
+  f.scope.confirm = text => { confirms.push(text); return leave; };
+  assert.equal(await f.hooks.flushReviewWrites(text => messages.push(text)), false, 'a failing draft holds the barrier');
+  assert.equal(confirms.length, 0, 'only leaving the page asks to go without the draft');
   assert.equal(drafts().length, 2, 'leaving retries the draft once');
   assert.match(messages[0], /draft could not be saved/i);
-  assert.equal(await f.scope.revuBeforeNavigate(), false, 'the sidebar and Update & restart wait too');
+  assert.equal(await f.scope.revuBeforeNavigate(), false, 'the sidebar and Update & restart stay when the player stays');
+  assert.deepEqual(confirms, ['Your review draft couldn’t be saved. Leave without saving it?']);
+  assert.equal(f.fields[1].value, 'My debrief');
+  leave = true;
+  assert.equal(await f.scope.revuBeforeNavigate(), true, 'a draft the backend keeps refusing never traps the player');
   assert.equal(f.fields[1].value, 'My debrief');
 
   await f.emit('click', node({ dataset: { action: 'save_review' } }));

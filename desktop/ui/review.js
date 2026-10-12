@@ -156,10 +156,11 @@ let _subject = null;
 // nextUnreviewedGameId / unreviewedRemaining off this.
 let _snapshot = null;
 const matchNav = createMatchNavigation({
-  view: 'review', capture: captureReviewState, restore: restoreReviewState, beforeLeave: flushReviewWrites,
+  view: 'review', capture: captureReviewState, restore: restoreReviewState,
+  beforeLeave: message => flushReviewWrites(message, { leave: true }),
 });
 // The persistent sidebar uses the same save barrier as the Review/VOD switch.
-window.revuBeforeNavigate = flushReviewWrites;
+window.revuBeforeNavigate = () => flushReviewWrites(null, { leave: true });
 let _restoreAttempted = false;
 let _linkedRecordingGameId = 0;
 
@@ -959,8 +960,11 @@ async function flushEvidenceWrites() {
 
 // The navigation barrier (sidebar, Update & restart, Review/VOD switch, links).
 // Commits pass { draft: false }: save/skip/delete replace the draft themselves.
-async function flushReviewWrites(message, { draft = true } = {}) {
-  // A failed autosave is retried once now; the page stays open while it still fails.
+// Leaving passes { leave: true }: a draft that still fails asks before it is left
+// behind, so a draft the backend keeps refusing never traps the player here.
+async function flushReviewWrites(message, { draft = true, leave = false } = {}) {
+  // A failed autosave is retried once now; the page stays open while it still fails
+  // unless the player chooses to leave without it.
   if (draft && _draftFailed && _subject) _draftDirty = true;
   do {
     if (!await flushEvidenceWrites()) {
@@ -982,7 +986,7 @@ async function flushReviewWrites(message, { draft = true } = {}) {
     const text = 'Your review draft could not be saved. Retry before leaving.';
     showCommit(text, 'err');
     if (typeof message === 'function') message(text);
-    return false;
+    return leave && window.confirm('Your review draft couldn’t be saved. Leave without saving it?');
   }
   return true;
 }
@@ -1175,7 +1179,7 @@ async function prepareMatchupNote(button) {
     if (result?.ok !== true) throw new Error(result?.error || 'Could not prepare this matchup note.');
     if (Number(_subject?.gameId) !== gameId) return;
     if (result.partial) {
-      if (await flushReviewWrites()) {
+      if (await flushReviewWrites(null, { leave: true })) {
         matchNav.captureState?.();
         window.location.href = `matchups.html?gameId=${encodeURIComponent(gameId)}`;
       }
@@ -1955,7 +1959,7 @@ document.addEventListener('click', async (event) => {
   if (!href) return;
   event.preventDefault();
   const navigation = ++_reviewLinkNavigation;
-  if (await flushReviewWrites() && navigation === _reviewLinkNavigation) window.location.href = href;
+  if (await flushReviewWrites(null, { leave: true }) && navigation === _reviewLinkNavigation) window.location.href = href;
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────
