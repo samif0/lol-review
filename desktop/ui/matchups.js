@@ -1,6 +1,7 @@
 import { $, show, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke, getListen } from './platform/index.mjs';
+import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
 
 // Revu desktop — searchable Matchup notes with one open matchup at a time.
 // Renders the JSON returned by the Electron command `get_matchups`
@@ -434,6 +435,8 @@ function syncLaneFields() {
   }
 }
 
+// Leaving with an open, edited form asks first (shared leave guard, wired in boot).
+let _formGuard = null;
 function revealForm() {
   clearFormError();
   syncLaneFields();
@@ -441,6 +444,7 @@ function revealForm() {
   renderSelectedGame();
   $('mj-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('f-ally1').focus();
+  _formGuard?.mark();
 }
 
 // Open the form in create mode: blank fields, "Create" label. With a prefill
@@ -1079,8 +1083,21 @@ document.addEventListener('visibilitychange', () => {
 // sidecar's matchupUpdated SSE into this frame.
 window.addEventListener('revu:matchup-updated', () => requestRefresh());
 
+// Before sidebar navigation: inline notes save silently (as on blur), and an open,
+// edited card form asks before its changes are discarded.
+const noteUnsaved = ta => ta.value !== (_notes.get(Number(ta.closest('[data-card-id]')?.dataset.cardId))?.[ta.dataset.field] ?? '');
+async function saveNotesBeforeLeaving() {
+  const notes = [...document.querySelectorAll('.mj-note-in')];
+  notes.filter(noteUnsaved).forEach(saveNote);
+  await flushPendingNotes();
+  return !notes.some(noteUnsaved);
+}
+
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
+  _formGuard = trackForm($('mj-form'));
+  registerLeaveGuard({ autosave: saveNotesBeforeLeaving, isDirty: _formGuard.isDirty,
+    flush: async () => { await submitForm($('form-submit')); return $('mj-form').hidden; } });
   loadMatchups().then(openRequestedGame);
   wireLiveChannel();
 }

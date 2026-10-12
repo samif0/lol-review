@@ -3,6 +3,7 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { initializeRecordingSettings } from './recording-settings.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
+import { registerLeaveGuard } from './leave-guard.mjs';
 
 // Each editable card saves only its own fields through the existing platform
 // boundary. Refreshes preserve drafts in other categories. Recording and startup
@@ -715,9 +716,31 @@ function nativeValues(group) {
 document.addEventListener('input', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
 document.addEventListener('change', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
 
+// ── leaving with unsaved cards (shared leave guard) ─────────────────────────
+// Sidebar navigation asks before dropping any card's unsaved edits, including
+// cards in a hidden category. "Save and leave" saves each dirty card exactly as
+// its own button would; a card that cannot save keeps the player here.
+const settingsDirty = () => !!document.querySelector('[data-config-group][data-dirty="true"],[data-native-group][data-dirty="true"]');
+async function saveDirtySettings() {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  for (const group of document.querySelectorAll('[data-config-group][data-dirty="true"]')) {
+    await doSave(invoke, group.querySelector('[data-action="save_config"]'));
+  }
+  for (const group of document.querySelectorAll('[data-native-group][data-dirty="true"]')) {
+    const kind = group.dataset.nativeGroup, status = $(`${kind}-settings-status`);
+    $(`save-${kind}-settings`)?.click();
+    for (let waited = 0; status?.textContent === 'Saving…' && waited < 15000; waited += 100) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  return !settingsDirty();
+}
+
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
   initializeSettingsNavigation();
+  registerLeaveGuard({ isDirty: settingsDirty, flush: saveDirtySettings });
   for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
   for (const [id, groupId] of [['recording-settings-status', 'recording-settings'], ['background-settings-status', 'background-settings']]) {
     new MutationObserver(() => {

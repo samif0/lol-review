@@ -83,8 +83,10 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(callback);
     },
-    querySelectorAll: selector => selector === '[data-config-group]' ? groups : [],
-    querySelector: () => null,
+    querySelectorAll: selector => selector === '[data-config-group]' ? groups
+      : selector === '[data-config-group][data-dirty="true"]' ? groups.filter(group => group.dataset.dirty === 'true') : [],
+    querySelector: selector => selector.startsWith('[data-config-group][data-dirty="true"]')
+      ? groups.find(group => group.dataset.dirty === 'true') || null : null,
   };
   const context = vm.createContext({
     document, window: {}, $: id => ids.get(id) || null,
@@ -95,7 +97,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     preserveSettingsDraft, setTimeout, clearTimeout,
     console: { error() {}, warn() {}, info() {} },
   });
-  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload };`, context);
+  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings };`, context);
   context.hooks.render(plain(config));
   await context.hooks.loadAscentAccess();
   const emit = async (type, target) => {
@@ -109,8 +111,27 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     render: () => context.hooks.render(plain(config)),
     payload: element => plain(context.hooks.collectPayload(element)),
     failRead: () => { failRead = true; },
+    dirty: () => context.hooks.settingsDirty(),
+    saveBeforeLeaving: () => context.hooks.saveDirtySettings(),
   };
 }
+
+test('leaving Settings sees unsaved cards in hidden categories and saves each one as its own button would', async () => {
+  const f = await fixture();
+  assert.equal(f.dirty(), false);
+  await f.edit('clipsFolder', 'E:\\Clips'); await f.edit('region', 'euw1');
+  assert.equal(f.dirty(), true);
+  assert.equal(await f.saveBeforeLeaving(), true);
+  assert.deepEqual(f.requests.filter(request => request.command === 'save_config').map(request => request.args.payload),
+    [{ clipsFolder: 'E:\\Clips', clipsMaxSizeMb: 2048 }, { riotId: 'player#NA1', region: 'euw1' }]);
+  assert.equal(f.dirty(), false);
+
+  const failing = await fixture({ handler: command => command === 'save_config' ? { ok: false, message: 'Disk is full.' } : undefined });
+  await failing.edit('clipsFolder', 'F:\\Clips');
+  assert.equal(await failing.saveBeforeLeaving(), false, 'a card that cannot save keeps the player on Settings');
+  assert.equal(failing.$('clipsFolder').value, 'F:\\Clips');
+  assert.equal(failing.$('clips-save-status').textContent, 'Disk is full.');
+});
 
 test('automatic matchup notes default off, save only review preferences and keep unrelated drafts', async () => {
   const f = await fixture();

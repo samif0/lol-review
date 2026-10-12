@@ -1,5 +1,6 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { getInvoke } from './platform/index.mjs';
+import { changedFromDefaults, registerLeaveGuard } from './leave-guard.mjs';
 
 // Revu desktop — Manual Entry page renderer.
 // Hand-log a League game that wasn't auto-captured + a minimal review. Mirrors
@@ -124,30 +125,40 @@ function readPayload() {
 }
 
 // ── save ──────────────────────────────────────────────────────────────────────
-async function save(btn) {
+// leaving: saved from the leave question, so the sidebar choice decides where
+// to go next instead of the Match library.
+let _saved = false;
+async function save(btn, { leaving = false } = {}) {
   const payload = readPayload();
-  if (!payload) return; // validation failed (champion required)
+  if (!payload) return false; // validation failed (champion required)
 
   const invoke = await getInvoke();
   if (!invoke) {
     console.info('[manualentry] (preview) save_manual_game — no Electron backend.', payload);
     // In preview just bounce to Games like the real flow would (the logged game
     // shows up in Today / History there).
-    window.location.href = 'games.html';
-    return;
+    if (!leaving) window.location.href = 'games.html';
+    return true;
   }
 
   if (btn) btn.disabled = true;
   try {
     await invoke('save_manual_game', { payload });
-    window.location.href = 'games.html';
+    _saved = true;
+    if (!leaving) window.location.href = 'games.html';
+    return true;
   } catch (err) {
     setError('Failed to save game entry.');
     renderError(err);
     console.error('[manualentry] save_manual_game failed:', err);
     if (btn) btn.disabled = false;
+    return false;
   }
 }
+
+// Sidebar navigation asks before discarding a filled-in entry.
+registerLeaveGuard({ isDirty: () => !_saved && changedFromDefaults(document.body),
+  flush: () => save($('me-save'), { leaving: true }) });
 
 // ── error panel ─────────────────────────────────────────────────────────────
 function renderError(err) {

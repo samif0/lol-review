@@ -1,6 +1,7 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
+import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
 
 // Revu desktop — Rules (session protocols) page renderer for the glass-aurora
 // layout. Renders the JSON returned by the Electron command `get_rules`
@@ -417,6 +418,7 @@ function openCreateForm() {
   show($('rule-form'), true);
   $('rule-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('f-name').focus();
+  _formGuard.mark();
 }
 
 // Open the form in edit mode for a rule pulled from the last fetch.
@@ -446,6 +448,7 @@ function openEditForm(id) {
   show($('rule-form'), true);
   $('rule-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('f-name').focus();
+  _formGuard.mark();
 }
 
 function closeForm() {
@@ -665,6 +668,11 @@ document.addEventListener('change', (ev) => {
 document.addEventListener('input', (ev) => {
   if (ev.target && ev.target.id === 'f-cond') syncIfPreview();
 });
+
+// Sidebar navigation asks before discarding an open, edited rule form.
+const _formGuard = trackForm($('rule-form'));
+registerLeaveGuard({ isDirty: _formGuard.isDirty,
+  flush: async () => { await submitForm($('form-submit')); return $('rule-form').hidden; } });
 
 // ── boot ────────────────────────────────────────────────────────────────────
 if (document.readyState === 'loading') {
