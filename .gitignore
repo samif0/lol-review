@@ -116,3 +116,8 @@ desktop/tauri-dev.log.err
 .audit/
 /.artifacts/
 /scripts/__pycache__/
+
+# Release tooling downloads (pinned ffmpeg.exe, ~100 MB GPL binary) - never commit
+/deps/
+# Local agent tooling state
+/.agents/
