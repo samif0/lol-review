@@ -66,6 +66,15 @@ public sealed partial class GameMonitorService
     /// <summary>How long a game may stay silent, while the client is away, before its collector is finished.</summary>
     internal TimeSpan OrphanedCollectorGrace { get; set; } = TimeSpan.FromSeconds(60);
 
+    /// <summary>How long the tracked game is still looked for once the quick post-game retries missed it.</summary>
+    internal TimeSpan TrackedGameSearchWindow { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>Test seam: the clock the post-game reconcile backoff reads.</summary>
+    internal Func<DateTime> UtcNow { get; set; } = static () => DateTime.UtcNow;
+
+    private static readonly TimeSpan TrackedGameSlowRetry = TimeSpan.FromMinutes(5);
+    private (long GameId, DateTime EndsUtc)? _trackedGameSearch;
+
     /// <summary>Test seam: the end-of-game capture still running, if any.</summary>
     internal Task? PendingCapture => _captureTask;
 
@@ -209,6 +218,24 @@ public sealed partial class GameMonitorService
         }
         _reconcileTargetGameId = gameId;
         _messenger.Send(new GameCaptureDeferredMessage(gameId));
+    }
+
+    /// <summary>
+    /// The quick post-game retries did not find the tracked game. Its timeline waits in the
+    /// store, so match history is checked again every few minutes (while idle) for up to
+    /// <see cref="TrackedGameSearchWindow"/>; a slow listing still ends in a saved game.
+    /// False when there is no tracked game or its window is over.
+    /// </summary>
+    private bool KeepLookingForTrackedGame(DateTime now)
+    {
+        var gameId = _reconcileTargetGameId;
+        if (gameId <= 0) return false;
+        if (_trackedGameSearch?.GameId != gameId) _trackedGameSearch = (gameId, now + TrackedGameSearchWindow);
+        if (now >= _trackedGameSearch.Value.EndsUtc) return false;
+        // The next miss decrements this to zero and lands here again.
+        _state.PostGameReconcileRetriesRemaining = 1;
+        _state.PostGameReconcileNextAttemptUtc = now + TrackedGameSlowRetry;
+        return true;
     }
 
     private void PublishGameEnded(GameStats stats, bool isRecovered)

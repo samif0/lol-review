@@ -12,9 +12,9 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// Game-end durability: a slow end-of-game capture still saves the game, a failed or missed
-/// capture recovers the tracked game from match history with its live timeline, a League
-/// client drop never throws the timeline away, and one game's id or timeline never reaches
-/// the next game.
+/// capture recovers the tracked game from match history with its live timeline (even when
+/// match history lists it late), a League client drop never throws the timeline away, and
+/// one game's id or timeline never reaches the next game.
 /// </summary>
 public sealed partial class GameMonitorServiceTests
 {
@@ -405,5 +405,51 @@ public sealed partial class GameMonitorServiceTests
         {
             Assert.Equal([8600L, 8700L], collector.CaptureDeferred.Select(m => m.GameId));
         }
+    }
+
+    [Fact]
+    public async Task TrackedGameMatchHistoryListsLate_IsStillRecoveredWithItsTimeline()
+    {
+        var messenger = new StrongReferenceMessenger();
+        var collector = new MonitorMessageCollector(messenger);
+        var live = new FakeLiveEventApi { Available = true, Events = [Kill(100)] };
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = 420, CurrentGameId = 8800,
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress]),
+        };
+        var history = new FakeMatchHistoryReconciliationService();
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger,
+            new FakeGameEndCaptureService(), history, live);
+        var clock = DateTime.UtcNow;
+        service.UtcNow = () => clock;
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await WaitUntilAsync(() => live.EventFetches > 0, "the collector read the kill feed");
+        lcu.Phases = new([GamePhase.EndOfGame, GamePhase.Lobby]);
+        await service.TickOnceAsync(); // the capture fails: the game goes to reconciliation
+
+        // The quick retries (about four minutes) all miss.
+        for (var minute = 0; minute < 6; minute++)
+        {
+            await service.TickOnceAsync();
+            clock = clock.AddMinutes(1);
+        }
+        Assert.Equal(6, history.Calls);
+        Assert.Empty(collector.GameEnded);
+
+        // It is still looked for, every few minutes rather than every tick.
+        await service.TickOnceAsync();
+        Assert.Equal(6, history.Calls);
+
+        history.Result = [new MissedGameCandidate(8800, 1_710_000_000, TestGameStatsFactory.Create(8800))];
+        clock = clock.AddMinutes(5);
+        await service.TickOnceAsync();
+        Assert.Equal(7, history.Calls);
+        var recovered = Assert.Single(collector.GameEnded);
+        Assert.True(recovered.IsRecovered);
+        Assert.Contains(100, KillTimes(recovered.Stats));
+        Assert.Empty(collector.MissedGamesDetected);
     }
 }

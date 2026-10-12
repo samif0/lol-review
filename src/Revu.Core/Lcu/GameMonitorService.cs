@@ -279,7 +279,7 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
             // the next-eligible time has passed. This covers the same ~3-min window
             // as before but with far fewer LCU round-trips.
             // Backoff sequence after a miss (seconds): 15, 30, 60, 60, 60 (5 retries)
-            var now = DateTime.UtcNow;
+            var now = UtcNow();
             var attemptDue = now >= _state.PostGameReconcileNextAttemptUtc;
 
             if (!attemptDue)
@@ -312,9 +312,16 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
                     else
                     {
                         _state.PostGameReconcileRetriesRemaining--;
-                        if (_state.PostGameReconcileRetriesRemaining <= 0)
+                        if (_state.PostGameReconcileRetriesRemaining <= 0 && KeepLookingForTrackedGame(now))
+                        {
+                            CoreDiagnostics.WriteVerbose(
+                                $"LCU: PostGameReconcile tracked game {_reconcileTargetGameId} not listed yet, next look in {TrackedGameSlowRetry.TotalMinutes:F0}m");
+                        }
+                        else if (_state.PostGameReconcileRetriesRemaining <= 0)
                         {
                             // Gave up — stop retrying
+                            if (_reconcileTargetGameId > 0)
+                                _logger.LogWarning("Match history never listed game {GameId}; the startup check offers it on Home", _reconcileTargetGameId);
                             _state.ReconcilePending = false;
                             _state.PostGameReconcileNextAttemptUtc = DateTime.MinValue;
                             _reconcileTargetGameId = 0;
