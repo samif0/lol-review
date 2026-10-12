@@ -61,6 +61,7 @@ test('unreleased built-in controls stay disabled despite native access while sta
   assert.match(f.$('recording-status').textContent, /coming in a future update.*Use Ascent recordings above/);
   assert.doesNotMatch(f.$('recording-status').textContent, /Developer|approved|key/);
   assert.equal(f.$('recording-coming-soon').hidden, false);
+  assert.equal(f.$('recording-controls').hidden, true, 'the dormant card shows only its Coming soon line');
   await f.$('save-recording-settings').emit('click');
   await f.$('open-recordings-folder').emit('click');
   await f.visible();
