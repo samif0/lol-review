@@ -235,7 +235,8 @@ function escapeHtml(s: string): string {
  * can't embed; this Worker-rendered head can.
  *
  * Humans are bounced to the nice watch page (WATCH_BASE/clip.html?id=) via a
- * meta-refresh + JS redirect. We serve THIS to everyone hitting a bare slug so a
+ * meta-refresh (no script: this origin holds the web session cookie, so the
+ * page ships a strict CSP). We serve THIS to everyone hitting a bare slug so a
  * crawler we failed to detect still gets tags rather than a bare redirect.
  *
  * Returns null when the clip is missing/expired so the caller can fall back
@@ -300,7 +301,6 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 </head>
 <body>
 <p>Loading clip… <a href="${watchUrl}">Watch it here</a>.</p>
-<script>location.replace(${JSON.stringify(watchUrl)});</script>
 </body>
 </html>`;
 
@@ -309,6 +309,9 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "X-Content-Type-Options": "nosniff",
+      // clips.revu.lol also holds the web session cookie, so this page runs no
+      // script at all: the meta refresh and the link do the redirect.
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
       // Short cache: clip metadata (title/views) can change, and a deleted clip
       // should stop unfurling reasonably soon.
       "Cache-Control": "public, max-age=300",

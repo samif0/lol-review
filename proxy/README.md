@@ -168,3 +168,167 @@ As an extra safety net for abandoned multipart uploads, an R2 lifecycle rule on
 `revu-clips` can abort incomplete multipart uploads after 1 day
 (`wrangler r2 bucket lifecycle add`). It is not required: the Worker auto-aborts
 idle uploads on the owner's next init and the cron aborts expired ones.
+
+## Web accounts (revu.lol)
+
+The site's sign-in, My clips and Account pages (`revu.lol/sign-in`,
+`/my-clips`, `/account`) call a cookie-authenticated API on this Worker under
+`https://clips.revu.lol/auth/web/*`. Sign-in is by emailed one-time code only.
+The first successful verify for a new email creates the account, and the same
+account works in the desktop app.
+
+### Routes
+
+Errors are JSON `{ error }` (plus `retry_after` on a 429). Every response,
+errors and the preflight included, carries `Vary: Origin` and
+`Cache-Control: no-store`.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/auth/web/providers` | none | `{ providers: ["email"] }`, or `[]` when Turnstile or Resend is not fully configured |
+| POST | `/auth/web/email/start` | none | `{ email, turnstileToken }`. Strict Turnstile, then an 8-character code (10 min, single use, purpose `web`). Always `{ sent: true }`, whether or not an account exists. 5/min/IP |
+| POST | `/auth/web/email/verify` | none | `{ email, code }`. Sets the session cookie. `{ ok, new_account, user: { email, created_at } }`. 10/min/IP |
+| GET | `/auth/web/me` | cookie | `{ user, identities, session: { expires_at } }` |
+| GET | `/auth/web/clips` | cookie | Same clip shape as `/clips/mine` |
+| DELETE | `/auth/web/clips/:id` | cookie | Another user's clip is 404, like a missing one |
+| POST | `/auth/web/logout` | optional cookie | Ends this browser's session; always clears the cookie |
+| POST | `/auth/web/logout-all` | cookie | Ends every web session of the user. The desktop stays signed in |
+| POST | `/auth/web/account/delete` | cookie | `{ email }` must match the account email. Deletes everything (see below) |
+
+Everything except start and verify shares 60/min/IP (429 `rate_limit_auth`).
+These limits are in memory per isolate: they slow one client, they are not a
+durable global limit.
+
+### Cookie, CORS and CSRF
+
+- Cookie: `__Host-revu_web=<48 hex>; Path=/; Secure; HttpOnly; SameSite=Lax;
+  Max-Age=2592000`, host-only on clips.revu.lol. revu.lol and clips.revu.lol
+  share the registrable domain, so the cookie is first-party for fetches from
+  revu.lol pages. The token never appears in JSON, logs or page JS.
+- `SameSite=Lax` (not Strict) is deliberate: Safari can withhold Strict cookies
+  after a cross-site arrival (a revu.lol/my-clips link clicked in Discord).
+  CSRF is enforced by the gates below; Lax is defense in depth.
+- Host pin: `/auth/web/*`, preflight included, only answers on the host of
+  `AUTH_BASE`. Anywhere else (including `*.workers.dev`, which is on the Public
+  Suffix List and is what the desktop app talks to) it is 404, OPTIONS is a bare
+  204, and no cookie is ever set.
+- Gates, in order: host pin; `Origin` must exactly match one of
+  `CREDENTIALED_ORIGINS` (missing or `null` is rejected); `Sec-Fetch-Site`, when
+  present, must be `same-site` or `same-origin`; every non-GET must send
+  `X-Revu-CSRF: 1` (which forces a preflight); then the per-IP limit; bodies
+  must be `application/json` objects of at most 4096 bytes.
+- Credentialed CORS is path-scoped to `/auth/web/*` and uses
+  `CREDENTIALED_ORIGINS`, not `ALLOWED_ORIGINS` (which includes localhost).
+  Every other path's CORS output is unchanged.
+- The clip Open Graph page (`clips.revu.lol/<id>`) shares the cookie origin, so
+  it runs no script and sends a `default-src 'none'` CSP.
+
+### Web vs desktop sessions
+
+Both live in `sessions`. Web rows have `kind = 'web'` and store
+`sha256Hex("web:" + token)`; desktop rows keep the column default `'desktop'`
+and the plain `sha256Hex(token)`. The prefix makes the two mutually unusable: a
+web token sent as a Bearer and a desktop token sent as the cookie both fail.
+The cookie is read only inside the `/auth/web/*` dispatcher, and Bearer auth
+never accepts it. Web sign out and sign out everywhere never touch desktop rows;
+only account deletion does. A verify deletes the web session of the cookie the
+browser already holds before creating the new one. Sessions last 30 days,
+absolute (no sliding).
+
+Desktop `/auth/verify` refuses purpose `web` codes with its existing 400, and
+after a successful verify it upserts the email identity (best effort).
+
+### Web codes and Turnstile
+
+- Codes are issued only after Turnstile passes strictly: `success`, action
+  `web_signin`, and a hostname in `TURNSTILE_HOSTNAMES`, sent with `remoteip`
+  and a 10 s timeout. Any network error fails closed. An empty
+  `TURNSTILE_HOSTNAMES` makes `providers` empty and start 503
+  `sign_in_unavailable`.
+- Dev relax: `TURNSTILE_DEV_RELAX=1` skips the action and hostname checks, and
+  only while `AUTH_BASE` starts with `http://localhost:`, so it can never relax
+  production. Keep it out of `wrangler.toml`.
+- One atomic conditional insert enforces both per-email caps: a 60 s cooldown
+  between web codes (429 `retry_after: 60`) and at most 3 codes of any purpose
+  per 15 min (429 `retry_after: 900`). Desktop codes never trigger the 60 s
+  cooldown. A failed Resend send deletes its row so an immediate retry is not
+  throttled, and Resend errors are logged by status only.
+- Verify is bound to the email. Every attempt first adds 1 to `attempts` on all
+  live web codes for the email, then consumes a matching code only while
+  `attempts <= 5`, so at most 5 guesses are evaluated per code.
+- Codes use rejection sampling (bytes below 248) over a 31-character alphabet.
+
+Accepted risks (documented, not fixed in v1):
+
+- Lockout: anyone who knows an email can burn its live web codes with 5 bad
+  guesses, or use up the 3-per-15-minutes budget through the desktop
+  `/auth/login` (which has no Turnstile). The workaround is to wait 15 minutes
+  or sign in from the desktop app.
+- Email bombing: Turnstile does not stop it through `/auth/login`; only the
+  per-email cap bounds it. Durable per-IP and per-email limits are a follow-up.
+
+### Account deletion
+
+`POST /auth/web/account/delete` with the typed account email. R2 goes first
+(cascades never reach object storage): pending multipart uploads are aborted
+(best effort, at most 20), then every clip object is deleted in chunks of 1000.
+R2 failures are logged; the rows are the source of truth. Then one D1 batch
+deletes the transcripts, clips, every session (web AND desktop), identities,
+`transcribe_usage` rows, `login_requests` for the email, and the user. The log
+line carries the user id and clip count, never the email. The desktop app is
+signed out on its next server call; clips on the PC are untouched.
+
+### Migration 0004 and deploy order
+
+`migrations/0004_web_accounts.sql` is additive: `sessions.kind`,
+`login_requests.attempts`, and the `identities` table (an email identity is
+backfilled for every user, with `subject` = SQL `lower(email)`). Identities are
+informational in v1; sign-in still keys on `users.email`.
+
+Apply the migration BEFORE deploying the Worker (otherwise the web routes 500;
+the desktop stays safe because its SQL is unchanged and the identity upsert is
+wrapped in try/catch), then deploy the site:
+
+```sh
+cd proxy
+npx wrangler d1 migrations apply revu-db --remote
+npx wrangler d1 migrations list revu-db --remote
+npx wrangler deploy
+# then deploy the Pages site from site/, from a committed tree
+```
+
+The hourly cron also deletes `login_requests` rows that expired over an hour
+ago (the margin keeps rows the 15-minute throttle still counts).
+
+### Local dev
+
+Put overrides in the gitignored `proxy/.dev.vars` (never commit it):
+
+```
+AUTH_BASE=http://localhost:8787
+CREDENTIALED_ORIGINS=http://localhost:8788
+TURNSTILE_DEV_RELAX=1
+TURNSTILE_SECRET_KEY=<Cloudflare's documented always-pass test secret>
+RESEND_API_KEY=<your own Resend key>
+```
+
+```sh
+npx wrangler d1 migrations apply revu-db --local
+npx wrangler dev            # Worker on http://localhost:8787
+# site: wrangler pages dev on http://localhost:8788
+```
+
+Use `localhost`, never `127.0.0.1`, for both. Use Chrome or Firefox, which
+accept `Secure` (and `__Host-`) cookies on `http://localhost`.
+
+### Future providers (design notes, not built)
+
+- An `oauth_states` table (state hash, provider, intent, link user, PKCE
+  verifier, nonce, return_to, expiry), authorization code with PKCE S256, state
+  and nonce, a short-lived `__Host-revu_oauth` Lax cookie, and callbacks at
+  `/auth/web/{provider}/callback`. `providers` turns each button on.
+- Riot-only users would get a placeholder email (`riot-<hex>@noemail.invalid`
+  plus a `users.email_placeholder` flag), so `users` needs no rebuild.
+- `identities` has no `UNIQUE(user_id, provider)`, so several Riot accounts can
+  link to one user; only email is limited to one per user (a droppable partial
+  index).

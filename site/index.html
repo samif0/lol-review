@@ -55,13 +55,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/webapp.css" />
 
-  <script>
-    // Reserve the callback name before Turnstile's script loads, so the
-    // async loader has something to invoke. app.js will reassign once it
-    // initializes its solveTurnstile promise.
-    window.__turnstileLoaded = false;
-    window.onTurnstileReady = function () { window.__turnstileLoaded = true; };
-  </script>
+  <script src="/turnstile-ready.js"></script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>
 </head>
 <body>
@@ -73,6 +67,7 @@
         <a href="/learn">Desktop app</a>
         <a href="/discord">Discord</a>
       </nav>
+      <a class="header-account" href="/sign-in" data-header-account>Sign in</a>
       <a class="btn-primary header-cta" id="download-chip" href="/learn">
         Download
         <span class="header-cta-meta" id="download-chip-version">Windows</span>
@@ -265,22 +260,7 @@
 
   <script src="/app.js" defer></script>
   <script src="/lightbox.js" defer></script>
-  <script>
-    // Keep the header pill's version label fresh, but leave its href pointing
-    // at /learn (the dedicated desktop-app info page).
-    (async () => {
-      const versionLabel = document.querySelector('#download-chip-version');
-      if (!versionLabel) return;
-      try {
-        const res = await fetch(
-          'https://api.github.com/repos/samif0/lol-review/releases/latest',
-          { headers: { Accept: 'application/vnd.github+json' } }
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.tag_name) versionLabel.textContent = data.tag_name;
-      } catch {}
-    })();
-  </script>
+  <script src="/version-chip.js" defer></script>
+  <script src="/header-account.js" defer></script>
 </body>
 </html>

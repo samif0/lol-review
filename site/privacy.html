@@ -29,6 +29,7 @@
         <a href="/learn">Desktop app</a>
         <a href="/discord">Discord</a>
       </nav>
+      <a class="header-account" href="/sign-in" data-header-account>Sign in</a>
       <a class="btn-primary header-cta" href="/learn">Download</a>
     </div>
   </header>
@@ -97,11 +98,14 @@
           bodies.
         </li>
         <li>
-          <strong>Email sign-in</strong>: when you sign in, your email
-          address is sent to Revu's Worker, which stores it with your
-          account and sign-in session. The sign-in code is emailed to
-          you through an email delivery provider (Resend), which
-          receives your email address only to send that message.
+          <strong>Email sign-in</strong>: you can sign in in the desktop
+          app or on revu.lol with the same one-time email code. Revu
+          never asks for or stores a password. When you sign in, your
+          email address is sent to Revu's Worker, which stores it to
+          identify your account, along with your sign-in session. The
+          sign-in code is emailed to you through an email delivery
+          provider (Resend), which receives your email address only to
+          send that message.
         </li>
         <li>
           <strong>Riot Games' Match-V5 API</strong> (via the proxy
@@ -109,10 +113,11 @@
           you can see on op.gg.
         </li>
         <li>
-          <strong>Shared clip links</strong>
-          (<code>clips.revu.lol</code>): only serves the links for
-          clips you share. See
-          <a href="#shared-clips">Shared clips and narration</a>.
+          <strong>Shared clip links and web sign-in</strong>
+          (<code>clips.revu.lol</code>): serves the links for clips you
+          share, and the sign-in and My clips requests from revu.lol. See
+          <a href="#shared-clips">Shared clips and narration</a> and
+          <a href="#website">The website itself</a>.
         </li>
         <li>
           <strong>GitHub Releases</strong>
@@ -179,7 +184,7 @@
         release notes before it ships.
       </p>
 
-      <h2>The website itself</h2>
+      <h2 id="website">The website itself</h2>
       <p>
         This site is hosted on Cloudflare Pages. Cloudflare logs
         request metadata (IP, User-Agent, timestamp) per their
@@ -194,6 +199,23 @@
         Clearing your browser data for this site removes that local web
         review data.
       </p>
+      <p>
+        If you sign in on revu.lol, <code>clips.revu.lol</code> sets one
+        cookie, <code>__Host-revu_web</code>, that keeps you signed in for
+        up to 30 days. It holds a random session ID, is only sent to
+        clips.revu.lol, cannot be read by page scripts, and is not used for
+        tracking or ads. Signing out deletes it.
+      </p>
+      <p>
+        revu.lol also keeps a small note in your browser's local storage
+        that you are signed in, so the header can show My clips. It holds
+        no ID or email.
+      </p>
+      <p>
+        Sign-in requests and the web review tool are checked by Cloudflare
+        Turnstile to block bots. Turnstile may set its own cookies and
+        collect browser signals under Cloudflare's privacy policy.
+      </p>
 
       <h2>Your rights</h2>
       <p>
@@ -205,6 +227,13 @@
         in and Revu can reach its server. For the
         web review tool, delete this site's browser data to remove the
         local web copy.
+      </p>
+      <p>
+        On revu.lol you can sign out, sign out everywhere on the web,
+        delete shared clips from <a href="/my-clips">My clips</a>, and
+        delete your whole account from the <a href="/account">Account</a>
+        page. Deleting the account removes your email, sessions and shared
+        clips from Revu's server.
       </p>
 
       <h2>Changes to this policy</h2>
@@ -218,6 +247,8 @@
       <p>
         Open an issue at
         <a href="https://github.com/samif0/lol-review/issues">github.com/samif0/lol-review/issues</a>.
+        Please don't post your email address in a public issue. To
+        delete your account, use the <a href="/account">Account</a> page.
       </p>
 
       <p class="legal-back">
@@ -243,5 +274,6 @@
       </p>
     </div>
   </footer>
+  <script src="/header-account.js" defer></script>
 </body>
 </html>

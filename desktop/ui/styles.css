@@ -3024,6 +3024,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
   transition:color .16s ease,opacity .16s ease}
 .onb-link:hover{color:var(--accent)}
 .onb-link:disabled{opacity:0.5;cursor:default}
+.onb-link[hidden]{display:none}
 
 /* ROLE GRID — 5 equal columns. min-width:0 + tight padding so "SUPPORT" never
    clips to "SUPPOR" (mirrors the WinUI v2.17.8 Padding 6,0 / MinWidth 0 tuning). */

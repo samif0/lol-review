@@ -31,11 +31,16 @@ export function randomSessionToken(): string {
  */
 export function randomOtpCode(length = 8): string {
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
+  // Rejection sampling: 256 is not a multiple of 31, so a plain `b % 31` would
+  // favor the first few characters. Only bytes below 248 (8 * 31) are used.
+  const limit = Math.floor(256 / alphabet.length) * alphabet.length;
   let out = "";
-  for (let i = 0; i < length; i++) {
-    out += alphabet[bytes[i] % alphabet.length];
+  while (out.length < length) {
+    const bytes = new Uint8Array(length * 2);
+    crypto.getRandomValues(bytes);
+    for (let i = 0; i < bytes.length && out.length < length; i++) {
+      if (bytes[i] < limit) out += alphabet[bytes[i] % alphabet.length];
+    }
   }
   return out;
 }
