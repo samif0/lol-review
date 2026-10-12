@@ -5,7 +5,8 @@ using Revu.Core.Data.Repositories;
 
 namespace Revu.Core.Services;
 
-/// <param name="Remaining">Queued games this run did not reach (cap or time budget).</param>
+/// <param name="Remaining">Queued games this run did not reach (cap or time budget), less any
+/// an earlier run with the same <see cref="BackfillAttempts"/> already tried.</param>
 public sealed record LaningBackfillResult(int Scanned, int Updated, int Skipped, int Failed, int Remaining = 0);
 
 /// <summary>
@@ -39,8 +40,10 @@ public sealed class LaningBackfillService
 
     /// <param name="budget">Soft stop: once cancelled, no new game starts and the rest are
     /// reported as <see cref="LaningBackfillResult.Remaining"/> (never throws).</param>
+    /// <param name="attempts">The manual backfill's record of games already tried this session:
+    /// untried games go first, and only they count as remaining.</param>
     public async Task<LaningBackfillResult> RunAsync(int maxGames = int.MaxValue, CancellationToken ct = default,
-        CancellationToken budget = default)
+        CancellationToken budget = default, BackfillAttempts? attempts = null)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -50,7 +53,8 @@ public sealed class LaningBackfillService
             return new LaningBackfillResult(0, 0, 0, 0);
         }
 
-        var allIds = await _games.GetGameIdsMissingLaningAsync().ConfigureAwait(false);
+        var queue = await _games.GetGameIdsMissingLaningAsync().ConfigureAwait(false);
+        var allIds = attempts?.Order(queue) ?? queue.ToList();
         var ids = allIds.Take(maxGames).ToList();
         if (ids.Count == 0)
         {
@@ -67,6 +71,7 @@ public sealed class LaningBackfillService
             ct.ThrowIfCancellationRequested();
             if (budget.IsCancellationRequested) break;
             scanned++;
+            attempts?.Tried(gameId);
 
             var matchId = $"{platform}_{gameId}";
 
@@ -110,7 +115,7 @@ public sealed class LaningBackfillService
                 gameId, laning.CsAt10, laning.GoldDiffAt10);
         }
 
-        var remaining = allIds.Count - scanned;
+        var remaining = attempts?.CountUntried(allIds.Skip(scanned)) ?? allIds.Count - scanned;
         _logger.LogInformation(
             "Laning backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed} remaining={Remaining}",
             scanned, updated, skipped, failed, remaining);

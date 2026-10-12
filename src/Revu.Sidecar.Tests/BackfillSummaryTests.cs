@@ -40,6 +40,16 @@ public sealed class BackfillSummaryTests
     }
 
     [Fact]
+    public void ARunThatOnlyRetriedGamesThatNeverResolve_DoesNotCallThemDone_OrPromiseMore()
+    {
+        var (text, remaining) = SidecarEndpoints.BackfillSummary(
+            new EnemyLanerBackfillResult(4, 0, 1, 3), new LaningBackfillResult(4, 0, 2, 2), new MapStateBackfillResult(0, 0, 0, 0));
+
+        Assert.Equal(0, remaining);
+        Assert.Equal("No new match data found. The games still missing it could not be looked up.", text);
+    }
+
+    [Fact]
     public void EveryLegFitsTheClientDeadline()
     {
         // run_backfill waits 290 s; three legs plus each one's game in flight must fit.

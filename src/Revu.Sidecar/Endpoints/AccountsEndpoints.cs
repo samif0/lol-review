@@ -296,12 +296,14 @@ public static partial class SidecarEndpoints
             // Each leg gets its own time budget and stops starting new games when it runs
             // out, so a deep backlog ends inside the 290 s client deadline with a summary
             // and a remaining count instead of an aborted request. Separate budgets keep
-            // one huge queue from starving the other two legs.
+            // one huge queue from starving the other two legs. Each leg also remembers the
+            // games it already tried this session and walks the untried ones first, so games
+            // that never resolve cannot hold every later click at the head of the queue.
             using var enemyBudget = new CancellationTokenSource(BackfillLegBudget);
             EnemyLanerBackfillResult enemy;
             try
             {
-                enemy = await w.EnemyLanerBackfill.RunAsync(ct: ct, budget: enemyBudget.Token);
+                enemy = await w.EnemyLanerBackfill.RunAsync(ct: ct, budget: enemyBudget.Token, attempts: EnemyBackfillAttempts);
             }
             catch (OperationCanceledException)
             {
@@ -324,7 +326,7 @@ public static partial class SidecarEndpoints
             using var mapStateBudget = new CancellationTokenSource(BackfillLegBudget);
             try
             {
-                mapState = await w.MapStateBackfill.RunAsync(ct: ct, budget: mapStateBudget.Token);
+                mapState = await w.MapStateBackfill.RunAsync(ct: ct, budget: mapStateBudget.Token, attempts: MapStateBackfillAttempts);
             }
             catch (OperationCanceledException)
             {
@@ -346,7 +348,7 @@ public static partial class SidecarEndpoints
             using var laningBudget = new CancellationTokenSource(BackfillLegBudget);
             try
             {
-                laning = await w.LaningBackfill.RunAsync(ct: ct, budget: laningBudget.Token);
+                laning = await w.LaningBackfill.RunAsync(ct: ct, budget: laningBudget.Token, attempts: LaningBackfillAttempts);
             }
             catch (OperationCanceledException)
             {
@@ -378,18 +380,29 @@ public static partial class SidecarEndpoints
     /// plus the game each has in flight stay well inside run_backfill's 290 s deadline.</summary>
     internal static readonly TimeSpan BackfillLegBudget = TimeSpan.FromSeconds(60);
 
+    // What each Settings backfill leg already tried this sidecar session (see BackfillAttempts).
+    private static readonly BackfillAttempts EnemyBackfillAttempts = new();
+    private static readonly BackfillAttempts MapStateBackfillAttempts = new();
+    private static readonly BackfillAttempts LaningBackfillAttempts = new();
+
     /// <summary>The Settings backfill result line. A game can wait in more than one leg's
-    /// queue, so the largest leg's remainder is the honest lower bound on what is left.</summary>
+    /// queue, so the largest leg's remainder is the honest lower bound on what is left. The
+    /// remainder counts only games no run has tried yet this session, so "run it again"
+    /// always reaches new games; games that were tried and still have no data are named as
+    /// such instead of being called finished.</summary>
     internal static (string Text, int Remaining) BackfillSummary(
         EnemyLanerBackfillResult enemy, LaningBackfillResult laning, MapStateBackfillResult mapState)
     {
         var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
+        var totalScanned = enemy.Scanned + laning.Scanned + mapState.Scanned;
         var remaining = Math.Max(enemy.Remaining, Math.Max(laning.Remaining, mapState.Remaining));
         var text = totalUpdated > 0
             ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
             : remaining > 0
                 ? "No new match data found in this pass."
-                : "Nothing to backfill. Every game already has its matchup data.";
+                : totalScanned > 0
+                    ? "No new match data found. The games still missing it could not be looked up."
+                    : "Nothing to backfill. Every game already has its matchup data.";
         if (remaining > 0)
             text += $" At least {remaining} more {(remaining == 1 ? "game is" : "games are")} waiting. Run it again to continue.";
         return (text, remaining);
