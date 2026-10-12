@@ -552,7 +552,7 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
       if(page.startsWith('review.')) {
         assert.equal(state.error,'');
         assert.equal(state.reflectionOpen,false);
-        assert.equal(state.goalsOpen,false);
+        assert.equal(state.goalsOpen,true,'The practice check-in opens when the match has objectives');
         assert.equal(state.reviewOptionsOpen,false);
         assert.equal(state.matchDetailsOpen,false);
         assert.equal(state.reviewLaunchpad?.first,true,'Review starts with the recording launchpad');
