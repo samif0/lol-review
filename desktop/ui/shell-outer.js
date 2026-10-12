@@ -62,9 +62,11 @@ async function frameGoto(target) {
     console.warn('[shell] could not save the current page before navigation:', err);
     return false;
   }
-  // A later click or an in-page navigation wins while a save is in flight.
+  // A later click or an in-page navigation wins while a save is in flight. A fragment
+  // change is not one: Settings opens the category of a card that failed to save.
+  const page = href => String(href ?? '').replace(/#.*$/, '');
   if (navigation !== _frameNavigation || frame.contentWindow !== source ||
-      source?.document !== sourceDocument || source?.location.href !== sourceUrl) return false;
+      source?.document !== sourceDocument || page(source?.location.href) !== page(sourceUrl)) return false;
   frame.src = url.pathname.split('/').pop() + url.search + url.hash;
   markActive(fileToNav(url.pathname));
   return true;
@@ -168,6 +170,7 @@ async function runUpdateAndRestart() {
   if (btn) btn.disabled = true;
   try {
     if (txt) txt.textContent = 'Downloading update…';
+    _bannerDownloading = true;
     // The download runs in the sidecar past any request deadline and asking again joins
     // it, so a timeout means "still downloading", never "failed".
     let d;
@@ -178,6 +181,7 @@ async function runUpdateAndRestart() {
         if (txt) txt.textContent = 'Still downloading the update…';
       }
     }
+    _bannerDownloading = false;
     if (!d || d.ok === false) {
       if (txt) txt.textContent = (d && d.message) ? d.message : 'Download failed.';
       if (btn) btn.disabled = false;
@@ -187,10 +191,21 @@ async function runUpdateAndRestart() {
     // apply_update relaunches the app — this call won't return on success.
     await invoke('apply_update');
   } catch (err) {
+    _bannerDownloading = false;
     if (txt) txt.textContent = 'Update failed. Try again later.';
     if (btn) btn.disabled = false;
     console.error('[shell] update failed:', err);
   }
+}
+
+// The sidecar reports the download as updateDownloadProgress events, one per whole
+// percent. The banner shows them only while its own download is running.
+let _bannerDownloading = false;
+function showUpdateDownloadProgress(p) {
+  const txt = document.getElementById('updbar-txt');
+  const percent = Number(p?.percent);
+  if (!_bannerDownloading || !txt || p?.finished || !Number.isFinite(percent)) return;
+  txt.textContent = `Downloading update… ${Math.min(100, Math.max(0, Math.round(percent)))}%`;
 }
 
 async function checkForUpdateOnLaunch() {
@@ -597,6 +612,16 @@ async function wireLiveAutoShow() {
             frame.contentWindow.dispatchEvent(new CustomEvent('revu:auto-clip-progress', { detail: p }));
           }
         } catch (_) { /* best-effort; the next load reads the saved clips */ }
+        break;
+      case 'updateDownloadProgress':
+        // An update download runs in the sidecar past any request deadline. The banner
+        // and the Settings update card each show its percent while they wait for it.
+        showUpdateDownloadProgress(p);
+        try {
+          if (frameHas('settings.html') && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:update-download-progress', { detail: p }));
+          }
+        } catch (_) { /* best-effort; the download's reply still finishes the install */ }
         break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU

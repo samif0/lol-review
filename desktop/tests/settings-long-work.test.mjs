@@ -21,7 +21,7 @@ function element(id, action = '') {
 }
 let ids, created;
 
-function fixture(handler) {
+function fixture(handler, scope = {}) {
   ids = new Map(); created = [];
   for (const [id, action] of [['export-btn', 'export_data'], ['export-status', ''],
     ['install-update-btn', 'install_update'], ['update-status', '']]) ids.set(id, element(id, action));
@@ -34,7 +34,7 @@ function fixture(handler) {
   };
   const invoke = async (command, args) => { requests.push(command); return handler(command, args); };
   const context = vm.createContext({
-    document, window: {}, $: id => ids.get(id) || null, show() {}, clearEl() {},
+    document, window: scope, $: id => ids.get(id) || null, show() {}, clearEl() {},
     getInvoke: async () => invoke, readSnapshot: async () => ({}), preserveSettingsDraft() {},
     initializeRecordingSettings() {}, initializeSettingsNavigation() {},
     setTimeout, clearTimeout, console: { error() {}, warn() {}, info() {} },
@@ -43,7 +43,7 @@ function fixture(handler) {
   const click = async id => {
     for (const listener of listeners.get('click') || []) await listener({ target: ids.get(id), preventDefault() {} });
   };
-  return { requests, click, $: id => ids.get(id) };
+  return { requests, click, $: id => ids.get(id), progress: value => context.showUpdateDownloadProgress(value) };
 }
 
 test('a saved export names the file and offers to open its folder', async () => {
@@ -111,4 +111,41 @@ test('a real update failure still says so, and the retries are bounded', async (
   await stuck.click('install-update-btn');
   assert.equal(stuck.requests.filter(command => command === 'download_update').length, 6);
   assert.equal(stuck.$('update-status').textContent, 'Update failed. Try again later.');
+});
+
+test('Install update asks the page before restarting, as the update banner does', async () => {
+  const stay = fixture(command => command === 'download_update' ? { ok: true, version: '3.15.0' } : null,
+    { revuBeforeNavigate: async () => false });
+  await stay.click('install-update-btn');
+  assert.deepEqual(stay.requests, ['download_update']);
+  assert.equal(stay.$('update-status').textContent, 'Update ready. Save or discard your changes, then install it.');
+  assert.equal(stay.$('install-update-btn').disabled, false);
+
+  let seenWhenAsked;
+  const leave = fixture(command => command === 'download_update' ? { ok: true, version: '3.15.0' } : null,
+    { revuBeforeNavigate: async () => { seenWhenAsked = [...leave.requests]; return true; } });
+  await leave.click('install-update-btn');
+  assert.deepEqual(seenWhenAsked, ['download_update']);
+  assert.deepEqual(leave.requests, ['download_update', 'apply_update']);
+  assert.equal(leave.$('update-status').textContent, 'Installing… the app will restart.');
+});
+
+test('forwarded download progress shows a percent only while Settings waits for its own install', async () => {
+  let finish;
+  const f = fixture(command => command === 'download_update' ? new Promise(resolve => { finish = resolve; }) : null);
+  f.progress({ percent: 30, finished: false });
+  assert.equal(f.$('update-status').textContent, '');
+  const install = f.click('install-update-btn');
+  while (!f.requests.includes('download_update')) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.$('update-status').textContent, 'Downloading update…');
+  f.progress({ percent: 41.6, finished: false });
+  assert.equal(f.$('update-status').textContent, 'Downloading update… 42%');
+  for (const ignored of [{ percent: 'soon' }, { percent: 100, finished: true, ok: true }, null])
+    f.progress(ignored);
+  assert.equal(f.$('update-status').textContent, 'Downloading update… 42%');
+  finish({ ok: true, version: '3.15.0' });
+  await install;
+  f.progress({ percent: 100, finished: false });
+  assert.equal(f.$('update-status').textContent, 'Installing… the app will restart.');
+  assert.match(source, /window\.addEventListener\('revu:update-download-progress', event => showUpdateDownloadProgress\(event\.detail\)\);/);
 });
