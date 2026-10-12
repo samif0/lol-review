@@ -26,6 +26,8 @@ builder.Logging.AddProvider(fileLog);
 builder.Logging.AddFilter<SidecarFileLoggerProvider>("Microsoft", LogLevel.Warning);
 builder.Logging.AddFilter<SidecarFileLoggerProvider>("Microsoft.Hosting.Lifetime", LogLevel.Information);
 builder.Logging.AddFilter<SidecarFileLoggerProvider>("System.Net.Http", LogLevel.Warning);
+// Binding failures reach the JSON error handler instead of an empty 400.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.WebHost.UseUrls("http://127.0.0.1:0");
 builder.WebHost.ConfigureKestrel(options =>
 {

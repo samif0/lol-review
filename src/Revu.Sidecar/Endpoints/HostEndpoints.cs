@@ -34,6 +34,28 @@ public static partial class SidecarEndpoints
         // the desktop main process and never enter a renderer.
         app.MapGet("/api/host", () => Results.Json(hostSession.Identity, jsonOptions));
 
+        // The same probe for the desktop host, with the user-actionable reason when the
+        // database cannot be opened, so a degraded start shows why instead of timing out.
+        // Authenticated because the reason names local paths.
+        app.MapGet("/api/host/health", (IDbConnectionFactory factory, ILogger<Program> logger) =>
+        {
+            try
+            {
+                using var conn = factory.CreateConnection();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT 1;";
+                cmd.ExecuteScalar();
+                return Results.Json(new { status = "ready" }, jsonOptions);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Host health probe: read-only DB open/select failed (degraded)");
+                var error = ex is DatabaseUnavailableException unavailable ? unavailable.Message
+                    : $"Revu couldn't open its database: {SqliteOpenHealth.Describe(factory.DatabasePath)}";
+                return Results.Json(new { status = "degraded", error }, jsonOptions);
+            }
+        });
+
         // Private host lifecycle operation; the renderer command map does not expose it.
         // Complete the response before Kestrel begins graceful shutdown.
         app.MapPost("/api/host/shutdown", (HttpContext context, IHostApplicationLifetime lifetime) =>

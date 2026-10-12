@@ -136,6 +136,7 @@ public sealed class SidecarEndpointContractTests
         GET /api/games
         GET /api/health
         GET /api/host
+        GET /api/host/health
         GET /api/matchups
         GET /api/matchups/export
         GET /api/objective
