@@ -51,14 +51,38 @@ export async function backendRequest(hs, route, { method = 'GET', body, timeoutM
   return value;
 }
 
+// The sidecar publishes this before it prepares storage (migrations can take a while).
+export function isStartingHandshake(value, { launchId, processId }) {
+  return value?.state === 'starting' && value.apiVersion === 1
+    && value.launchId === launchId && value.processId === processId;
+}
+
+// /api/health answers ready, or 503 when the database cannot be opened. That is an
+// answer, not a reason to wait: the authenticated probe says why.
+export async function readHealth(request) {
+  try { return await request('/api/health'); }
+  catch (error) {
+    if (error?.status !== 503) throw error;
+    const detail = await request('/api/host/health').catch(() => null);
+    if (detail?.status === 'ready') return detail;
+    return { status: 'degraded', error: typeof detail?.error === 'string' && detail.error.trim()
+      ? detail.error : "Revu couldn't open its database." };
+  }
+}
+
+const quiet = Object.freeze({ info() {}, warn() {}, error() {} });
+
 // A failed write is never retried: losing its response does not mean it failed.
 export class Sidecar {
   #child; #handshake; #stopping = false; #ready = false; #stopPromise;
-  constructor({ dataRoot, executable, isolated = false, onExit = () => {} }) {
+  constructor({ dataRoot, executable, isolated = false, onExit = () => {}, onPreparing = () => {}, log = quiet, stderrLog = null }) {
     this.dataRoot = dataRoot;
     this.executable = executable;
     this.isolated = isolated;
     this.onExit = onExit;
+    this.onPreparing = onPreparing;
+    this.log = log;
+    this.stderrLog = stderrLog;
   }
   async start() {
     if (this.#child) throw new Error('Sidecar already started');
@@ -69,29 +93,58 @@ export class Sidecar {
       if (/^REVU_(ISOLATED_HOST_TEST|HOST_LAUNCH_ID|DATA_ROOT)$/i.test(name)) delete environment[name];
     }
     if (this.isolated) environment.REVU_ISOLATED_HOST_TEST = '1';
+    // stderr carries the runtime's report of a fatal crash; keep a capped copy of it.
     const child = spawn(this.executable, [], { cwd: path.dirname(this.executable), windowsHide: true,
-      stdio: 'ignore', env: { ...environment, REVU_DATA_ROOT: root, REVU_HOST_LAUNCH_ID: launchId } });
+      stdio: ['ignore', 'ignore', this.stderrLog ? 'pipe' : 'ignore'],
+      env: { ...environment, REVU_DATA_ROOT: root, REVU_HOST_LAUNCH_ID: launchId } });
     this.#child = child;
+    if (child.stderr) {
+      child.stderr.on('data', chunk => this.stderrLog.append(chunk));
+      child.stderr.on('error', () => {});
+    }
     let spawnError;
     child.once('error', () => { spawnError = new Error('Unable to launch the configured sidecar'); });
-    child.once('exit', () => { if (this.#ready && !this.#stopping) this.onExit(); });
+    child.once('spawn', () => this.log.info(`Sidecar started (process ${child.pid})`));
+    child.once('exit', (code, signal) => {
+      const unexpected = this.#ready && !this.#stopping;
+      this.log[unexpected ? 'error' : 'info'](`Sidecar exited (code ${code ?? 'none'}, signal ${signal ?? 'none'})`);
+      if (unexpected) this.onExit({ code, signal });
+    });
     const identity = { launchId, processId: child.pid, dataDirectory: path.join(root, 'LoLReviewData') };
-    const deadline = Date.now() + 20000;
+    const startedAt = Date.now();
+    // A launch that has announced storage preparation is never cut off while it is
+    // alive: killing it would interrupt a migration. The deadline covers the time
+    // before that announcement, and the API check after the real handshake.
+    let deadline = startedAt + 20000, preparing = false;
     try {
-      while (Date.now() < deadline) {
+      while (preparing || Date.now() < deadline) {
         if (spawnError) throw spawnError;
         if (child.exitCode !== null || child.signalCode !== null) throw new Error('Sidecar exited before becoming ready; another data owner or incompatible schema may be present');
+        let verdict;
         try {
           const text = await readFile(path.join(root, 'Revu', 'sidecar.json'), 'utf8');
           if (text.length > 4096) throw new Error('Invalid handshake size');
-          const hs = validateHandshake(JSON.parse(text), identity);
-          this.#handshake = hs;
-          const host = await this.request('/api/host');
-          if (host.launchId !== launchId || host.apiVersion !== 1 || host.processId !== child.pid
-            || normalize(host.dataDirectory) !== normalize(identity.dataDirectory)) throw new Error('Incompatible backend');
-          const health = await this.request('/api/health');
-          if (health.status === 'ready') { this.#ready = true; return; }
+          const value = JSON.parse(text);
+          if (isStartingHandshake(value, identity)) {
+            if (!preparing) { preparing = true; this.log.info('Sidecar is preparing data'); this.onPreparing(); }
+          } else {
+            const hs = validateHandshake(value, identity);
+            if (preparing) { preparing = false; deadline = Date.now() + 20000; }
+            this.#handshake = hs;
+            const host = await this.request('/api/host');
+            if (host.launchId !== launchId || host.apiVersion !== 1 || host.processId !== child.pid
+              || normalize(host.dataDirectory) !== normalize(identity.dataDirectory)) throw new Error('Incompatible backend');
+            const health = await readHealth(route => this.request(route));
+            if (health.status === 'ready') {
+              this.#ready = true;
+              this.log.info(`Sidecar ready in ${Date.now() - startedAt} ms`);
+              return;
+            }
+            if (health.status === 'degraded') verdict = new Error(health.error);
+          }
         } catch { this.#handshake = null; }
+        // A verified backend that cannot open its database is an answer, not a timeout.
+        if (verdict) throw verdict;
         await delay(100);
       }
       throw new Error('The owned sidecar did not become ready within 20 seconds');
@@ -141,6 +194,7 @@ export class Sidecar {
     if (graceful) await Promise.race([exited, delay(20000, undefined, { ref: false })]);
     const forced = child.exitCode === null && child.signalCode === null;
     if (forced) {
+      this.log.warn(graceful ? 'Sidecar did not exit within 20 seconds; ending it' : 'Ending the sidecar without a graceful shutdown');
       child.kill(); // Never target a PID learned from a stale handshake.
       await Promise.race([exited, delay(3000, undefined, { ref: false })]);
     }

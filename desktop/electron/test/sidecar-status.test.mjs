@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { createRollingLog } from '../logging.mjs';
 import { saveNarration } from '../narration.mjs';
-import { backendRequest } from '../sidecar.mjs';
+import { backendRequest, isStartingHandshake, readHealth, Sidecar } from '../sidecar.mjs';
 
 async function serve(handler) {
   const server = createServer(handler);
@@ -71,4 +72,52 @@ test('an empty 400 is still a definitive refusal, so the rejected voice file is 
     await assert.rejects(saveNarration({ root, backend, bytes, meta }), error => error.status === 400);
     assert.deepEqual(await readdir(root), []);
   } finally { server.close(); await rm(base, { recursive: true, force: true }); }
+});
+
+test('a degraded health probe is answered with the authenticated diagnosis instead of a timeout', async () => {
+  const diagnosis = "Revu couldn't open its database: the file revu.db-shm is marked read-only (C:\\data\\revu.db-shm).";
+  const seen = [];
+  const { server, hs } = await serve((req, res) => {
+    seen.push([req.url, req.headers.authorization]);
+    res.writeHead(req.url === '/api/health' ? 503 : 200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(req.url === '/api/health' ? { status: 'degraded' } : { status: 'degraded', error: diagnosis }));
+  });
+  try {
+    assert.deepEqual(await readHealth(route => backendRequest(hs, route)), { status: 'degraded', error: diagnosis });
+    assert.deepEqual(seen.map(([url]) => url), ['/api/health', '/api/host/health']);
+    assert.equal(seen[1][1], `Bearer ${hs.token}`);
+  } finally { server.close(); }
+  // Ready needs no detail; a refused detail keeps a generic sentence; other failures keep polling.
+  assert.deepEqual(await readHealth(async () => ({ status: 'ready' })), { status: 'ready' });
+  const unavailable = Object.assign(new Error('Backend HTTP 503'), { status: 503 });
+  assert.deepEqual(await readHealth(async route => { if (route === '/api/health') throw unavailable; throw new Error('Unauthorized'); }),
+    { status: 'degraded', error: "Revu couldn't open its database." });
+  await assert.rejects(readHealth(async () => { throw new Error('ECONNREFUSED'); }), /ECONNREFUSED/);
+});
+
+test('only this launch can announce that it is preparing storage', () => {
+  const identity = { launchId: 'launch', processId: 41 };
+  const marker = { state: 'starting', apiVersion: 1, launchId: 'launch', processId: 41 };
+  assert.equal(isStartingHandshake(marker, identity), true);
+  for (const change of [{ state: 'ready' }, { launchId: 'other' }, { processId: 42 }, { apiVersion: 2 }])
+    assert.equal(isStartingHandshake({ ...marker, ...change }, identity), false);
+  assert.equal(isStartingHandshake(null, identity), false);
+});
+
+test('a backend that exits during startup leaves its stderr and exit code in the logs', { skip: process.platform !== 'win32' }, async () => {
+  // findstr without arguments reports a usage error on stderr and exits, like a crashing backend.
+  const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'findstr.exe');
+  const base = await mkdtemp(path.join(os.tmpdir(), 'Revu.SidecarLogs.'));
+  try {
+    const hostLog = createRollingLog({ name: 'host' }), stderrLog = createRollingLog({ name: 'sidecar-stderr' });
+    hostLog.open(path.join(base, 'logs'));
+    stderrLog.open(path.join(base, 'logs'));
+    const sidecar = new Sidecar({ dataRoot: base, executable, isolated: true, log: hostLog, stderrLog });
+    await assert.rejects(sidecar.start(), /exited before becoming ready/);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    assert.match(await readFile(stderrLog.file, 'utf8'), /FINDSTR/i);
+    const host = await readFile(hostLog.file, 'utf8');
+    assert.match(host, /INFO  Sidecar started \(process \d+\)/);
+    assert.match(host, /Sidecar exited \(code \d+, signal none\)/);
+  } finally { await rm(base, { recursive: true, force: true }); }
 });
