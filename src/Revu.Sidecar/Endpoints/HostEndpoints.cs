@@ -10,24 +10,36 @@ namespace Revu.Sidecar;
 
 public static partial class SidecarEndpoints
 {
+    /// <summary>GET /api/health's reply (status code and body); see the route.</summary>
+    internal static (int StatusCode, object Body) Health(IDbConnectionFactory factory, StorageStartupHealth storage, ILogger logger)
+    {
+        try
+        {
+            using var conn = factory.CreateConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1;";
+            cmd.ExecuteScalar();
+            return storage.SchemaUpgradeFailed
+                ? (200, new { status = "ready", storage = "degraded", reason = "schema_upgrade_failed" })
+                : (200, new { status = "ready", storage = "ok" });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Health probe: read-only DB open/select failed (degraded)");
+            return (503, new { status = "degraded" });
+        }
+    }
+
     private static void MapHost(WebApplication app, JsonSerializerOptions jsonOptions, SidecarHostSession hostSession)
     {
         // ── GET /api/health (anonymous): opens a read-only conn + SELECT 1 ───────────
-        app.MapGet("/api/health", (IDbConnectionFactory factory, ILogger<Program> logger) =>
+        // A failed startup schema pass keeps status "ready" (the desktop host gates launch
+        // on it, and the degraded-start policy keeps the app usable) but reports storage
+        // "degraded" so a half-migrated database is visible instead of looking current.
+        app.MapGet("/api/health", (IDbConnectionFactory factory, StorageStartupHealth storage, ILogger<Program> logger) =>
         {
-            try
-            {
-                using var conn = factory.CreateConnection();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT 1;";
-                cmd.ExecuteScalar();
-                return Results.Json(new { status = "ready" }, jsonOptions);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Health probe: read-only DB open/select failed (degraded)");
-                return Results.Json(new { status = "degraded" }, jsonOptions, statusCode: 503);
-            }
+            var (statusCode, body) = Health(factory, storage, logger);
+            return Results.Json(body, jsonOptions, statusCode: statusCode);
         });
 
         // Launch/data-root compatibility is authenticated; bearer credentials stay in

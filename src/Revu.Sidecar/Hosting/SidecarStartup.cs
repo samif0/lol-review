@@ -149,6 +149,8 @@ public static class SidecarStartup
             app.Services.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("Startup")
                 .LogError(ex, "First-run DB creation / additive schema upgrade failed at startup");
+            // Still a degraded start, but /api/health now reports it.
+            app.Services.GetRequiredService<StorageStartupHealth>().MarkSchemaUpgradeFailed();
         }
 
         // 3.14 narrated clips: crash recovery + orphan/stale-file sweeps, then the share and

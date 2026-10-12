@@ -16,6 +16,7 @@ public static class SidecarServices
     {
         // Read queries use the physically read-only database graph.
         services.AddSingleton<IDbConnectionFactory, ReadOnlySqliteConnectionFactory>();
+        services.AddSingleton<StorageStartupHealth>();
 
         services.AddSingleton<IProtectedSecretStore, ProtectedSecretStore>();
         services.AddSingleton<IConfigService, ConfigService>();
