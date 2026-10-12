@@ -76,9 +76,14 @@ to that script must update both hashes in `_headers`;
 
 ```sh
 cd site
-python -m http.server 8000
-# open http://localhost:8000
+npx wrangler pages dev . --port 8788
+# open http://localhost:8788
 ```
+
+`wrangler pages dev` applies `_headers`, so CSP errors show up in the
+console the same way they would in production. It serves the working tree,
+`tests/` and this README included; see Deploy for checking exactly which
+files a deploy uploads.
 
 The clip page accepts `?proxy=http://localhost:8787` (localhost or 127.0.0.1
 only) to read clips from a local `wrangler dev` proxy.
@@ -94,8 +99,7 @@ cd site && npx wrangler pages dev . --port 8788
 
 Open http://localhost:8788 (not 127.0.0.1) in Chrome or Firefox. On
 localhost the account pages call `http://localhost:8787` and use the
-Turnstile test key. `wrangler pages dev` applies `_headers`, so CSP errors
-show up in the console the same way they would in production.
+Turnstile test key.
 
 ## Tests
 
@@ -118,9 +122,9 @@ the public files into `artifacts/site-deploy` (the `pages_build_output_dir`
 in `wrangler.toml`), uploads them with the wrangler version pinned in
 `proxy/package-lock.json`, and removes the stage. A new file type in this
 directory fails the deploy until it is added to the allowlist in
-`scripts/deploy-site.mjs`. `node scripts/deploy-site.mjs --stage-only`
-stages without deploying, for a `wrangler pages dev ../artifacts/site-deploy`
-preview.
+`scripts/deploy-site.mjs`; every file in `.well-known/` is published.
+`node scripts/deploy-site.mjs --stage-only` stages without deploying, so
+you can inspect the exact upload in `artifacts/site-deploy`.
 
 For a change that touches web accounts, deploy in this order: apply the
 proxy D1 migration, deploy the proxy (`npm run deploy` in `proxy/`, also

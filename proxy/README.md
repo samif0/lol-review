@@ -37,6 +37,11 @@ To rotate: re-run the same command with a new value.
 npm run deploy
 ```
 
+`npm run deploy` runs `scripts/guard-deploy.mjs` first, which refuses unless
+the tree is clean, `HEAD` equals `origin/main` after a fetch, and
+`npm run typecheck` and `npm test` pass. Do not run `npx wrangler deploy`
+directly; it skips those checks.
+
 The deploy URL will look like:
 `https://revu-proxy.<your-cloudflare-subdomain>.workers.dev`
 
@@ -293,8 +298,8 @@ wrapped in try/catch), then deploy the site:
 cd proxy
 npx wrangler d1 migrations apply revu-db --remote
 npx wrangler d1 migrations list revu-db --remote
-npx wrangler deploy
-# then deploy the Pages site from site/, from a committed tree
+npm run deploy                        # guarded, see Deploy above
+cd .. && node scripts/deploy-site.mjs # then the site, also guarded
 ```
 
 The hourly cron also deletes `login_requests` rows that expired over an hour
@@ -315,7 +320,7 @@ RESEND_API_KEY=<your own Resend key>
 ```sh
 npx wrangler d1 migrations apply revu-db --local
 npx wrangler dev            # Worker on http://localhost:8787
-# site: wrangler pages dev on http://localhost:8788
+# site: `cd site && npx wrangler pages dev . --port 8788` (site/README.md)
 ```
 
 Use `localhost`, never `127.0.0.1`, for both. Use Chrome or Firefox, which
