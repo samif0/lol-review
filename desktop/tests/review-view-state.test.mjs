@@ -53,6 +53,7 @@ function node({ id = '', classes = [], dataset = {}, value = '' } = {}) {
         part = part.trim();
         const segments = part.split(/\s+/);
         if (segments.length > 1) return this.matches(segments.pop()) && !!this.parent?.closest(segments.join(' '));
+        if (part.startsWith('#')) return this.id === part.slice(1);
         if (part.startsWith('.')) return names.has(part.slice(1));
         if (part.startsWith('[data-') && part.endsWith(']')) {
           const key = part.slice(6, -1).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
@@ -142,6 +143,20 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null,
         row.appendChild(status);
         return row;
       }
+      if (name === 'tpl-tagcat') {
+        const chip = node({ classes: ['rv-tagcat-chip'] }); chip.tagName = 'BUTTON';
+        chip.appendChild(node({ classes: ['rv-tagcat-swatch'] }));
+        chip.appendChild(node({ classes: ['rv-tagcat-txt'] }));
+        return chip;
+      }
+      if (name === 'tpl-objective') {
+        const card = node({ classes: ['rv-obj'] });
+        for (const part of ['ring-track', 'ring-prog', 'pc', 'pill', 'oname', 'ometa', 'rv-crit', 'rv-prompts',
+          'rv-obj-unprompted', 'rv-obj-unprompted-list', 'rv-practiced-cb', 'rv-switch-lbl', 'rv-objnote']) {
+          card.appendChild(node({ classes: [part] }));
+        }
+        return card;
+      }
       if (name === 'tpl-death') {
         const row = node(), number = node(), time = node();
         const jump = node({ classes: ['rv-death-jump'], dataset: { action: 'view_moment' } });
@@ -164,12 +179,14 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null,
       return invoke ? async (...args) => { calls.push(plain(args)); return invoke(...args); } : null;
     },
     readSnapshot: snapshot || (async () => ({ subject: null })),
+    objectiveMetaText: () => '', objectivePhaseLabel: value => value, requestAnimationFrame: () => 0,
     setTimeout, clearTimeout, URLSearchParams, CustomEvent: class {},
     console: { info() {}, warn() {}, error() {} },
   });
   vm.runInContext(`${source}\n globalThis.hooks = { captureReviewState, restoreReviewState, savePromptAnswer, renderDeaths,
     render, renderHeader, renderUnsorted, pruneEmptyClipSections, clipCard, onEvidenceAction, flushEvidenceWrites,
     flushDraft, gatherForm, cancelDraft, markDraftDirty, renderMatchupJournal, flushMatchupNotes, flushReviewWrites,
+    renderObjectives, renderTagCatalog,
     clearMatchupTimers() { for (const state of _matchupNotes.values()) clearTimeout(state.timer); },
     setSubject(value) { _subject = value; },
     get dirty() { return _draftDirty; } };`, context, { filename: 'review.js' });
@@ -204,7 +221,8 @@ function showMatchup(f, options) {
 test('the remake toggle writes the player verdict, reverts on failure and shows the error inline', async t => {
   let fail = true;
   const f = fixture(t, async command => {
-    if (command === 'set_game_remake' && fail) throw new Error('sidecar HTTP 404 Not Found: game not found');
+    // The host never sends a "sidecar HTTP" prefix; the platform layer delivers the sidecar's sentence.
+    if (command === 'set_game_remake' && fail) throw new Error('game not found');
     return { gameId: 42, isRemake: true };
   });
   f.hooks.renderHeader({ gameId: 42, header: { championName: 'Ahri', win: true, isRemake: false, resultText: 'VICTORY' } });
@@ -608,6 +626,12 @@ function assertPolarity(row, polarity) {
   assert.equal(bad.getAttribute('aria-pressed'), String(polarity === 'bad'));
   assert.match(dot.title, new RegExp(polarity, 'i'));
 }
+// A failed write names the failure; a success word such as "Saved" must never pass.
+function assertFailureWording(status) {
+  assert.match(status.textContent, /could(?:n.t| not) save|failed|try again/i);
+  assert.doesNotMatch(status.textContent, /^saved\.?$/i);
+  assert.equal(status.classList.contains('is-error'), true);
+}
 
 test('saved Good evidence hydrates the rating and its actual Tempo attachment without writes', t => {
   const f = fixture(t, () => { throw new Error('Hydrating evidence must not write'); });
@@ -663,7 +687,7 @@ test('a rejected evidence rating keeps the saved Good state and can be retried s
   assert.equal(bad.disabled, false);
   const status = row.querySelector('.rv-evid-save-status');
   assert.ok(status && !status.hidden, 'the affected row must explain that the write failed');
-  assert.match(status.textContent, /save|fail|try|retry/i);
+  assertFailureWording(status);
 
   rejectWrite = false;
   await f.hooks.onEvidenceAction('bad', bad);
@@ -679,7 +703,7 @@ test('an explicit unsuccessful evidence response does not appear saved', async t
   assertPolarity(row, 'neutral');
   const status = row.querySelector('.rv-evid-save-status');
   assert.ok(status && !status.hidden);
-  assert.match(status.textContent, /save|fail|try|retry/i);
+  assertFailureWording(status);
   assert.equal(evidenceControls(row).good.disabled, false);
 });
 
@@ -1102,4 +1126,80 @@ test('Export review continues to use the native save dialog and reports save or 
     assert.equal(button.disabled, false);
     assert.equal(f.nav.invalidations, 0);
   }
+});
+
+test('a failed draft autosave shows Draft not saved with Retry and keeps navigation on the page until it saves', async t => {
+  let fail = true;
+  const f = fixture(t, command => {
+    if (command === 'save_review_draft' && fail) throw new Error('Sidecar unavailable');
+    return { ok: true };
+  });
+  const drafts = () => f.calls.filter(([command]) => command === 'save_review_draft');
+  f.$('rv-draft-status').hidden = true; f.$('rv-draft-retry').hidden = true; // as authored in review.html
+  f.fields[1].value = 'My debrief'; f.hooks.markDraftDirty(); await f.hooks.flushDraft();
+  assert.equal(f.$('rv-draft-status').hidden, false, 'the failure is visible without interrupting typing');
+  assert.equal(f.$('rv-draft-retry').hidden, false);
+  const messages = [];
+  assert.equal(await f.hooks.flushReviewWrites(text => messages.push(text)), false, 'the Review/VOD switch stays on the page');
+  assert.equal(drafts().length, 2, 'leaving retries the draft once');
+  assert.match(messages[0], /draft could not be saved/i);
+  assert.equal(await f.scope.revuBeforeNavigate(), false, 'the sidebar and Update & restart wait too');
+  assert.equal(f.fields[1].value, 'My debrief');
+
+  await f.emit('click', node({ dataset: { action: 'save_review' } }));
+  assert.equal(f.calls.filter(([command]) => command === 'save_review').length, 1, 'a commit replaces the draft and is not blocked');
+
+  const g = fixture(t, command => {
+    if (command === 'save_review_draft' && fail) throw new Error('Sidecar unavailable');
+    return { ok: true };
+  });
+  g.fields[1].value = 'Kept text'; g.hooks.markDraftDirty(); await g.hooks.flushDraft();
+  fail = false;
+  await g.emit('click', node({ dataset: { action: 'retry_draft' } }));
+  assert.equal(g.$('rv-draft-status').hidden, true);
+  assert.equal(g.$('rv-draft-retry').hidden, true);
+  assert.equal(g.$('rv-commit-msg').textContent, 'Draft saved.');
+  assert.equal(g.calls.at(-1)[1].payload.reviewNotes, 'Kept text');
+  assert.equal(await g.hooks.flushReviewWrites(), true);
+});
+
+test('topic chips are toggle buttons whose pressed state is the selection, with the tag color as a swatch', async t => {
+  const f = fixture(t);
+  f.hooks.renderTagCatalog({ tagCatalog: [{ id: 3, name: 'Wave', colorHex: '#123456', isSelected: true }, { id: 4, name: 'Vision' }] });
+  const [wave, vision] = f.$('rv-tagcat-grid').children;
+  assert.equal(wave.tagName, 'BUTTON');
+  assert.equal(wave.getAttribute('aria-pressed'), 'true');
+  assert.equal(vision.getAttribute('aria-pressed'), 'false');
+  assert.equal(wave.querySelector('.rv-tagcat-swatch').style.background, '#123456');
+  assert.equal(vision.querySelector('.rv-tagcat-swatch').hidden, true);
+  assert.equal(wave.style.color, undefined, 'selection never depends on the user-chosen color');
+  assert.equal(wave.getAttribute('role'), null);
+  await f.emit('click', vision);
+  assert.equal(vision.getAttribute('aria-pressed'), 'true');
+  assert.equal(vision.classList.contains('on'), true);
+  await f.emit('click', wave);
+  assert.equal(wave.getAttribute('aria-pressed'), 'false');
+  assert.equal(f.hooks.dirty, true);
+  const html = await readFile(new URL('../ui/review.html', import.meta.url), 'utf8');
+  assert.match(html, /<template id="tpl-tagcat">\s*<button type="button" class="rv-tagcat-chip" aria-pressed="false">/);
+});
+
+test('the practice check-in sits above Save and opens when the match has active objectives', async t => {
+  const html = await readFile(new URL('../ui/review.html', import.meta.url), 'utf8');
+  const at = text => html.indexOf(text);
+  assert.ok(at('id="rv-takeaway-title"') < at('id="rv-objsec"'));
+  assert.ok(at('id="rv-objsec"') < at('id="rv-commitbar"'), 'the practiced switches come before Save review');
+  assert.ok(at('id="rv-commitbar"') < at('id="rv-supporting-title"'));
+  const objectives = [{ id: 9, title: 'Tempo', progress: 0.5, isPriority: true }];
+  const f = fixture(t);
+  f.hooks.renderObjectives({ objectives });
+  assert.equal(f.$('rv-objsec').open, true);
+  assert.equal(f.$('rv-objectives').children.length, 1);
+  f.$('rv-objsec').open = false;
+  f.hooks.renderObjectives({ objectives });
+  assert.equal(f.$('rv-objsec').open, false, 'a refresh after saving keeps the player choice');
+  const g = fixture(t);
+  g.hooks.renderObjectives({ objectives: [], hasObjectives: false });
+  assert.equal(g.$('rv-objsec').open, false, 'without objectives the check-in stays compact');
+  assert.equal(g.$('rv-objsec').hidden, false);
 });
