@@ -34,4 +34,6 @@ test('the rule-check banner template joins name and reason without an em dash', 
   const html = await readFile(new URL('../ui/rules.html', import.meta.url), 'utf8');
   const banner = html.match(/<template id="tpl-vbanner">([\s\S]*?)<\/template>/)[1];
   assert.doesNotMatch(banner, /—/);
+  // The item is not flex, so whitespace before the colon would render "Name : Reason".
+  assert.match(banner, /<span class="rule-check-name"><\/span><span class="rule-check-dash" aria-hidden="true">:<\/span>/);
 });

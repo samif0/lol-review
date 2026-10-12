@@ -707,7 +707,6 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
   box-shadow:0 20px 50px -22px rgba(0,0,0,0.85),0 2px 0 rgba(255,255,255,0.06) inset,0 -22px 44px -30px rgba(var(--primary-rgb),0.4) inset}
 .rv-hero-row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;position:relative}
 .rv-hero-lead{min-width:0}
-.rv-champ{font-family:var(--fo);font-size:30px;font-weight:700;color:var(--gold);line-height:1.05;text-shadow:0 2px 16px rgba(var(--bg-rgb),0.5)}
 .rv-resline{display:flex;align-items:center;gap:12px;margin-top:9px;flex-wrap:wrap}
 .rv-res{font-size:15px;font-weight:700;color:var(--win);letter-spacing:0.5px}
 .rv-gmode{font-size:12.5px;color:var(--t3)}
@@ -1090,7 +1089,7 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 #rule-check-list{display:flex;flex-direction:column;gap:11px}
 .rule-check-item{font-size:13.5px;color:var(--t2);line-height:1.5}
 .rule-check-name{font-family:var(--fo);font-weight:600;color:#fff}
-.rule-check-dash{margin:0 6px 0 0;color:var(--t4)}
+.rule-check-dash{color:var(--t4)}
 .rule-check-reason{color:var(--t3)}
 /* Plan-led entry — IF cue (gold) / THEN plan (green) / TRIGGERED BY subhead. */
 .rule-check-item-plan{display:flex;flex-direction:column;gap:5px;
@@ -3017,7 +3016,6 @@ body .gamerow{border:0!important;border-bottom:1px solid var(--border)!important
 body .gamerow:hover{background:#292929!important}
 body :is(.gamerow-edge,.gamerow-sweep){display:none}
 body :is(.rv-hero,.rv-focus,.rv-review,.vp-moments-card,.vp-transport-card,.onb-card){background:transparent!important;border-color:var(--border)!important}
-body :is(.rv-champ,.on-eyebrow-blue){color:var(--text)!important}
 body .ring-prog{stroke:var(--text)!important}
 body .ring-track{stroke:#454545!important}
 body .on-card-clickable:hover,body .on-card-clickable:focus-visible{border-color:#777!important;transform:none}
