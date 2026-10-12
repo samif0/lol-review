@@ -25,6 +25,28 @@ public sealed class WindowsFactAttribute : FactAttribute
     }
 }
 
+/// <summary>
+/// Builds a test database the way the sidecar builds a real one: a fresh file in
+/// WAL mode (WriteSqliteConnectionFactory), then the additive schema and the
+/// idempotent seeds and indexes (SidecarStartup). Tests never run a schema path
+/// production does not.
+/// </summary>
+internal static class StartupSchema
+{
+    public static async Task ApplyAsync(IDbConnectionFactory factory, DatabaseInitializer initializer)
+    {
+        using (var connection = factory.CreateConnection())
+        using (var wal = connection.CreateCommand())
+        {
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            await wal.ExecuteNonQueryAsync();
+        }
+
+        await initializer.ApplyAdditiveSchemaAsync();
+        await initializer.ApplySeedsAndIndexesAsync();
+    }
+}
+
 internal sealed class TestDatabaseScope : IDisposable
 {
     private readonly string _rootDirectory;
@@ -88,7 +110,7 @@ internal sealed class TestDatabaseScope : IDisposable
 
     public MissedGameDecisionRepository MissedGameDecisions { get; }
 
-    public Task InitializeAsync() => Initializer.InitializeAsync();
+    public Task InitializeAsync() => StartupSchema.ApplyAsync(ConnectionFactory, Initializer);
 
     public SqliteConnection OpenConnection() => ConnectionFactory.CreateConnection();
 

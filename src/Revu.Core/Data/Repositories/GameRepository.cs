@@ -9,7 +9,7 @@ using Revu.Core.Services;
 namespace Revu.Core.Data.Repositories;
 
 /// <summary>
-/// CRUD operations for the games table â€” ported from Python GameRepository.
+/// CRUD operations for the games table.
 /// </summary>
 public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery, IGameAnalyticsQuery, IGameDeletionService
 {
@@ -22,7 +22,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         _backupService = backupService;
     }
 
-    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private static string CasualFilter => GameConstants.CasualModeSqlFilter;
 
@@ -125,7 +125,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             IsRemake = GetIntOrDefault(reader, "is_remake") != 0,
         };
 
-        // items â€” JSON array of ints
+        // items — JSON array of ints
         var itemsJson = GetStringOrDefault(reader, "items");
         if (!string.IsNullOrEmpty(itemsJson))
         {
@@ -133,7 +133,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             catch { stats.Items = []; }
         }
 
-        // raw_stats â€” JSON dict
+        // raw_stats — JSON dict
         var rawJson = GetStringOrDefault(reader, "raw_stats");
         if (!string.IsNullOrEmpty(rawJson))
         {
@@ -242,7 +242,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         }
     }
 
-    // â”€â”€ Save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Save ─────────────────────────────────────────────────────────────
 
     public async Task<int> SaveAsync(GameStats stats)
     {
@@ -467,7 +467,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         return gameId;
     }
 
-    // â”€â”€ Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Update ───────────────────────────────────────────────────────────
 
     public async Task UpdateReviewAsync(long gameId, GameReview review)
     {

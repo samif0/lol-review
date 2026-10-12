@@ -1,6 +1,7 @@
 # Practice diagnostics
 
-Opt-in via `scripts/Practice-Capture.ps1 start`; status and stop use the same script.
+Opt-in: start the app with `REVU_PRACTICE_DIAGNOSTICS=1` (otherwise the routes are not
+mapped), then run `scripts/Practice-Capture.ps1 start`; status and stop use the same script.
 No new UI, game-event writes, ranked-history writes, recorder work, or AI.
 Authenticated local endpoints live under `/api/diagnostics/practice`.
 

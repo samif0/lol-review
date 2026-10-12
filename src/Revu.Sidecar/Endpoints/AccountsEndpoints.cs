@@ -13,9 +13,9 @@ public static partial class SidecarEndpoints
     private static void MapAccounts(WebApplication app, JsonSerializerOptions jsonOptions)
     {
         // ─────────────────────────────────────────────────────────────────────────────
-        // RIOT AUTH / ACCOUNT (Batch 4). SECURITY-SENSITIVE: the email-OTP login flow
-        // (mirrors OnboardingViewModel + SettingsViewModel's RiotAuth* commands) and the
-        // account resolve that fills RiotPuuid + auto-detected rank. The session triplet
+        // RIOT AUTH / ACCOUNT. SECURITY-SENSITIVE: the email-OTP sign-in flow used by
+        // onboarding and Settings, and the account resolve that fills RiotPuuid +
+        // auto-detected rank. The session triplet
         // (RiotSessionToken/Email/ExpiresAt) and PUUID persist via the WRITE-graph
         // IConfigService, which round-trips through the DPAPI IProtectedSecretStore — so
         // these MUST run on WriteServices, never the read graph.
@@ -28,8 +28,7 @@ public static partial class SidecarEndpoints
         // we surface it with HTTP 422 so the desktop transport's error-extraction shows it.
         // ─────────────────────────────────────────────────────────────────────────────
 
-        // POST /api/auth/login  { email } — sends the magic-link / OTP email. No DB write.
-        // Mirrors OnboardingViewModel.SendLoginCodeAsync (validates non-empty email).
+        // POST /api/auth/login  { email } — sends the OTP email. No DB write.
         app.MapPost("/api/auth/login", async (AuthLoginBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Email))
@@ -51,36 +50,11 @@ public static partial class SidecarEndpoints
             }
         });
 
-        // POST /api/auth/signup  { email, inviteCode } — sends the email after validating
-        // an invite code. Mirrors SettingsViewModel.RiotAuthSignup (both required; code
-        // upper-cased). No DB write.
-        app.MapPost("/api/auth/signup", async (AuthSignupBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
-        {
-            if (body is null || string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.InviteCode))
-                return Results.BadRequest(new { error = "Enter an email and an invite code." });
-            try
-            {
-                await w.RiotAuth.SignupAsync(body.Email.Trim(), body.InviteCode.Trim().ToUpperInvariant(), ct);
-                log.LogInformation("Auth: signup code sent.");
-                return Results.Json(new { ok = true, info = $"Check {body.Email.Trim()} for a code." }, jsonOptions);
-            }
-            catch (RiotAuthException ex)
-            {
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions, statusCode: 422);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Auth: signup failed");
-                return Results.Json(new { ok = false, error = "Couldn't reach the server. Check your connection." }, jsonOptions, statusCode: 502);
-            }
-        });
-
         // POST /api/auth/verify  { code } — exchanges the OTP for a session token and
-        // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). Mirrors
-        // OnboardingViewModel.VerifyAsync + SettingsViewModel.RiotAuthVerify. The email we
+        // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). The email we
         // stamp is the one the verify call was issued for — the frontend passes it back so
         // we record the right RiotSessionEmail (the proxy's verify response carries only
-        // the token + expiry). Code is trimmed + upper-cased (mirror the VM).
+        // the token + expiry). Code is trimmed + upper-cased.
         app.MapPost("/api/auth/verify", async (AuthVerifyBody body, WriteServices w, SidecarBackgroundWork work,
             IServiceProvider services, ILogger<Program> log, CancellationToken ct) =>
         {
@@ -120,15 +94,13 @@ public static partial class SidecarEndpoints
         // POST /api/auth/resolve  { riotId, region } — resolve the Riot ID to a PUUID
         // using the stored session token, persist RiotId/RiotRegion/RiotPuuid +
         // OnboardingSkipped=false, then best-effort auto-detect the ranked solo tier
-        // (display-only, never throws). Mirrors OnboardingViewModel.FinishAccountAsync +
-        // SettingsViewModel.Save's PUUID-resolution leg. Validates the gameName#tagLine
-        // shape exactly like the VM. Returns the detected rank so the frontend can show
-        // the "RANK DETECTED" line.
+        // (display-only, never throws). Validates the gameName#tagLine shape. Returns the
+        // detected rank so the frontend can show it.
         app.MapPost("/api/auth/resolve", async (AuthResolveBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             var riotId = (body?.RiotId ?? "").Trim();
             var region = (body?.Region ?? "").Trim();
-            // Mirror the VM validation: must contain '#', not start/end with it.
+            // Must contain '#', not start/end with it.
             if (!riotId.Contains('#') || riotId.StartsWith('#') || riotId.EndsWith('#'))
                 return Results.BadRequest(new { error = "Enter your Riot ID as gameName#tagLine." });
             if (region.Length == 0)
@@ -168,9 +140,9 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/auth/logout — clear the session triplet (and reset OnboardingSkipped so
-        // a stale opt-out doesn't trap the user), then best-effort tell the server. Mirrors
-        // SettingsViewModel.RiotAuthLogout: clear config FIRST (so the local state is gone
-        // even if the network call fails), then call LogoutAsync(token).
+        // a stale opt-out doesn't trap the user), then best-effort tell the server. Clear
+        // config FIRST (so the local state is gone even if the network call fails), then
+        // call LogoutAsync(token).
         app.MapPost("/api/auth/logout", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             await w.BackupGuard.EnsureBackedUpAsync();
@@ -237,7 +209,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex)
             {
                 log.LogWarning(ex, "Auth: could not clear partial onboarding session");
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions);
+                return Results.Json(new { ok = false, error = "Couldn't reset the unfinished sign-in. Try again." }, jsonOptions);
             }
         });
 
@@ -285,7 +257,7 @@ public static partial class SidecarEndpoints
                 {
                     ok = true,
                     ranBackfill = false,
-                    text = "Sign in and link your Riot ID first — backfill needs your account.",
+                    text = "Sign in and link your Riot ID first. Backfill needs your account.",
                     enemy = new { scanned = 0, updated = 0, skipped = 0, failed = 0 },
                     laning = new { scanned = 0, updated = 0, skipped = 0, failed = 0 },
                 }, jsonOptions);
@@ -305,7 +277,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex)
             {
                 log.LogWarning(ex, "Backfill: enemy-laner leg failed");
-                return Results.Json(new { ok = false, error = $"Backfill failed: {ex.Message}" }, jsonOptions, statusCode: 502);
+                return Results.Json(new { ok = false, error = "Backfill couldn't finish. Check your connection and try again." }, jsonOptions, statusCode: 502);
             }
 
             // Map-state leg (v3.2): jungle-proximity events + death map-state stamps from
@@ -335,7 +307,7 @@ public static partial class SidecarEndpoints
             if (mapState.Updated > 0)
                 hub.Publish("mapStateUpdated", new { gameId = 0L, updated = mapState.Updated });
 
-            // Laning leg degrades silently on a proxy 404 (mirror the VM try/catch).
+            // Laning leg degrades silently on a proxy 404.
             LaningBackfillResult laning = new(0, 0, 0, 0);
             try
             {
@@ -353,7 +325,7 @@ public static partial class SidecarEndpoints
             var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
             var text = totalUpdated > 0
                 ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
-                : "Nothing to backfill — every game already has its matchup data.";
+                : "Nothing to backfill. Every game already has its matchup data.";
 
             log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}",
                 enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned);

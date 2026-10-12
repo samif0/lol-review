@@ -3,26 +3,16 @@
 namespace Revu.Sidecar;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Response DTOs for GET /api/review.
+// Response DTOs for GET /api/review: the display shape for ONE game, with
+// only *Hex strings the desktop renderer resolves itself. Property names are
+// PascalCase here; the serializer is configured with JsonNamingPolicy.CamelCase,
+// so the wire shape is camelCase and matches desktop/ui/sample-review.json.
 //
-// Mirrors the WinUI ReviewViewModel's display shape for ONE game WITHOUT any
-// XAML/WinUI types — no SolidColorBrush, only *Hex strings the desktop renderer
-// resolves itself. Property names are PascalCase here; the serializer is
-// configured with JsonNamingPolicy.CamelCase in Program.cs, so the wire shape
-// is camelCase and matches desktop/ui/sample-review.json verbatim.
-//
-// READ-ONLY: the review FORM (mental rating / debrief textareas / tags / save /
-// skip) is a MUTATION surface and is therefore DEFERRED. The form's current
-// saved values are shipped for read-only DISPLAY (see ReviewFormDto), with
-// Editable=false and an EditingNote so the frontend can render the inputs
-// disabled. Wiring save is out of scope for the read-only snapshot.
-//
-// The death-audit / evidence-triage / matchup-history / concept-tag-catalog
-// sections added in Batch-1A are also READ-ONLY: classification, evidence
-// triage, and tag selection are MUTATIONS deferred to a later write batch. The
-// snapshot ships their CURRENT state (saved death classes, attached vs
-// unassigned evidence, past matchup notes, the full tag catalog w/ selection
-// flags) so the frontend can render the rows without yet writing anything.
+// This snapshot is a READ: it ships the current saved state (the review form's
+// values, saved death classes, attached vs unassigned evidence, past matchup
+// notes, the tag catalog with selection flags). The page edits through the
+// separate write routes (/api/review/save, /api/review/draft/save, the evidence
+// and bookmark routes), never through this payload.
 //
 // Null vs empty:
 //   - subject is nullable: null = the DB has no reviewable game to sample
@@ -57,14 +47,14 @@ public sealed record ReviewSubjectDto(
     long GameId,
     ReviewHeaderDto Header,
     // 8-up stat strip (Damage / CS / Vision / Gold / Kill Part. / Dmg Taken /
-    // Wards / KDA-style), mirroring ReviewViewModel.ApplyGameData. The laning@10
+    // Wards / KDA-style). The laning@10
     // line rides on the header (LaningAt10Line / HasLaningAt10).
     IReadOnlyList<ReviewStatDto> Stats,
     // Active objectives that could be practiced this game (IObjectivesRepository
-    // .GetActiveAsync). Read-only — the "mark practiced" toggle is DEFERRED.
+    // .GetActiveAsync), with the saved or drafted practiced flag and note.
     IReadOnlyList<ReviewObjectiveDto> Objectives,
     bool HasObjectives,
-    // The existing saved review text fields on the game row (read-only display).
+    // The saved (or drafted) review form values for this game.
     ReviewFormDto Form,
     // Death audit: one row per DEATH event from the live kill feed, each with the
     // saved cause classification (if any) + the six selectable cause chips. The
@@ -96,7 +86,7 @@ public sealed record ReviewSubjectDto(
 public sealed record ReviewMatchupJournalDto(bool Enabled, MatchupCardDto? Card);
 
 /// <summary>
-/// Hero header for the reviewed game. Mirrors ReviewViewModel.ApplyGameData's
+/// Hero header for the reviewed game. Carries the
 /// precomputed display strings (ResultText, KdaText, the meta line) and emits
 /// *Hex colors rather than brushes.
 /// </summary>
@@ -127,7 +117,7 @@ public sealed record ReviewHeaderDto(
     // as the dashboard game rows.
     string MetaLine,
     // True when this game already has any persisted review signal
-    // (mirrors DashboardViewModel.HasPersistedReview).
+    // (same rule as the dashboard builder's HasPersistedReview).
     bool HasReview,
     // v2.18 (schema v5): "LANING @10 // CS 84 · GOLD DIFF +210 · CS DIFF +6"
     // from the Match-V5 timeline backfill. Empty until the backfill has run.
@@ -241,14 +231,10 @@ public sealed record ReviewPromptClipDto(
     string ObjectiveTitle = "");
 
 /// <summary>
-/// The review form's saved values, for READ-ONLY display. The frontend renders
-/// these into disabled inputs. <see cref="Editable"/> is always false in v1 and
-/// <see cref="EditingNote"/> carries the "review editing coming soon" copy.
-/// Save/skip are DEFERRED mutations.
+/// The review form's saved values (or the unsaved draft) that pre-fill the
+/// editable form. Saving goes through POST /api/review/save.
 /// </summary>
 public sealed record ReviewFormDto(
-    bool Editable,
-    string EditingNote,
     // 1–10 mental rating from the session log / review (0 when unset).
     int MentalRating,
     string MentalRatingColorHex,
@@ -279,7 +265,7 @@ public sealed record ReviewFormDto(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// One DEATH event from the live kill feed (ReviewViewModel.LoadDeathAuditAsync),
+/// One DEATH event from the live kill feed,
 /// joined with the saved cause classification for this (game, second). The six
 /// cause chips mirror DeathClasses.All; exactly one IsSelected when classified.
 /// Classification/clear are DEFERRED writes — rendered read-only for now.
@@ -313,7 +299,7 @@ public sealed record ReviewDeathChipDto(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// The review's evidence triage split, mirroring ReviewViewModel's two lists:
+/// The review's evidence triage split into two lists:
 /// the capped, prioritized "ATTACHED EVIDENCE" set (Attached) vs the uncapped
 /// "EVIDENCE TO SORT" inbox of unassigned, non-dismissed moments (Unassigned).
 /// The two are derived from the SAME GetForGameAsync row set so they can't drift
@@ -353,13 +339,13 @@ public sealed record ReviewEvidenceItemDto(
 
 /// <summary>
 /// One past note for the same champion-vs-enemy matchup (newest-first), excluding
-/// this game's own note. Mirrors ReviewViewModel.MatchupHistoryItem.
+/// this game's own note.
 /// </summary>
 public sealed record ReviewMatchupHistoryDto(
     string Note,
     bool? Helpful,
     // "Game 5581701721  ·  Jun 12, 2026 18:04  ·  Helpful" — same MetaText
-    // convention as ReviewViewModel.BuildMatchupMetaText.
+    // convention as every past matchup note.
     string MetaText);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -368,7 +354,7 @@ public sealed record ReviewMatchupHistoryDto(
 
 /// <summary>
 /// One concept tag from the catalog with its selection state for THIS game.
-/// Mirrors ReviewTagState (IConceptTagRepository.GetAllAsync + GetIdsForGameAsync).
+/// From IConceptTagRepository.GetAllAsync + GetIdsForGameAsync.
 /// The toggle grid is a DEFERRED write — IsSelected ships read-only.
 /// </summary>
 public sealed record ReviewTagDto(

@@ -252,6 +252,6 @@ public static class ObjectiveFocusPhases
         };
     }
 
-    /// <summary>End of the laning phase, in seconds. Matches TimelineInferenceService.</summary>
+    /// <summary>End of the laning phase, in seconds.</summary>
     public const int LanePhaseSeconds = 14 * 60;
 }

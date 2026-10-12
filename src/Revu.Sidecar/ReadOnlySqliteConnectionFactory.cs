@@ -26,11 +26,11 @@ namespace Revu.Sidecar;
 /// </para>
 ///
 /// <para>
-/// WAL + shared cache parity: the WAL journal mode is persisted at the DB file
-/// level by DatabaseInitializer, so a read-only reader sees it
-/// automatically. We request <see cref="SqliteCacheMode.Shared"/> to match the
-/// app's connections, and set a busy_timeout so a reader briefly contending
-/// with the app's writer backs off instead of throwing SQLITE_BUSY.
+/// WAL: the journal mode is persisted at the DB file level when the database is
+/// created, so a read-only reader sees it automatically. Readers request
+/// <see cref="SqliteCacheMode.Shared"/> among themselves (the write factory uses a
+/// private cache), and set a busy_timeout so a reader briefly contending with the
+/// writer backs off instead of throwing SQLITE_BUSY.
 /// </para>
 /// </summary>
 public sealed class ReadOnlySqliteConnectionFactory : IDbConnectionFactory

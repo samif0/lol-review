@@ -179,12 +179,6 @@ public interface ISessionLogRepository
     /// <summary>Check if a game already has a session_log entry.</summary>
     Task<bool> HasEntryAsync(long gameId);
 
-    /// <summary>
-    /// Remove session_log entries whose date doesn't match the game's actual date.
-    /// Returns the number of deleted rows.
-    /// </summary>
-    Task<int> CleanupMismatchedEntriesAsync();
-
     /// <summary>Get aggregate session stats for today. <paramref name="currentPuuid"/>
     /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
     Task<SessionDayStats> GetStatsTodayAsync(string? currentPuuid = null);
@@ -229,8 +223,8 @@ public interface ISessionLogRepository
 
     /// <summary>
     /// Bulk-fetch all (game_id → mental_rating) pairs from session_log in a single
-    /// query. Used by AnalysisService to avoid one-per-game N+1 round-trips when
-    /// building a filtered profile. Only rows where is_skipped = 0 are included.
+    /// query. Used by ReviewExportService to avoid one-per-game N+1 round-trips
+    /// when exporting many games. Only rows where is_skipped = 0 are included.
     /// </summary>
     Task<IReadOnlyDictionary<long, int>> GetAllMentalRatingsAsync();
 }

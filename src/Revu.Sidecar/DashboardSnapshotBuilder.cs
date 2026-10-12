@@ -11,23 +11,19 @@ namespace Revu.Sidecar;
 /// Builds the read-only dashboard snapshot served at GET /api/dashboard.
 ///
 /// <para>
-/// Reproduces <c>DashboardViewModel.LoadAsync</c>'s data loading + formatting
-/// EXACTLY, minus all WinUI/dispatcher concerns, and emits the camelCase JSON
-/// contract (see <see cref="DashboardDto"/> and desktop/sample-dashboard.json).
-/// It deliberately does NOT reference the WinUI ViewModel — only the Core repo
-/// and query interfaces.
+/// Loads and formats the dashboard data and emits the camelCase JSON contract
+/// (see <see cref="DashboardDto"/> and desktop/ui/sample-dashboard.json), using
+/// only the Core repo and query interfaces.
 /// </para>
 ///
 /// <para>
-/// Like the VM, the death-mix / 30-day baseline / vod-pending / patterns blocks
+/// The death-mix / 30-day baseline / vod-pending / patterns blocks
 /// are each wrapped in try/catch that degrades to empty/false/[] so one failing
 /// section never blanks the whole dashboard.
 /// </para>
 ///
 /// <para>
-/// COLOR PARITY: the WinUI app sources its hex constants from
-/// <c>Revu.App.Styling.AppSemanticPalette</c>, which lives in the WinUI project
-/// and isn't visible to Core. For v1 we hardcode the glass-aurora mockup palette
+/// COLOR PARITY: the glass-aurora mockup palette is hardcoded
 /// here (accent #9d8bff, gold #f3c794, win #8ee7ba, loss #f3a3a8, objective
 /// level colors). TODO: lift these constants into Revu.Core so the app and the
 /// sidecar share one source of truth.
@@ -35,7 +31,7 @@ namespace Revu.Sidecar;
 /// </summary>
 public sealed class DashboardSnapshotBuilder
 {
-    // ── Tunables (mirror DashboardViewModel) ────────────────────────────────
+    // ── Tunables ────────────────────────────────
     private const int BaselineMinGames = 5;
     private const int DeathMixMinTagged = 5;
     private const int UnreviewedTake = 8;
@@ -112,7 +108,7 @@ public sealed class DashboardSnapshotBuilder
 
         // ── Adherence streak (behavioral) ───────────────────────────────────
         var adherenceStreak = await _rulesRepo.GetBehavioralAdherenceStreakAsync();
-        var adherenceSub = adherenceStreak > 0 ? "DAYS W/O RULE TRIPS" : "NO ACTIVE STREAK";
+        var adherenceSub = adherenceStreak > 0 ? "Days without rule trips" : "No active streak";
 
         // ── Start Block intent / End Block debrief ──────────────────────────
         // Prefer today's session. A block is "open" until it's ended, so if today
@@ -288,7 +284,7 @@ public sealed class DashboardSnapshotBuilder
             var baselineWins = last30.Sum(s => s.Wins);
 
             var winRateBaseline = baselineGames >= BaselineMinGames
-                ? $"30-DAY {(int)Math.Round(100.0 * baselineWins / baselineGames)}%"
+                ? $"30-day {(int)Math.Round(100.0 * baselineWins / baselineGames)}%"
                 : "";
             var winRateSub = string.IsNullOrEmpty(winRateBaseline)
                 ? recordLine
@@ -299,7 +295,7 @@ public sealed class DashboardSnapshotBuilder
             var ratedDays = last30.Where(s => s.AvgMental > 0).ToList();
             var ratedGames = ratedDays.Sum(s => s.Games);
             var avgMentalSub = ratedGames >= BaselineMinGames
-                ? $"30-DAY AVG {ratedDays.Sum(s => s.AvgMental * s.Games) / ratedGames:F1}"
+                ? $"30-day avg {ratedDays.Sum(s => s.AvgMental * s.Games) / ratedGames:F1}"
                 : "";
 
             return (winRateSub, avgMentalSub);
@@ -342,15 +338,15 @@ public sealed class DashboardSnapshotBuilder
                     AccentHex: p.Severity == "high" ? LossHex : GoldHex));
             }
 
-            var sub = reviewedCount == 0 ? "NONE YET" : "CROSS-GAME";
+            var sub = reviewedCount == 0 ? "None yet" : "Cross-game";
             return (reviewedCount, sub, new PatternsDto(Has: pending.Count > 0, Items: pending));
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Dashboard: objective pattern load failed");
             // Reviewed count couldn't be read; degrade the nag to empty but keep
-            // the sub coherent ("NONE YET" since we report 0).
-            return (0, "NONE YET", new PatternsDto(Has: false, Items: Array.Empty<ObjectivePatternItemDto>()));
+            // the sub coherent ("None yet" since we report 0).
+            return (0, "None yet", new PatternsDto(Has: false, Items: Array.Empty<ObjectivePatternItemDto>()));
         }
     }
 
@@ -487,22 +483,17 @@ public sealed class DashboardSnapshotBuilder
     }
 
     /// <summary>
-    /// Static Start Block next-step copy. The full WinUI stage machine
-    /// (NoGames/HasUnreviewed/NeedsObjective/Normal) drives richer copy in the
-    /// app; for v1 the sidecar ships the canonical Start Block card the Tauri
-    /// frontend already renders (the per-stage variants need IAnalysisService
-    /// and overall-stats wiring that's out of scope for the read-only snapshot).
-    /// TODO: port ComputeStageAsync once the stage queries are exposed in Core.
+    /// Static Start Block next-step copy: the one card the dashboard renders.
     /// </summary>
     private static NextStepDto BuildNextStep() => new(
         Kicker: "Next step · Start Block",
         Title: "Set your intent before you queue.",
         Detail: "A 30-second ritual: name one focus, check your priority objective, lock in.",
-        CtaLabel: "START BLOCK →",
+        CtaLabel: "Start a session",
         Action: "start_block");
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Game-row mapping (mirror DashboardViewModel.MapGameDisplay)
+    // Game-row mapping
     // ─────────────────────────────────────────────────────────────────────────
 
     private GameDisplayItemDto MapGameDisplay(GameStats game)
@@ -564,7 +555,7 @@ public sealed class DashboardSnapshotBuilder
         return string.Join("  ·  ", parts);
     }
 
-    /// <summary>Mirror of DashboardViewModel.HasPersistedReview.</summary>
+    /// <summary>True when the game row holds any saved review content.</summary>
     private static bool HasPersistedReview(GameStats game)
     {
         return game.Rating > 0
@@ -587,8 +578,7 @@ public sealed class DashboardSnapshotBuilder
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Objective level palette (TODO: extract to Revu.Core, share with WinUI)
-    // Mirrors Revu.App.Styling.AppSemanticPalette.ObjectiveLevelHex/DimHex.
+    // Objective level palette (TODO: extract to Revu.Core)
     // ─────────────────────────────────────────────────────────────────────────
 
     private static string ObjectiveLevelHex(int levelIndex) => levelIndex switch

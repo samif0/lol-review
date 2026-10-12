@@ -610,30 +610,6 @@ public sealed class SessionLogRepository : ISessionLogRepository
         return await ReadAllEntriesAsync(cmd);
     }
 
-    // ── Cleanup ──────────────────────────────────────────────────────────
-
-    public async Task<int> CleanupMismatchedEntriesAsync()
-    {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
-
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            DELETE FROM session_log
-            WHERE game_id IN (
-                SELECT sl.game_id FROM session_log sl
-                JOIN games g ON sl.game_id = g.game_id
-                WHERE CASE
-                    WHEN COALESCE(g.date_played, '') != '' THEN sl.date != SUBSTR(g.date_played, 1, 10)
-                    WHEN COALESCE(g.timestamp, 0) > 0 THEN sl.date != DATE(g.timestamp, 'unixepoch', 'localtime')
-                    ELSE 0
-                END
-            )";
-
-        var deleted = await cmd.ExecuteNonQueryAsync();
-        return deleted;
-    }
-
     // ── Aggregation reads ────────────────────────────────────────────────
 
     public async Task<SessionDayStats> GetStatsTodayAsync(string? currentPuuid = null)

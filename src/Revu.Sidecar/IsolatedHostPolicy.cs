@@ -84,7 +84,7 @@ public static class IsolatedHostPolicy
 
     // Exact reviewed routes prevent a later endpoint with file/network effects
     // from silently inheriting permission merely by sharing a prefix.
-    private static readonly HashSet<string> DatabaseWriteRoutes = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> DatabaseWriteRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/host/shutdown",
         "/api/objective/create", "/api/objective/update", "/api/objective/delete", "/api/objective/priority", "/api/objective/complete",
@@ -95,12 +95,12 @@ public static class IsolatedHostPolicy
         "/api/prompt/answer/save", "/api/focus-adherence"
     };
 
-    private static readonly HashSet<string> ReadRoutes = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> ReadRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/health", "/api/host", "/api/dashboard", "/api/events", "/api/games", "/api/objectives",
         "/api/objective/games", "/api/objective/notes", "/api/objective", "/api/vod", "/api/derived", "/api/review",
         "/api/rules", "/api/tiltcheck", "/api/matchups", "/api/matchups/export", "/api/patterns", "/api/config",
-        "/api/settings/status", "/api/settings/export", "/api/review/export", "/api/stint", "/api/corrections",
+        "/api/settings/status", "/api/settings/export", "/api/review/export", "/api/stint",
         "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status"
     };
 }

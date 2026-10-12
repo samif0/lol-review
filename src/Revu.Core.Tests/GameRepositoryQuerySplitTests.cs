@@ -22,24 +22,6 @@ public sealed class GameRepositoryQuerySplitTests
     }
 
     [Fact]
-    public async Task AnalyticsQuery_GetChampionStatsAsync_GroupsByChampion()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
-
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(2001, champion: "Ahri", win: true, timestamp: 2001));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(2002, champion: "Ahri", win: false, timestamp: 2002));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(2003, champion: "Lux", win: true, timestamp: 2003));
-
-        var stats = await analytics.GetChampionStatsAsync();
-
-        var ahri = Assert.Single(stats, row => row.ChampionName == "Ahri");
-        Assert.Equal(2, ahri.GamesPlayed);
-        Assert.Equal(1, ahri.Wins);
-    }
-
-    [Fact]
     public async Task HistoryQuery_GetReviewedCountAsync_ReturnsZeroForUnreviewedGames()
     {
         using var scope = new TestDatabaseScope();

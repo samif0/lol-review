@@ -8,9 +8,9 @@ public sealed partial class GameRepository
 {
     // v3.3 (schema v12): a game played on a with-coach block day counts as
     // reviewed — the coach reviews those games outside Revu. The date mapping
-    // is the same canonical CASE as ResolveGameSessionDateAsync /
-    // CleanupMismatchedEntriesAsync (date_played first, timestamp fallback) so
-    // the exemption works even for import paths that never wrote a session_log
+    // is the same canonical CASE as ResolveGameSessionDateAsync (date_played
+    // first, timestamp fallback) so the exemption works even for import paths
+    // that never wrote a session_log
     // row. Two legs: (1) a with-coach block on the game's own day; (2) a
     // with-coach block on the PREVIOUS day that was still open past midnight
     // (ended_at NULL = carried over, or closed on/after the game's day) — the
@@ -88,7 +88,7 @@ public sealed partial class GameRepository
         return await reader.ReadAsync() ? MapGameStats(reader) : null;
     }
 
-    // â”€â”€ List reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── List reads ───────────────────────────────────────────────────────
 
     public async Task<List<GameStats>> GetRecentAsync(
         int limit = 50,
@@ -162,17 +162,6 @@ public sealed partial class GameRepository
         return result is null ? 0 : Convert.ToInt32(result);
     }
 
-    public async Task<List<GameStats>> GetGamesForDateAsync(string dateStr)
-    {
-        using var conn = _factory.CreateConnection();
-
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM games WHERE date_played LIKE @datePat {CasualFilter} ORDER BY timestamp ASC";
-        cmd.Parameters.AddWithValue("@datePat", $"{dateStr}%");
-
-        return await ReadAllGamesAsync(cmd);
-    }
-
     public async Task<List<GameStats>> GetTodaysGamesAsync()
     {
         using var conn = _factory.CreateConnection();
@@ -184,24 +173,6 @@ public sealed partial class GameRepository
         // 3.14.1: today's list keeps remakes (labelled); rule input reads GetTodaysRuleGamesAsync.
         cmd.CommandText = $"SELECT games.*, {RemakeSql.IsRemakeColumn("games.game_id")} FROM games WHERE timestamp >= @ts {CasualFilter} ORDER BY timestamp ASC";
         cmd.Parameters.AddWithValue("@ts", todayTimestamp);
-
-        return await ReadAllGamesAsync(cmd);
-    }
-
-    public async Task<List<GameStats>> GetLossesAsync(string? champion = null)
-    {
-        using var conn = _factory.CreateConnection();
-
-        using var cmd = conn.CreateCommand();
-        if (!string.IsNullOrEmpty(champion) && champion != "All Champions")
-        {
-            cmd.CommandText = $"SELECT * FROM games WHERE win = 0 AND champion_name = @champ {CasualFilter} ORDER BY timestamp DESC";
-            cmd.Parameters.AddWithValue("@champ", champion);
-        }
-        else
-        {
-            cmd.CommandText = $"SELECT * FROM games WHERE win = 0 {CasualFilter} ORDER BY timestamp DESC";
-        }
 
         return await ReadAllGamesAsync(cmd);
     }
@@ -252,29 +223,6 @@ public sealed partial class GameRepository
         return await ReadAllGamesAsync(cmd);
     }
 
-    public async Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false)
-    {
-        using var conn = _factory.CreateConnection();
-
-        using var cmd = conn.CreateCommand();
-        if (lossesOnly)
-        {
-            cmd.CommandText = $"SELECT DISTINCT champion_name FROM games WHERE win = 0 {CasualFilter} ORDER BY champion_name";
-        }
-        else
-        {
-            cmd.CommandText = $"SELECT DISTINCT champion_name FROM games WHERE 1=1 {CasualFilter} ORDER BY champion_name";
-        }
-
-        var list = new List<string>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            list.Add(reader.GetString(0));
-        }
-        return list;
-    }
-
-    // â”€â”€ Aggregation reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Aggregation reads ────────────────────────────────────────────────
 
 }

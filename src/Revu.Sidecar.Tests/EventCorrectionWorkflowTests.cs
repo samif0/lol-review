@@ -10,8 +10,8 @@ namespace Revu.Sidecar.Tests;
 /// <summary>
 /// The sidecar's write seam for the v3.11 corrections ledger: <see cref="EventCorrectionWorkflow"/>
 /// runs rule F (derived-event recompute + pattern re-materialize) after every fix and revert
-/// that changed something, the legacy /api/encounter/save alias still returns a row id and
-/// lands in the ledger, and a corrected fight survives the post-game map-state pass re-running
+/// that changed something, a reviewed encounter written through the ledger renders on the
+/// VOD snapshot with its encounter fields, and a corrected fight survives the post-game map-state pass re-running
 /// on top of it. Real repositories against a temp DB; only the Riot HTTP hop is stubbed.
 /// </summary>
 public sealed class EventCorrectionWorkflowTests
@@ -204,7 +204,7 @@ public sealed class EventCorrectionWorkflowTests
     }
 
     [Fact]
-    public async Task EncounterSaveAlias_StillReturnsRowId_AndRefreshes()
+    public async Task ReviewedEncounter_ThroughLedger_RendersOnVodSnapshot_AfterRefresh()
     {
         using var scope = new SidecarWriteScope();
         await scope.InitializeAsync();
@@ -213,8 +213,8 @@ public sealed class EventCorrectionWorkflowTests
         await scope.SeedGameAsync(GameId);
         await events.SaveEventsAsync(GameId, [Ev("KILL", 600, "{\"victim\":\"Zed\"}")]);
 
-        // What POST /api/encounter/save does: the legacy repository (which now delegates
-        // to the ledger), then the workflow's rule F.
+        // A reviewed encounter as the retired encounter form wrote it: the legacy
+        // repository (which delegates to the ledger), then the workflow's rule F.
         var encounters = new ReviewedEncountersRepository(scope.ConnectionFactory);
         var requestId = Guid.NewGuid().ToString("D");
         var id = await encounters.SaveAsync(GameId, null, requestId, 100, 130, "short", "Traded well");

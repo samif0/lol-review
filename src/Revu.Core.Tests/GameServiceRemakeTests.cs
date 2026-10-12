@@ -117,7 +117,7 @@ public sealed class GameServiceRemakeTests
         var objectiveId = await scope.Objectives.CreateAsync("Ward river");
         var lifecycle = new GameLifecycleWorkflowService(
             BuildService(scope), scope.MissedGameDecisions, scope.Objectives,
-            new NullCoachSidecarNotifier(), NullLogger<GameLifecycleWorkflowService>.Instance);
+            NullLogger<GameLifecycleWorkflowService>.Instance);
 
         await lifecycle.ProcessGameEndAsync(new ProcessGameEndRequest(Game(7401, duration: 386, flag: true),
             PreGamePracticedObjectiveIds: [objectiveId]));

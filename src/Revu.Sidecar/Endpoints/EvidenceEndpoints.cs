@@ -12,8 +12,8 @@ public static partial class SidecarEndpoints
 {
     private static void MapEvidence(WebApplication app, JsonSerializerOptions jsonOptions)
     {
-        // ── GET /api/derived?gameId=N (token-gated): the BUILT derived-event instances
-        // for one game, shaped for the VOD timeline. Reads the persisted instances via
+        // ── GET /api/derived?gameId=N (token-gated, no renderer command): the BUILT
+        // derived-event instances for one game. Reads the persisted instances via
         // IDerivedEventsRepository.GetInstancesAsync (computed/saved during game capture);
         // this endpoint never recomputes. sourceEventIds is intentionally dropped — the
         // timeline only needs id/definition/color/span/count/sourceTypes to draw + label
@@ -48,8 +48,8 @@ public static partial class SidecarEndpoints
         // + per-objective ATTACHED) and the VOD player. Three single-field upserts.
 
         // POST /api/evidence/polarity  { evidenceId, polarity }  (good|neutral|bad)
-        // Mirrors ReviewViewModel.SetEvidencePolarityAsync: set the polarity, and if the
-        // row was still needs_review promote it to evidence (a triaged judgement).
+        // Set the polarity, and if the row was still needs_review promote it to
+        // evidence (a triaged judgement).
         app.MapPost("/api/evidence/polarity", async (EvidencePolarityBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null || body.EvidenceId <= 0)
@@ -64,8 +64,7 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/evidence/objective  { evidenceId, objectiveId? }  (null detaches)
-        // Mirrors ReviewViewModel.SetEvidenceObjectiveAsync: attach to an objective; when
-        // an objective is set, promote needs_review->evidence AND mark that objective
+        // Attach to an objective; when an objective is set, promote needs_review->evidence AND mark that objective
         // practiced for this game (the evidence IS the proof the objective was practiced).
         app.MapPost("/api/evidence/objective", async (EvidenceObjectiveBody body, WriteServices w, ILogger<Program> log) =>
         {
@@ -103,7 +102,7 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/evidence/status  { evidenceId, status }  (needs_review|evidence|dismissed|highlight)
-        // Mirrors ReviewViewModel.SetEvidenceStatusAsync (dismiss is the common case).
+        // Dismiss is the common case.
         app.MapPost("/api/evidence/status", async (EvidenceStatusBody body, WriteServices w, ILogger<Program> log) =>
         {
             if (body is null || body.EvidenceId <= 0)
@@ -113,36 +112,6 @@ public static partial class SidecarEndpoints
             await w.Evidence.UpdateStatusAsync(body.EvidenceId, status);
             log.LogInformation("Evidence {Id} status={Status}", body.EvidenceId, status);
             return Results.Json(new { ok = true }, jsonOptions);
-        });
-
-        // ─────────────────────────────────────────────────────────────────────────────
-        // VOD BOOKMARK CRUD (Batch 2). The VOD player's Quick Bookmark tool + the
-        // bookmark-list edit/delete/tag/quality actions. These are PLAIN note-bookmark
-        // writes — clip extraction (ffmpeg) is DEFERRED to Batch 3, so AddBookmarkAsync
-        // is never passed clip ranges/paths here. Each reuses an IVodRepository method
-        // verbatim. All token-gated + backup-guarded.
-        // ─────────────────────────────────────────────────────────────────────────────
-
-        // POST /api/bookmark/add  { gameId, timeS, note?, objectiveId?, promptId? }
-        // Quick note-bookmark at the current video time (B key / Add button). Returns the
-        // new bookmark id so the frontend can optimistically render the row. Mirrors
-        // VodPlayerViewModel.AddBookmarkCommand (sans the clip fields).
-        app.MapPost("/api/encounter/save", async (SaveEncounterBody body, WriteServices w, SidecarEventHub hub) =>
-        {
-            if (body is null) return Results.BadRequest(new { error = "Encounter required." });
-            await w.BackupGuard.EnsureBackedUpAsync();
-            try
-            {
-                var id = await w.ReviewedEncounters.SaveAsync(body.GameId, body.EventId,
-                    body.RequestId, body.StartS, body.EndS, body.Classification, body.Note);
-                // v3.11: the legacy encounter form writes through the corrections ledger now
-                // (kept one release as an alias of /api/event/correct). Run rule F and tell
-                // every open page the timeline changed.
-                await w.EventCorrections.RefreshDerivedAsync(body.GameId);
-                hub.Publish("eventsCorrected", new { gameId = body.GameId, correctionId = body.RequestId, op = "encounter" });
-                return Results.Json(new { ok = true, id }, jsonOptions);
-            }
-            catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
         // ─────────────────────────────────────────────────────────────────────────────
@@ -188,14 +157,6 @@ public static partial class SidecarEndpoints
             catch (ArgumentException ex) { return Results.BadRequest(new { error = ex.Message }); }
         });
 
-        // GET /api/corrections?gameId=N — every non-revert ledger row of the game, newest first.
-        app.MapGet("/api/corrections", async (long? gameId, IEventCorrectionsRepository corrections) =>
-        {
-            if (gameId is not > 0) return Results.BadRequest(new { error = "gameId required" });
-            var rows = await corrections.GetForGameAsync(gameId.Value);
-            return Results.Json(new { ok = true, gameId = gameId.Value, corrections = rows.Select(VodCorrectionMapper.Map).ToList() }, jsonOptions);
-        });
-
         // GET /api/corrections/export[?gameId=N] — the phase-1 local JSON export (unredacted,
         // revert rows included; the panel copies it to the clipboard). gameId omitted = every game.
         app.MapGet("/api/corrections/export", async (long? gameId, IEventCorrectionsRepository corrections, UpdateService updates, ILogger<Program> log) =>
@@ -213,18 +174,6 @@ public static partial class SidecarEndpoints
             var fileName = $"revu-corrections-{(scope is { } g ? g.ToString() : "all")}-{DateTime.Now:yyyyMMdd-HHmm}.json";
             log.LogInformation("Corrections export built ({Count} rows, {Chars} chars)", count, json.Length);
             return Results.Json(new { ok = true, json, count, fileName }, jsonOptions);
-        });
-
-        app.MapPost("/api/events/reprocess/{gameId:long}", async (long gameId, WriteServices w, SidecarEventHub hub, CancellationToken ct) =>
-        {
-            if (await w.Games.GetAsync(gameId) is null) return Results.NotFound();
-            await w.Config.LoadAsync();
-            await w.BackupGuard.EnsureBackedUpAsync();
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(TimeSpan.FromSeconds(45));
-            var result = await w.MapStateBackfill.RunForGameAsync(gameId, deadline.Token);
-            if (result.Updated > 0) hub.Publish("mapStateUpdated", new { gameId, updated = result.Updated });
-            return Results.Json(new { ok = result.Scanned > 0 && result.Failed == 0, result, recoveryMode = "shadow", note = "Death-recap candidates are retained for validation; no automatic trade or fight-number claims are enabled." }, jsonOptions);
         });
     }
 }

@@ -46,7 +46,6 @@ public static class SidecarServices
         services.AddSingleton<IGameAnalyticsQuery>(sp => sp.GetRequiredService<GameRepository>());
 
         services.AddSingleton<IConceptTagRepository, ConceptTagRepository>();
-        services.AddSingleton<IAnalysisService, AnalysisService>();
 
         // Page snapshots share the read graph.
         services.AddSingleton<DashboardSnapshotBuilder>();

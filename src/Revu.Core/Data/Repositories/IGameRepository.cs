@@ -4,39 +4,7 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Data.Repositories;
 
-// â”€â”€ Result record types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-/// <summary>Aggregate stats for a single champion.</summary>
-public sealed record ChampionStats(
-    string ChampionName,
-    int GamesPlayed,
-    int Wins,
-    double Winrate,
-    double AvgKills,
-    double AvgDeaths,
-    double AvgAssists,
-    double AvgKda,
-    double AvgCsMin,
-    double AvgVision,
-    double AvgDamage
-);
-
-/// <summary>Overall aggregate stats across all ranked/normal games.</summary>
-public sealed record OverallStats(
-    int TotalGames,
-    int TotalWins,
-    double Winrate,
-    double AvgKills,
-    double AvgDeaths,
-    double AvgAssists,
-    double AvgKda,
-    double AvgCsMin,
-    double AvgVision,
-    int TotalPentas,
-    int TotalQuadras,
-    int MaxKills,
-    double BestKda
-);
+// ── Result record types ──────────────────────────────────────────────
 
 /// <summary>Focus/mistakes/went-well from the most recently reviewed game.
 /// v2.18 (schema v6 build): champion/result/timestamp let the pre-game intent
@@ -50,15 +18,6 @@ public sealed record ReviewFocus(
     long Timestamp = 0
 );
 
-/// <summary>Win/loss breakdown by attribution value.</summary>
-public sealed record AttributionStat(
-    string Attribution,
-    int Games,
-    int Wins,
-    int Losses,
-    double Winrate
-);
-
 /// <summary>A game's spotted-problems entry for the problems list.</summary>
 public sealed record SpottedProblem(
     long GameId,
@@ -69,72 +28,8 @@ public sealed record SpottedProblem(
     string EnemyChampion = ""
 );
 
-/// <summary>Minimal game data for trend charts.</summary>
-public sealed record ChartDataPoint(
-    long GameId,
-    bool Win,
-    int Deaths,
-    long Timestamp,
-    string ChampionName,
-    double KdaRatio
-);
+// ── Interface ────────────────────────────────────────────────────────
 
-/// <summary>Matchup winrate: champion vs enemy laner.</summary>
-public sealed record MatchupStat(
-    string ChampionName,
-    string EnemyLaner,
-    int Games,
-    int Wins,
-    double Winrate,
-    double AvgKda,
-    double AvgDeaths
-);
-
-/// <summary>Per-game performance metrics for trend charting.</summary>
-public sealed record PerformanceTrend(
-    double CsPerMin,
-    int VisionScore,
-    double KdaRatio,
-    int Deaths,
-    double KillParticipation,
-    string ChampionName,
-    long Timestamp,
-    bool Win
-);
-
-/// <summary>Performance stats grouped by role/position.</summary>
-public sealed record RoleStat(
-    string Position,
-    int Games,
-    int Wins,
-    double Winrate,
-    double AvgKda
-);
-
-/// <summary>Win rates bucketed by game duration.</summary>
-public sealed record DurationStat(
-    string Bucket,
-    int Games,
-    int Wins,
-    double Winrate
-);
-
-/// <summary>Aggregate stats over the last N games for suggestion thresholds.</summary>
-public sealed record RecentStats(
-    int Games,
-    double Winrate,
-    double AvgCsMin,
-    double AvgVision,
-    double AvgDeaths,
-    double AvgKda,
-    double AvgKills
-);
-
-// â”€â”€ Interface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-/// <summary>
-/// Repository for game stats CRUD â€” ported from Python GameRepository.
-/// </summary>
 /// <summary>Writes game rows and review metadata.</summary>
 public interface IGameWriter
 {
@@ -256,14 +151,8 @@ public interface IGameHistoryQuery
     /// </summary>
     Task<int> GetReviewedCountAsync();
 
-    /// <summary>Get ranked/normal games played on a specific date (YYYY-MM-DD).</summary>
-    Task<List<GameStats>> GetGamesForDateAsync(string dateStr);
-
     /// <summary>Get ranked/normal games played today.</summary>
     Task<List<GameStats>> GetTodaysGamesAsync();
-
-    /// <summary>Get all losses, optionally filtered by champion (excludes casual modes).</summary>
-    Task<List<GameStats>> GetLossesAsync(string? champion = null);
 
     /// <summary>
     /// Get recent ranked/normal games that haven't been reviewed yet.
@@ -271,9 +160,6 @@ public interface IGameHistoryQuery
     /// content saved in the game row, related session_log row, or concept tags.
     /// </summary>
     Task<List<GameStats>> GetUnreviewedGamesAsync(int days = 3);
-
-    /// <summary>Get list of unique champion names from ranked/normal games.</summary>
-    Task<List<string>> GetUniqueChampionsAsync(bool lossesOnly = false);
 
     /// <summary>Get the focus_next and mistakes from the most recent reviewed game.</summary>
     Task<ReviewFocus?> GetLastReviewFocusAsync(string? currentPuuid = null);
@@ -291,43 +177,11 @@ public interface IGameHistoryQuery
     Task<List<RuleCheckGame>> GetTodaysRuleGamesAsync();
 }
 
-/// <summary>Read model for aggregate analytics and trend views.</summary>
+/// <summary>Read model for the spotted problems that seed objective suggestions.</summary>
 public interface IGameAnalyticsQuery
 {
-    /// <summary>Aggregate stats grouped by champion (excludes casual modes).</summary>
-    Task<List<ChampionStats>> GetChampionStatsAsync(string? currentPuuid = null);
-
-    /// <summary>Get aggregate stats across all ranked/normal games.</summary>
-    Task<OverallStats> GetOverallStatsAsync(string? currentPuuid = null);
-
-    /// <summary>
-    /// Get current win/loss streak. Positive = wins, negative = losses.
-    /// </summary>
-    Task<int> GetWinStreakAsync(string? currentPuuid = null);
-
-    /// <summary>Get win/loss breakdown by attribution value.</summary>
-    Task<List<AttributionStat>> GetAttributionStatsAsync(string? currentPuuid = null);
-
-    /// <summary>Get recent games that have spotted_problems notes.</summary>
+    /// <summary>Get recent games that have spotted_problems notes (excludes casual modes and remakes).</summary>
     Task<List<SpottedProblem>> GetRecentSpottedProblemsAsync(int limit = 20, string? currentPuuid = null);
-
-    /// <summary>Get recent game data for trend charts (returned in chronological order).</summary>
-    Task<List<ChartDataPoint>> GetRecentForChartsAsync(int limit = 100, string? currentPuuid = null);
-
-    /// <summary>Get win rates grouped by champion vs enemy laner matchup.</summary>
-    Task<List<MatchupStat>> GetMatchupStatsAsync(string? currentPuuid = null);
-
-    /// <summary>Get per-game performance metrics for trend charting (chronological).</summary>
-    Task<List<PerformanceTrend>> GetPerformanceTrendsAsync(int limit = 50, string? currentPuuid = null);
-
-    /// <summary>Get performance stats grouped by role/position.</summary>
-    Task<List<RoleStat>> GetRoleStatsAsync(string? currentPuuid = null);
-
-    /// <summary>Get win rates bucketed by game duration.</summary>
-    Task<List<DurationStat>> GetDurationStatsAsync(string? currentPuuid = null);
-
-    /// <summary>Get aggregate stats over the last N games for suggestion thresholds.</summary>
-    Task<RecentStats> GetRecentStatsAsync(int limit = 20, string? currentPuuid = null);
 }
 
 /// <summary>Destructive and visibility-changing game operations.</summary>

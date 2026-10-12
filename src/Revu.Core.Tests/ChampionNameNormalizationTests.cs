@@ -8,8 +8,8 @@ namespace Revu.Core.Tests;
 /// games.champion_name under two spellings ("Kai'Sa" vs "Kaisa", differing only
 /// by an apostrophe the LCU/EOG payloads aren't consistent about). Any
 /// per-champion analytic then double-counts the most-played champion as two.
-/// These tests pin the normalize-on-read aggregation that collapses the variants
-/// into a single champion carrying the canonical Data Dragon display name.
+/// These tests pin the normalization key and canonical Data Dragon display name
+/// that every per-champion read uses to collapse the variants.
 /// </summary>
 public sealed class ChampionNameNormalizationTests
 {
@@ -62,64 +62,5 @@ public sealed class ChampionNameNormalizationTests
     public void CanonicalChampionName_RepairsKnownVariants(string input, string expected)
     {
         Assert.Equal(expected, GameConstants.CanonicalChampionName(input));
-    }
-
-    /// <summary>
-    /// The headline assertion the brief asks for: a per-champion view must show a
-    /// SINGLE Kai'Sa row whose count is the sum of both stored spellings.
-    /// </summary>
-    [Fact]
-    public async Task GetChampionStatsAsync_CollapsesKaiSaSpellingVariantsIntoOneChampion()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
-
-        // 3 games stored as "Kai'Sa", 2 as "Kaisa" — same champion, two spellings.
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(3001, champion: "Kai'Sa", win: true, timestamp: 3001));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(3002, champion: "Kai'Sa", win: true, timestamp: 3002));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(3003, champion: "Kai'Sa", win: false, timestamp: 3003));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(3004, champion: "Kaisa", win: true, timestamp: 3004));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(3005, champion: "Kaisa", win: false, timestamp: 3005));
-        // A distinct champion stays its own row.
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(3006, champion: "Sivir", win: true, timestamp: 3006));
-
-        var stats = await analytics.GetChampionStatsAsync();
-
-        // Exactly one Kai'Sa row, under the canonical display spelling, no "Kaisa".
-        var kaisa = Assert.Single(stats, row => GameConstants.NormalizeChampionKey(row.ChampionName) == "kaisa");
-        Assert.Equal("Kai'Sa", kaisa.ChampionName);
-        Assert.Equal(5, kaisa.GamesPlayed);
-        Assert.Equal(3, kaisa.Wins);
-        Assert.Equal(60.0, kaisa.Winrate); // 3 wins / 5 games
-
-        // The split is gone: no bare "Kaisa" row survives the merge.
-        Assert.DoesNotContain(stats, row => row.ChampionName == "Kaisa");
-
-        // The unrelated champion is untouched.
-        var sivir = Assert.Single(stats, row => row.ChampionName == "Sivir");
-        Assert.Equal(1, sivir.GamesPlayed);
-    }
-
-    /// <summary>
-    /// The pre-existing case-only grouping must keep working — "Ahri" and "ahri"
-    /// were already collapsing via OrdinalIgnoreCase; the normalized key preserves
-    /// that while also folding punctuation.
-    /// </summary>
-    [Fact]
-    public async Task GetChampionStatsAsync_StillCollapsesCaseOnlyVariants()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
-
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(4001, champion: "Ahri", win: true, timestamp: 4001));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(4002, champion: "ahri", win: false, timestamp: 4002));
-
-        var stats = await analytics.GetChampionStatsAsync();
-
-        var ahri = Assert.Single(stats, row => GameConstants.NormalizeChampionKey(row.ChampionName) == "ahri");
-        Assert.Equal(2, ahri.GamesPlayed);
-        Assert.Equal(1, ahri.Wins);
     }
 }

@@ -71,10 +71,9 @@ public sealed class SqliteConnectionFactory : IDbConnectionFactory
         var connection = new SqliteConnection(connectionString);
         connection.Open();
 
-        // WAL mode is persistent at the DB file level and is set once during
-        // DatabaseInitializer.InitializeAsync. Repeating PRAGMA journal_mode=WAL
-        // on every connection open is redundant after the first launch.
-        // B4: removed per-open WAL pragma; see DatabaseInitializer.InitializeAsync.
+        // WAL mode is persistent at the DB file level and is set once when the
+        // sidecar creates the database (WriteSqliteConnectionFactory). Repeating
+        // PRAGMA journal_mode=WAL on every connection open is redundant.
 
         // busy_timeout is a per-connection setting (not stored in the file),
         // so it must be set on every new connection.

@@ -66,6 +66,21 @@ public sealed class AccountScopingTests
         Assert.Equal("", legacy!.Puuid);
     }
 
+    // The scoped games-table aggregate the app reads is the spotted-problems list
+    // that seeds objective suggestions, so the contract is pinned through it.
+    private static async Task SaveWithProblemAsync(TestDatabaseScope scope, long id, string puuid, bool win = true)
+    {
+        await scope.Games.SaveAsync(Game(id, puuid, win));
+        await scope.Games.UpdateReviewAsync(id, new GameReview { SpottedProblems = $"Problem {id}" });
+    }
+
+    private static async Task<long[]> ProblemGameIdsAsync(TestDatabaseScope scope, string? currentPuuid)
+    {
+        IGameAnalyticsQuery analytics = scope.Games;
+        var problems = await analytics.GetRecentSpottedProblemsAsync(limit: 50, currentPuuid: currentPuuid);
+        return problems.Select(p => p.GameId).Order().ToArray();
+    }
+
     // ── (a) CRITICAL: legacy rows (puuid='') are ALWAYS kept ─────────────────
 
     [Fact]
@@ -73,22 +88,14 @@ public sealed class AccountScopingTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
 
         // Two legacy rows (puuid='', like today's chapy+bye history).
-        await scope.Games.SaveAsync(Game(1001, "", win: true));
-        await scope.Games.SaveAsync(Game(1002, "", win: false));
+        await SaveWithProblemAsync(scope, 1001, "", win: true);
+        await SaveWithProblemAsync(scope, 1002, "", win: false);
 
         // Scoping to a logged-in account that owns NONE of these rows must STILL
         // return both legacy rows. This is the no-hide-history guarantee.
-        var scoped = await analytics.GetOverallStatsAsync(SelfPuuid);
-        Assert.Equal(2, scoped.TotalGames);
-        Assert.Equal(1, scoped.TotalWins);
-
-        // Champion stats path keeps them too.
-        var champ = await analytics.GetChampionStatsAsync(SelfPuuid);
-        var ahri = Assert.Single(champ, c => c.ChampionName == "Ahri");
-        Assert.Equal(2, ahri.GamesPlayed);
+        Assert.Equal(new long[] { 1001, 1002 }, await ProblemGameIdsAsync(scope, SelfPuuid));
     }
 
     // ── (b) foreign non-empty accounts are EXCLUDED when scoped ──────────────
@@ -98,18 +105,14 @@ public sealed class AccountScopingTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
 
-        await scope.Games.SaveAsync(Game(2001, SelfPuuid, win: true));     // mine
-        await scope.Games.SaveAsync(Game(2002, "", win: true));            // legacy
-        await scope.Games.SaveAsync(Game(2003, ForeignPuuid, win: false)); // not mine
-        await scope.Games.SaveAsync(Game(2004, ForeignPuuid, win: false)); // not mine
-
-        var scoped = await analytics.GetOverallStatsAsync(SelfPuuid);
+        await SaveWithProblemAsync(scope, 2001, SelfPuuid, win: true);     // mine
+        await SaveWithProblemAsync(scope, 2002, "", win: true);            // legacy
+        await SaveWithProblemAsync(scope, 2003, ForeignPuuid, win: false); // not mine
+        await SaveWithProblemAsync(scope, 2004, ForeignPuuid, win: false); // not mine
 
         // Self (1) + legacy (1) = 2; the two foreign rows are dropped.
-        Assert.Equal(2, scoped.TotalGames);
-        Assert.Equal(2, scoped.TotalWins);
+        Assert.Equal(new long[] { 2001, 2002 }, await ProblemGameIdsAsync(scope, SelfPuuid));
     }
 
     // ── (c) rows whose puuid EQUALS currentPuuid are included ────────────────
@@ -119,16 +122,12 @@ public sealed class AccountScopingTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
 
-        await scope.Games.SaveAsync(Game(3001, SelfPuuid, win: true));
-        await scope.Games.SaveAsync(Game(3002, SelfPuuid, win: false));
-        await scope.Games.SaveAsync(Game(3003, ForeignPuuid, win: true));
+        await SaveWithProblemAsync(scope, 3001, SelfPuuid, win: true);
+        await SaveWithProblemAsync(scope, 3002, SelfPuuid, win: false);
+        await SaveWithProblemAsync(scope, 3003, ForeignPuuid, win: true);
 
-        var scoped = await analytics.GetOverallStatsAsync(SelfPuuid);
-
-        Assert.Equal(2, scoped.TotalGames);
-        Assert.Equal(1, scoped.TotalWins);
+        Assert.Equal(new long[] { 3001, 3002 }, await ProblemGameIdsAsync(scope, SelfPuuid));
     }
 
     // ── (d) null/empty currentPuuid = NO-OP (all rows) ───────────────────────
@@ -138,21 +137,16 @@ public sealed class AccountScopingTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
-        IGameAnalyticsQuery analytics = scope.Games;
 
-        await scope.Games.SaveAsync(Game(4001, SelfPuuid, win: true));
-        await scope.Games.SaveAsync(Game(4002, "", win: true));
-        await scope.Games.SaveAsync(Game(4003, ForeignPuuid, win: false));
+        await SaveWithProblemAsync(scope, 4001, SelfPuuid, win: true);
+        await SaveWithProblemAsync(scope, 4002, "", win: true);
+        await SaveWithProblemAsync(scope, 4003, ForeignPuuid, win: false);
 
         // null default
-        var unscoped = await analytics.GetOverallStatsAsync();
-        Assert.Equal(3, unscoped.TotalGames);
-        Assert.Equal(2, unscoped.TotalWins);
+        Assert.Equal(new long[] { 4001, 4002, 4003 }, await ProblemGameIdsAsync(scope, null));
 
         // explicit empty string is the same no-op
-        var emptyScope = await analytics.GetOverallStatsAsync("");
-        Assert.Equal(3, emptyScope.TotalGames);
-        Assert.Equal(2, emptyScope.TotalWins);
+        Assert.Equal(new long[] { 4001, 4002, 4003 }, await ProblemGameIdsAsync(scope, ""));
     }
 
     // ── SessionLog aggregate honors the same lenient contract ────────────────

@@ -22,15 +22,15 @@ public sealed partial class GameRepository
     /// <inheritdoc />
     public async Task<string> DeleteAsync(long gameId)
     {
-        // Always snapshot the DB first â€” deletion cascades across 13 child
-        // tables and there is no per-row undo path. The safety backup gives
+        // Always snapshot the DB first — deletion cascades across every child
+        // table that holds the game and there is no per-row undo path. The safety backup gives
         // the user an out of last resort.
         await _backupService.CreateSafetyBackupAsync($"delete-game-{gameId}")
             .ConfigureAwait(false);
 
         // Child tables that reference games.game_id. Listed explicitly so that
         // adding a new child-with-game_id in the schema forces this list to
-        // be updated â€” silent orphan rows are the failure mode we're avoiding.
+        // be updated — silent orphan rows are the failure mode we're avoiding.
         //
         // Deliberately absent: missed_game_decisions. We want the row in that
         // table to survive (as 'dismissed') so the reconciler doesn't re-offer
@@ -65,7 +65,7 @@ public sealed partial class GameRepository
         using var conn = _factory.CreateConnection();
         using var tx = conn.BeginTransaction();
 
-        // Collect clip file paths BEFORE the row is gone â€” we need them to
+        // Collect clip file paths BEFORE the row is gone — we need them to
         // clean up on-disk clip extractions after the transaction commits.
         // Source recording files are preserved; we only touch generated clips.
         var clipPaths = new List<string>();
@@ -150,7 +150,7 @@ public sealed partial class GameRepository
         }
 
         // Delete clip files after the transaction commits. File-system
-        // failures here are non-fatal â€” the DB is already consistent; a
+        // failures here are non-fatal — the DB is already consistent; a
         // leftover clip just lingers on disk until the user clears it or the
         // folder-size limiter prunes it.
         foreach (var clipPath in clipPaths)
@@ -171,7 +171,7 @@ public sealed partial class GameRepository
             }
             catch
             {
-                // Swallow â€” best-effort cleanup.
+                // Swallow — best-effort cleanup.
             }
         }
 
@@ -369,6 +369,6 @@ public sealed partial class GameRepository
         return result is not null && result != DBNull.Value;
     }
 
-    // â”€â”€ Single reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Single reads ─────────────────────────────────────────────────────
 
 }

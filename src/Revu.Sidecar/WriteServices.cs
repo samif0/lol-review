@@ -34,7 +34,6 @@ public sealed class WriteServices : IDisposable
     private readonly SidecarBackgroundWork? _backgroundWork;
     private readonly ILogger<WriteServices> _logger;
 
-    public ReviewedEncountersRepository ReviewedEncounters => _provider.GetRequiredService<ReviewedEncountersRepository>();
     // v3.11: the event corrections ledger (POST /api/event/correct, /api/correction/revert)
     // wrapped in the rule-F workflow (derived recompute + pattern re-materialize after a
     // fix), and the rule-G startup sweep (event_key stamping + orphan resolution).
@@ -101,9 +100,8 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();
 
-        // Review-save's coach notifier is a no-op; clip extraction is on demand.
+        // Clip extraction is on demand.
         services.AddSingleton<IClipService, ClipService>();
-        services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         // On-demand objective auto-clipper (POST /api/clip/auto-objectives). Reuses
         // the ClipService + the objective/event/evidence repos registered here.
         services.AddSingleton<IAutoClipService, AutoClipService>();
@@ -128,9 +126,7 @@ public sealed class WriteServices : IDisposable
         //     the kill-feed + derived-event rows for the captured game.
         //   • IMissedGameDecisionRepository — reconcile dismissals.
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
-        services.AddSingleton<ReviewedEncountersRepository>();
         // v3.11: the corrections ledger (schema v16) + its sidecar workflow and sweep.
-        // ReviewedEncountersRepository.SaveAsync delegates to the same ledger.
         services.AddSingleton<IEventCorrectionsRepository, EventCorrectionsRepository>();
         services.AddSingleton<EventCorrectionWorkflow>();
         services.AddSingleton<EventCorrectionSweep>();

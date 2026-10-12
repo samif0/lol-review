@@ -65,15 +65,7 @@ public sealed class MapStateBackfillService
         }
     }
 
-    /// <summary>Retry one saved match, including matches already processed at this version.</summary>
-    public async Task<MapStateBackfillResult> RunForGameAsync(long gameId, CancellationToken ct = default)
-    {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
-        try { return await RunLockedAsync(1, ct, gameId).ConfigureAwait(false); }
-        finally { _gate.Release(); }
-    }
-
-    private async Task<MapStateBackfillResult> RunLockedAsync(int maxGames, CancellationToken ct, long? requestedGame = null)
+    private async Task<MapStateBackfillResult> RunLockedAsync(int maxGames, CancellationToken ct)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -83,8 +75,7 @@ public sealed class MapStateBackfillService
             return new MapStateBackfillResult(0, 0, 0, 0);
         }
 
-        IReadOnlyList<long> allIds = requestedGame is { } requested
-            ? [requested] : await _games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version).ConfigureAwait(false);
+        var allIds = await _games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version).ConfigureAwait(false);
         var ids = allIds.Take(maxGames).ToList();
         if (ids.Count == 0)
         {

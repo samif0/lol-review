@@ -318,8 +318,8 @@ public sealed class RulesRepository : IRulesRepository
                                 {
                                     violated = true;
                                     reason = remainingMin >= 60
-                                        ? $"{consecutive} consecutive losses — cooldown ends in {remainingMin / 60}h {remainingMin % 60}m"
-                                        : $"{consecutive} consecutive losses — cooldown ends in {remainingMin}m";
+                                        ? $"{consecutive} consecutive losses. Cooldown ends in {remainingMin / 60}h {remainingMin % 60}m"
+                                        : $"{consecutive} consecutive losses. Cooldown ends in {remainingMin}m";
                                 }
                             }
                             else

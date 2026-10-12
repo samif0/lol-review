@@ -9,8 +9,8 @@ namespace Revu.Core.Constants;
 /// Cross-pattern review uses saved clips and bookmarks explicitly attached to
 /// active objectives. All saved history is available for revision; only recent
 /// bad examples across distinct games are called a recurring mistake. Legacy
-/// event/criterion constants remain for timeline materialization and old review
-/// keys, but automatic anchors are not cross-pattern review candidates.
+/// event/criterion kinds and source keys remain for timeline materialization and
+/// old review keys, but automatic anchors are not cross-pattern review candidates.
 /// </summary>
 public static class PatternConstants
 {
@@ -26,15 +26,6 @@ public static class PatternConstants
     /// </summary>
     public const int ReArmNewMoments = 2;
 
-    /// <summary>Max cards in bounded dashboard summaries.</summary>
-    public const int PatternCardLimit = 6;
-
-    /// <summary>
-    /// Legacy display cap retained for callers that need a bounded preview.
-    /// Full saved-review playlists can be paginated without discarding history.
-    /// </summary>
-    public const int PatternMomentDisplayLimit = 24;
-
     /// <summary>
     /// Candidate fetch size for bounded dashboard summaries. The full Patterns
     /// surface requests every objective collection and handles pagination.
@@ -46,21 +37,6 @@ public static class PatternConstants
     public const int BadObjectiveMinBad = 2;
     public const int BadObjectiveMinGames = 2;
     public const int BadObjectiveHighBad = 5;
-    public const int BadObjectiveCardLimit = 3;
-
-    /// <summary>Legacy objective-criteria thresholds, retained for compatibility.
-    /// Failed-criterion anchors no longer produce cross-pattern cards.</summary>
-    public const int ObjCritMinFails = 3;
-    public const double ObjCritMinFailShare = 0.5;
-    public const double ObjCritHighFailShare = 0.75;
-    public const int ObjCritCardLimit = 3;
-
-    /// <summary>Legacy event-recurrence thresholds, retained for compatibility.
-    /// Raw event counts no longer produce cross-pattern cards.</summary>
-    public const int ObjEventMinCount = 5;
-    public const int ObjEventMinGames = 3;
-    public const int ObjEventHighCount = 10;
-    public const int ObjEventCardLimit = 3;
 
     // ── Detected pattern kinds (card.Kind / pattern_reviews.kind values) ────
 
@@ -184,23 +160,4 @@ public static class PatternConstants
 
     /// <summary>Exact retired source keys (no prefix family).</summary>
     public static readonly string[] RetiredSourceKeys = ["rulebreak"];
-}
-
-/// <summary>
-/// Structured kinds stamped onto <c>InferredTimelineRegion</c>s. The v3.6
-/// objective-only detectors no longer consume them, but the stamps stay: they
-/// are the obvious structured feeder for the planned exploratory ("novel
-/// pattern") detection away from learning objectives, and selecting regions by
-/// Kind — never by parsing display names — is the discipline that keeps a
-/// future reader from drifting away from this writer.
-/// </summary>
-public static class PatternRegionKinds
-{
-    /// <summary>An objective fight whose combat outcome was "Lost"
-    /// (name "Lost Dragon/Baron/Herald fight").</summary>
-    public const string LostObjectiveFight = "lost_objective_fight";
-
-    /// <summary>A player death 15-75s before a major objective
-    /// (name "Death before Dragon/Baron/Herald").</summary>
-    public const string DeathBeforeObjective = "death_before_objective";
 }
