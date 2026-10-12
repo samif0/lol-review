@@ -44,58 +44,7 @@ public static partial class SidecarEndpoints
                 return Results.BadRequest(new { error = "gameId required" });
             await w.BackupGuard.EnsureBackedUpAsync();
 
-            // Resolve free-text tags (typed in the review tag input) to catalog ids —
-            // find-or-create each by name — then merge with the toggled catalog ids so a
-            // tag the user typed actually persists. Done only on explicit save (NOT draft
-            // autosave) so frequent drafts don't spawn catalog tags per keystroke.
-            var tagIds = new List<long>(body.SelectedTagIds ?? new List<long>());
-            if (body.FreeTextTags is { Count: > 0 })
-            {
-                var existing = await w.ConceptTags.GetAllAsync();
-                foreach (var raw in body.FreeTextTags)
-                {
-                    var name = (raw ?? "").Trim();
-                    if (name.Length == 0) continue;
-                    var match = existing.FirstOrDefault(t =>
-                        string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
-                    var tagId = match is not null ? match.Id : await w.ConceptTags.CreateAsync(name);
-                    if (tagId > 0 && !tagIds.Contains(tagId)) tagIds.Add(tagId);
-                }
-            }
-
-            // NULL passthrough (NOT ?? "") for the fields the desktop form doesn't render, so
-            // an omitted field leaves the persisted value unchanged instead of zeroing it
-            // (SaveAsync skips the write when the value is null). The fields the form DOES
-            // submit keep ?? "" — an empty string from a cleared textarea is a real value.
-            var snapshot = new Revu.Core.Services.ReviewSnapshot(
-                MentalRating: body.MentalRating,
-                WentWell: body.WentWell ?? "",
-                Mistakes: body.Mistakes ?? "",
-                FocusNext: body.FocusNext ?? "",
-                ReviewNotes: body.ReviewNotes ?? "",
-                ImprovementNote: body.ImprovementNote,
-                Attribution: body.Attribution ?? "",
-                MentalHandled: body.MentalHandled,
-                SpottedProblems: body.SpottedProblems ?? "",
-                OutsideControl: body.OutsideControl,
-                WithinControl: body.WithinControl,
-                PersonalContribution: body.PersonalContribution,
-                EnemyLaner: body.EnemyLaner,
-                MatchupNote: body.MatchupNote,
-                SelectedTagIds: tagIds,
-                ObjectivePractices: (body.ObjectivePractices ?? new List<ObjectivePracticeBody>())
-                    .Select(p => new Revu.Core.Services.SaveObjectivePracticeRequest(p.ObjectiveId, p.Practiced, p.ExecutionNote ?? ""))
-                    .ToList(),
-                FocusAdherence: body.FocusAdherence);
-
-            var request = new Revu.Core.Services.SaveReviewRequest(
-                GameId: body.GameId,
-                ChampionName: body.ChampionName ?? "",
-                Win: body.Win,
-                RequireReviewNotes: false,
-                Snapshot: snapshot);
-
-            var result = await w.ReviewWorkflow.SaveAsync(request, ct);
+            var result = await SaveReviewAsync(body, w.ConceptTags, w.ReviewWorkflow, w.Config, ct);
             if (!result.Success)
                 return Results.Json(new { ok = false, error = result.ErrorMessage }, jsonOptions, statusCode: 422);
             // v3.6: refresh the game's failed-criterion anchors — a review save can
@@ -249,5 +198,69 @@ public static partial class SidecarEndpoints
             log.LogInformation("Focus adherence for game {GameId} = {Value}", body.GameId, body.Value);
             return Results.Json(new { ok = true }, jsonOptions);
         });
+    }
+
+    /// <summary>
+    /// POST /api/review/save minus the HTTP plumbing: body to <see cref="Revu.Core.Services.SaveReviewRequest"/>
+    /// (with the player's "Require notes to finish a review" setting), then the save.
+    /// A failure maps to 422 at the route.
+    /// </summary>
+    internal static async Task<Revu.Core.Services.ReviewSaveResult> SaveReviewAsync(SaveReviewBody body,
+        IConceptTagRepository conceptTags, IReviewWorkflowService workflow, IConfigService config, CancellationToken ct)
+    {
+        // Resolve free-text tags (typed in the review tag input) to catalog ids —
+        // find-or-create each by name — then merge with the toggled catalog ids so a
+        // tag the user typed actually persists. Done only on explicit save (NOT draft
+        // autosave) so frequent drafts don't spawn catalog tags per keystroke.
+        var tagIds = new List<long>(body.SelectedTagIds ?? new List<long>());
+        if (body.FreeTextTags is { Count: > 0 })
+        {
+            var existing = await conceptTags.GetAllAsync();
+            foreach (var raw in body.FreeTextTags)
+            {
+                var name = (raw ?? "").Trim();
+                if (name.Length == 0) continue;
+                var match = existing.FirstOrDefault(t =>
+                    string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+                var tagId = match is not null ? match.Id : await conceptTags.CreateAsync(name);
+                if (tagId > 0 && !tagIds.Contains(tagId)) tagIds.Add(tagId);
+            }
+        }
+
+        // NULL passthrough (NOT ?? "") for the fields the desktop form doesn't render, so
+        // an omitted field leaves the persisted value unchanged instead of zeroing it
+        // (SaveAsync skips the write when the value is null). The fields the form DOES
+        // submit keep ?? "" — an empty string from a cleared textarea is a real value.
+        var snapshot = new Revu.Core.Services.ReviewSnapshot(
+            MentalRating: body.MentalRating,
+            WentWell: body.WentWell ?? "",
+            Mistakes: body.Mistakes ?? "",
+            FocusNext: body.FocusNext ?? "",
+            ReviewNotes: body.ReviewNotes ?? "",
+            ImprovementNote: body.ImprovementNote,
+            Attribution: body.Attribution ?? "",
+            MentalHandled: body.MentalHandled,
+            SpottedProblems: body.SpottedProblems ?? "",
+            OutsideControl: body.OutsideControl,
+            WithinControl: body.WithinControl,
+            PersonalContribution: body.PersonalContribution,
+            EnemyLaner: body.EnemyLaner,
+            MatchupNote: body.MatchupNote,
+            SelectedTagIds: tagIds,
+            ObjectivePractices: (body.ObjectivePractices ?? new List<ObjectivePracticeBody>())
+                .Select(p => new Revu.Core.Services.SaveObjectivePracticeRequest(p.ObjectiveId, p.Practiced, p.ExecutionNote ?? ""))
+                .ToList(),
+            FocusAdherence: body.FocusAdherence);
+
+        // Champion and result in the body are ignored by the save (it reads the stored
+        // game). The notes requirement is the player's setting, read fresh per save.
+        var request = new Revu.Core.Services.SaveReviewRequest(
+            GameId: body.GameId,
+            ChampionName: body.ChampionName ?? "",
+            Win: body.Win,
+            RequireReviewNotes: (await config.LoadAsync()).RequireReviewNotes,
+            Snapshot: snapshot);
+
+        return await workflow.SaveAsync(request, ct);
     }
 }
