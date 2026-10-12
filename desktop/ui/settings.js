@@ -4,10 +4,13 @@ import { getInvoke } from './platform/index.mjs';
 import { initializeRecordingSettings } from './recording-settings.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
 import { registerLeaveGuard } from './leave-guard.mjs';
+import { initializeAudioSettings } from './audio-settings.mjs';
 
 // Each editable card saves only its own fields through the existing platform
 // boundary. Refreshes preserve drafts in other categories. Recording and startup
-// remain independently owned by their native settings handlers.
+// remain independently owned by their native settings handlers. Audio devices are
+// renderer-local preferences that save on change (audio-settings.mjs), so they never
+// mark a card dirty or reach the leave guard.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
 
@@ -781,6 +784,7 @@ function boot() {
     }).observe($(id), { childList: true, characterData: true, subtree: true });
   }
   loadConfig(); loadAppVersion(); loadAscentAccess();
+  try { initializeAudioSettings(); } catch (err) { console.warn('[settings] audio devices unavailable:', err); }
   initializeRecordingSettings().then(() => {
     for (const group of document.querySelectorAll('[data-native-group]')) {
       _nativeBaseline.set(group.id, nativeValues(group));
