@@ -77,6 +77,24 @@ public sealed class SidecarEndpointContractTests
                 $"{command.Name} -> {command.Method} {command.Route} has no sidecar route"));
     }
 
+    /// <summary>
+    /// Every route the isolated-host allowlist names is mapped with its method, so a
+    /// retired or renamed route cannot linger in the policy. The one exception is the
+    /// practice status route, which exists only when diagnostics are opted in.
+    /// </summary>
+    [Fact]
+    public async Task EveryIsolatedHostPolicyRouteIsMapped()
+    {
+        using var scratch = new ScratchHost();
+        await using var app = BuildApp(scratch);
+        var mapped = MethodAndPaths(RouteEndpoints(app)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unmapped = IsolatedHostPolicy.ReadRoutes.Select(route => "GET " + route)
+            .Concat(IsolatedHostPolicy.DatabaseWriteRoutes.Select(route => "POST " + route))
+            .Where(route => !mapped.Contains(route))
+            .ToArray();
+        Assert.Equal(new[] { "GET /api/diagnostics/practice/status" }, unmapped);
+    }
+
     private static readonly Regex CommandRoute = new(
         "^\\s*(?<name>[a-z_]+):\\s*(?:(?<helper>get|post)\\(\"(?<route>/api/[^\"]+)\"|\\{\"method\":\"(?<helper>SSE)\",\"route\":\"(?<route>/api/[^\"]+)\")",
         RegexOptions.Multiline);
