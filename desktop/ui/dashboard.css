@@ -41,6 +41,8 @@ body .home-page #nextstep h2 { font-size:18px; font-weight:500; line-height:1.4;
 .home-page #nextstep p { grid-column:1; font-size:14px; line-height:1.6; color:var(--muted); margin:0; }
 .home-page #nextstep-cta { grid-column:2; grid-row:1 / 3; margin:0; white-space:nowrap; min-height:42px; }
 .home-page #nextstep-stint { grid-column:1 / -1; }
+body .home-page .nextstep-stint-end { margin-left:10px; padding:0; min-height:0; border:0!important; background:none!important; color:var(--muted)!important; font:inherit; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+body .home-page .nextstep-stint-end:hover { color:var(--text)!important; }
 .home-page #nextstep .intent-edit { grid-column:1 / -1; margin-top:18px; }
 .home-page .intent-input { width:100%; padding:14px 16px; }
 .home-page .intent-actions { margin-top:8px; }
