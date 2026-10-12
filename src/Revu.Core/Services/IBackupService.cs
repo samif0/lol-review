@@ -13,7 +13,8 @@ public interface IBackupService
     /// (an SQLite online backup that passed quick_check). Taken before the first real
     /// write of a session and before each game delete. Safety backups keep the last 3,
     /// the newest per day for 7 days and the newest per week for 4 weeks; a reason
-    /// starting with "delete-" files the backup under a separate game-delete budget.
+    /// starting with "delete-" files the backup under a separate game-delete budget,
+    /// and "delete-objective-" under a separate objective-delete budget.
     /// Requires no user configuration.
     /// </summary>
     Task CreateSafetyBackupAsync(string reason);
@@ -21,7 +22,8 @@ public interface IBackupService
     /// <summary>
     /// Back up the DB into the user-configured backup folder when "Create automatic
     /// backups" is on, at most once a day, with its own tiered retention. Run on
-    /// startup by the sidecar.
+    /// startup by the sidecar, which is also when temp files a killed backup or restore
+    /// left behind are swept.
     /// </summary>
     Task RunBackupAsync();
 

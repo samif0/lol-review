@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
@@ -11,7 +12,7 @@ namespace Revu.Core.Services;
 /// <param name="KeepWeekly">The newest per calendar week (Monday start), for this many weeks.</param>
 internal sealed record BackupRetention(int KeepRecent, int KeepDaily, int KeepWeekly);
 
-/// <summary>Consistent, verified backup copies and tiered pruning.</summary>
+/// <summary>Consistent, verified backup copies, tiered pruning and the leftover-temp sweep.</summary>
 public sealed partial class BackupService
 {
     /// <summary>
@@ -124,6 +125,72 @@ public sealed partial class BackupService
         DeleteQuietly(path + "-journal");
         DeleteQuietly(path + "-wal");
         DeleteQuietly(path + "-shm");
+    }
+
+    // ── Leftover temp files ─────────────────────────────────────────
+
+    /// <summary>
+    /// A copy or restore temp file older than this belongs to a process that is gone: the
+    /// sweep runs once per launch, before this sidecar can have a copy of its own that old.
+    /// </summary>
+    private static readonly TimeSpan LeftoverTempAge = TimeSpan.FromHours(1);
+
+    // CreateVerifiedCopy's "<backup>.db.partial-<guid>.tmp" for Revu's own backup names,
+    // plus whatever SQLite made beside it.
+    private static readonly Regex CopyTempName = new(
+        "^(?:" + string.Join("|", new[]
+            {
+                SafetyPrefix, DeletePrefix, ObjectiveDeletePrefix, UserPrefix, PreResetPrefix, PreRestorePrefix,
+            }.Select(Regex.Escape))
+        + @")[^\\/]*\.db\.partial-[0-9a-f]{32}\.tmp(?:-journal|-wal|-shm)?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    // RestoreFromBackupAsync's staged "<db>.restoring-<guid>.tmp", plus its SQLite files.
+    private static bool IsRestoreStagingName(string fileName, string dbFileName) =>
+        Regex.IsMatch(fileName,
+            "^" + Regex.Escape(dbFileName) + @"\.restoring-[0-9a-f]{32}\.tmp(?:-journal|-wal|-shm)?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Removes the database-sized temp files a backup copy or a restore leaves behind when
+    /// the process is killed part way (nothing else ever deletes them): a restore's staged
+    /// copy beside the database and copy temps in the backups folder. Only Revu's own temp
+    /// names match: never the live database or its -wal/-shm, and never the
+    /// <c>.replaced-</c> files a restore keeps on purpose.
+    /// </summary>
+    private void SweepLeftoverTempFiles(string dbPath)
+    {
+        var dataDir = Path.GetDirectoryName(dbPath);
+        if (string.IsNullOrEmpty(dataDir)) return;
+        var dbFileName = Path.GetFileName(dbPath);
+        SweepLeftoverTempFiles(dataDir, name => IsRestoreStagingName(name, dbFileName));
+        SweepLeftoverTempFiles(Path.Combine(dataDir, "backups"), CopyTempName.IsMatch);
+    }
+
+    private void SweepLeftoverTempFiles(string folder, Func<string, bool> isLeftover)
+    {
+        try
+        {
+            if (!Directory.Exists(folder)) return;
+            var cutoff = DateTime.UtcNow - LeftoverTempAge;
+            foreach (var file in new DirectoryInfo(folder).EnumerateFiles("*.tmp*"))
+            {
+                if (!isLeftover(file.Name) || file.LastWriteTimeUtc > cutoff) continue;
+                try
+                {
+                    file.Delete();
+                    _logger.LogInformation("Removed {Name}, left by a backup or restore that did not finish", file.Name);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Could not remove leftover temp file {Name}", file.Name);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _logger.LogWarning(ex, "Leftover temp file sweep skipped in {Folder}", folder);
+        }
     }
 
     // ── Pruning ─────────────────────────────────────────────────────

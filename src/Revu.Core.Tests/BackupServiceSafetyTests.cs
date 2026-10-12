@@ -8,9 +8,10 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// Backups are consistent online copies that pass quick_check, keep tiered history,
-/// give game deletes their own budget, and the user's automatic backup runs at most
-/// daily. Restore accepts only a listed backup and validates it before the live
-/// database is touched.
+/// give game deletes and objective deletes their own budgets, and the user's automatic
+/// backup runs at most daily. Restore accepts only a listed backup and validates it
+/// before the live database is touched. Temp files a killed copy or restore left behind
+/// are swept at launch.
 /// </summary>
 public sealed class BackupServiceSafetyTests
 {
@@ -105,6 +106,90 @@ public sealed class BackupServiceSafetyTests
         var labels = (await Service(scope).ListBackupsAsync()).Select(b => b.Label).ToList();
         Assert.Contains(labels, l => l.StartsWith("Before a game was deleted", StringComparison.Ordinal));
         Assert.All(labels, l => Assert.DoesNotContain("—", l));
+    }
+
+    [Fact]
+    public async Task ObjectiveDeleteBackups_HaveTheirOwnLabelAndBudget_SeparateFromGameDeletes()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        Directory.CreateDirectory(BackupDir(scope));
+        var today = DateTime.Now;
+        var objectiveBackups = Enumerable.Range(1, 3)
+            .Select(i => Path.Combine(BackupDir(scope), $"delete_objective_backup_{today.AddMinutes(-20 - i):yyyyMMdd_HHmmss}.db"))
+            .ToList();
+        foreach (var path in objectiveBackups) File.WriteAllText(path, "o");
+        for (var i = 1; i <= 5; i++)
+            File.WriteAllText(Path.Combine(BackupDir(scope), $"delete_backup_{today.AddMinutes(-10 - i):yyyyMMdd_HHmmss}.db"), "d");
+        var service = Service(scope);
+
+        // A game delete prunes only its own pool.
+        await service.CreateSafetyBackupAsync("delete-game-42");
+        foreach (var path in objectiveBackups) Assert.True(File.Exists(path));
+        Assert.Equal(5, Directory.GetFiles(BackupDir(scope), "delete_backup_*.db").Length);
+
+        // An objective delete keeps the newest 3 of its own and leaves the game pool alone.
+        await service.CreateSafetyBackupAsync("delete-objective-9");
+        Assert.Equal(3, Directory.GetFiles(BackupDir(scope), "delete_objective_backup_*.db").Length);
+        Assert.False(File.Exists(objectiveBackups[^1]));
+        Assert.Equal(5, Directory.GetFiles(BackupDir(scope), "delete_backup_*.db").Length);
+        Assert.Empty(Directory.GetFiles(BackupDir(scope), "safety_backup_*.db"));
+
+        var labels = (await service.ListBackupsAsync()).Select(b => b.Label).ToList();
+        Assert.Equal(3, labels.Count(l => l.StartsWith("Before a learning objective was deleted", StringComparison.Ordinal)));
+        Assert.Equal(5, labels.Count(l => l.StartsWith("Before a game was deleted", StringComparison.Ordinal)));
+        Assert.All(labels, l => Assert.DoesNotContain("—", l));
+    }
+
+    [Fact]
+    public async Task StartupRun_SweepsOnlyRevusOwnLeftoverTempFiles_OnceTheyAreOld()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var dataDir = Path.GetDirectoryName(scope.DatabasePath)!;
+        var dbName = Path.GetFileName(scope.DatabasePath);
+        var folder = Path.Combine(dataDir, "user-backups");
+        Directory.CreateDirectory(BackupDir(scope));
+        Directory.CreateDirectory(folder);
+        var id = Guid.NewGuid().ToString("N");
+        string Make(string dir, string name, bool old = true)
+        {
+            var path = Path.Combine(dir, name);
+            File.WriteAllText(path, "x");
+            if (old) File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-2));
+            return path;
+        }
+
+        var leftovers = new[]
+        {
+            Make(BackupDir(scope), $"safety_backup_20260101_000000.db.partial-{id}.tmp"),
+            Make(BackupDir(scope), $"safety_backup_20260101_000000.db.partial-{id}.tmp-journal"),
+            Make(BackupDir(scope), $"delete_backup_20260101_000000.db.partial-{id}.tmp-wal"),
+            Make(BackupDir(scope), $"pre_restore_20260101_000000.db.partial-{id}.tmp"),
+            Make(dataDir, $"{dbName}.restoring-{id}.tmp"),
+            Make(dataDir, $"{dbName}.restoring-{id}.tmp-shm"),
+            Make(folder, $"lol_review_backup_20260101_000000.db.partial-{id}.tmp"),
+        };
+        var keep = new[]
+        {
+            // A copy that may still be running, a finished backup, other names, and the
+            // replaced files a restore keeps on purpose.
+            Make(BackupDir(scope), $"safety_backup_20260102_000000.db.partial-{id}.tmp", old: false),
+            Make(BackupDir(scope), "safety_backup_20260101_000000.db"),
+            Make(BackupDir(scope), $"someone_else.db.partial-{id}.tmp"),
+            Make(dataDir, $"{dbName}.replaced-{id}.tmp"),
+            Make(dataDir, $"other.db.restoring-{id}.tmp"),
+            Make(folder, $"notes.partial-{id}.tmp"),
+        };
+
+        // Automatic backups off: the sweep still runs, the chosen folder included.
+        await Service(scope, new AppConfig { BackupEnabled = false, BackupFolder = folder }).RunBackupAsync();
+
+        foreach (var path in leftovers) Assert.False(File.Exists(path), path);
+        foreach (var path in keep) Assert.True(File.Exists(path), path);
+        Assert.True(File.Exists(scope.DatabasePath));
+        using var c = Open(scope.DatabasePath);
+        Assert.True(Scalar(c, "SELECT COUNT(*) FROM sqlite_schema") > 0);
     }
 
     [Fact]

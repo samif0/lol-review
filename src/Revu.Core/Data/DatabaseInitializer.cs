@@ -108,11 +108,89 @@ public sealed class DatabaseInitializer
 
         // Reconciliation, not migration: keeps objectives.game_count / score in
         // sync with practiced game_objectives rows (hide/unhide, deletes). The
-        // WHERE/COALESCE guards make both no-ops when nothing changed.
+        // WHERE/COALESCE guards make both no-ops when nothing changed. Between them, the
+        // practice-point re-base runs once per database (a schema_metadata marker).
         await BackfillObjectiveGameCountAsync(connection, cancellationToken);
+        try
+        {
+            await RebaseLegacyPracticePointsOnceAsync(connection, cancellationToken);
+        }
+        catch (SqliteException ex)
+        {
+            // Rolled back with its marker unwritten, so the next launch tries again.
+            _logger.LogWarning(ex, "Practice-point re-base skipped (non-fatal)");
+        }
         await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
 
         _logger.LogInformation("Seeds, indexes and objective reconciliation applied at {Path}", _connectionFactory.DatabasePath);
+    }
+
+    /// <summary>schema_metadata key recording that <see cref="RebaseLegacyPracticePointsOnceAsync"/>
+    /// ran on this database (a marker, not a schema version).</summary>
+    internal const string PracticePointsRebasedKey = "objective_practice_points_rebased";
+
+    /// <summary>
+    /// Hide and restore, game delete and remake verdicts move a game's practice points on
+    /// the rule that only a counted game (visible, not a remake) holds them. Builds up to
+    /// 3.14.1 credited every practiced game and never moved points on a hide or a remake
+    /// verdict, so on a database they last opened a practiced hidden game or remake still
+    /// holds its points, and restoring it or clearing the remake would credit them twice.
+    /// Once per database, those points are re-based off the score so it holds practice
+    /// points for counted games only; clip points and older points stay. The marker
+    /// commits with the re-base, so it never runs twice. A restored backup from an older
+    /// build has no marker and is re-based on the launch that follows the restore.
+    /// </summary>
+    private async Task RebaseLegacyPracticePointsOnceAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        using var tx = connection.BeginTransaction();
+        using (var done = connection.CreateCommand())
+        {
+            done.Transaction = tx;
+            done.CommandText = "SELECT 1 FROM schema_metadata WHERE key = $key";
+            done.Parameters.AddWithValue("$key", PracticePointsRebasedKey);
+            if (await done.ExecuteScalarAsync(ct) is not null) return;
+        }
+
+        int rebased;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = $"""
+                UPDATE objectives
+                SET score = MAX(0, COALESCE(score, 0) - {Repositories.ObjectivesRepository.PracticePoints} * (
+                    SELECT COUNT(*) FROM game_objectives
+                    JOIN games g ON g.game_id = game_objectives.game_id
+                    WHERE game_objectives.objective_id = objectives.id
+                      AND COALESCE(game_objectives.practiced, 0) != 0
+                      AND NOT ({Repositories.CountedGamesSql.Counted("g")})
+                ))
+                WHERE id IN (
+                    SELECT game_objectives.objective_id FROM game_objectives
+                    JOIN games g ON g.game_id = game_objectives.game_id
+                    WHERE COALESCE(game_objectives.practiced, 0) != 0
+                      AND NOT ({Repositories.CountedGamesSql.Counted("g")})
+                )
+                """;
+            rebased = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var mark = connection.CreateCommand())
+        {
+            mark.Transaction = tx;
+            mark.CommandText = """
+                INSERT INTO schema_metadata (key, value, updated_at)
+                VALUES ($key, '1', $updatedAt)
+                """;
+            mark.Parameters.AddWithValue("$key", PracticePointsRebasedKey);
+            mark.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            await mark.ExecuteNonQueryAsync(ct);
+        }
+
+        tx.Commit();
+        if (rebased > 0)
+            _logger.LogInformation(
+                "Re-based practice points of {Count} objective(s) onto counted games (hidden games and remakes hold none)",
+                rebased);
     }
 
     /// <summary>
