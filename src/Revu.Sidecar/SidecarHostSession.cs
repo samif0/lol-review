@@ -1,5 +1,4 @@
 #nullable enable
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -15,6 +14,11 @@ public sealed class SidecarHostSession : IDisposable
     private readonly string _handshakePath;
     public string LaunchId { get; }
     public string DataDirectory => _lease.DataDirectory;
+    /// <summary>
+    /// True when an existing database is behind this backend's schema, so storage
+    /// preparation runs migrations and can take a while. New and current databases start fast.
+    /// </summary>
+    public bool SchemaUpgradePending { get; }
 
     public SidecarHostSession(string dataDirectory, string handshakeDirectory, string? launchId = null)
     {
@@ -29,7 +33,8 @@ public sealed class SidecarHostSession : IDisposable
             RejectLiveHandshake(_handshakePath);
             var database = Path.Combine(DataDirectory, "revu.db");
             if (!File.Exists(database)) database = Path.Combine(DataDirectory, AppDataMigrator.LegacyDatabaseFileName);
-            if (File.Exists(database)) DatabaseSchemaCompatibility.EnsureCompatible(database);
+            if (File.Exists(database))
+                SchemaUpgradePending = DatabaseSchemaCompatibility.EnsureCompatible(database) < Schema.CurrentAppSchemaVersion;
         }
         catch { _lease.Dispose(); throw; }
     }
@@ -41,36 +46,43 @@ public sealed class SidecarHostSession : IDisposable
     public void Publish(int port, string token)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
-        RejectLiveHandshake(_handshakePath, LaunchId);
+        Write(new { port, token,
+            apiVersion = ApiVersion, launchId = LaunchId, processId = Environment.ProcessId,
+            dataDirectory = DataDirectory, schemaVersion = Schema.CurrentAppSchemaVersion });
+    }
+
+    /// <summary>
+    /// Tell the desktop host this launch owns the data and is upgrading its schema, which can
+    /// take a while on large libraries. Only publish it when <see cref="SchemaUpgradePending"/>:
+    /// the host waits longer for a launch that announced it. It carries no port or token;
+    /// <see cref="Publish"/> replaces it once the API is listening, and disposal removes it.
+    /// </summary>
+    public void PublishStarting() => Write(new { state = "starting",
+        apiVersion = ApiVersion, launchId = LaunchId, processId = Environment.ProcessId,
+        dataDirectory = DataDirectory });
+
+    private void Write(object handshake)
+    {
+        RejectLiveHandshake(_handshakePath);
         Directory.CreateDirectory(Path.GetDirectoryName(_handshakePath)!);
         var temporary = _handshakePath + "." + LaunchId + ".tmp";
         try
         {
-            SidecarHandshakeFile.CreateOwnerOnly(temporary, JsonSerializer.SerializeToUtf8Bytes(new { port, token,
-                apiVersion = ApiVersion, launchId = LaunchId, processId = Environment.ProcessId,
-                dataDirectory = DataDirectory, schemaVersion = Schema.CurrentAppSchemaVersion }));
+            SidecarHandshakeFile.CreateOwnerOnly(temporary, JsonSerializer.SerializeToUtf8Bytes(handshake));
             File.Move(temporary, _handshakePath, overwrite: true);
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static void RejectLiveHandshake(string path, string? ownLaunchId = null)
+    private static void RejectLiveHandshake(string path)
     {
         if (!File.Exists(path)) return;
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         var root = document.RootElement;
-        if (ownLaunchId != null && root.TryGetProperty("launchId", out var launchId)
-            && launchId.GetString() == ownLaunchId && root.TryGetProperty("processId", out var ownPid)
-            && ownPid.TryGetInt32(out var currentPid) && currentPid == Environment.ProcessId) return;
-        if (root.TryGetProperty("processId", out var pid) && pid.TryGetInt32(out var id))
-        {
-            try
-            {
-                using var process = Process.GetProcessById(id);
-                if (!process.HasExited) throw new IOException("Another live process owns this sidecar handshake.");
-            }
-            catch (ArgumentException) { return; /* recorded owner is dead; do not probe a recycled port */ }
-        }
+        // Every host that records a PID also holds the data-root lease, and this session
+        // holds that lease now. Such a handshake (including this launch's own) is stale,
+        // even when Windows has reused its PID for an unrelated process.
+        if (root.TryGetProperty("processId", out var pid) && pid.ValueKind == JsonValueKind.Number) return;
         // Older hosts did not publish a PID or hold our lease. Never replace a
         // handshake while its loopback endpoint is still listening.
         if (!root.TryGetProperty("port", out var portValue) || !portValue.TryGetInt32(out var port)

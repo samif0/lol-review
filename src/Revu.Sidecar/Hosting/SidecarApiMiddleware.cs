@@ -2,6 +2,7 @@
 
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Data.Sqlite;
 using Revu.Core.Data;
 
@@ -26,6 +27,24 @@ public static class SidecarApiMiddleware
             try
             {
                 await next();
+            }
+            catch (BadHttpRequestException ex)
+            {
+                // Model binding (ThrowOnBadRequest), a malformed body or an oversized one:
+                // the request itself was refused, so keep its 4xx status. The message names
+                // the parameter only; request bodies are never logged.
+                app.Services.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("BadRequest")
+                    .LogWarning("Rejected {Method} {Path} ({Status}): {Reason}",
+                        context.Request.Method, context.Request.Path, ex.StatusCode, ex.Message);
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.Clear();
+                    context.Response.StatusCode = ex.StatusCode;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsJsonAsync(new { ok = false,
+                        error = $"The app sent a request the backend could not read ({context.Request.Path})." });
+                }
             }
             catch (Exception ex)
             {
@@ -72,6 +91,19 @@ public static class SidecarApiMiddleware
             }
         });
 
+        // ── Empty error responses ────────────────────────────────────────────────────
+        // Framework 4xx/5xx replies (an unknown route, a refused body, a bare
+        // Results.NotFound()) have no body. Give every one the same {ok:false,error} JSON
+        // contract; responses that already chose a body or content type are untouched.
+        app.UseStatusCodePages(async statusContext =>
+        {
+            var context = statusContext.HttpContext;
+            var status = context.Response.StatusCode;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new { ok = false,
+                error = $"The app's request to {context.Request.Path} failed ({status} {ReasonPhrases.GetReasonPhrase(status)})." });
+        });
+
         // ── Bearer-token middleware (constant-time compare; /api/health exempt) ──────
         var expectedTokenBytes = Encoding.UTF8.GetBytes(bearerToken);
         app.Use(async (context, next) =>
@@ -87,9 +119,8 @@ public static class SidecarApiMiddleware
                 || !FixedTimeTokenEquals(expectedTokenBytes, presented))
             {
                 // JSON body (not plain text) so the desktop transport's {error} extractor can
-                // surface a clean "sidecar HTTP 401: Unauthorized" instead of choking on a
-                // non-JSON body. The status-first ordering in desktop transport already handles the
-                // plain-text case, but emitting JSON keeps the contract consistent.
+                // surface a clean "Unauthorized" with the 401 status. The desktop transport
+                // checks the status before parsing, but emitting JSON keeps the contract consistent.
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });

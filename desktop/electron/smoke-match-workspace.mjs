@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 // Only the backend responses are fixtures; no production profile writes occur.
 export async function checkMatchWorkspace(preview, dataRoot, mediaUrl) {
   const contents = preview.webContents;
-  await preview.loadURL('revu-app://ui/index.html#review.html?gameId=5581701721');
+  await preview.loadURL('revu-app://ui/index.html?preview=samples#review.html?gameId=5581701721');
   await contents.executeJavaScript(`(async()=>{
     const read=async name=>(await fetch('./sample-'+name+'.json')).json();
     const [review,vod,objectives]=await Promise.all(['review','vod','objectives'].map(read));

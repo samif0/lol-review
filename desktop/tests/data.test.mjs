@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSnapshotReader } from '../ui/data.mjs';
+import { createPlatform } from '../ui/platform/index.mjs';
 
 test('desktop snapshots preserve parameters and results without loading preview fixtures', async () => {
   const calls = [];
@@ -49,4 +50,26 @@ test('malformed preview JSON is not treated as an empty successful snapshot', as
   const read = createSnapshotReader({ resolveInvoke: async () => null,
     fetchJson: async () => ({ ok: true, json: async () => { throw error; } }) });
   await assert.rejects(read('get_patterns', 'sample-patterns.json'), value => value === error);
+});
+
+test('a hosted page whose bridge is missing shows an error instead of fabricated sample data', async () => {
+  const scope = new EventTarget();
+  scope.location = { origin: 'revu-app://ui', protocol: 'revu-app:', search: '' };
+  scope.top = scope;
+  const client = createPlatform({ scope });
+  const read = createSnapshotReader({ resolveInvoke: client.getInvoke,
+    fetchJson: () => assert.fail('a hosted page loaded a preview fixture') });
+  await assert.rejects(read('get_dashboard', 'sample-dashboard.json'), /could not connect to its desktop host/);
+  client.dispose();
+});
+
+test('browser previews outside the app still read their fixtures', async () => {
+  const scope = new EventTarget();
+  scope.location = { origin: 'http://localhost:5173', protocol: 'http:', search: '' };
+  scope.top = scope;
+  const client = createPlatform({ scope });
+  const read = createSnapshotReader({ resolveInvoke: client.getInvoke,
+    fetchJson: async path => ({ ok: true, json: async () => ({ path }) }) });
+  assert.deepEqual(await read('get_dashboard', 'sample-dashboard.json'), { path: './sample-dashboard.json' });
+  client.dispose();
 });

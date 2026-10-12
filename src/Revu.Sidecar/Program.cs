@@ -11,9 +11,21 @@ if (!isolatedHostTest) VelopackApp.Build().SetAutoApplyOnStartup(false).Run();
 
 // Acquire ownership before configuration migration, database access, or DI resolution.
 using var hostSession = SidecarStartup.AcquireSession(isolatedHostTest);
+// The desktop host discards console output. Ownership is held, so this process is the
+// only writer of the rolling log beside the handshake (<data root>/Revu/logs).
+using var fileLog = new SidecarFileLoggerProvider(SidecarFileLoggerProvider.DefaultDirectory);
+AppDomain.CurrentDomain.UnhandledException += (_, e) => fileLog.WriteUnhandled(e.ExceptionObject);
+fileLog.Write(LogLevel.Information, "Revu.Sidecar", $"Sidecar {typeof(Program).Assembly.GetName().Version} starting (process {Environment.ProcessId})", null);
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
+builder.Logging.AddProvider(fileLog);
+// Framework request chatter stays out of the file; its warnings and errors do not.
+builder.Logging.AddFilter<SidecarFileLoggerProvider>("Microsoft", LogLevel.Warning);
+builder.Logging.AddFilter<SidecarFileLoggerProvider>("Microsoft.Hosting.Lifetime", LogLevel.Information);
+builder.Logging.AddFilter<SidecarFileLoggerProvider>("System.Net.Http", LogLevel.Warning);
+// Binding failures reach the JSON error handler instead of an empty 400.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.WebHost.UseUrls("http://127.0.0.1:0");
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -25,6 +37,9 @@ builder.Services.AddSidecarServices(isolatedHostTest);
 var bearerToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
 var app = builder.Build();
 var backgroundWork = app.Services.GetRequiredService<SidecarBackgroundWork>();
+// Only a schema upgrade makes storage preparation slow; announce it so the host keeps
+// waiting. Every other launch stays under the host's short startup deadline.
+if (hostSession.SchemaUpgradePending) hostSession.PublishStarting();
 await app.InitializeStorageAsync(isolatedHostTest);
 app.UseSidecarApi(bearerToken, isolatedHostTest);
 app.MapSidecarEndpoints(SidecarJson.CreateOptions(), hostSession);

@@ -78,13 +78,94 @@ public sealed class SidecarHostSessionTests : IDisposable
         Assert.False(File.Exists(HandshakeFile));
     }
 
-    [Fact]
-    public void LivePidWithClosedPortIsPreserved()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PidHandshakeIsStaleOnceTheLeaseIsHeldEvenWhenThePidWasReused(bool portStillListening)
     {
+        // Previously a live PID kept the file, so an unrelated process that inherited the
+        // dead sidecar's PID blocked every launch. Only a lease holder records a PID, and
+        // this session holds the lease, so the recorded owner cannot still be running.
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        if (!portStillListening) listener.Stop();
         Directory.CreateDirectory(Handshake);
-        File.WriteAllText(HandshakeFile, JsonSerializer.Serialize(new { port = 45678, processId = Environment.ProcessId }));
-        Assert.Throws<IOException>(() => new SidecarHostSession(Data, Handshake));
-        Assert.True(File.Exists(HandshakeFile));
+        File.WriteAllText(HandshakeFile, JsonSerializer.Serialize(new
+            { port, processId = Environment.ProcessId, launchId = "crashed-launch", token = "old" }));
+
+        using (var replacement = new SidecarHostSession(Data, Handshake, "replacement"))
+        {
+            replacement.Publish(45678, new string('A', 64));
+            using var handshake = JsonDocument.Parse(File.ReadAllText(HandshakeFile));
+            Assert.Equal("replacement", handshake.RootElement.GetProperty("launchId").GetString());
+        }
+        Assert.False(File.Exists(HandshakeFile));
+    }
+
+    [Fact]
+    public void StartingMarkerCarriesIdentityWithoutCredentialsAndIsReplacedThenRemoved()
+    {
+        using (var owner = new SidecarHostSession(Data, Handshake, "preparing-launch"))
+        {
+            owner.PublishStarting();
+            using (var marker = JsonDocument.Parse(File.ReadAllText(HandshakeFile)))
+            {
+                var root = marker.RootElement;
+                Assert.Equal("starting", root.GetProperty("state").GetString());
+                Assert.Equal("preparing-launch", root.GetProperty("launchId").GetString());
+                Assert.Equal(Environment.ProcessId, root.GetProperty("processId").GetInt32());
+                Assert.Equal(1, root.GetProperty("apiVersion").GetInt32());
+                Assert.False(root.TryGetProperty("token", out _));
+                Assert.False(root.TryGetProperty("port", out _));
+            }
+            owner.Publish(45678, new string('A', 64));
+            using var handshake = JsonDocument.Parse(File.ReadAllText(HandshakeFile));
+            Assert.False(handshake.RootElement.TryGetProperty("state", out _));
+            Assert.Equal(45678, handshake.RootElement.GetProperty("port").GetInt32());
+        }
+        Assert.False(File.Exists(HandshakeFile));
+
+        // A marker left by a killed launch never blocks the next owner.
+        Directory.CreateDirectory(Handshake);
+        File.WriteAllText(HandshakeFile, JsonSerializer.Serialize(new
+            { state = "starting", apiVersion = 1, launchId = "killed", processId = Environment.ProcessId }));
+        using var next = new SidecarHostSession(Data, Handshake, "next");
+        next.PublishStarting();
+        using var replaced = JsonDocument.Parse(File.ReadAllText(HandshakeFile));
+        Assert.Equal("next", replaced.RootElement.GetProperty("launchId").GetString());
+    }
+
+    [Theory]
+    [InlineData(null, null, false)]                                   // fresh install: created fast
+    [InlineData("revu.db", 0, false)]                                 // current schema: ordinary launch
+    [InlineData("revu.db", -1, true)]                                 // one version behind: migrations run
+    [InlineData("lol_review.db", -1, true)]                           // legacy file name, behind
+    [InlineData("revu.db", int.MinValue, true)]                       // no version recorded at all
+    public void OnlyADatabaseBehindThisBackendAnnouncesAnUpgrade(string? fileName, int? offset, bool pending)
+    {
+        // The host lifts its short startup deadline only for a launch that announces an
+        // upgrade, so an ordinary launch must never announce one.
+        if (fileName is not null)
+        {
+            Directory.CreateDirectory(Data);
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+                { DataSource = Path.Combine(Data, fileName), Pooling = false }.ToString());
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = offset == int.MinValue
+                ? "CREATE TABLE games(game_id INTEGER PRIMARY KEY);"
+                : """
+                  CREATE TABLE schema_metadata(key TEXT PRIMARY KEY, value TEXT);
+                  INSERT INTO schema_metadata VALUES('app_schema_version', $version);
+                  """;
+            command.Parameters.AddWithValue("$version", (Schema.CurrentAppSchemaVersion + (offset ?? 0)).ToString());
+            command.ExecuteNonQuery();
+        }
+
+        using var session = new SidecarHostSession(Data, Handshake, "upgrade-check");
+        Assert.Equal(pending, session.SchemaUpgradePending);
+        Assert.False(File.Exists(HandshakeFile));
     }
 
     [Fact]

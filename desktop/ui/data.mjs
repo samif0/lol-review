@@ -1,6 +1,10 @@
 import { getInvoke } from './platform/index.mjs';
 
-/** A host failure must remain visible: sample data is only for browser previews. */
+/**
+ * A host failure must remain visible: sample data is only for browser previews. In a
+ * hosted (revu-app) page without a bridge, resolveInvoke rejects instead of returning
+ * null, so this never falls back to fixtures there.
+ */
 export function createSnapshotReader({ resolveInvoke = getInvoke, fetchJson = (...args) => globalThis.fetch(...args) } = {}) {
   return async function readSnapshot(command, sample, args) {
     const invoke = await resolveInvoke();

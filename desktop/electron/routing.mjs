@@ -30,16 +30,19 @@ export function commandRequest(command, args = {}) {
 
 export function snapshotMedia(command, value) {
   if (!['get_vod', 'get_patterns'].includes(command)) return null;
-  const paths = [];
+  // Moments repeat their game's VOD; cap distinct files, not occurrences, so later
+  // (saved) Patterns cards keep their grants.
+  const paths = new Set();
   // Snapshot DTO fields only; never infer filesystem permission from arbitrary
   // strings, config folders, commands, or frontend-provided paths.
   const visit = (node, depth = 0) => {
-    if (!node || typeof node !== 'object' || depth > 12 || paths.length >= 512) return;
+    if (!node || typeof node !== 'object' || depth > 12 || paths.size >= 512) return;
     for (const [key, value] of Object.entries(node)) {
-      if (['filePath', 'vodPath', 'clipPath', 'narratedClipPath'].includes(key) && typeof value === 'string' && value) paths.push(value);
-      else if (value && typeof value === 'object') visit(value, depth + 1);
+      if (['filePath', 'vodPath', 'clipPath', 'narratedClipPath'].includes(key) && typeof value === 'string' && value) {
+        if (paths.size < 512) paths.add(value);
+      } else if (value && typeof value === 'object') visit(value, depth + 1);
     }
   };
   visit(value);
-  return paths;
+  return [...paths];
 }

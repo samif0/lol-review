@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { logDirectory } from './logging.mjs';
 
 export function externalUrl(value) {
   if (typeof value !== 'string' || value.length > 8192) throw new Error('Invalid external URL');
@@ -44,7 +45,7 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPr
         await shell.openExternal('ms-settings:privacy-microphone');
         return { ok: true };
       case 'open_log_folder': {
-        const folder = path.join(dataRoot, 'Revu');
+        const folder = logDirectory(dataRoot);
         await mkdir(folder, { recursive: true });
         if (await shell.openPath(folder)) throw new Error('Unable to open the log folder');
         return null;
@@ -78,8 +79,6 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPr
         });
         return null;
       }
-      // Navigation is owned by the renderer; these compatibility commands are no-ops.
-      case 'review_vod': case 'open_review': case 'take_next_step': return null;
       default: throw new Error('Unsupported desktop operation');
     }
   };
