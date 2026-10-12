@@ -170,6 +170,32 @@ public sealed class HardStopEnforcer
         _logger.LogInformation("Hard stop: rule {RuleId} overridden for the rest of the day", ruleId);
     }
 
+    /// <summary>
+    /// 3.14.1: a game's remake verdict changed (startup check, Match-V5 confirmation, or
+    /// the player's toggle). When the lock that is showing no longer holds for the same
+    /// rule, clear it and tell the shell, so a player blocked by a remake can queue.
+    /// </summary>
+    public async Task ReevaluateAsync(CancellationToken ct = default)
+    {
+        var current = _liveState.HardStop;
+        if (current is null) return;
+        HardStopDecision? decision;
+        try
+        {
+            decision = await DecideAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Hard stop: re-evaluation failed; keeping the current lock");
+            return;
+        }
+        if (decision is not null && decision.Rule.Id == current.RuleId) return;
+
+        _liveState.SetHardStop(null);
+        _eventHub.Publish("hardStopCleared", new { ruleId = current.RuleId });
+        _logger.LogInformation("Hard stop: rule {RuleId} no longer holds after a remake change; lock cleared", current.RuleId);
+    }
+
     /// <summary>The pure decision over live data. Fast-exits before any game
     /// query when no active rule is flagged enforce (the common case).</summary>
     public async Task<HardStopDecision?> DecideAsync(CancellationToken ct = default)
@@ -178,9 +204,8 @@ public sealed class HardStopEnforcer
         if (!active.Any(r => r.Enforce && HardStopPolicy.CanEnforce(r.RuleType))) return null;
 
         var now = _clock();
-        var todaysGames = (await _games.GetTodaysGamesAsync().ConfigureAwait(false))
-            .Select(g => new RuleCheckGame(g.GameId, g.Win, g.ChampionName, g.Timestamp))
-            .ToList();
+        // 3.14.1: remakes are not counted (GetTodaysRuleGamesAsync drops them).
+        var todaysGames = await _games.GetTodaysRuleGamesAsync().ConfigureAwait(false);
 
         // mentalRating null: min_mental is never enforced (see HardStopPolicy).
         var violations = await _rules.CheckViolationsAsync(todaysGames, mentalRating: null).ConfigureAwait(false);

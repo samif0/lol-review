@@ -335,6 +335,14 @@ async function loadDashboard() {
   }
 }
 
+// A remake verdict changed (3.14.1): today's games, the review inbox and the
+// streak re-base. Refetch, but never while an inline editor is open.
+window.addEventListener('revu:remake-updated', () => {
+  let editing = false;
+  try { editing = !!window.__revuActiveWork; } catch (_) { editing = false; }
+  if (!editing) void loadDashboard();
+});
+
 // ── active-work flag (P-035 guard for the dashboard's inline editors) ─────────
 // The Start/End-Block editors are active-work surfaces: while one is open the
 // user is mid-edit and an LCU auto-show that reloads the content iframe would

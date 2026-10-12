@@ -68,7 +68,7 @@ function node({ id = '', classes = [], dataset = {}, value = '' } = {}) {
   };
 }
 
-function fixture(t, invoke = null, { realNavigation = false, invokeError = null } = {}) {
+function fixture(t, invoke = null, { realNavigation = false, invokeError = null, snapshot = null } = {}) {
   const ids = new Map(), listeners = new Map(), windowListeners = new Map(), calls = [];
   const $ = id => {
     if (id === 'rv-champ') return null; // removed from the launchpad header
@@ -163,7 +163,7 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null 
       if (invokeError) throw invokeError;
       return invoke ? async (...args) => { calls.push(plain(args)); return invoke(...args); } : null;
     },
-    readSnapshot: async () => ({ subject: null }),
+    readSnapshot: snapshot || (async () => ({ subject: null })),
     setTimeout, clearTimeout, URLSearchParams, CustomEvent: class {},
     console: { info() {}, warn() {}, error() {} },
   });
@@ -200,6 +200,59 @@ function showMatchup(f, options) {
   f.hooks.renderMatchupJournal(subject);
   return subject;
 }
+
+test('the remake toggle writes the player verdict, reverts on failure and shows the error inline', async t => {
+  let fail = true;
+  const f = fixture(t, async command => {
+    if (command === 'set_game_remake' && fail) throw new Error('sidecar HTTP 404 Not Found: game not found');
+    return { gameId: 42, isRemake: true };
+  });
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Ahri', win: true, isRemake: false, resultText: 'VICTORY' } });
+  const box = f.$('rv-remake'), status = f.$('rv-remake-status');
+  assert.equal(f.$('rv-remake-line').hidden, false);
+  assert.equal(box.checked, false);
+
+  box.checked = true;
+  await box.listeners.get('change')[0]();
+  assert.equal(box.checked, false, 'a failed write reverts the checkbox');
+  assert.equal(box.disabled, false);
+  assert.equal(status.textContent, 'game not found');
+  assert.equal(status.classList.contains('err'), true);
+
+  fail = false;
+  box.checked = true;
+  await box.listeners.get('change')[0]();
+  assert.deepEqual(f.calls.filter(call => call[0] === 'set_game_remake').at(-1),
+    ['set_game_remake', { payload: { gameId: 42, isRemake: true } }]);
+  assert.equal(box.checked, true);
+  assert.equal(status.textContent, '');
+
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Ahri', win: true, isRemake: true, resultText: 'REMAKE' } });
+  assert.equal(box.checked, true);
+  assert.equal(f.$('rv-res').textContent, 'Remake');
+});
+
+test('ticking Remake refreshes the shown game header even when the page has no ?gameId', async t => {
+  const requested = [];
+  const f = fixture(t, async () => ({ gameId: 42, isRemake: true }), {
+    snapshot: async (_command, _sample, args) => {
+      requested.push(plain(args));
+      // Without a gameId the default subject is another game (the remake left the queue).
+      const gameId = args && args.gameId ? args.gameId : 99;
+      return { subject: { gameId, header: { championName: 'Ahri', win: false, isRemake: true, resultText: 'REMAKE' } } };
+    },
+  });
+  f.scope.location.search = '';
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Ahri', win: false, isRemake: false, resultText: 'DEFEAT' } });
+  assert.equal(f.$('rv-res').textContent, 'Defeat');
+
+  const box = f.$('rv-remake');
+  box.checked = true;
+  await box.listeners.get('change')[0]();
+
+  assert.deepEqual(requested.at(-1), { gameId: 42 });
+  assert.equal(f.$('rv-res').textContent, 'Remake');
+});
 
 test('matchup note appears for a linked card or opted-in preparation, without creating on render', t => {
   const f = fixture(t);

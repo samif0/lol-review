@@ -154,14 +154,8 @@ public sealed class RulesSnapshotBuilder
         var map = new Dictionary<long, RuleViolation>();
         try
         {
-            var todaysGames = await _gameRepo.GetTodaysGamesAsync();
-            var games = todaysGames
-                .Select(g => new RuleCheckGame(
-                    GameId: g.GameId,
-                    Win: g.Win,
-                    ChampionName: g.ChampionName,
-                    Timestamp: g.Timestamp))
-                .ToList();
+            // 3.14.1: remakes are not counted (GetTodaysRuleGamesAsync drops them).
+            var games = await _gameRepo.GetTodaysRuleGamesAsync();
 
             // mentalRating null → min_mental rules never live-trip here (VM parity).
             var violations = await _rulesRepo.CheckViolationsAsync(games);

@@ -94,26 +94,32 @@ function renderQueueBar(d) {
 }
 
 // ── render: stat strip (at-a-glance over the rows currently loaded) ──────────
+// A remake (League early surrender) is listed but never counted: it is left out
+// of the games, win-rate and reviewed samples here, like every other count.
+const REMAKE_TITLE = 'Ended early. Does not count toward your rules, stats or review queue.';
+const isRemake = (g) => g?.isRemake === true;
+
 function renderStrip(d) {
   const items = _rows;
+  const counted = items.filter((g) => !isRemake(g));
   const strip = $('strip');
   clear(strip);
 
-  const wins = items.filter((g) => g.win === true).length;
-  const reviewed = items.filter((g) => g.reviewStateText === 'Reviewed' || g.hasReview === true).length;
+  const wins = counted.filter((g) => g.win === true).length;
+  const reviewed = counted.filter((g) => g.reviewStateText === 'Reviewed' || g.hasReview === true).length;
   const withVod = items.filter((g) => g.hasVod === true).length;
-  const wr = items.length ? Math.round((wins / items.length) * 100) : 0;
+  const wr = counted.length ? Math.round((wins / counted.length) * 100) : 0;
 
   // The first cell reflects the view: History = all-time total; others = loaded.
   const totalLabel = _view === 'history' ? 'IN HISTORY' : 'LOADED';
   const totalVal = _view === 'history'
     ? String(d.totalCount ?? items.length)
-    : String(items.length);
+    : String(counted.length);
 
   const cells = [
     { k: 'Total',    v: totalVal,                         sub: totalLabel,  flag: false },
-    { k: 'Win Rate', v: items.length ? `${wr}%` : '—',    sub: 'LOADED',    flag: false },
-    { k: 'Reviewed', v: `${reviewed}/${items.length}`,    sub: 'LOADED',    flag: false },
+    { k: 'Win Rate', v: counted.length ? `${wr}%` : '—',  sub: 'LOADED',    flag: false },
+    { k: 'Reviewed', v: `${reviewed}/${counted.length}`,  sub: 'LOADED',    flag: false },
     { k: 'VOD',      v: String(withVod),                  sub: 'LINKED',    flag: true  },
   ];
 
@@ -138,11 +144,13 @@ function buildRow(g) {
   const kdaN = el.querySelector('.grow-kda-n');
   const kdaR = el.querySelector('.grow-kda-r');
 
-  const win = knownBoolean(g.win, g.winLossText, ['w', 'win', 'victory'], ['l', 'loss', 'defeat']);
-  wl.textContent = win === true ? 'W' : win === false ? 'L' : g.winLossText || '—';
-  wl.title = win === true ? 'Win' : win === false ? 'Loss' : '';
-  if (wl.title) wl.setAttribute('aria-label', wl.title);
-  el.dataset.result = wl.dataset.result = win === true ? 'win' : win === false ? 'loss' : 'unknown';
+  // A remake is checked before the stored result: its win flag is not a result.
+  const remake = isRemake(g);
+  const win = remake ? null : knownBoolean(g.win, g.winLossText, ['w', 'win', 'victory'], ['l', 'loss', 'defeat']);
+  wl.textContent = remake ? 'Remake' : win === true ? 'W' : win === false ? 'L' : g.winLossText || '—';
+  wl.title = remake ? REMAKE_TITLE : win === true ? 'Win' : win === false ? 'Loss' : '';
+  if (wl.title) wl.setAttribute('aria-label', remake ? 'Remake' : wl.title);
+  el.dataset.result = wl.dataset.result = remake ? 'remake' : win === true ? 'win' : win === false ? 'loss' : 'unknown';
   const enemy = g.enemyChampion ? ` vs ${g.enemyChampion}` : '';
   champ.textContent = g.championName ? `${g.championName}${enemy}` : 'Match';
 
@@ -207,6 +215,12 @@ window.addEventListener('revu:vod-linked', event => {
   }
 });
 
+// A remake verdict changed (startup check, Match-V5, or the Review toggle): the
+// server owns labels and the queue, so refetch the current view.
+window.addEventListener('revu:remake-updated', () => {
+  if (!_loading) void loadView(_view);
+});
+
 // VOD is not paginated. A newly linked match that is absent from that filter
 // needs a fresh list; other filters keep their mounted rows and History pages.
 async function refreshLinkedVodList() {
@@ -247,6 +261,7 @@ function reviewedState(g) {
 
 function gameStatuses(g) {
   const states = [];
+  if (isRemake(g)) states.push({ kind: 'remake', text: 'Remake', title: REMAKE_TITLE });
   const reviewed = reviewedState(g);
   if (reviewed !== null) states.push({ kind: 'review', text: reviewed ? 'Reviewed' : 'To review' });
   const recorded = knownBoolean(g.hasVod, g.vodStateText,

@@ -42,7 +42,9 @@ function fixture(reply = async () => ({})) {
     for (const handler of listeners.get(type) || []) await handler(event);
     return event;
   }
-  const scope = { location: { href: 'dashboard.html', search: '' } };
+  const windowListeners = new Map();
+  const scope = { location: { href: 'dashboard.html', search: '' },
+    addEventListener(type, listener) { windowListeners.set(type, listener); } };
   const context = vm.createContext({ document, window: scope, $, URLSearchParams, encodeURIComponent,
     console: { error() {}, info() {} },
     show: (node, on) => { if (node) node.hidden = !on; },
@@ -62,12 +64,22 @@ function fixture(reply = async () => ({})) {
     getInvoke: async () => async (command, args) => { writes.push({ command, args: JSON.parse(JSON.stringify(args)) }); },
   });
   vm.runInContext(`${source}\nglobalThis.hooks = { render, renderUnreviewed, loadDashboard };`, context);
-  return { $, page, scope, hooks: context.hooks, requests, writes, emit };
+  return { $, page, scope, hooks: context.hooks, requests, writes, emit,
+    fire: (type, detail) => windowListeners.get(type)?.({ detail }) };
 }
 
 const pendingMatch = { gameId: 42, championName: 'Qiyana', enemyChampion: 'Kindred', win: false,
   gameMode: 'Ranked solo/duo', datePlayed: 'Sep 13, 12:04', duration: '27:47', kdaText: '3/9/8', hasReview: false };
 const snapshot = (items, count = items.length, intent = {}) => ({ unreviewed: { count, allReviewed: count === 0, items }, intent });
+
+test('a remake verdict change refetches Home unless an inline editor is open', async () => {
+  const f = fixture(async () => snapshot([pendingMatch]));
+  await f.fire('revu:remake-updated', { gameId: 42, isRemake: true });
+  assert.equal(f.requests.length, 1);
+  f.scope.__revuActiveWork = true;
+  await f.fire('revu:remake-updated', { gameId: 42, isRemake: false });
+  assert.equal(f.requests.length, 1, 'an open Start/End Block editor is never reloaded');
+});
 
 test('pending review uses the authoritative queue count even when returned matches are capped', () => {
   const f = fixture();

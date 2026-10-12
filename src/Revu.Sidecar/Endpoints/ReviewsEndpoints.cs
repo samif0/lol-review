@@ -126,6 +126,23 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
+        // POST /api/review/remake  { gameId, isRemake } — 3.14.1: the player's own verdict.
+        // A remake stays saved and reviewable but never counts (rules, stats, review
+        // queue). Source 'user' outranks every automatic source, so both directions are
+        // sticky: unticking keeps a mislabeled game counted. A flip refreshes open pages
+        // and clears a hard stop that only held because the remake was counted.
+        app.MapPost("/api/review/remake", async (RemakeToggleBody body, WriteServices w, SidecarEventHub hub,
+            HardStopEnforcer hardStop, ILogger<Program> log) =>
+        {
+            if (body is null || body.GameId <= 0)
+                return Results.BadRequest(new { error = "gameId required" });
+            var applied = await RemakeNotifications.SetByPlayerAsync(
+                body.GameId, body.IsRemake, w.Games, w.BackupGuard.EnsureBackedUpAsync, hub, hardStop, log);
+            if (applied is null)
+                return Results.NotFound(new { error = "game not found" });
+            return Results.Json(new { gameId = body.GameId, isRemake = applied.Value }, jsonOptions);
+        });
+
         // POST /api/review/delete  { gameId } — DELETE a saved review, returning the game
         // to the unreviewed queue. Clears the review text + session_log review markers +
         // concept tags + matchup note + draft, but PRESERVES objective progress and the

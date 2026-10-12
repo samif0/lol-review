@@ -69,12 +69,15 @@ public sealed class GameService : IGameService
             return null;
         }
 
-        // 2. Skip remakes (games under 5 minutes)
-        if (stats.GameDuration < GameConstants.RemakeThresholdS)
+        // 2. Remakes (League early surrender) are saved and reviewable but never counted.
+        //    An unflagged game under RemakeThresholdS is still skipped as before (invalid or short).
+        var isRemake = stats.EndedInEarlySurrender == true;
+        if (!isRemake && stats.GameDuration < GameConstants.RemakeThresholdS)
         {
-            _logger.LogInformation("Remake detected ({Duration}s) -- skipping", stats.GameDuration);
+            _logger.LogInformation("Short unflagged game ({Duration}s) -- skipping", stats.GameDuration);
             return null;
         }
+        stats.IsRemake = isRemake;
 
         // 3. Reconcile the captured account id to the SIGNED-IN Riot PUUID before
         // saving. The LCU end-of-game localPlayer.puuid is the local (logged-in)
@@ -102,29 +105,49 @@ public sealed class GameService : IGameService
         // 4. Save game via IGameRepository
         await _games.SaveAsync(stats).ConfigureAwait(false);
 
-        // 5. Check user-defined rule violations, then log the session
-        var ruleBroken = false;
-        try
+        // 4b. Record the capture's remake verdict (true or false) BEFORE the rule check, so
+        // today's session reads already exclude this game. Never fails the save.
+        if (stats.EndedInEarlySurrender is bool flag)
         {
-            var todaysGames = await _sessionLog.GetTodayAsync().ConfigureAwait(false);
-            var gameChecks = todaysGames
-                .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
-                .ToList();
-            // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
-            // be evaluated retroactively from the post-game review rating.
-            var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null)
-                .ConfigureAwait(false);
-            ruleBroken = violations.Any(v => v.Violated);
-
-            // Sticky clear: a prior user clear for this game wins over re-eval.
-            if (ruleBroken && await _sessionLog.IsRuleBreakClearedAsync(stats.GameId).ConfigureAwait(false))
+            try
             {
-                ruleBroken = false;
+                await _games.SetRemakeVerdictAsync(stats.GameId, flag, stats.CausedEarlySurrender,
+                    stats.EarlySurrenderSource ?? RemakeSql.SourceEog).ConfigureAwait(false);
+                if (flag) _logger.LogInformation("Game {GameId} ended in a remake: saved, not counted", stats.GameId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not record the remake verdict for game {GameId}", stats.GameId);
             }
         }
-        catch (Exception ex)
+
+        // 5. Check user-defined rule violations, then log the session. A remake never
+        // breaks a rule (it is not counted); its mood and intention are still logged.
+        var ruleBroken = false;
+        if (!isRemake)
         {
-            _logger.LogWarning(ex, "Rule violation check failed for game {GameId} — defaulting to no violation", stats.GameId);
+            try
+            {
+                var todaysGames = await _sessionLog.GetTodayAsync().ConfigureAwait(false);
+                var gameChecks = todaysGames
+                    .Select(e => new RuleCheckGame(e.GameId ?? 0, e.Win, e.ChampionName, e.Timestamp))
+                    .ToList();
+                // Pass null for mentalRating: min_mental is a pre-queue gate and cannot
+                // be evaluated retroactively from the post-game review rating.
+                var violations = await _rules.CheckViolationsAsync(gameChecks, mentalRating: null)
+                    .ConfigureAwait(false);
+                ruleBroken = violations.Any(v => v.Violated);
+
+                // Sticky clear: a prior user clear for this game wins over re-eval.
+                if (ruleBroken && await _sessionLog.IsRuleBreakClearedAsync(stats.GameId).ConfigureAwait(false))
+                {
+                    ruleBroken = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Rule violation check failed for game {GameId} — defaulting to no violation", stats.GameId);
+            }
         }
 
         await _sessionLog.LogGameAsync(

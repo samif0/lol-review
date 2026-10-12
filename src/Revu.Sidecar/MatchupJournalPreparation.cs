@@ -59,6 +59,9 @@ public static class MatchupJournalPreparation
         if (!settings.AutoMatchupNotesEnabled) return null;
         var resolved = await ResolveGameAsync(gameId, games, matchups, config.PrimaryRole);
         if (resolved.Game is null) return null;
+        // 3.14.1: a remake gets no automatic note (noise); the manual paths stay open,
+        // because a player may still want to review the lane.
+        if (resolved.Game.IsRemake) return null;
         if (resolved.Existing is { } existing) return new(existing.Id, false, resolved.Game, resolved.Prefill);
         if (resolved.Prefill is not { } prefill || !MatchupFromLastGame.ShouldCreateOutright(resolved.Game, prefill)) return null;
         var (id, created) = await CreateLinkedAsync(

@@ -81,7 +81,7 @@ public sealed partial class GameRepository
         using var conn = _factory.CreateConnection();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM games WHERE game_id = @gameId";
+        cmd.CommandText = $"SELECT games.*, {RemakeSql.IsRemakeColumn("games.game_id")} FROM games WHERE game_id = @gameId";
         cmd.Parameters.AddWithValue("@gameId", gameId);
 
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -101,7 +101,7 @@ public sealed partial class GameRepository
         var whereClauses = new List<string> { "1=1" };
         ApplyRecentFilters(cmd, whereClauses, champion, win);
         cmd.CommandText =
-            $"SELECT * FROM games WHERE {string.Join(" AND ", whereClauses)} {CasualFilter} " +
+            $"SELECT games.*, {RemakeSql.IsRemakeColumn("games.game_id")} FROM games WHERE {string.Join(" AND ", whereClauses)} {CasualFilter} " +
             "ORDER BY timestamp DESC LIMIT @limit OFFSET @offset";
         cmd.Parameters.AddWithValue("@limit", limit);
         cmd.Parameters.AddWithValue("@offset", offset);
@@ -181,7 +181,8 @@ public sealed partial class GameRepository
         var todayTimestamp = new DateTimeOffset(todayStart).ToUnixTimeSeconds();
 
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT * FROM games WHERE timestamp >= @ts {CasualFilter} ORDER BY timestamp ASC";
+        // 3.14.1: today's list keeps remakes (labelled); rule input reads GetTodaysRuleGamesAsync.
+        cmd.CommandText = $"SELECT games.*, {RemakeSql.IsRemakeColumn("games.game_id")} FROM games WHERE timestamp >= @ts {CasualFilter} ORDER BY timestamp ASC";
         cmd.Parameters.AddWithValue("@ts", todayTimestamp);
 
         return await ReadAllGamesAsync(cmd);
@@ -244,6 +245,7 @@ public sealed partial class GameRepository
                  OR {ReviewedByCoachBlockTerm}
               )
               {CasualFilter}
+              AND {RemakeSql.NotRemake("games.game_id")}
             ORDER BY timestamp DESC";
         cmd.Parameters.AddWithValue("@cutoff", cutoff);
 

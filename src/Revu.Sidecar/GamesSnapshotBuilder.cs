@@ -83,6 +83,8 @@ public sealed class GamesSnapshotBuilder
     private const string GoldHex = "#f3c794";
     private const string WinHex = "#8ee7ba";
     private const string LossHex = "#f3a3a8";
+    // 3.14.1: muted result colour for a remake (neither a win nor a loss).
+    private const string NeutralHex = "#9fb0c3";
 
     private readonly IGameHistoryQuery _gameHistory;
     private readonly IVodRepository _vodRepo;
@@ -350,7 +352,7 @@ public sealed class GamesSnapshotBuilder
             EnemyChampion: game.EnemyLaner,
             GameRole: gameRole,
             Win: game.Win,
-            WinLossText: game.Win ? "W" : "L",
+            WinLossText: GameResultLabel.Short(game.Win, game.IsRemake),
             Kills: game.Kills,
             Deaths: game.Deaths,
             Assists: game.Assists,
@@ -364,8 +366,8 @@ public sealed class GamesSnapshotBuilder
             Duration: duration,
             DatePlayed: date,
             GameMode: game.DisplayGameMode,
-            WinLossColorHex: game.Win ? WinHex : LossHex,
-            BorderColorHex: game.Win ? WinHex : LossHex,
+            WinLossColorHex: game.IsRemake ? NeutralHex : game.Win ? WinHex : LossHex,
+            BorderColorHex: game.IsRemake ? NeutralHex : game.Win ? WinHex : LossHex,
             HasReview: HasPersistedReview(game),
             DamageText: FormatNumber(game.TotalDamageToChampions),
             StatsLine: statsLine,
@@ -382,7 +384,8 @@ public sealed class GamesSnapshotBuilder
             PrimaryAction: HasPersistedReview(game) ? "Open" : "Review",
             // Stable token the desktop shell maps to navigation. Row-body click =
             // always open the Review page (mirrors GamesViewModel.OpenReview).
-            Action: "open_review");
+            Action: "open_review",
+            IsRemake: game.IsRemake);
     }
 
     /// <summary>Mirror of GameDisplayItem.MetaLine: "GAMEMODE  ·  DATE  ·  DURATION".</summary>

@@ -69,7 +69,8 @@ function fixture(reply = async () => ({ items: [] })) {
   vm.runInContext(`${source}\n globalThis.hooks = { buildRow, loadView, loadMore,
     get view() { return _view; }, get rows() { return _rows; } };`, context);
   return { $, hooks: context.hooks, scope, requests, segments, emit,
-    linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }) };
+    linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
+    fire: (type, detail) => windowListeners.get(type)?.({ detail }) };
 }
 
 test('match rows format structured metadata and KDA and show concise confirmed statuses', () => {
@@ -112,6 +113,33 @@ test('recording notes and meaningful objective state remain distinct from writte
   assert.equal(unknown.dataset.result, 'unknown'); assert.equal(unknown.querySelector('.grow-kda-n').textContent, '1 / 0 / 9');
   assert.equal(unknown.querySelector('.grow-kda-r').textContent, '10 KDA');
   assert.equal(unknown.querySelector('.grow-meta').textContent, 'CS 150 · 12k dmg');
+});
+
+test('a remake reads Remake (not L), carries its token, and leaves the strip samples', async () => {
+  const f = fixture(async () => ({ view: 'today', items: [
+    { gameId: 1, win: true, hasReview: true },
+    { gameId: 2, win: false, winLossText: 'L', isRemake: true, hasReview: false },
+    { gameId: 3, win: false, hasReview: false },
+  ] }));
+  const row = f.hooks.buildRow({ gameId: 2, win: false, winLossText: 'L', isRemake: true, hasReview: false });
+  const wl = row.querySelector('.grow-wl');
+  assert.equal(wl.textContent, 'Remake');
+  assert.equal(wl.getAttribute('aria-label'), 'Remake');
+  assert.match(wl.title, /Does not count toward your rules, stats or review queue/);
+  assert.equal(row.dataset.result, 'remake'); assert.equal(wl.dataset.result, 'remake');
+  const tokens = row.querySelector('.grow-tokens').children;
+  assert.deepEqual(tokens.map(t => t.textContent), ['Remake', 'To review']);
+  assert.equal(tokens[0].dataset.status, 'remake');
+  assert.doesNotMatch(wl.title + tokens.map(t => t.title || '').join(''), /—/, 'no em dashes in remake copy');
+
+  await f.hooks.loadView('today');
+  const cells = f.$('strip').children.map(cell => [cell.querySelector('.k').textContent, cell.querySelector('.v').textContent]);
+  assert.deepEqual(cells.slice(0, 3), [['Total', '2'], ['Win Rate', '50%'], ['Reviewed', '1/2']]);
+  assert.equal(f.$('games-list').children.length, 3, 'the remake is still listed and reviewable');
+
+  await f.fire('revu:remake-updated', { gameId: 2, isRemake: false });
+  assert.equal(f.requests.length, 2, 'a verdict change refetches the current view');
+  assert.deepEqual(f.requests.at(-1).args, { view: 'today', page: 0 });
 });
 
 test('untrusted row strings remain plain text and cannot invent state or alter action destinations', async () => {

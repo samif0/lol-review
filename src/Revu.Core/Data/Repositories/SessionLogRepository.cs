@@ -25,8 +25,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
     private const string VisibleGamesJoin =
         "LEFT JOIN games vg ON vg.game_id = sl.game_id";
 
-    private const string VisibleGamesFilter =
-        "COALESCE(vg.is_hidden, 0) = 0";
+    // 3.14.1: a remake's session row never counts either (RemakeSql.NotRemake); a
+    // manual row (game_id NULL) still passes.
+    private static readonly string VisibleGamesFilter =
+        $"COALESCE(vg.is_hidden, 0) = 0 AND {RemakeSql.NotRemake("sl.game_id")}";
 
     // schema v9: lenient account scope. Each aggregate that LEFT JOINs games as
     // vg can drop a genuinely-foreign future account's rows while KEEPING the

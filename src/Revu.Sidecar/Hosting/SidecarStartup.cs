@@ -201,6 +201,36 @@ public static class SidecarStartup
                     programLogger, registrations: app.Services.GetRequiredService<RecordingRegistrationService>());
             });
 
+            // 3.14.1: a matchup lookup (startup heal, post-game pass, backlog drain, Settings
+            // backfill) can flip a remake verdict from the same Match-V5 document. Announce
+            // it like the remake check does, so open pages refresh and a lock it caused clears.
+            var remakeWrite = app.Services.GetRequiredService<WriteServices>();
+            remakeWrite.EnemyLanerBackfill.RemakeChanged += change =>
+                backgroundWork.TryRun("remake verdict notice", () => RemakeNotifications.PublishChangedAsync(
+                    app.Services.GetRequiredService<SidecarEventHub>(),
+                    app.Services.GetRequiredService<HardStopEnforcer>(),
+                    change.GameId, change.IsRemake, programLogger));
+
+            // 3.14.1: mark saved remakes (League early surrender) from the client's match
+            // history or Match-V5, so a remake that was counted stops counting and a lock
+            // it caused clears. Bounded, behind the backup guard, tracked background work.
+            backgroundWork.TryRun("startup remake check", async () =>
+            {
+                try
+                {
+                    await RemakeNotifications.RunStartupCheckAsync(
+                        app.Services.GetRequiredService<WriteServices>(),
+                        app.Services.GetRequiredService<SidecarEventHub>(),
+                        app.Services.GetRequiredService<HardStopEnforcer>(),
+                        backgroundWork.Stopping, programLogger);
+                }
+                catch (OperationCanceledException) when (backgroundWork.Stopping.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    programLogger.LogDebug(ex, "Startup remake check skipped (non-fatal)");
+                }
+            });
+
             // v3.10.1: confirm or fill the matchup of games that missed their post-game
             // pass — the app closed within five minutes of a game, or the game was played
             // on a build without the pass — so nobody has to press Backfill in Settings.

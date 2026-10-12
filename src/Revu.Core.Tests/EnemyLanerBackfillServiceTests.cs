@@ -128,4 +128,45 @@ public sealed class EnemyLanerBackfillServiceTests
         Assert.Equal(EnemyLanerBackfillOutcome.Skipped, await service.BackfillGameAsync(gameId));
         Assert.Equal("", (await scope.Games.GetAsync(gameId))!.EnemyLaner);
     }
+
+    [Fact]
+    public async Task RemakeDocument_RecordsTheVerdictEvenThoughTheMatchupIsSkipped()
+    {
+        // 3.14.1: the document is already fetched, so Riot's early-surrender flag is
+        // recorded (matchv5) independent of teamPosition, which a remake leaves blank.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var gameId = await SeedRecoveredBotGameAsync(scope, 9105);
+        var (service, client) = Build(scope);
+        client.Match = RemakeTestKit.Fixture("matchv5_remake.json");
+        var announced = new List<RemakeChange>();
+        service.RemakeChanged += announced.Add;
+
+        Assert.Equal(EnemyLanerBackfillOutcome.Skipped, await service.BackfillGameAsync(gameId));
+        // The flip is announced once (the host publishes remakeUpdated); a repeat is not.
+        Assert.Equal(new RemakeChange(gameId, true), Assert.Single(announced));
+        await service.BackfillGameAsync(gameId);
+        Assert.Single(announced);
+
+        var verdict = await scope.Games.GetRemakeVerdictAsync(gameId);
+        Assert.NotNull(verdict);
+        Assert.True(verdict!.IsRemake);
+        Assert.Equal("matchv5", verdict.Source);
+        Assert.True((await scope.Games.GetAsync(gameId))!.IsRemake);
+    }
+
+    [Fact]
+    public async Task RemakeDocument_WithoutThePlayer_RecordsNothing()
+    {
+        // A document fetched by id that does not include the player is someone else's.
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var gameId = await SeedRecoveredBotGameAsync(scope, 9106);
+        var (service, client) = Build(scope, puuid: "not-in-match");
+        client.Match = RemakeTestKit.Fixture("matchv5_remake.json");
+
+        await service.BackfillGameAsync(gameId);
+
+        Assert.Null(await scope.Games.GetRemakeVerdictAsync(gameId));
+    }
 }

@@ -38,7 +38,8 @@ public sealed class GameLifecycleWorkflowService : IGameLifecycleWorkflowService
             return new ProcessGameEndResult(null, IsSkipped: true, IsRecovered: isRecovered);
         }
 
-        if (request.PreGamePracticedObjectiveIds is { Count: > 0 })
+        // 3.14.1: a remake never advances a practice drill or creates criteria noise.
+        if (request.PreGamePracticedObjectiveIds is { Count: > 0 } && !request.Stats.IsRemake)
         {
             foreach (var objectiveId in request.PreGamePracticedObjectiveIds)
             {

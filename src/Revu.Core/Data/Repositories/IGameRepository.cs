@@ -210,6 +210,13 @@ public interface IGameWriter
 
     /// <summary>v3.5 (schema v13): mark a game processed by the pattern-evidence pass.</summary>
     Task UpdatePatternEvidenceVersionAsync(long gameId, int version);
+
+    /// <summary>
+    /// 3.14.1: record a remake verdict (game_remakes). Applies only when the source ranks
+    /// at least as high as the stored one (user > matchv5 > eog = lcu), so the player's own
+    /// verdict is sticky. Changed is true only when the effective is_remake flipped.
+    /// </summary>
+    Task<RemakeWriteResult> SetRemakeVerdictAsync(long gameId, bool isRemake, bool causedBySelf, string source);
 }
 
 /// <summary>Read model for game history and review queues.</summary>
@@ -270,6 +277,18 @@ public interface IGameHistoryQuery
 
     /// <summary>Get the focus_next and mistakes from the most recent reviewed game.</summary>
     Task<ReviewFocus?> GetLastReviewFocusAsync(string? currentPuuid = null);
+
+    /// <summary>3.14.1: the stored remake verdict, or null when none was recorded.</summary>
+    Task<RemakeVerdict?> GetRemakeVerdictAsync(long gameId);
+
+    /// <summary>3.14.1: visible Ranked Solo/Duo games with a known duration shorter than
+    /// <paramref name="maxDurationS"/> and no verdict yet, newest first (the startup remake
+    /// check's work list). Manual entries are never looked up: their id is a timestamp.</summary>
+    Task<List<RemakeCandidate>> GetRemakeCandidatesAsync(int maxDurationS, int limit);
+
+    /// <summary>3.14.1: today's games as rule input (the <see cref="GetTodaysGamesAsync"/>
+    /// predicate minus remakes). Every live rule check reads this.</summary>
+    Task<List<RuleCheckGame>> GetTodaysRuleGamesAsync();
 }
 
 /// <summary>Read model for aggregate analytics and trend views.</summary>

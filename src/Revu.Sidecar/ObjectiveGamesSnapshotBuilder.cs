@@ -2,6 +2,7 @@
 
 using Microsoft.Extensions.Logging;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Services;
 
 namespace Revu.Sidecar;
 
@@ -116,8 +117,8 @@ public sealed class ObjectiveGamesSnapshotBuilder
                     GameId: g.GameId,
                     ChampionName: g.ChampionName ?? "",
                     Win: g.Win,
-                    ResultText: g.Win ? "W" : "L",
-                    ResultColorHex: g.Win ? WinHex : LossHex,
+                    ResultText: GameResultLabel.Short(g.Win, g.IsRemake),
+                    ResultColorHex: g.IsRemake ? NeutralHex : g.Win ? WinHex : LossHex,
                     DateText: FormatDate(g.Timestamp),
                     KdaText: $"{g.Kills:F0}/{g.Deaths:F0}/{g.Assists:F0}",
                     Practiced: g.Practiced,

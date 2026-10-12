@@ -141,7 +141,12 @@ public sealed record ReviewHeaderDto(
     IReadOnlyList<Revu.Core.Services.LobbyMatchupRow> LobbyMatchups,
     // v3.11: applicable timeline corrections on this game (active, absorbed, orphaned).
     // Drives the header's "Timeline fixes: N" badge; 0 when the ledger is unavailable.
-    int TimelineFixes = 0);
+    int TimelineFixes = 0,
+    // 3.14.1: a remake (League early surrender): ResultText "REMAKE", WinLossText "Remake".
+    // Win keeps the stored result because the review save sends it back. RemakeSource is
+    // the verdict's source (eog | lcu | matchv5 | user, '' when none) for the toggle.
+    bool IsRemake = false,
+    string RemakeSource = "");
 
 /// <summary>
 /// One cell of the review stat strip. <see cref="Value"/> is the big number,

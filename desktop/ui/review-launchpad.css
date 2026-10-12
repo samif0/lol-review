@@ -17,6 +17,13 @@ html.framed body.review-launchpad-page .shell{padding:24px 32px 48px}
 .review-launchpad-page .rv-resline{gap:8px 14px;margin-top:10px}
 .review-launchpad-page .rv-resline>span{font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
 .review-launchpad-page .rv-resline>.rv-res{font-weight:500}
+/* 3.14.1: the player's own remake verdict (a remake is reviewable but never counted). */
+.review-launchpad-page .rv-remake-line{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:8px}
+.review-launchpad-page .rv-remake-line[hidden]{display:none}
+.review-launchpad-page .rv-remake{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font:400 13px/1.5 var(--fb);color:var(--muted)}
+.review-launchpad-page .rv-remake input{margin:0;accent-color:var(--accent)}
+.review-launchpad-page .rv-remake-status{font:400 12px/1.5 var(--fb);color:var(--muted)}
+.review-launchpad-page .rv-remake-status.err{color:#ffaaaa}
 .review-launchpad-page .rv-kda{font:500 23px/1.4 var(--fb);letter-spacing:0;color:var(--text);font-variant-numeric:tabular-nums}
 .review-launchpad-page .rv-kdar{font:400 12px/1.5 var(--fb);letter-spacing:0;margin-top:3px;color:var(--muted)}
 .review-launchpad-page .rv-reviewed{display:inline-block;margin-top:9px;font:400 12px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}

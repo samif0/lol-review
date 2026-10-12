@@ -91,4 +91,7 @@ public sealed record GamesRowDto(
     // Inline button label: "Watch VOD" / "Open" / "Review" (VOD wins, v2.17.8).
     string PrimaryAction,
     // Row-body click token the desktop shell maps to navigation. "open_review".
-    string Action);
+    string Action,
+    // 3.14.1: a remake (League early surrender). WinLossText reads "Remake"; the row is
+    // still reviewable but never counted (rules, stats, review queue).
+    bool IsRemake = false);
