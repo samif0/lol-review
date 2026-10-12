@@ -68,28 +68,94 @@ public sealed partial class GameRepository
 
         var after = await ReadIsRemakeAsync(conn, tx, gameId).ConfigureAwait(false);
         var changed = (before ?? false) != (after ?? false);
-        if (changed) await RebaseObjectiveGameCountsAsync(conn, tx, gameId).ConfigureAwait(false);
+        if (changed)
+        {
+            await RebaseObjectiveGameCountsAsync(conn, tx, gameId).ConfigureAwait(false);
+            // A hidden game's practice points already left with the hide.
+            if (await ReadIsHiddenAsync(conn, tx, gameId).ConfigureAwait(false) == false)
+            {
+                await ShiftObjectivePracticePointsAsync(conn, tx, gameId, nowCounted: after != true).ConfigureAwait(false);
+            }
+        }
         return new RemakeWriteResult(Applied: applied > 0, Changed: changed);
     }
 
+    // The counted-games game_count (same count as the startup recompute).
+    private static readonly string ObjectiveGameCountSql = $"""
+        UPDATE objectives SET game_count = COALESCE((
+            SELECT COUNT(*) FROM game_objectives
+            JOIN games g ON g.game_id = game_objectives.game_id
+            WHERE game_objectives.objective_id = objectives.id
+              AND {CountedGamesSql.Counted("g")}
+        ), 0)
+        """;
+
     // A verdict that flips after the review was saved re-bases game_count for this game's
-    // objectives (same count as the startup recompute), so a remake stops counting at once.
+    // objectives, so a remake stops counting at once. Hide and restore re-base the same way.
     private static async Task RebaseObjectiveGameCountsAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = $"""
-            UPDATE objectives SET game_count = COALESCE((
-                SELECT COUNT(*) FROM game_objectives
-                JOIN games g ON g.game_id = game_objectives.game_id
-                WHERE game_objectives.objective_id = objectives.id
-                  AND COALESCE(g.is_hidden, 0) = 0
-                  AND {RemakeSql.NotRemake("g.game_id")}
-            ), 0)
-            WHERE id IN (SELECT objective_id FROM game_objectives WHERE game_id = @id)
-            """;
+        cmd.CommandText = $"{ObjectiveGameCountSql} WHERE id IN (SELECT objective_id FROM game_objectives WHERE game_id = @id)";
         cmd.Parameters.AddWithValue("@id", gameId);
         await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    // Game delete: the game's practice rows are already gone, so re-base by objective id.
+    private static async Task RebaseObjectiveGameCountsAsync(SqliteConnection conn, SqliteTransaction tx, IReadOnlyCollection<long> objectiveIds)
+    {
+        if (objectiveIds.Count == 0) return;
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        var names = objectiveIds.Select((id, i) =>
+        {
+            cmd.Parameters.AddWithValue($"@o{i}", id);
+            return $"@o{i}";
+        }).ToList();
+        cmd.CommandText = $"{ObjectiveGameCountSql} WHERE id IN ({string.Join(", ", names)})";
+        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    // Practice points (ObjectivesRepository.PracticePoints per practiced objective) count
+    // only for a visible, non-remake game. The score also holds clip points and older
+    // points that cannot be recomputed, so a game that starts or stops counting moves
+    // exactly its own points instead of the score being recomputed from scratch.
+    private static async Task ShiftObjectivePracticePointsAsync(SqliteConnection conn, SqliteTransaction tx, long gameId, bool nowCounted)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            UPDATE objectives SET score = MAX(0, COALESCE(score, 0) + @delta)
+            WHERE id IN (SELECT objective_id FROM game_objectives
+                         WHERE game_id = @id AND COALESCE(practiced, 0) != 0)
+            """;
+        cmd.Parameters.AddWithValue("@delta", nowCounted ? ObjectivesRepository.PracticePoints : -ObjectivesRepository.PracticePoints);
+        cmd.Parameters.AddWithValue("@id", gameId);
+        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
+    // Null when the game has no row.
+    private static async Task<bool?> ReadIsHiddenAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT COALESCE(is_hidden, 0) FROM games WHERE game_id = @id";
+        cmd.Parameters.AddWithValue("@id", gameId);
+        var value = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+        return value is null || value == DBNull.Value ? null : Convert.ToInt64(value) != 0;
+    }
+
+    // Remake reads for hide/delete tolerate a database without game_remakes yet.
+    private static async Task<bool> ReadIsRemakeOrFalseAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
+    {
+        try
+        {
+            return await ReadIsRemakeAsync(conn, tx, gameId).ConfigureAwait(false) == true;
+        }
+        catch (SqliteException ex) when (RemakeSql.IsMissingTable(ex))
+        {
+            return false;
+        }
     }
 
     private static async Task<bool?> ReadIsRemakeAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)

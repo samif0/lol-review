@@ -984,7 +984,11 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         var conn = lease.Connection;
         var tx = lease.Transaction!;
 
-        var newScoreContribution = practiced ? 2 : 0;
+        // Practice points and the game count come only from a counted game: visible and
+        // not a remake (3.14.1). A game that starts or stops counting later moves its
+        // points with it (GameRepository: remake verdict, hide/restore, delete).
+        var counted = await IsCountedAsync(conn, tx, gameId);
+        var newScoreContribution = practiced && counted ? PracticePoints : 0;
         var existingPracticed = default(bool?);
 
         using (var existingCmd = conn.CreateCommand())
@@ -1027,11 +1031,11 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await upsertCmd.ExecuteNonQueryAsync();
         }
 
-        var previousScoreContribution = existingPracticed == true ? 2 : 0;
+        var previousScoreContribution = existingPracticed == true && counted ? PracticePoints : 0;
         var scoreDelta = newScoreContribution - previousScoreContribution;
         // 3.14.1: a remake never adds to game_count (so it cannot complete a mini either).
         // A verdict that arrives later re-bases the count (GameRepository.Remakes).
-        var gameCountDelta = existingPracticed.HasValue || await IsRemakeAsync(conn, tx, gameId) ? 0 : 1;
+        var gameCountDelta = existingPracticed.HasValue || !counted ? 0 : 1;
 
         if (scoreDelta != 0 || gameCountDelta != 0)
         {
@@ -1074,19 +1078,25 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         lease.Complete();
     }
 
-    private static async Task<bool> IsRemakeAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
+    /// <summary>Points one practiced, counted game adds to its objective's score.</summary>
+    internal const int PracticePoints = 2;
+
+    // Visible and not a remake. A game_id with no games row counts (as it always has).
+    private static async Task<bool> IsCountedAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
     {
+        const string Visible = "COALESCE((SELECT is_hidden FROM games WHERE game_id = @gameId), 0) = 0";
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.Parameters.AddWithValue("@gameId", gameId);
         try
         {
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = $"SELECT CASE WHEN {RemakeSql.NotRemake("@gameId")} THEN 0 ELSE 1 END";
-            cmd.Parameters.AddWithValue("@gameId", gameId);
+            cmd.CommandText = $"SELECT CASE WHEN {Visible} AND {RemakeSql.NotRemake("@gameId")} THEN 1 ELSE 0 END";
             return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0) != 0;
         }
         catch (SqliteException ex) when (RemakeSql.IsMissingTable(ex))
         {
-            return false;
+            cmd.CommandText = $"SELECT CASE WHEN {Visible} THEN 1 ELSE 0 END";
+            return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0) != 0;
         }
     }
 

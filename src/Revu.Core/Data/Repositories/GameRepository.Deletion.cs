@@ -10,13 +10,29 @@ public sealed partial class GameRepository
     public async Task SetHiddenAsync(long gameId, bool hidden)
     {
         using var conn = _factory.CreateConnection();
+        using var tx = conn.BeginTransaction(deferred: false);
+        var wasHidden = await ReadIsHiddenAsync(conn, tx, gameId);
 
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE games SET is_hidden = @hidden WHERE game_id = @gameId";
-        cmd.Parameters.AddWithValue("@hidden", hidden ? 1 : 0);
-        cmd.Parameters.AddWithValue("@gameId", gameId);
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE games SET is_hidden = @hidden WHERE game_id = @gameId";
+            cmd.Parameters.AddWithValue("@hidden", hidden ? 1 : 0);
+            cmd.Parameters.AddWithValue("@gameId", gameId);
+            await cmd.ExecuteNonQueryAsync();
+        }
 
-        await cmd.ExecuteNonQueryAsync();
+        // A hidden game stops counting and a restored one counts again: its objectives'
+        // game counts re-base, and its practice points move with it (a remake had none).
+        if (wasHidden is bool before && before != hidden)
+        {
+            await RebaseObjectiveGameCountsAsync(conn, tx, gameId);
+            if (!await ReadIsRemakeOrFalseAsync(conn, tx, gameId))
+            {
+                await ShiftObjectivePracticePointsAsync(conn, tx, gameId, nowCounted: !hidden);
+            }
+        }
+
+        tx.Commit();
     }
 
     /// <inheritdoc />
@@ -97,6 +113,15 @@ public sealed partial class GameRepository
             await CollectNarrationPathsAsync(conn, tx, gameId, gamePk, narrationAudioPaths, narratedClipPaths)
                 .ConfigureAwait(false);
 
+            // A counted game's practice points leave with it; its objectives' game counts
+            // re-base once its practice rows are gone (below).
+            var objectiveIds = await ReadObjectiveIdsAsync(conn, tx, gameId).ConfigureAwait(false);
+            if (await ReadIsHiddenAsync(conn, tx, gameId).ConfigureAwait(false) == false
+                && !await ReadIsRemakeOrFalseAsync(conn, tx, gameId).ConfigureAwait(false))
+            {
+                await ShiftObjectivePracticePointsAsync(conn, tx, gameId, nowCounted: false).ConfigureAwait(false);
+            }
+
             await DeleteByCoachMomentGameAsync(conn, tx, "coach_labels", gameId, gamePk).ConfigureAwait(false);
             await DeleteByCoachMomentGameAsync(conn, tx, "coach_inferences", gameId, gamePk).ConfigureAwait(false);
             await DeleteByGameIdAsync(conn, tx, "coach_moments", gameId, gamePk).ConfigureAwait(false);
@@ -143,6 +168,8 @@ public sealed partial class GameRepository
                 gamesCmd.Parameters.AddWithValue("@gameId", gameId);
                 await gamesCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
+
+            await RebaseObjectiveGameCountsAsync(conn, tx, objectiveIds).ConfigureAwait(false);
 
             tx.Commit();
         }
@@ -230,6 +257,24 @@ public sealed partial class GameRepository
             if (!reader.IsDBNull(0) && reader.GetString(0).Length > 0) audioPaths.Add(reader.GetString(0));
             if (!reader.IsDBNull(1) && reader.GetString(1).Length > 0) narratedPaths.Add(reader.GetString(1));
         }
+    }
+
+    private static async Task<List<long>> ReadObjectiveIdsAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        long gameId)
+    {
+        var ids = new List<long>();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT DISTINCT objective_id FROM game_objectives WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+        while (await reader.ReadAsync().ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(0)) ids.Add(reader.GetInt64(0));
+        }
+        return ids;
     }
 
     private static async Task<long?> GetGamePkAsync(
