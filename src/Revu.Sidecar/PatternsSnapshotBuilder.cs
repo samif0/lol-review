@@ -45,10 +45,11 @@ public sealed class PatternsSnapshotBuilder
             var rawPatterns = await _evidenceRepo.GetPatternCardsAsync(limit: int.MaxValue);
             var reviewedStamps = await _evidenceRepo.GetReviewedPatternsAsync();
             reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
+            var playlists = await LoadMomentsAsync(rawPatterns);
 
             foreach (var pattern in rawPatterns)
             {
-                var rawMoments = await LoadMomentsAsync(pattern);
+                var rawMoments = playlists.GetValueOrDefault(pattern.PatternKey) ?? Array.Empty<PatternMoment>();
 
                 var savedCollection = pattern.Kind == PatternConstants.KindSavedObjectiveEvidence;
                 var isReviewed = !savedCollection && PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments);
@@ -118,19 +119,21 @@ public sealed class PatternsSnapshotBuilder
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Resolve one pattern's ordered (oldest-first) raw moments. Degrades to an
-    /// empty playlist on failure so a single bad pattern never blanks the page.
+    /// Resolve every card's ordered (oldest-first) raw moments in one read (the page used
+    /// to run one query per card). Degrades to empty playlists on failure so a bad moment
+    /// read never blanks the cards themselves.
     /// </summary>
-    private async Task<IReadOnlyList<PatternMoment>> LoadMomentsAsync(ObjectivePatternCard pattern)
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<PatternMoment>>> LoadMomentsAsync(
+        IReadOnlyList<ObjectivePatternCard> patterns)
     {
         try
         {
-            return await _evidenceRepo.GetPatternMomentsAsync(pattern);
+            return await _evidenceRepo.GetPatternMomentsAsync(patterns);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Patterns: moment load failed for {Kind}", pattern.Kind);
-            return Array.Empty<PatternMoment>();
+            _logger.LogWarning(ex, "Patterns: moment load failed for {Count} cards", patterns.Count);
+            return new Dictionary<string, IReadOnlyList<PatternMoment>>();
         }
     }
 

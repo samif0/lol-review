@@ -51,6 +51,14 @@ public interface IEvidenceRepository
     /// </summary>
     Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern);
 
+    /// <summary>
+    /// Every card's playlist in one read, keyed by <see cref="ObjectivePatternCard.PatternKey"/>:
+    /// the same moments and order <see cref="GetPatternMomentsAsync(ObjectivePatternCard)"/>
+    /// returns for each card (empty for kinds that have no playlist).
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<PatternMoment>>> GetPatternMomentsAsync(
+        IReadOnlyCollection<ObjectivePatternCard> patterns);
+
     /// <summary>Mark a pattern reviewed (upsert by pattern key); ticks the dashboard stat.</summary>
     Task MarkPatternReviewedAsync(string patternKey, string kind, int momentCount);
 
