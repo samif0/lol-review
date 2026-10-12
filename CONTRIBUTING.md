@@ -52,6 +52,17 @@ as a GitHub prerelease that installed apps never auto-update to. Because that
 check runs from the tagged commit's own workflow file, a repository ruleset
 that limits who can create `v*` tags is the durable control.
 
+`tag-release.yml` (the tagging path for sessions whose Git credentials get a
+403 on `refs/tags/*`) pushes the tag with `GITHUB_TOKEN`, as
+`github-actions[bot]`, so that ruleset blocks it too. Pick one when you add
+the ruleset:
+
+- Add GitHub Actions to the ruleset's bypass list. Any workflow that holds
+  `contents: write` can then create a `v*` tag, so only do this while you are
+  the only person with write access.
+- Leave Actions out. `tag-release.yml` then fails, and release tags are pushed
+  only from a machine whose own credentials can create them.
+
 The proxy and site are deployed by hand: `npm run deploy` in `proxy/` and
 `node scripts/deploy-site.mjs` from the repository root both run
 `scripts/guard-deploy.mjs` first, which refuses unless the tree is clean,

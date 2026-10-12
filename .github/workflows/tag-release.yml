@@ -5,6 +5,11 @@ name: Create release tag
 # refs/tags/*). Dispatch-only, collaborator-only, and restricted to
 # release-shaped tag names on commits that are already on main.
 #
+# The push runs as github-actions[bot]. A repository ruleset that limits who can
+# create v* tags refuses it unless GitHub Actions is on that ruleset's bypass
+# list; without that bypass this helper cannot tag, and release tags must be
+# pushed from a machine whose own credentials can create them (CONTRIBUTING.md).
+#
 # NOTE: a tag created here does NOT itself trigger release.yml — GitHub never
 # chains workflow runs off the Actions token. After this succeeds, dispatch
 # "Build & Release (Overwolf Electron)" on the new tag (the tag ref is what the Azure
