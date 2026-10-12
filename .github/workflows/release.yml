@@ -369,6 +369,29 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: dotnet tool install -g vpk --version 1.2.0
 
+      # A re-run after a partial failure finds the draft the earlier attempt left,
+      # and vpk refuses to upload over any release with the same tag or name. Delete
+      # such drafts (by id, so a published release is never touched); refuse if the
+      # tag or name is already published.
+      - name: Remove a draft left by an earlier attempt
+        shell: pwsh
+        run: |
+          $releaseName = "Revu v$env:VERSION"
+          $lines = @(gh api --paginate "repos/$env:GH_REPO/releases?per_page=100" --jq '.[] | {id, draft, tag_name, name} | @json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $existing = @($lines | ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.tag_name -ceq $env:TAG -or $_.name -ceq $releaseName })
+          foreach ($release in $existing) {
+            if (-not $release.draft) {
+              throw "Release $($release.tag_name) ('$($release.name)') is already published; refusing to replace it. Release a new version instead."
+            }
+          }
+          foreach ($release in $existing) {
+            Write-Host "Deleting draft release $($release.id) ($($release.tag_name), '$($release.name)') left by an earlier attempt."
+            gh api --method DELETE "repos/$env:GH_REPO/releases/$($release.id)"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       # Upload as a DRAFT: nothing is visible to users or the updater until every
       # asset is attached and checked below.
       #
