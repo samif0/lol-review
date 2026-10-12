@@ -75,6 +75,23 @@ test('Windows logoff and shutdown closes are never redirected to the tray', asyn
   }
 });
 
+test('a cancelled logoff stops redirecting closes and blocking saves after a minute', async t => {
+  let clock = 1_000_000;
+  const { controller, window, calls } = await fixture(t, { saved: { closeToTray: true, startWithWindows: false }, now: () => clock });
+  window.emit('query-session-end', { preventDefault: () => assert.fail('system shutdown blocked') });
+  controller.onClose({ preventDefault: () => assert.fail('logoff close trapped') });
+  await assert.rejects(controller.saveSettings({ closeToTray: true, startWithWindows: false }), /Revu is closing/);
+  clock += 60_001;
+  let prevented = false;
+  controller.onClose({ preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(calls.at(-1), 'hide');
+  await controller.saveSettings({ closeToTray: true, startWithWindows: false });
+  window.emit('session-end', {});
+  clock += 120_000;
+  controller.onClose({ preventDefault: () => assert.fail('a confirmed session end must stay final') });
+});
+
 test('startup registration points at the stable installed stub, persists, and can be removed', async t => {
   const { controller, calls, profile } = await fixture(t);
   await controller.saveSettings({ closeToTray: true, startWithWindows: true });
