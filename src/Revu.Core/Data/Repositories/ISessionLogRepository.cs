@@ -179,12 +179,6 @@ public interface ISessionLogRepository
     /// <summary>Check if a game already has a session_log entry.</summary>
     Task<bool> HasEntryAsync(long gameId);
 
-    /// <summary>
-    /// Remove session_log entries whose date doesn't match the game's actual date.
-    /// Returns the number of deleted rows.
-    /// </summary>
-    Task<int> CleanupMismatchedEntriesAsync();
-
     /// <summary>Get aggregate session stats for today. <paramref name="currentPuuid"/>
     /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
     Task<SessionDayStats> GetStatsTodayAsync(string? currentPuuid = null);

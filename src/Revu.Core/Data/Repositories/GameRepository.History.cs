@@ -8,9 +8,9 @@ public sealed partial class GameRepository
 {
     // v3.3 (schema v12): a game played on a with-coach block day counts as
     // reviewed — the coach reviews those games outside Revu. The date mapping
-    // is the same canonical CASE as ResolveGameSessionDateAsync /
-    // CleanupMismatchedEntriesAsync (date_played first, timestamp fallback) so
-    // the exemption works even for import paths that never wrote a session_log
+    // is the same canonical CASE as ResolveGameSessionDateAsync (date_played
+    // first, timestamp fallback) so the exemption works even for import paths
+    // that never wrote a session_log
     // row. Two legs: (1) a with-coach block on the game's own day; (2) a
     // with-coach block on the PREVIOUS day that was still open past midnight
     // (ended_at NULL = carried over, or closed on/after the game's day) — the

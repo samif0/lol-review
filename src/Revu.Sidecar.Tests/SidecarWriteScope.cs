@@ -125,8 +125,22 @@ public sealed class SidecarWriteScope : IDisposable
 
     public ReviewWorkflowService ReviewWorkflow { get; }
 
-    /// <summary>Create the schema (runs the full migration set, mirroring startup).</summary>
-    public Task InitializeAsync() => Initializer.InitializeAsync();
+    /// <summary>
+    /// Create the schema the way the sidecar does: a fresh WAL database, then the
+    /// additive schema and the idempotent seeds and indexes (SidecarStartup).
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        using (var connection = ConnectionFactory.CreateConnection())
+        using (var wal = connection.CreateCommand())
+        {
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            await wal.ExecuteNonQueryAsync();
+        }
+
+        await Initializer.ApplyAdditiveSchemaAsync();
+        await Initializer.ApplySeedsAndIndexesAsync();
+    }
 
     public SqliteConnection OpenConnection() => ConnectionFactory.CreateConnection();
 

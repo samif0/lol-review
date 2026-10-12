@@ -161,50 +161,13 @@ public sealed class ObjectivesRepositoryPhaseTests
     }
 
     [Fact]
-    public async Task Migration_BackfillsPracticeBoolsFromLegacyPhaseColumn()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        // Seed legacy-shape rows: manually zero out the new bools and set only
-        // the legacy phase column. Mimics a DB created on v2.14 and upgraded.
-        using (var conn = scope.OpenConnection())
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO objectives
-                    (title, skill_area, type, phase, completion_criteria, description,
-                     status, is_priority, score, game_count, created_at,
-                     practice_pregame, practice_ingame, practice_postgame)
-                VALUES ('pre-legacy',  '', 'primary', 'pregame',  '', '', 'active', 0, 0, 0, 0, 0, 0, 0),
-                       ('in-legacy',   '', 'primary', 'ingame',   '', '', 'active', 0, 0, 0, 0, 0, 0, 0),
-                       ('post-legacy', '', 'primary', 'postgame', '', '', 'active', 0, 0, 0, 0, 0, 0, 0)
-                """;
-            await cmd.ExecuteNonQueryAsync();
-        }
-
-        // Re-run initialize — backfill should run and set each bool.
-        await scope.InitializeAsync();
-
-        var all = await scope.Objectives.GetAllAsync();
-        var pre  = all.Single(o => o.Title == "pre-legacy");
-        var ing  = all.Single(o => o.Title == "in-legacy");
-        var post = all.Single(o => o.Title == "post-legacy");
-
-        Assert.True(pre.PracticePre);   Assert.False(pre.PracticeIn);   Assert.False(pre.PracticePost);
-        Assert.False(ing.PracticePre);  Assert.True(ing.PracticeIn);    Assert.False(ing.PracticePost);
-        Assert.False(post.PracticePre); Assert.False(post.PracticeIn);  Assert.True(post.PracticePost);
-    }
-
-    [Fact]
-    public async Task Migration_BackfillIsIdempotent_DoesNotClobberExplicitMultiPhase()
+    public async Task StartupSchema_IsIdempotent_DoesNotClobberExplicitMultiPhase()
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
 
         // User explicitly configures an objective as {pre, post} (multi-phase).
-        // The backfill's WHERE all-zero guard must protect this from being
-        // overwritten by a later re-init.
+        // Re-running the startup schema steps must never overwrite it.
         var id = await scope.Objectives.CreateWithPhasesAsync(
             "multi-phase", "", "primary", "", "",
             practicePre: true, practiceIn: false, practicePost: true);
