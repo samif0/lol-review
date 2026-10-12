@@ -73,7 +73,7 @@ public interface IObjectivesRepository
     /// v2.18 (schema v5): stamp the structured-criterion pass/fail outcome on
     /// an existing game_objectives row.
     /// </summary>
-    Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met);
+    Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met, DbWriteSession? session = null);
 
     /// <summary>
     /// v2.18 (schema v5): (hits, evaluated) criteria outcomes for an objective
@@ -179,7 +179,8 @@ public interface IObjectivesRepository
 
     Task DeleteAsync(long objectiveId);
 
-    Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "");
+    Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "",
+        DbWriteSession? session = null);
 
     Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId);
 

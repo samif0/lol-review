@@ -8,5 +8,5 @@ public interface IReviewDraftRepository
 {
     Task<ReviewDraft?> GetAsync(long gameId);
     Task UpsertAsync(ReviewDraft draft);
-    Task DeleteAsync(long gameId);
+    Task DeleteAsync(long gameId, DbWriteSession? session = null);
 }

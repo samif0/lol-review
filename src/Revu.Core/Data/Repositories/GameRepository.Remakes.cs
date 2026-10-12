@@ -22,30 +22,35 @@ public sealed partial class GameRepository
         """;
 
     /// <inheritdoc />
-    public async Task<RemakeWriteResult> SetRemakeVerdictAsync(long gameId, bool isRemake, bool causedBySelf, string source)
+    public async Task<RemakeWriteResult> SetRemakeVerdictAsync(long gameId, bool isRemake, bool causedBySelf, string source,
+        DbWriteSession? session = null)
     {
         if (gameId <= 0) throw new ArgumentOutOfRangeException(nameof(gameId), "A remake verdict needs a game id.");
         if (!RemakeSql.IsKnownSource(source)) throw new ArgumentException($"Unknown remake source '{source}'.", nameof(source));
         if (isRemake && source == RemakeSql.SourceUnknown)
             throw new ArgumentException("An unanswered lookup cannot mark a remake.", nameof(isRemake));
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var tx = lease.Transaction!;
+        RemakeWriteResult result;
         try
         {
-            return await WriteRemakeVerdictAsync(conn, gameId, isRemake, causedBySelf, source).ConfigureAwait(false);
+            result = await WriteRemakeVerdictAsync(conn, tx, gameId, isRemake, causedBySelf, source).ConfigureAwait(false);
         }
         catch (SqliteException ex) when (RemakeSql.IsMissingTable(ex))
         {
             // A database a downgraded build last opened: create the table, retry once.
-            await RemakeSql.EnsureTableAsync(conn).ConfigureAwait(false);
-            return await WriteRemakeVerdictAsync(conn, gameId, isRemake, causedBySelf, source).ConfigureAwait(false);
+            await RemakeSql.EnsureTableAsync(conn, tx).ConfigureAwait(false);
+            result = await WriteRemakeVerdictAsync(conn, tx, gameId, isRemake, causedBySelf, source).ConfigureAwait(false);
         }
+        lease.Complete();
+        return result;
     }
 
     private static async Task<RemakeWriteResult> WriteRemakeVerdictAsync(
-        SqliteConnection conn, long gameId, bool isRemake, bool causedBySelf, string source)
+        SqliteConnection conn, SqliteTransaction tx, long gameId, bool isRemake, bool causedBySelf, string source)
     {
-        using var tx = conn.BeginTransaction();
         var before = await ReadIsRemakeAsync(conn, tx, gameId).ConfigureAwait(false);
 
         int applied;
@@ -64,7 +69,6 @@ public sealed partial class GameRepository
         var after = await ReadIsRemakeAsync(conn, tx, gameId).ConfigureAwait(false);
         var changed = (before ?? false) != (after ?? false);
         if (changed) await RebaseObjectiveGameCountsAsync(conn, tx, gameId).ConfigureAwait(false);
-        tx.Commit();
         return new RemakeWriteResult(Applied: applied > 0, Changed: changed);
     }
 

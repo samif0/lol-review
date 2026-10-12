@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Text.Json;
+using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,7 @@ namespace Revu.Core.Services;
 
 public sealed class ReviewWorkflowService : IReviewWorkflowService
 {
+    private readonly IDbConnectionFactory _dbFactory;
     private readonly IGameRepository _gameRepository;
     private readonly IConceptTagRepository _conceptTagRepository;
     private readonly IVodRepository _vodRepository;
@@ -22,6 +24,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     private readonly ILogger<ReviewWorkflowService> _logger;
 
     public ReviewWorkflowService(
+        IDbConnectionFactory dbFactory,
         IGameRepository gameRepository,
         IConceptTagRepository conceptTagRepository,
         IVodRepository vodRepository,
@@ -34,6 +37,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
         ICoachSidecarNotifier coachNotifier,
         ILogger<ReviewWorkflowService> logger)
     {
+        _dbFactory = dbFactory;
         _gameRepository = gameRepository;
         _conceptTagRepository = conceptTagRepository;
         _vodRepository = vodRepository;
@@ -181,7 +185,36 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             // migrated/pre-existing data. A non-null value (incl. "") is an explicit
             // edit and overwrites as before.
             var existingGame = await _gameRepository.GetAsync(request.GameId);
+            if (existingGame is null)
+            {
+                return ReviewSaveResult.Fail("This game is no longer saved. Reload and try again.");
+            }
+
             var existingEntry = await _sessionLogRepository.GetEntryAsync(request.GameId);
+
+            // Champion and result are facts of the stored game, never the client's echo
+            // of them: a stale page must not rewrite session_log stats.
+            var championName = existingGame.ChampionName;
+            var win = existingGame.Win;
+
+            // Criteria verdicts need each practiced objective's definition. Read them
+            // before the write session opens (no reads of written tables mid-session).
+            var practicedObjectives = new Dictionary<long, ObjectiveSummary>();
+            foreach (var practice in request.Snapshot.ObjectivePractices.Where(p => p.Practiced))
+            {
+                try
+                {
+                    if (await _objectivesRepository.GetAsync(practice.ObjectiveId) is { } objective)
+                    {
+                        practicedObjectives[practice.ObjectiveId] = objective;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Criteria lookup failed for game {GameId} objective {ObjectiveId}", request.GameId, practice.ObjectiveId);
+                }
+            }
 
             var review = new GameReview
             {
@@ -197,7 +230,6 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 PersonalContribution = request.Snapshot.PersonalContribution?.Trim() ?? existingGame?.PersonalContribution ?? "",
             };
 
-            await _gameRepository.UpdateReviewAsync(request.GameId, review);
             // improvement_note: null → keep the stored note (LogGameAsync writes it
             // unconditionally, so pass the existing value through rather than "").
             var improvementNote = request.Snapshot.ImprovementNote?.Trim()
@@ -211,70 +243,80 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
             var mentalRating = request.Snapshot.MentalRating is >= 1 and <= 10
                 ? request.Snapshot.MentalRating
                 : storedMental is >= 1 and <= 10 ? storedMental : 5;
-            await _sessionLogRepository.LogGameAsync(
-                request.GameId,
-                request.ChampionName,
-                request.Win,
-                mentalRating,
-                improvementNote);
-            // mental_handled: null → don't touch it (skip the UPDATE entirely).
-            if (request.Snapshot.MentalHandled is not null)
+
+            // Every write below runs in ONE transaction: a failure anywhere leaves the
+            // game exactly as it was (never "reviewed" with half its practices or tags).
+            var savedEnemyLaner = existingGame.EnemyLaner ?? "";
+            using (var session = DbWriteSession.Begin(_dbFactory))
             {
-                await _sessionLogRepository.UpdateMentalHandledAsync(request.GameId, request.Snapshot.MentalHandled.Trim());
-            }
-            // v2.18 (schema v5): persist the one-tap focus-adherence answer.
-            // Runs after LogGameAsync so the session_log row is guaranteed.
-            await _sessionLogRepository.UpdateFocusAdherenceAsync(request.GameId, request.Snapshot.FocusAdherence);
-            // Clear any prior skip-marker; if the caller is doing a true
-            // skip-save, they re-stamp is_skipped after this returns.
-            await _sessionLogRepository.ClearSkippedAsync(request.GameId);
-
-            // enemy_laner / matchup_notes: when the form omits BOTH (both null) leave
-            // the stored enemy laner and matchup note untouched — never blank the
-            // enemy or hit the DeleteForGameAsync branch on a debrief-only save. Only
-            // when at least one was explicitly sent do we run the upsert/delete logic.
-            var savedEnemyLaner = existingGame?.EnemyLaner ?? "";
-            if (request.Snapshot.EnemyLaner is not null || request.Snapshot.MatchupNote is not null)
-            {
-                var trimmedEnemy = (request.Snapshot.EnemyLaner ?? existingGame?.EnemyLaner ?? "").Trim();
-                var trimmedMatchupNote = (request.Snapshot.MatchupNote ?? "").Trim();
-                savedEnemyLaner = trimmedEnemy;
-
-                if (!string.Equals(existingGame?.EnemyLaner ?? "", trimmedEnemy, StringComparison.Ordinal))
-                {
-                    await _gameRepository.UpdateEnemyLanerAsync(request.GameId, trimmedEnemy);
-                }
-
-                if (!string.IsNullOrWhiteSpace(trimmedEnemy) || !string.IsNullOrWhiteSpace(trimmedMatchupNote))
-                {
-                    await _matchupNotesRepository.UpsertForGameAsync(request.GameId, request.ChampionName, trimmedEnemy, trimmedMatchupNote);
-                }
-                else
-                {
-                    await _matchupNotesRepository.DeleteForGameAsync(request.GameId);
-                }
-            }
-
-            foreach (var objective in request.Snapshot.ObjectivePractices)
-            {
-                await _objectivesRepository.RecordGameAsync(
+                await _gameRepository.UpdateReviewAsync(request.GameId, review, session);
+                await _sessionLogRepository.LogGameAsync(
                     request.GameId,
-                    objective.ObjectiveId,
-                    objective.Practiced,
-                    objective.ExecutionNote.Trim());
-
-                // v2.18 (schema v5): re-evaluate structured criteria on review
-                // save so post-game-checked objectives get a verdict too.
-                // Only practiced objectives are judged — an unpracticed
-                // criterion outcome would be noise.
-                if (objective.Practiced && existingGame is not null)
+                    championName,
+                    win,
+                    mentalRating,
+                    improvementNote,
+                    session: session);
+                // mental_handled: null → don't touch it (skip the UPDATE entirely).
+                if (request.Snapshot.MentalHandled is not null)
                 {
-                    await EvaluateCriteriaAsync(request.GameId, objective.ObjectiveId, existingGame);
+                    await _sessionLogRepository.UpdateMentalHandledAsync(request.GameId, request.Snapshot.MentalHandled.Trim(), session);
                 }
-            }
+                // v2.18 (schema v5): persist the one-tap focus-adherence answer.
+                // Runs after LogGameAsync so the session_log row is guaranteed.
+                await _sessionLogRepository.UpdateFocusAdherenceAsync(request.GameId, request.Snapshot.FocusAdherence, session);
+                // Clear any prior skip-marker; if the caller is doing a true
+                // skip-save, they re-stamp is_skipped after this returns.
+                await _sessionLogRepository.ClearSkippedAsync(request.GameId, session);
 
-            await _conceptTagRepository.SetForGameAsync(request.GameId, request.Snapshot.SelectedTagIds);
-            await _reviewDraftRepository.DeleteAsync(request.GameId);
+                // enemy_laner / matchup_notes: when the form omits BOTH (both null) leave
+                // the stored enemy laner and matchup note untouched — never blank the
+                // enemy or hit the DeleteForGameAsync branch on a debrief-only save. Only
+                // when at least one was explicitly sent do we run the upsert/delete logic.
+                if (request.Snapshot.EnemyLaner is not null || request.Snapshot.MatchupNote is not null)
+                {
+                    var trimmedEnemy = (request.Snapshot.EnemyLaner ?? existingGame.EnemyLaner ?? "").Trim();
+                    var trimmedMatchupNote = (request.Snapshot.MatchupNote ?? "").Trim();
+                    savedEnemyLaner = trimmedEnemy;
+
+                    if (!string.Equals(existingGame.EnemyLaner ?? "", trimmedEnemy, StringComparison.Ordinal))
+                    {
+                        await _gameRepository.UpdateEnemyLanerAsync(request.GameId, trimmedEnemy, session);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(trimmedEnemy) || !string.IsNullOrWhiteSpace(trimmedMatchupNote))
+                    {
+                        await _matchupNotesRepository.UpsertForGameAsync(request.GameId, championName, trimmedEnemy, trimmedMatchupNote, session);
+                    }
+                    else
+                    {
+                        await _matchupNotesRepository.DeleteForGameAsync(request.GameId, session);
+                    }
+                }
+
+                foreach (var objective in request.Snapshot.ObjectivePractices)
+                {
+                    await _objectivesRepository.RecordGameAsync(
+                        request.GameId,
+                        objective.ObjectiveId,
+                        objective.Practiced,
+                        objective.ExecutionNote.Trim(),
+                        session);
+
+                    // v2.18 (schema v5): re-evaluate structured criteria on review
+                    // save so post-game-checked objectives get a verdict too.
+                    // Only practiced objectives are judged — an unpracticed
+                    // criterion outcome would be noise.
+                    if (objective.Practiced && practicedObjectives.TryGetValue(objective.ObjectiveId, out var definition))
+                    {
+                        await EvaluateCriteriaAsync(session, request.GameId, definition, existingGame);
+                    }
+                }
+
+                await _conceptTagRepository.SetForGameAsync(request.GameId, request.Snapshot.SelectedTagIds, session);
+                await _reviewDraftRepository.DeleteAsync(request.GameId, session);
+                session.Commit();
+            }
 
             // Fire-and-forget: ask the coach sidecar to extract concepts from
             // the freshly-saved review text. No-op if sidecar is off.
@@ -297,10 +339,7 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     /// Delete a saved review — see IReviewWorkflowService.DeleteAsync. Clears only
     /// the review payload that gates the queue, KEEPS objective progress + the
     /// session_log behavioral row (no streak corruption), and keeps the game row.
-    /// Best-effort per repo (the save path is likewise non-transactional); a failure
-    /// is logged and surfaced but earlier clears are not rolled back (the operation
-    /// is monotonic — it only ever clears, never re-creates, so a partial run still
-    /// leaves the game closer to unreviewed, never in a worse state).
+    /// One transaction, like the save: a failure leaves the review fully intact.
     /// </summary>
     public async Task<ReviewSaveResult> DeleteAsync(long gameId, CancellationToken cancellationToken = default)
     {
@@ -311,22 +350,25 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
 
         try
         {
+            using var session = DbWriteSession.Begin(_dbFactory);
+
             // (a) games review columns → blank (Rating=0 so the COALESCE(rating,0)>0
             // queue gate is false; all text fields ''). No dedicated clear method —
             // a blank GameReview through the existing update is sufficient.
-            await _gameRepository.UpdateReviewAsync(gameId, new GameReview());
+            await _gameRepository.UpdateReviewAsync(gameId, new GameReview(), session);
 
             // (b) session_log → clear only the queue-gating markers; KEEP mental_rating
             // / focus_adherence / rule_broken so streaks stay byte-identical.
-            await _sessionLogRepository.ClearReviewMarkersAsync(gameId);
+            await _sessionLogRepository.ClearReviewMarkersAsync(gameId, session);
 
             // (c) concept tags → clear all for the game (empty set replaces).
-            await _conceptTagRepository.SetForGameAsync(gameId, System.Array.Empty<long>());
+            await _conceptTagRepository.SetForGameAsync(gameId, System.Array.Empty<long>(), session);
 
             // (d) matchup note + (e) any leftover draft → remove (not queue-gating,
             // but part of the review payload).
-            await _matchupNotesRepository.DeleteForGameAsync(gameId);
-            await _reviewDraftRepository.DeleteAsync(gameId);
+            await _matchupNotesRepository.DeleteForGameAsync(gameId, session);
+            await _reviewDraftRepository.DeleteAsync(gameId, session);
+            session.Commit();
 
             // NOTE: game_objectives + objectives.score/game_count are intentionally
             // LEFT INTACT — deleting a review preserves earned objective progress.
@@ -345,13 +387,13 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
     /// v2.18 (schema v5): evaluate an objective's structured criterion against
     /// the game's stats and stamp game_objectives.criteria_met. Silent no-op
     /// when the objective has no structured criterion or the stat is missing.
+    /// A failure is logged and rolled back alone; it never fails the review save.
     /// </summary>
-    private async Task EvaluateCriteriaAsync(long gameId, long objectiveId, GameStats stats)
+    private async Task EvaluateCriteriaAsync(DbWriteSession session, long gameId, ObjectiveSummary objective, GameStats stats)
     {
-        try
+        var failure = await session.TryStepAsync(async () =>
         {
-            var objective = await _objectivesRepository.GetAsync(objectiveId);
-            if (objective is null || !objective.HasStructuredCriteria)
+            if (!objective.HasStructuredCriteria)
             {
                 return;
             }
@@ -363,12 +405,12 @@ public sealed class ReviewWorkflowService : IReviewWorkflowService
                 return;
             }
 
-            await _objectivesRepository.SetCriteriaMetAsync(gameId, objectiveId, met.Value);
-        }
-        catch (Exception ex)
+            await _objectivesRepository.SetCriteriaMetAsync(gameId, objective.Id, met.Value, session);
+        });
+        if (failure is not null)
         {
-            _logger.LogWarning(ex,
-                "Criteria evaluation failed for game {GameId} objective {ObjectiveId}", gameId, objectiveId);
+            _logger.LogWarning(failure,
+                "Criteria evaluation failed for game {GameId} objective {ObjectiveId}", gameId, objective.Id);
         }
     }
 

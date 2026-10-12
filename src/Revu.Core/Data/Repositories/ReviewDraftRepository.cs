@@ -116,9 +116,10 @@ public sealed class ReviewDraftRepository : IReviewDraftRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task DeleteAsync(long gameId)
+    public async Task DeleteAsync(long gameId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM review_drafts WHERE game_id = @gameId";
         cmd.Parameters.AddWithValue("@gameId", gameId);

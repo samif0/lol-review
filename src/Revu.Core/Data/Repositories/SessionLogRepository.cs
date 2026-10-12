@@ -157,10 +157,11 @@ public sealed class SessionLogRepository : ISessionLogRepository
         int preGameMood = 0,
         bool ruleBroken = false,
         string pregameIntention = "",
-        string intentionSource = "")
+        string intentionSource = "",
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         var (sessionDate, sessionTimestamp) = await ResolveGameSessionDateAsync(conn, gameId);
 
@@ -296,10 +297,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task ClearSkippedAsync(long gameId)
+    public async Task ClearSkippedAsync(long gameId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE session_log SET is_skipped = 0 WHERE game_id = @gameId";
@@ -308,13 +309,13 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task ClearReviewMarkersAsync(long gameId)
+    public async Task ClearReviewMarkersAsync(long gameId, DbWriteSession? session = null)
     {
         // Delete-review: blank only the queue-gating fields. mental_rating /
         // focus_adherence / rule_broken are intentionally NOT touched so the live-
         // computed mental + adherence streaks stay byte-identical (see the interface).
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText =
@@ -324,10 +325,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateMentalHandledAsync(long gameId, string mentalHandled)
+    public async Task UpdateMentalHandledAsync(long gameId, string mentalHandled, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE session_log SET mental_handled = @handled WHERE game_id = @gameId";
@@ -444,10 +445,10 @@ public sealed class SessionLogRepository : ISessionLogRepository
     /// game has no session_log row yet (the review save path re-stamps after
     /// LogGameAsync creates it).
     /// </summary>
-    public async Task UpdateFocusAdherenceAsync(long gameId, int? adherence)
+    public async Task UpdateFocusAdherenceAsync(long gameId, int? adherence, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE session_log SET focus_adherence = @adherence WHERE game_id = @gameId";

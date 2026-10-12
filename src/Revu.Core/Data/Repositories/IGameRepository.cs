@@ -142,7 +142,7 @@ public interface IGameWriter
     /// Save game stats to the database. Returns the row id.
     /// Casual modes (ARAM, Arena, etc.) are silently skipped (returns -1).
     /// </summary>
-    Task<int> SaveAsync(GameStats stats);
+    Task<int> SaveAsync(GameStats stats, DbWriteSession? session = null);
 
     /// <summary>
     /// Save a manually entered game with minimal required fields.
@@ -159,14 +159,15 @@ public interface IGameWriter
         string mistakes = "",
         string wentWell = "",
         string focusNext = "",
-        List<string>? tags = null
+        List<string>? tags = null,
+        DbWriteSession? session = null
     );
 
     /// <summary>Update the review fields for a game (by game_id, not row id).</summary>
-    Task UpdateReviewAsync(long gameId, GameReview review);
+    Task UpdateReviewAsync(long gameId, GameReview review, DbWriteSession? session = null);
 
     /// <summary>Update the enemy_laner field for a game.</summary>
-    Task UpdateEnemyLanerAsync(long gameId, string enemyLaner);
+    Task UpdateEnemyLanerAsync(long gameId, string enemyLaner, DbWriteSession? session = null);
 
     /// <summary>
     /// v2.16: write the full 10-participant role-to-champion JSON map. Empty
@@ -216,7 +217,7 @@ public interface IGameWriter
     /// at least as high as the stored one (user > matchv5 > eog = lcu), so the player's own
     /// verdict is sticky. Changed is true only when the effective is_remake flipped.
     /// </summary>
-    Task<RemakeWriteResult> SetRemakeVerdictAsync(long gameId, bool isRemake, bool causedBySelf, string source);
+    Task<RemakeWriteResult> SetRemakeVerdictAsync(long gameId, bool isRemake, bool causedBySelf, string source, DbWriteSession? session = null);
 }
 
 /// <summary>Read model for game history and review queues.</summary>

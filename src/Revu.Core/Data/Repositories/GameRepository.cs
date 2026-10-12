@@ -244,13 +244,14 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
 
     // â”€â”€ Save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    public async Task<int> SaveAsync(GameStats stats)
+    public async Task<int> SaveAsync(GameStats stats, DbWriteSession? session = null)
     {
         // Only ranked games are saved (manual entries go through a different path).
         if (!GameConstants.RankedQueueTypes.Contains(stats.QueueType ?? ""))
             return -1;
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         // Check for duplicates
         using (var checkCmd = conn.CreateCommand())
@@ -414,14 +415,16 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         string mistakes = "",
         string wentWell = "",
         string focusNext = "",
-        List<string>? tags = null)
+        List<string>? tags = null,
+        DbWriteSession? session = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var gameId = (int)now;
         var kdaRatio = Math.Round((kills + assists) / (double)Math.Max(deaths, 1), 2);
         var dateStr = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -469,9 +472,10 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
 
     // â”€â”€ Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    public async Task UpdateReviewAsync(long gameId, GameReview review)
+    public async Task UpdateReviewAsync(long gameId, GameReview review, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -505,9 +509,10 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateEnemyLanerAsync(long gameId, string enemyLaner)
+    public async Task UpdateEnemyLanerAsync(long gameId, string enemyLaner, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         // v3.10.1: this is the Review page's edit (ReviewWorkflowService). A typed

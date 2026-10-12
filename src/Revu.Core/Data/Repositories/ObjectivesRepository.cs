@@ -127,9 +127,10 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     /// Only touches existing game_objectives rows — evaluation never creates a
     /// practice record on its own.
     /// </summary>
-    public async Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met)
+    public async Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE game_objectives
@@ -915,10 +916,12 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         await EnsurePriorityObjectiveAsync(conn);
     }
 
-    public async Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "")
+    public async Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "",
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
-        using var tx = conn.BeginTransaction();
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var tx = lease.Transaction!;
 
         var newScoreContribution = practiced ? 2 : 0;
         var existingPracticed = default(bool?);
@@ -1007,7 +1010,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await archiveCmd.ExecuteNonQueryAsync();
         }
 
-        await tx.CommitAsync();
+        lease.Complete();
     }
 
     private static async Task<bool> IsRemakeAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
