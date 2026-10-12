@@ -10,7 +10,8 @@ namespace Revu.Core.Tests;
 /// Backups are consistent online copies that pass quick_check, keep tiered history,
 /// give game deletes and objective deletes their own budgets, and the user's automatic
 /// backup runs at most daily. Restore accepts only a listed backup and validates it
-/// before the live database is touched.
+/// before the live database is touched. Temp files a killed copy or restore left behind
+/// are swept at launch.
 /// </summary>
 public sealed class BackupServiceSafetyTests
 {
@@ -138,6 +139,57 @@ public sealed class BackupServiceSafetyTests
         Assert.Equal(3, labels.Count(l => l.StartsWith("Before a learning objective was deleted", StringComparison.Ordinal)));
         Assert.Equal(5, labels.Count(l => l.StartsWith("Before a game was deleted", StringComparison.Ordinal)));
         Assert.All(labels, l => Assert.DoesNotContain("—", l));
+    }
+
+    [Fact]
+    public async Task StartupRun_SweepsOnlyRevusOwnLeftoverTempFiles_OnceTheyAreOld()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var dataDir = Path.GetDirectoryName(scope.DatabasePath)!;
+        var dbName = Path.GetFileName(scope.DatabasePath);
+        var folder = Path.Combine(dataDir, "user-backups");
+        Directory.CreateDirectory(BackupDir(scope));
+        Directory.CreateDirectory(folder);
+        var id = Guid.NewGuid().ToString("N");
+        string Make(string dir, string name, bool old = true)
+        {
+            var path = Path.Combine(dir, name);
+            File.WriteAllText(path, "x");
+            if (old) File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-2));
+            return path;
+        }
+
+        var leftovers = new[]
+        {
+            Make(BackupDir(scope), $"safety_backup_20260101_000000.db.partial-{id}.tmp"),
+            Make(BackupDir(scope), $"safety_backup_20260101_000000.db.partial-{id}.tmp-journal"),
+            Make(BackupDir(scope), $"delete_backup_20260101_000000.db.partial-{id}.tmp-wal"),
+            Make(BackupDir(scope), $"pre_restore_20260101_000000.db.partial-{id}.tmp"),
+            Make(dataDir, $"{dbName}.restoring-{id}.tmp"),
+            Make(dataDir, $"{dbName}.restoring-{id}.tmp-shm"),
+            Make(folder, $"lol_review_backup_20260101_000000.db.partial-{id}.tmp"),
+        };
+        var keep = new[]
+        {
+            // A copy that may still be running, a finished backup, other names, and the
+            // replaced files a restore keeps on purpose.
+            Make(BackupDir(scope), $"safety_backup_20260102_000000.db.partial-{id}.tmp", old: false),
+            Make(BackupDir(scope), "safety_backup_20260101_000000.db"),
+            Make(BackupDir(scope), $"someone_else.db.partial-{id}.tmp"),
+            Make(dataDir, $"{dbName}.replaced-{id}.tmp"),
+            Make(dataDir, $"other.db.restoring-{id}.tmp"),
+            Make(folder, $"notes.partial-{id}.tmp"),
+        };
+
+        // Automatic backups off: the sweep still runs, the chosen folder included.
+        await Service(scope, new AppConfig { BackupEnabled = false, BackupFolder = folder }).RunBackupAsync();
+
+        foreach (var path in leftovers) Assert.False(File.Exists(path), path);
+        foreach (var path in keep) Assert.True(File.Exists(path), path);
+        Assert.True(File.Exists(scope.DatabasePath));
+        using var c = Open(scope.DatabasePath);
+        Assert.True(Scalar(c, "SELECT COUNT(*) FROM sqlite_schema") > 0);
     }
 
     [Fact]

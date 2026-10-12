@@ -127,6 +127,11 @@ public sealed partial class BackupService : IBackupService
     /// <inheritdoc />
     public async Task RunBackupAsync()
     {
+        // The sidecar runs this once per launch, which is also when the temp files of a
+        // backup or restore cut short by a crash or a forced quit are cleared away.
+        var dbPath = _connectionFactory.DatabasePath;
+        await Task.Run(() => SweepLeftoverTempFiles(dbPath)).ConfigureAwait(false);
+
         AppConfig cfg;
         try
         {
@@ -137,13 +142,18 @@ public sealed partial class BackupService : IBackupService
             _logger.LogWarning(ex, "User database backup skipped: settings unavailable");
             return;
         }
+
+        // The chosen folder too, whether or not automatic backups are on now. The same
+        // local-only rule as the backup applies before the folder is touched at all.
+        if (LocalPathPolicy.TryGetLocalFullPath(cfg.BackupFolder, out var chosenFolder))
+            await Task.Run(() => SweepLeftoverTempFiles(chosenFolder, CopyTempName.IsMatch)).ConfigureAwait(false);
+
         if (!cfg.BackupEnabled)
         {
             _logger.LogDebug("User database backup is disabled");
             return;
         }
 
-        var dbPath = _connectionFactory.DatabasePath;
         if (!TryResolveUserBackupFolder(cfg.BackupFolder, dbPath, out var folder)) return;
 
         // At most one routine backup a day. The newest file's timestamp comes from its

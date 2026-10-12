@@ -22,7 +22,8 @@ public interface IBackupService
     /// <summary>
     /// Back up the DB into the user-configured backup folder when "Create automatic
     /// backups" is on, at most once a day, with its own tiered retention. Run on
-    /// startup by the sidecar.
+    /// startup by the sidecar, which is also when temp files a killed backup or restore
+    /// left behind are swept.
     /// </summary>
     Task RunBackupAsync();
 
