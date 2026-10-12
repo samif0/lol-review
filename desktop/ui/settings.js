@@ -723,7 +723,16 @@ async function saveDirtySettings() {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
-  return !settingsDirty();
+  if (!settingsDirty()) return true;
+  showFirstUnsavedCard();
+  return false;
+}
+// A card that could not save may sit in a hidden category, where its error and
+// validation message are out of sight: open that category, so Stay lands on it.
+function showFirstUnsavedCard() {
+  const card = document.querySelector('[data-config-group][data-dirty="true"],[data-native-group][data-dirty="true"]');
+  const category = card?.closest('[data-settings-section]')?.dataset.settingsSection;
+  if (category) document.querySelector(`[data-settings-category="${category}"]`)?.click();
 }
 
 // ── boot ────────────────────────────────────────────────────────────────────

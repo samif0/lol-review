@@ -30,6 +30,7 @@ function node(id = '', tag = 'DIV', action = '') {
     closest(selector) {
       if (selector === '[data-action]') return this.dataset.action ? this : null;
       if (selector === '[data-config-group]') return this.group || null;
+      if (selector === '[data-settings-section]') return this.section || null;
       if (selector === '.set-toggle[role="switch"]') return this.getAttribute('role') === 'switch' ? this : null;
       return null;
     },
@@ -45,11 +46,13 @@ function node(id = '', tag = 'DIV', action = '') {
 }
 
 async function fixture({ native = true, ascentFolder = '', handler } = {}) {
-  const ids = new Map(), groups = [], listeners = new Map(), requests = [];
+  const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [];
+  const sections = { ascent: 'recording', clips: 'playback', account: 'account', review: 'playback' };
   const add = (id, tag, action) => { const element = node(id, tag, action); ids.set(id, element); return element; };
   const group = (name, fieldNames) => {
     const element = add(`${name}-settings`);
     element.dataset.configGroup = name;
+    element.section = { dataset: { settingsSection: sections[name] } };
     for (const id of fieldNames) element.children.push(add(id, 'INPUT'));
     element.children.push(add(`${name}-save`, 'BUTTON', 'save_config'), add(`${name}-discard`, 'BUTTON', 'discard_config'));
     const status = add(`${name}-save-status`); status.saveStatus = true; element.children.push(status);
@@ -86,7 +89,9 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     querySelectorAll: selector => selector === '[data-config-group]' ? groups
       : selector === '[data-config-group][data-dirty="true"]' ? groups.filter(group => group.dataset.dirty === 'true') : [],
     querySelector: selector => selector.startsWith('[data-config-group][data-dirty="true"]')
-      ? groups.find(group => group.dataset.dirty === 'true') || null : null,
+      ? groups.find(group => group.dataset.dirty === 'true') || null
+      : selector.startsWith('[data-settings-category=')
+        ? { click: () => categoryClicks.push(selector.match(/"(.*?)"/)[1]) } : null,
   };
   const context = vm.createContext({
     document, window: {}, $: id => ids.get(id) || null,
@@ -104,7 +109,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     for (const listener of listeners.get(type) || []) await listener({ target, preventDefault() {} });
   };
   return {
-    ids, groups: { ascent, clips, account, review }, config, requests,
+    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks,
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
@@ -127,12 +132,14 @@ test('leaving Settings sees unsaved cards in hidden categories and saves each on
   assert.deepEqual(f.requests.filter(request => request.command === 'save_config').map(request => request.args.payload),
     [{ clipsFolder: 'E:\\Clips', clipsMaxSizeMb: 2048 }, { riotId: 'player#NA1', region: 'euw1' }]);
   assert.equal(f.dirty(), false);
+  assert.deepEqual(f.categoryClicks, [], 'a successful save leaves the category as it was');
 
   const failing = await fixture({ handler: command => command === 'save_config' ? { ok: false, message: 'Disk is full.' } : undefined });
   await failing.edit('clipsFolder', 'F:\\Clips');
   assert.equal(await failing.saveBeforeLeaving(), false, 'a card that cannot save keeps the player on Settings');
   assert.equal(failing.$('clipsFolder').value, 'F:\\Clips');
   assert.equal(failing.$('clips-save-status').textContent, 'Disk is full.');
+  assert.deepEqual(failing.categoryClicks, ['playback'], 'Settings opens the category of the card that could not save');
 });
 
 test('automatic matchup notes default off, save only review preferences and keep unrelated drafts', async () => {
