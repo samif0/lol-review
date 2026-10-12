@@ -132,9 +132,19 @@ export function handleAuthFirst(state: FakeAuthState, sql: string, args: unknown
       return ok({
         n: state.loginRequests.filter((r) => nocaseEq(r.email, a1 as string) && r.purpose === "web" && r.created_at > (a2 as number)).length,
       });
-    case "SELECT code, email, purpose, created_at, expires_at, consumed FROM login_requests WHERE code = ?1 LIMIT 1": {
-      const r = state.loginRequests.find((x) => x.code === a1);
-      return ok(r ? { code: r.code, email: r.email, purpose: r.purpose, created_at: r.created_at, expires_at: r.expires_at, consumed: r.consumed } : null);
+    case "UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND purpose != 'web' AND consumed = 0 AND attempts <= 5 AND expires_at > ?2 RETURNING email": {
+      const r = state.loginRequests.find((x) => x.code === a1 && x.purpose !== "web" && x.consumed === 0
+        && x.attempts <= 5 && x.expires_at > (a2 as number));
+      if (!r) return ok(null);
+      r.consumed = 1;
+      return ok({ email: r.email });
+    }
+    case "UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND email = ?2 AND purpose != 'web' AND consumed = 0 AND attempts <= 5 AND expires_at > ?3 RETURNING email": {
+      const r = state.loginRequests.find((x) => x.code === a1 && nocaseEq(x.email, a2 as string) && x.purpose !== "web"
+        && x.consumed === 0 && x.attempts <= 5 && x.expires_at > (a3 as number));
+      if (!r) return ok(null);
+      r.consumed = 1;
+      return ok({ email: r.email });
     }
     case "SELECT token_hash, user_id, created_at, expires_at FROM sessions WHERE token_hash = ?1 AND expires_at > ?2 LIMIT 1": {
       // Desktop findSession: no kind filter, exactly like production.
@@ -177,10 +187,12 @@ export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]
       });
       return ok(changes(1));
     }
-    case "UPDATE login_requests SET consumed = 1 WHERE code = ?1 AND consumed = 0": {
-      const r = state.loginRequests.find((x) => x.code === a1 && x.consumed === 0);
-      if (r) r.consumed = 1;
-      return ok(changes(r ? 1 : 0));
+    case "UPDATE login_requests SET attempts = attempts + 1 WHERE email = ?1 AND purpose != 'web' AND consumed = 0 AND expires_at > ?2": {
+      let n = 0;
+      for (const r of state.loginRequests) {
+        if (nocaseEq(r.email, a1 as string) && r.purpose !== "web" && r.consumed === 0 && r.expires_at > (a2 as number)) { r.attempts++; n++; }
+      }
+      return ok(changes(n));
     }
     case "UPDATE login_requests SET attempts = attempts + 1 WHERE email = ?1 AND purpose = 'web' AND consumed = 0 AND expires_at > ?2": {
       let n = 0;

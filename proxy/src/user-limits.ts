@@ -2,7 +2,7 @@
  * Per-isolate, per-user minute buckets for the clip upload and transcription
  * routes. Modeled on index.ts authIpBuckets/pruneBuckets.
  *
- * These routes must NEVER call rateLimitOrDeny: that spends the Riot Durable
+ * These routes must NEVER call chargeRiot: that spends the Riot Durable
  * Object budget, which is reserved for the Riot passthrough. Multipart part
  * uploads are not bucketed at all; they are bounded by auth, row ownership and
  * part_count.
@@ -16,9 +16,11 @@ const WINDOW_MS = 60_000;
 const MAX_TRACKED_BUCKETS = 10_000;
 
 export const UPLOAD_INIT_PER_MINUTE_PER_USER = 6;
+export const CLIP_UPLOAD_PER_MINUTE_PER_USER = 30;
 export const TRANSCRIBE_PER_MINUTE_PER_USER = 30;
 
 const uploadInitBuckets = new Map<string, Bucket>();
+const clipUploadBuckets = new Map<string, Bucket>();
 const transcribeBuckets = new Map<string, Bucket>();
 
 function pruneBuckets(map: Map<string, Bucket>, nowMs: number): void {
@@ -58,6 +60,11 @@ export function uploadInitLimitOrDeny(userId: number): Response | null {
   return takeOrDeny(uploadInitBuckets, userId, UPLOAD_INIT_PER_MINUTE_PER_USER);
 }
 
+/** POST /clips (single-request upload): 30 per minute per user. */
+export function clipUploadLimitOrDeny(userId: number): Response | null {
+  return takeOrDeny(clipUploadBuckets, userId, CLIP_UPLOAD_PER_MINUTE_PER_USER);
+}
+
 /** POST /transcribe: 30 per minute per user. */
 export function transcribeLimitOrDeny(userId: number): Response | null {
   return takeOrDeny(transcribeBuckets, userId, TRANSCRIBE_PER_MINUTE_PER_USER);
@@ -66,5 +73,6 @@ export function transcribeLimitOrDeny(userId: number): Response | null {
 /** Test hook: forget every bucket in this isolate. */
 export function resetUserLimits(): void {
   uploadInitBuckets.clear();
+  clipUploadBuckets.clear();
   transcribeBuckets.clear();
 }

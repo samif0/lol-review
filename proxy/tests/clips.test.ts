@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
-import { MAX_ACTIVE_CLIPS_PER_USER } from "../src/clips";
+import { MAX_ACTIVE_CLIPS_PER_USER, parseRange } from "../src/clips";
+import { CLIP_UPLOAD_PER_MINUTE_PER_USER, resetUserLimits } from "../src/user-limits";
+import { resetClipViews } from "../src/clip-views";
 import { clip, json, makeEnv, makeFakeDb, makeFakeR2, makeRequest, mp4Bytes, sha256Hex } from "./fakes";
 
 // Shared hardened fakes (D1, R2 with known-length stream enforcement, helpers).
@@ -11,6 +13,7 @@ const env = makeEnv;
 describe("clip sharing", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetUserLimits();
   });
 
   it("rejects upload without a bearer token", async () => {
@@ -21,8 +24,7 @@ describe("clip sharing", () => {
     expect(res.status).toBe(401);
   });
 
-  it("rejects upload from a static operator token (no account)", async () => {
-    // Path A static token authenticates but has no user id → can't own clips.
+  it("rejects upload from an unknown bearer (there is no static operator token path)", async () => {
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
@@ -31,49 +33,52 @@ describe("clip sharing", () => {
       }),
       env(),
     );
-    expect(res.status).toBe(403);
-    expect((await json(res)).error).toBe("login_required");
+    expect(res.status).toBe(401);
+    expect((await json(res)).error).toBe("invalid_token");
   });
 
-  it("a token in BOTH sessions AND ALLOWED_TOKENS resolves to the SESSION (can own clips)", async () => {
-    // Regression: authOrDeny used to check the static ALLOWED_TOKENS allowlist BEFORE
-    // the sessions table, so a user's session token that was ALSO present in
-    // ALLOWED_TOKENS short-circuited to Path A (no userId) and clip upload 403'd
-    // "login_required" despite a valid account session. Session must win.
-    const dualToken = "static-op-token"; // also the configured ALLOWED_TOKENS value
-    const tokenHash = await sha256Hex(dualToken);
-    const db = makeFakeDb([], { [tokenHash]: 42 }); // same token ALSO has a session row
+  it("legacy POST /clips never spends the Riot budget and has its own per-user limit", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
+    resetUserLimits();
+    const token = "sess-budget";
+    const db = makeFakeDb([], { [await sha256Hex(token)]: 42 });
     const { bucket } = makeFakeR2();
-
-    const res = await worker.fetch(
+    let doCalls = 0;
+    const limiter = {
+      idFromName: () => ({}),
+      get: () => ({ fetch: async () => { doCalls++; return new Response(JSON.stringify({ allowed: false })); } }),
+    } as unknown as DurableObjectNamespace;
+    const e = env({ DB: db, CLIPS: bucket, RATE_LIMITER: limiter, PER_TOKEN_RPS: "1" });
+    const upload = () => worker.fetch(
       makeRequest("https://proxy.example/clips?title=x&champion=Lux&duration=3", {
         method: "POST",
-        headers: { Authorization: `Bearer ${dualToken}`, "Content-Type": "video/mp4" },
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "video/mp4" },
         body: mp4Bytes(),
       }),
-      env({ DB: db, CLIPS: bucket }),
+      e,
     );
-
-    // Must NOT be 403 login_required — the session identity wins, upload succeeds.
-    expect(res.status).toBe(201);
-    const out = await json(res);
-    expect(typeof out.id).toBe("string");
+    // A saturated Riot budget (and a per-token Riot cap of 1) doesn't touch uploads.
+    expect((await upload()).status).toBe(201);
+    expect((await upload()).status).toBe(201);
+    expect(doCalls).toBe(0);
+    for (let i = 2; i < CLIP_UPLOAD_PER_MINUTE_PER_USER; i++) await upload();
+    const limited = await upload();
+    expect(limited.status).toBe(429);
+    expect((await json(limited)).error).toBe("rate_limited");
   });
 
   it("rejects a non-video content type", async () => {
-    const db = makeFakeDb([], { ["hash-sess"]: 7 });
-    // sha256("sess-token") must map in the fake; we instead seed by token hash.
-    // Easier: use a session token whose hash we precompute below.
+    const token = "sess-png";
+    const db = makeFakeDb([], { [await sha256Hex(token)]: 7 });
     const res = await worker.fetch(
       makeRequest("https://proxy.example/clips", {
         method: "POST",
-        headers: { Authorization: "Bearer static-op-token", "Content-Type": "image/png" },
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "image/png" },
         body: new Uint8Array([1]),
       }),
       env({ DB: db }),
     );
-    // static token path returns 403 before type check; assert type check via session test below.
-    expect([403, 415]).toContain(res.status);
+    expect(res.status).toBe(415);
   });
 
   it("uploads with a valid session and returns a public url", async () => {
@@ -135,16 +140,11 @@ describe("clip sharing", () => {
     expect(stored.byteLength).toBe(body.byteLength);
   });
 
-  it("known-length path trusts the declared content-type (no per-byte magic sniff)", async () => {
-    // Deliberate tradeoff (2026-06-30): the magic-byte sniff was DROPPED on the
-    // Content-Length path because sniffing requires touching the bytes in JS, which
-    // is exactly the O(filesize) CPU cost that caused exceededCpu 503s. The sniff is
-    // defense-in-depth, not a correctness gate — size is bounded by the Content-Length
-    // fast-reject + Cloudflare enforcement, and the only real client is the desktop
-    // app. So a body whose bytes aren't video BUT declares video/mp4 with a
-    // Content-Length now uploads (201) rather than 415. The magic-byte sniff is still
-    // enforced on the no-Content-Length abuse path (see the test below). If we ever
-    // need to reject non-video on the hot path, it must be done WITHOUT per-byte JS.
+  it("known-length path sniffs the stored object with one ranged read, not a JS stream", async () => {
+    // The body still goes straight to R2 (the fake R2 refuses any stream the
+    // Worker wrapped in JS, the exceededCpu lesson). The magic-byte check runs
+    // AFTER the put, on a 16-byte ranged get, and a non-video body is deleted
+    // and 415'd so clips.revu.lol can't host arbitrary files.
     const sessionToken = "session-fixedlen-badmagic";
     const tokenHash = await sha256Hex(sessionToken);
     const db = makeFakeDb([], { [tokenHash]: 88 });
@@ -164,9 +164,27 @@ describe("clip sharing", () => {
       env({ DB: db, CLIPS: bucket }),
     );
 
-    expect(res.status).toBe(201); // trusts the declared type on the known-length path
-    expect(store.size).toBe(1);   // bytes streamed straight to R2
+    expect(res.status).toBe(415);
+    expect((await json(res)).error).toBe("unsupported_media_type");
+    expect(store.size).toBe(0); // the stored object was deleted
+    expect(db._clips.size).toBe(0); // and no row was written
+  });
 
+  it("known-length webm upload passes the post-put sniff", async () => {
+    const sessionToken = "session-webm";
+    const db = makeFakeDb([], { [await sha256Hex(sessionToken)]: 89 });
+    const { bucket, store } = makeFakeR2();
+    const body = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, ...new Array(40).fill(0)]);
+    const res = await worker.fetch(
+      makeRequest("https://proxy.example/clips", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}`, "Content-Type": "video/webm", "Content-Length": String(body.byteLength) },
+        body,
+      }),
+      env({ DB: db, CLIPS: bucket }),
+    );
+    expect(res.status).toBe(201);
+    expect(store.size).toBe(1);
   });
 
   it("converts an R2 failure into a clean 502 clip_error (not an escaped 503)", async () => {
@@ -440,7 +458,9 @@ describe("clip sharing", () => {
     expect(body).toContain('property="og:video" content="https://clips.revu.lol/clip-file/Embed99"');
     expect(body).toContain('property="og:video:type" content="video/mp4"');
     // Per-clip title (caption + champion), HTML-escaped, not a static placeholder.
-    expect(body).toContain("baron steal — LeeSin");
+    expect(body).toContain("baron steal · LeeSin");
+    // User-facing copy never carries an em or en dash.
+    expect(body).not.toMatch(/[–—]/);
     // Humans still get bounced to the watch page.
     expect(body).toContain("https://revu.lol/clip.html?id=Embed99");
   });
@@ -503,5 +523,134 @@ describe("clip sharing", () => {
     expect(res.status).toBe(200);
     const out = (await json(res)) as { clips: Array<{ id: string }> };
     expect(out.clips.map((c) => c.id).sort()).toEqual(["Mine001", "Mine002"]);
+  });
+});
+
+describe("clip-file range and conditional requests", () => {
+  const c = clip({ id: "Rng1234", size_bytes: 5, r2_key: "clips/Rng1234.mp4" });
+
+  function setup() {
+    const r2 = makeFakeR2();
+    r2.store.set("clips/Rng1234.mp4", new Uint8Array([10, 20, 30, 40, 50]));
+    const gets: unknown[] = [];
+    const heads: string[] = [];
+    const bucket = {
+      ...r2.bucket,
+      get: async (key: string, opts?: unknown) => { gets.push(opts ?? null); return (r2.bucket as unknown as { get: (k: string, o?: unknown) => Promise<unknown> }).get(key, opts); },
+      head: async (key: string) => { heads.push(key); return (r2.bucket as unknown as { head: (k: string) => Promise<unknown> }).head(key); },
+    } as unknown as R2Bucket;
+    const e = env({ DB: makeFakeDb([c]), CLIPS: bucket });
+    const file = (init: RequestInit = {}) => worker.fetch(makeRequest("https://proxy.example/clip-file/Rng1234", init), e);
+    return { file, gets, heads };
+  }
+
+  it("parses ranges: satisfiable, suffix, open-ended, unsatisfiable and ignorable", () => {
+    expect(parseRange("bytes=1-3", 5)).toEqual({ offset: 1, length: 3 });
+    expect(parseRange("bytes=-2", 5)).toEqual({ offset: 3, length: 2 });
+    expect(parseRange("bytes=2-", 5)).toEqual({ offset: 2, length: 3 });
+    expect(parseRange("bytes=3-99", 5)).toEqual({ offset: 3, length: 2 });
+    expect(parseRange("bytes=5-", 5)).toBe("unsatisfiable");
+    expect(parseRange("bytes=9-12", 5)).toBe("unsatisfiable");
+    expect(parseRange("bytes=-0", 5)).toBe("unsatisfiable");
+    expect(parseRange("bytes=3-1", 5)).toBeNull();
+    expect(parseRange("bytes=0-1,3-4", 5)).toBeNull();
+    expect(parseRange("items=0-1", 5)).toBeNull();
+    expect(parseRange(null, 5)).toBeNull();
+  });
+
+  it("answers an unsatisfiable range with 416 and never reads the object", async () => {
+    const s = setup();
+    const res = await s.file({ headers: { Range: "bytes=5-" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("Content-Range")).toBe("bytes */5");
+    expect(s.gets).toHaveLength(0);
+  });
+
+  it("HEAD reads only metadata, never the body", async () => {
+    const s = setup();
+    const res = await s.file({ method: "HEAD" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Length")).toBe("5");
+    expect(res.headers.get("ETag")).toBe('"etag-clips/Rng1234.mp4"');
+    expect(s.gets).toHaveLength(0);
+    expect(s.heads).toEqual(["clips/Rng1234.mp4"]);
+    const ranged = await s.file({ method: "HEAD", headers: { Range: "bytes=0-1" } });
+    expect(ranged.status).toBe(206);
+    expect(ranged.headers.get("Content-Range")).toBe("bytes 0-1/5");
+  });
+
+  it("answers a matching If-None-Match with 304 and no body read", async () => {
+    const s = setup();
+    const res = await s.file({ headers: { "If-None-Match": 'W/"etag-clips/Rng1234.mp4"' } });
+    expect(res.status).toBe(304);
+    expect(res.headers.get("ETag")).toBe('"etag-clips/Rng1234.mp4"');
+    expect(s.gets).toHaveLength(0);
+    const stale = await s.file({ headers: { "If-None-Match": '"old"' } });
+    expect(stale.status).toBe(200);
+  });
+
+  it("If-Range: a current ETag keeps the range, a stale one gets the whole file", async () => {
+    const s = setup();
+    const current = await s.file({ headers: { Range: "bytes=1-2", "If-Range": '"etag-clips/Rng1234.mp4"' } });
+    expect(current.status).toBe(206);
+    expect(new Uint8Array(await current.arrayBuffer())).toEqual(new Uint8Array([20, 30]));
+    const stale = await s.file({ headers: { Range: "bytes=1-2", "If-Range": '"old"' } });
+    expect(stale.status).toBe(200);
+    expect(stale.headers.get("Content-Length")).toBe("5");
+  });
+});
+
+describe("clip view counter", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetClipViews();
+  });
+
+  const view = (e: ReturnType<typeof env>, ip: string, id = "View123") =>
+    worker.fetch(makeRequest(`https://proxy.example/clip-view/${id}`, { method: "POST", headers: { "CF-Connecting-IP": ip } }), e);
+
+  it("counts one view per viewer per clip per hour", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-12T10:00:00Z"));
+    const db = makeFakeDb([clip({ id: "View123", expires_at: Math.floor(Date.parse("2026-10-14T00:00:00Z") / 1000) })]);
+    const e = env({ DB: db });
+    for (let i = 0; i < 5; i++) expect((await view(e, "198.51.100.1")).status).toBe(200);
+    expect(db._clips.get("View123")!.view_count).toBe(1);
+    await view(e, "198.51.100.2");
+    expect(db._clips.get("View123")!.view_count).toBe(2);
+    nowSpy.mockReturnValue(Date.parse("2026-10-12T11:00:01Z"));
+    await view(e, "198.51.100.1");
+    expect(db._clips.get("View123")!.view_count).toBe(3);
+  });
+
+  it("asks the DO when it is bound, and does not count when it can't confirm", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = makeFakeDb([clip({ id: "View123" })]);
+    const asked: string[] = [];
+    let answer: () => Promise<Response> = async () => new Response(JSON.stringify({ allowed: false }));
+    const limiter = {
+      idFromName: () => ({}),
+      get: () => ({ fetch: async (u: string) => { asked.push(u); return answer(); } }),
+    } as unknown as DurableObjectNamespace;
+    const e = env({ DB: db, RATE_LIMITER: limiter });
+    await view(e, "198.51.100.3");
+    expect(db._clips.get("View123")!.view_count).toBe(0); // another isolate already counted it
+    answer = async () => { throw new Error("DO down"); };
+    await view(e, "198.51.100.4");
+    expect(db._clips.get("View123")!.view_count).toBe(0); // fail closed
+    answer = async () => new Response(JSON.stringify({ allowed: true }));
+    await view(e, "198.51.100.5");
+    expect(db._clips.get("View123")!.view_count).toBe(1);
+    const u = new URL(asked[0]);
+    expect(u.pathname).toBe("/key");
+    expect(u.searchParams.get("ns")).toBe("view");
+    expect(u.searchParams.get("limit")).toBe("1");
+    expect(u.searchParams.get("key")).not.toContain("198.51.100");
+  });
+
+  it("is always 200 and never counts a missing clip", async () => {
+    const db = makeFakeDb([]);
+    const res = await view(env({ DB: db }), "198.51.100.6", "Nope123");
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({ ok: true });
   });
 });

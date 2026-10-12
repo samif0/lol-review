@@ -21,11 +21,13 @@ import {
 import {
   findOrCreateUserByEmail,
   isValidEmail,
+  loginCodeHash,
   OTP_LIFETIME_SECONDS,
   SESSION_LIFETIME_SECONDS,
 } from "./auth";
 import { randomOtpCode, randomSessionToken, sha256Hex } from "./crypto";
 import { sendMagicLinkEmail } from "./email";
+import { refundEmailSend, reserveEmailSend } from "./email-budget";
 import { Env } from "./types";
 import {
   devRelax,
@@ -123,11 +125,24 @@ export async function handleEmailStart(request: Request, env: Env): Promise<Resp
     return webJson({ error: "turnstile_failed" }, 403, request, env);
   }
 
+  // The global daily ceiling on sign-in emails (shared with desktop /auth/login).
+  const reservation = await reserveEmailSend(env);
+  if (!reservation.ok) {
+    return webJson({ error: "email_daily_cap" }, 503, request, env, { retryAfter: reservation.retryAfter });
+  }
+
   const otp = randomOtpCode(8);
   // Only the hash is stored; the raw code exists in the outbound email alone.
-  const codeHash = await sha256Hex(otp);
-  const inserted = await insertWebLoginRequestIfAllowed(env.DB, codeHash, email, OTP_LIFETIME_SECONDS);
+  const codeHash = await loginCodeHash(env, otp);
+  let inserted: boolean;
+  try {
+    inserted = await insertWebLoginRequestIfAllowed(env.DB, codeHash, email, OTP_LIFETIME_SECONDS);
+  } catch (err) {
+    await refundEmailSend(env, reservation.day);
+    throw err;
+  }
   if (!inserted) {
+    await refundEmailSend(env, reservation.day);
     const recentWeb = await countRecentWebLoginRequests(env.DB, email, WEB_COOLDOWN_SECONDS);
     const retryAfter = recentWeb >= 1 ? WEB_COOLDOWN_SECONDS : EMAIL_WINDOW_SECONDS;
     return webJson({ error: "rate_limit_email" }, 429, request, env, { retryAfter });
@@ -138,6 +153,7 @@ export async function handleEmailStart(request: Request, env: Env): Promise<Resp
   } catch (err) {
     // Drop the row so an immediate retry is not throttled by a code that never arrived.
     try { await deleteLoginRequestByCode(env.DB, codeHash); } catch { /* best effort */ }
+    await refundEmailSend(env, reservation.day);
     console.error(
       JSON.stringify({
         scope: "web.email_start",
@@ -168,7 +184,7 @@ export async function handleEmailVerify(request: Request, env: Env): Promise<Res
   await bumpWebLoginAttempts(env.DB, email);
   if (code.length > CODE_MAX_LENGTH) return webJson({ error: "invalid_or_expired_code" }, 400, request, env);
 
-  const consumed = await tryConsumeWebLoginRequest(env.DB, await sha256Hex(code), email);
+  const consumed = await tryConsumeWebLoginRequest(env.DB, await loginCodeHash(env, code), email);
   if (!consumed) return webJson({ error: "invalid_or_expired_code" }, 400, request, env);
 
   const { user, created } = await findOrCreateUserByEmail(env.DB, consumed);

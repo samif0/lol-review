@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { Env } from "../src/types";
+import { resetRiotBudget } from "../src/riot-budget";
+import { mintWebJwt, resetWebSessionLimits } from "../src/web-session";
+import { makeEnv, makeFakeDb, sha256Hex } from "./fakes";
 
 // ── P1(c) verification suite ────────────────────────────────────────────────
 //
@@ -17,25 +20,26 @@ import { Env } from "../src/types";
 // in-memory Map-backed fake for caches.default since the vitest pool has no
 // `caches` global.
 
-// A static operator token (Path A) — authenticates without touching D1, so we
-// don't need a DB fake for these proxy passthrough paths.
-const OP_TOKEN = "static-op-token";
+// A desktop session token (every Bearer resolves to a real account session).
+const OP_TOKEN = "desktop-session-token";
+let sessions: Record<string, number> = {};
 
 function env(overrides: Partial<Env> = {}): Env {
-  return {
-    RIOT_API_KEY: "riot-key",
-    ALLOWED_TOKENS: OP_TOKEN,
-    RESEND_API_KEY: "",
-    // Big aggregate cap so the per-token gate (default applies) never trips in
-    // the cache tests; limiter tests override the DO directly.
+  return makeEnv({
+    // Big aggregate cap so the per-token gate never trips in the cache tests;
+    // limiter tests override the DO directly.
     AGGREGATE_RPS: "1000",
     PER_TOKEN_RPS: "1000",
-    MAGIC_LINK_FROM: "noreply@example.com",
-    APP_NAME: "Revu",
-    DB: {} as D1Database,
+    DB: makeFakeDb([], sessions),
     ...overrides,
-  };
+  });
 }
+
+beforeEach(async () => {
+  sessions = { [await sha256Hex(OP_TOKEN)]: 5 };
+  resetRiotBudget();
+  resetWebSessionLimits();
+});
 
 // A minimal ExecutionContext. riotGetCached uses ctx.waitUntil for the cache
 // put; we make it run the promise inline so the cache is populated before the
@@ -372,5 +376,170 @@ describe("global aggregate rate limiter (Durable Object gate)", () => {
 
     expect(res.status).toBe(200);
     expect(riotFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── The Riot budget: cache hits are free, web can't starve desktop ──────────
+
+/** A limiter that records every DO call and answers from `decide`. */
+function recordingLimiter(decide: (u: URL) => Record<string, unknown> = () => ({ allowed: true })) {
+  const calls: URL[] = [];
+  const ns = fakeRateLimiter(async function (this: unknown, ...args: unknown[]) {
+    const u = new URL(String(args[0]));
+    calls.push(u);
+    return new Response(JSON.stringify(decide(u)), { status: 200, headers: { "Content-Type": "application/json" } });
+  } as unknown as () => Promise<Response>);
+  return { ns, calls };
+}
+
+const WEB_SECRET = "web-jwt-secret";
+
+async function webReq(path: string, ip = "198.51.100.20", token?: string): Promise<Request> {
+  const jwt = token ?? (await mintWebJwt({ WEB_JWT_SECRET: WEB_SECRET } as Env, 1800));
+  return new Request(`https://proxy.example${path}`, {
+    headers: { Authorization: `Bearer ${jwt}`, "CF-Connecting-IP": ip, Origin: "https://revu.lol" },
+  });
+}
+
+describe("Riot budget", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("charges only the cache miss: a cached /match costs no DO call and no token slot", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now()); // one 1-second window
+    installCache();
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("{}", { status: 200 })));
+    const limiter = recordingLimiter();
+    const e = env({ RATE_LIMITER: limiter.ns, PER_TOKEN_RPS: "1" });
+
+    expect((await worker.fetch(authedReq("/match/NA1_7?region=na1"), e, ctx())).status).toBe(200);
+    // Same second, per-token cap of 1: a hit must still be served.
+    expect((await worker.fetch(authedReq("/match/NA1_7?region=na1"), e, ctx())).status).toBe(200);
+    expect((await worker.fetch(authedReq("/timeline/NA1_7?region=na1"), e, ctx())).status).toBe(429);
+    expect(limiter.calls).toHaveLength(1);
+  });
+
+  it("web calls carry the web share and the per-address cap to the DO", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("{}", { status: 200 })));
+    const limiter = recordingLimiter();
+    const e = env({ RATE_LIMITER: limiter.ns, AGGREGATE_RPS: "18", WEB_JWT_SECRET: WEB_SECRET });
+    const res = await worker.fetch(await webReq("/web/account?riotId=A%23B&region=na1"), e, ctx());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://revu.lol");
+    const asked = limiter.calls[0];
+    expect(asked.pathname).toBe("/riot");
+    expect(asked.searchParams.get("kind")).toBe("web");
+    expect(asked.searchParams.get("limit")).toBe("18");
+    expect(asked.searchParams.get("web")).toBe("6"); // a third of 18 by default
+    expect(asked.searchParams.get("ipLimit")).toBe("3");
+    expect(asked.searchParams.get("ip")).toMatch(/^[0-9a-f]{32}$/); // hashed, never the raw address
+  });
+
+  it("maps the DO's web and per-address denials to distinct 429s", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    for (const [reason, error] of [["web", "rate_limit_web"], ["ip", "rate_limit_per_ip"]]) {
+      resetRiotBudget();
+      const limiter = recordingLimiter(() => ({ allowed: false, reason }));
+      const res = await worker.fetch(
+        await webReq("/web/matches?puuid=p&region=na1"),
+        env({ RATE_LIMITER: limiter.ns, WEB_JWT_SECRET: WEB_SECRET }),
+        ctx(),
+      );
+      expect(res.status).toBe(429);
+      expect(await json(res)).toEqual({ error });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("minting more web tokens buys one address no extra capacity", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now()); // one 1-second window
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("{}", { status: 200 })));
+    const e = env({ WEB_JWT_SECRET: WEB_SECRET, WEB_PER_IP_RPS: "2" });
+    const ip = "203.0.113.50";
+    const statuses: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const fresh = await mintWebJwt({ WEB_JWT_SECRET: WEB_SECRET } as Env, 1800);
+      statuses.push((await worker.fetch(await webReq("/web/rank?puuid=p&region=na1", ip, fresh), e, ctx())).status);
+    }
+    expect(statuses).toEqual([200, 200, 429]);
+    // Another address is unaffected, and an IPv6 /64 counts as one address.
+    expect((await worker.fetch(await webReq("/web/rank?puuid=p&region=na1", "203.0.113.51"), e, ctx())).status).toBe(200);
+    const v6a = await worker.fetch(await webReq("/web/rank?puuid=p&region=na1", "2001:db8:1:2::a"), e, ctx());
+    const v6b = await worker.fetch(await webReq("/web/rank?puuid=p&region=na1", "2001:db8:1:2:ffff::b"), e, ctx());
+    const v6c = await worker.fetch(await webReq("/web/rank?puuid=p&region=na1", "2001:0db8:0001:0002:1:1:1:1"), e, ctx());
+    expect([v6a.status, v6b.status, v6c.status]).toEqual([200, 200, 429]);
+  });
+
+  it("desktop and web share nothing per address: desktop never gets a per-IP 429", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("{}", { status: 200 })));
+    const limiter = recordingLimiter((u) => ({ allowed: u.searchParams.get("kind") !== "web" }));
+    const e = env({ RATE_LIMITER: limiter.ns, WEB_JWT_SECRET: WEB_SECRET });
+    expect((await worker.fetch(await webReq("/web/rank?puuid=p&region=na1"), e, ctx())).status).toBe(429);
+    expect((await worker.fetch(authedReq("/rank?puuid=p&region=na1"), e, ctx())).status).toBe(200);
+  });
+});
+
+describe("POST /web/session", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  function sessionReq(ip = "198.51.100.30"): Request {
+    return new Request("https://proxy.example/web/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip },
+      body: JSON.stringify({ turnstileToken: "tok" }),
+    });
+  }
+
+  function stubSiteverify(result: Record<string, unknown>) {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(result), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const configured = (overrides: Partial<Env> = {}) =>
+    env({ TURNSTILE_SECRET_KEY: "ts", WEB_JWT_SECRET: WEB_SECRET, TURNSTILE_HOSTNAMES: "revu.lol,www.revu.lol", ...overrides });
+
+  it("mints a 30-minute token for a Turnstile pass from an allowed hostname", async () => {
+    const siteverify = stubSiteverify({ success: true, hostname: "revu.lol" });
+    const res = await worker.fetch(sessionReq(), configured(), ctx());
+    expect(res.status).toBe(200);
+    const out = await json(res);
+    expect(out.expiresIn).toBe(1800);
+    expect(String(out.token).split(".")).toHaveLength(3);
+    expect(siteverify.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("refuses a Turnstile token issued for another hostname", async () => {
+    stubSiteverify({ success: true, hostname: "evil.example" });
+    const res = await worker.fetch(sessionReq(), configured(), ctx());
+    expect(res.status).toBe(403);
+    expect(await json(res)).toEqual({ error: "turnstile_failed" });
+  });
+
+  it("caps live tokens per address globally through the DO", async () => {
+    stubSiteverify({ success: true, hostname: "revu.lol" });
+    const limiter = recordingLimiter((u) => ({ allowed: u.searchParams.get("ns") !== "mint" }));
+    const res = await worker.fetch(sessionReq(), configured({ RATE_LIMITER: limiter.ns }), ctx());
+    expect(res.status).toBe(429);
+    expect(await json(res)).toEqual({ error: "rate_limit_web_session" });
+    const asked = limiter.calls[0];
+    expect(asked.pathname).toBe("/key");
+    expect(asked.searchParams.get("limit")).toBe("12");
+    expect(asked.searchParams.get("window")).toBe(String(30 * 60 * 1000));
+  });
+
+  it("does not need the Riot key", async () => {
+    stubSiteverify({ success: true, hostname: "revu.lol" });
+    const res = await worker.fetch(sessionReq(), configured({ RIOT_API_KEY: "" }), ctx());
+    expect(res.status).toBe(200);
+  });
+
+  it("answers 503 when Turnstile or the JWT secret is not configured", async () => {
+    stubSiteverify({ success: true });
+    const res = await worker.fetch(sessionReq(), env({ WEB_JWT_SECRET: WEB_SECRET }), ctx());
+    expect(res.status).toBe(503);
+    expect(await json(res)).toEqual({ error: "web_session_not_configured" });
   });
 });
