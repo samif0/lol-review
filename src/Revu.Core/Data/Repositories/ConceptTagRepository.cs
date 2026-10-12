@@ -65,6 +65,23 @@ public sealed class ConceptTagRepository : IConceptTagRepository
         return results;
     }
 
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<long>>> GetIdsByGameAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT game_id, tag_id FROM game_concept_tags";
+
+        var results = new Dictionary<long, List<long>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var gameId = reader.GetInt64(0);
+            if (!results.TryGetValue(gameId, out var tagIds)) results[gameId] = tagIds = [];
+            tagIds.Add(reader.GetInt64(1));
+        }
+        return results.ToDictionary(static pair => pair.Key, static pair => (IReadOnlyList<long>)pair.Value);
+    }
+
     public async Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds)
     {
         using var conn = _factory.CreateConnection();

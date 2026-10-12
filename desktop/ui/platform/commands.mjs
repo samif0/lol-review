@@ -113,7 +113,9 @@ const definitions = {
   check_update: get("/api/update/check"),
   download_update: post("/api/update/download", {"payload":false}),
   apply_update: native({}, {"sideEffect":"apply-update-stop-sidecar-exit"}),
-  get_export_markdown: get("/api/settings/export"),
+  // The sidecar writes the full export into Documents\Revu and answers with its path; the
+  // Markdown never crosses the renderer.
+  export_review_data: post("/api/settings/export", { payload: false, timeoutMs: 120_000 }),
   get_review_export_markdown: get("/api/review/export", {"gameId":"integer"}),
   app_version: native(),
   get_recording_status: native(),
@@ -127,6 +129,7 @@ const definitions = {
   get_microphone_access: native(),
   open_microphone_settings: native(),
   open_log_folder: native(),
+  open_export_folder: native(),
   review_vod: native({"gameId":"integer?"}),
   open_review: native({"gameId":"integer?"}),
   take_next_step: native(),

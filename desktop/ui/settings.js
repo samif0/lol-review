@@ -392,7 +392,7 @@ function setStatusEl(el, text, tone, autoClear) {
 const ACTIONS = new Set([
   'save_config', 'discard_config', 'pick_ascent', 'pick_clips', 'pick_backup',
   'disconnect_ascent', 'scan_vods',
-  'refresh_backups', 'export_data', 'open_logs',
+  'refresh_backups', 'export_data', 'open_export_folder', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
   'run_backfill',
 ]);
@@ -426,6 +426,7 @@ document.addEventListener('click', async (ev) => {
     if (action === 'run_backfill') return await doBackfill(invoke, target);
     if (action === 'refresh_backups') return await loadStatus();
     if (action === 'export_data') return await doExport(invoke, target);
+    if (action === 'open_export_folder') return await invoke('open_export_folder');
     if (action === 'open_logs') return await invoke('open_log_folder');
     if (action === 'restore_backup') return await doRestore(invoke, target);
     if (action === 'reset_all_data') return await doReset(invoke, target);
@@ -649,32 +650,41 @@ async function doBackfill(invoke, target) {
   }
 }
 
-// Export = build the Markdown (sidecar read) then write it via the native save
-// dialog. 'saved:false' means the user cancelled (no error).
+// Export = the sidecar writes the Markdown into Documents\Revu and answers with the
+// saved path (a long history no longer has to fit through the renderer). The status
+// names the file and an Open folder button opens that fixed folder.
 async function doExport(invoke, target) {
   const canDisable = 'disabled' in target;
   if (canDisable) target.disabled = true;
-  setStatusEl($('export-status'), 'Building export…', null, false);
+  showExportFolderButton(false);
+  setStatusEl($('export-status'), 'Saving export…', null, false);
   try {
-    const built = await invoke('get_export_markdown');
-    if (!built || typeof built.markdown !== 'string') {
-      setStatusEl($('export-status'), 'Export failed: no data returned.', 'bad', false);
+    const out = await invoke('export_review_data');
+    if (!out || out.ok === false || typeof out.path !== 'string' || !out.path) {
+      setStatusEl($('export-status'), `Export failed: ${(out && out.error) || 'no file was saved.'}`, 'bad', false);
       return;
     }
-    const out = await invoke('save_export_file', {
-      fileName: built.fileName || 'revu-review-export.md',
-      markdown: built.markdown,
-    });
-    if (out && out.saved) {
-      setStatusEl($('export-status'), 'Export saved.', 'good', true);
-    } else {
-      setStatusEl($('export-status'), 'Export canceled.', null, true);
-    }
+    setStatusEl($('export-status'), `Saved to ${out.path}`, 'good', false);
+    showExportFolderButton(true);
   } catch (err) {
-    setStatusEl($('export-status'), `Export failed: ${err && err.message ? err.message : err}`, 'bad', false);
+    setStatusEl($('export-status'), `Export failed: ${errText(err)}`, 'bad', false);
   } finally {
     if (canDisable) target.disabled = false;
   }
+}
+
+function showExportFolderButton(show) {
+  let open = $('export-open-btn');
+  if (!open && show) {
+    open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'rule-act';
+    open.id = 'export-open-btn';
+    open.dataset.action = 'open_export_folder';
+    open.textContent = 'Open folder';
+    $('export-btn')?.after(open);
+  }
+  if (open) open.hidden = !show;
 }
 
 // Toggle buttons flip their own visual state on click (saved on Save).

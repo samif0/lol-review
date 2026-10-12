@@ -49,28 +49,95 @@ public sealed class ReviewExportService : IReviewExportService
 
     public async Task<string> ExportAllAsync(CancellationToken cancellationToken = default)
     {
+        using var writer = new StringWriter(CultureInfo.InvariantCulture);
+        await WriteAllAsync(writer, cancellationToken);
+        return writer.ToString();
+    }
+
+    public async Task<ReviewExportFile> ExportAllToFolderAsync(string folder, CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(folder);
+        // Streamed to a hidden temporary file and moved into place only when complete, so a
+        // failed or cancelled export never leaves a partial Markdown file behind.
+        var temp = Path.Combine(folder, $".revu-export-{Guid.NewGuid():N}.tmp");
+        try
+        {
+            int games;
+            await using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, useAsync: true))
+            await using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+            {
+                games = await WriteAllAsync(writer, cancellationToken);
+            }
+
+            var stem = $"revu-review-export-{DateTime.Now:yyyyMMdd-HHmm}";
+            for (var copy = 1; ; copy++)
+            {
+                var fileName = copy == 1 ? $"{stem}.md" : $"{stem}-{copy}.md";
+                var path = Path.Combine(folder, fileName);
+                if (File.Exists(path)) continue;
+                try
+                {
+                    File.Move(temp, path, overwrite: false);
+                    return new ReviewExportFile(path, fileName, games);
+                }
+                catch (IOException) when (File.Exists(path) && copy < 100)
+                {
+                    // Another export took this name between the check and the move.
+                }
+            }
+        }
+        finally
+        {
+            try { File.Delete(temp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>
+    /// Writes the full export and returns how many games it holds. Every per-game section
+    /// comes from one bulk read per table, so the query count does not grow with history.
+    /// </summary>
+    private async Task<int> WriteAllAsync(TextWriter writer, CancellationToken cancellationToken)
+    {
         var games = await _gameHistory.GetRecentAsync(ExportLimit);
         // The mental rating lives on session_log (games.rating is a queue-gate
         // flag hardcoded to 1 by the review save — exporting it would show
         // "1/10" for every game). One bulk fetch covers all exported games.
         var mentalRatings = await _sessionLog.GetAllMentalRatingsAsync();
         var allTags = await _conceptTags.GetAllAsync();
-        var sb = new StringBuilder();
+        cancellationToken.ThrowIfCancellationRequested();
+        var data = new ExportData(
+            Objectives: await _objectives.GetAllGameObjectivesAsync(),
+            PromptAnswers: await _prompts.GetAllAnswersByGameAsync(),
+            // Newest note per game first, the same note GetForGameAsync returns.
+            MatchupNotes: (await _matchupNotes.GetAllAsync())
+                .Where(static note => note.GameId is not null)
+                .GroupBy(static note => note.GameId!.Value)
+                .ToDictionary(static group => group.Key, static group => group.First()),
+            Vods: (await _vod.GetAllVodsAsync())
+                .GroupBy(static vod => vod.GameId)
+                .ToDictionary(static group => group.Key, static group => group.First()),
+            Bookmarks: await _vod.GetAllBookmarksByGameAsync(),
+            TagIds: await _conceptTags.GetIdsByGameAsync());
 
+        var sb = new StringBuilder();
         sb.AppendLine("# Revu Review Export");
         sb.AppendLine();
         AppendField(sb, "Exported", DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture));
         AppendField(sb, "Games exported", games.Count.ToString(CultureInfo.InvariantCulture));
         sb.AppendLine();
+        await writer.WriteAsync(sb, cancellationToken);
 
         foreach (var game in games)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var mentalRating = mentalRatings.TryGetValue(game.GameId, out var rating) ? rating : 0;
-            await AppendGameAsync(sb, game, mentalRating, allTags, headingLevel: 2);
+            sb.Clear();
+            AppendGame(sb, game, mentalRating, allTags, data, headingLevel: 2);
+            await writer.WriteAsync(sb, cancellationToken);
         }
 
-        return sb.ToString();
+        await writer.FlushAsync(cancellationToken);
+        return games.Count;
     }
 
     public async Task<string?> ExportGameAsync(long gameId, CancellationToken cancellationToken = default)
@@ -135,19 +202,20 @@ public sealed class ReviewExportService : IReviewExportService
         AppendMoments(sb, bookmarks, evidence, objectives);
     }
 
-    private async Task AppendGameAsync(
+    private static void AppendGame(
         StringBuilder sb,
         GameStats game,
         int mentalRating,
         IReadOnlyList<ConceptTagRecord> allTags,
+        ExportData data,
         int headingLevel)
     {
-        var objectives = await _objectives.GetGameObjectivesAsync(game.GameId);
-        var promptAnswers = await _prompts.GetAnswersForGameAsync(game.GameId);
-        var matchupNote = await _matchupNotes.GetForGameAsync(game.GameId);
-        var vod = await _vod.GetVodAsync(game.GameId);
-        var bookmarks = await _vod.GetBookmarksAsync(game.GameId);
-        var tagIds = await _conceptTags.GetIdsForGameAsync(game.GameId);
+        var objectives = data.Objectives.GetValueOrDefault(game.GameId) ?? [];
+        var promptAnswers = data.PromptAnswers.GetValueOrDefault(game.GameId) ?? [];
+        var matchupNote = data.MatchupNotes.GetValueOrDefault(game.GameId);
+        var vod = data.Vods.GetValueOrDefault(game.GameId);
+        var bookmarks = data.Bookmarks.GetValueOrDefault(game.GameId) ?? [];
+        var tagIds = data.TagIds.GetValueOrDefault(game.GameId) ?? [];
         var tagNames = allTags
             .Where(tag => tagIds.Contains(tag.Id))
             .Select(tag => tag.Name)
@@ -559,6 +627,15 @@ public sealed class ReviewExportService : IReviewExportService
 
         return sb.ToString().TrimEnd() + suffix;
     }
+
+    /// <summary>The full export's per-game sections, each loaded in one read and keyed by game id.</summary>
+    private sealed record ExportData(
+        IReadOnlyDictionary<long, IReadOnlyList<GameObjectiveRecord>> Objectives,
+        IReadOnlyDictionary<long, IReadOnlyList<PromptAnswer>> PromptAnswers,
+        IReadOnlyDictionary<long, MatchupNoteRecord> MatchupNotes,
+        IReadOnlyDictionary<long, VodSummary> Vods,
+        IReadOnlyDictionary<long, IReadOnlyList<VodBookmarkRecord>> Bookmarks,
+        IReadOnlyDictionary<long, IReadOnlyList<long>> TagIds);
 
     private sealed record ExportMoment(
         int StartSeconds,

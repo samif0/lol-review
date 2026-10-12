@@ -70,19 +70,16 @@ public static partial class SidecarEndpoints
         app.MapPost("/api/update/download", async (UpdateService upd) =>
             Results.Json(await upd.DownloadAsync(), jsonOptions));
 
-        // ── GET /api/settings/export (token-gated): build the Markdown review export ──
-        // Pure READ: IReviewExportService.ExportAllAsync bundles games/notes/prompts/
-        // objectives/tags/matchup notes/VOD links/bookmarks into a single Markdown
-        // string. The sidecar does NOT write the file — it returns { markdown, fileName }
-        // and the desktop main process saves it via the native save-file dialog. The
-        // suggested filename mirrors the WinUI picker (revu-review-export-{yyyyMMdd-HHmm}).
-        app.MapGet("/api/settings/export", async (IReviewExportService export, ILogger<Program> log, CancellationToken ct) =>
-        {
-            var markdown = await export.ExportAllAsync(ct);
-            var fileName = $"revu-review-export-{DateTime.Now:yyyyMMdd-HHmm}.md";
-            log.LogInformation("Review export built ({Chars} chars) -> {FileName}", markdown.Length, fileName);
-            return Results.Json(new { ok = true, markdown, fileName }, jsonOptions);
-        });
+        // ── POST /api/settings/export (token-gated): save the Markdown review export ──
+        // IReviewExportService bundles games/notes/prompts/objectives/tags/matchup notes/
+        // VOD links/bookmarks (one bulk read per table) and streams them to a new
+        // revu-review-export-{yyyyMMdd-HHmm}.md in Documents\Revu. The sidecar writes the
+        // file itself: a long history's Markdown used to round-trip through the renderer and
+        // failed past the 4 MiB IPC envelope. Returns { ok, path, fileName, games }; the
+        // desktop host opens that fixed folder on request. Denied in isolated host testing
+        // (the folder is outside the scratch root).
+        app.MapPost("/api/settings/export", (IReviewExportService export, ILogger<Program> log, CancellationToken ct) =>
+            SaveReviewExportAsync(export, ReviewExportFolder(), jsonOptions, log, ct));
 
         // POST /api/settings/reset — DESTRUCTIVE: wipe all data and start fresh. The Core
         // IBackupService.ResetAllDataAsync ALWAYS takes a full backup FIRST (returns its
@@ -174,5 +171,37 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
+    }
+
+    /// <summary>Documents\Revu: where "Export all reviews" saves. The desktop host opens the
+    /// same fixed folder (app.getPath('documents')), never a path the page supplies.</summary>
+    internal static string ReviewExportFolder()
+    {
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(documents))
+            documents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents");
+        return Path.Combine(documents, "Revu");
+    }
+
+    internal static async Task<IResult> SaveReviewExportAsync(IReviewExportService export, string folder,
+        JsonSerializerOptions jsonOptions, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            var saved = await export.ExportAllToFolderAsync(folder, ct);
+            log.LogInformation("Review export saved ({Games} games) -> {Path}", saved.GameCount, saved.Path);
+            return Results.Json(new { ok = true, path = saved.Path, fileName = saved.FileName, games = saved.GameCount }, jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            log.LogInformation("Review export cancelled by the caller; nothing saved");
+            return Results.Json(new { ok = false, error = "The request was cancelled." }, jsonOptions, statusCode: 499);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.LogWarning(ex, "Review export could not be written to {Folder}", folder);
+            return Results.Json(new { ok = false, error = $"Couldn't save the export to {folder}. Check that the folder can be written to." },
+                jsonOptions, statusCode: 422);
+        }
     }
 }

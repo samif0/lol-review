@@ -22,6 +22,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("POST", "/api/config/save")]
     [InlineData("POST", "/api/settings/restore")]
     [InlineData("POST", "/api/settings/reset")]
+    [InlineData("POST", "/api/settings/export")] // writes into Documents\Revu, outside the scratch root
     [InlineData("GET", "/API/AUTH/status")]
     [InlineData("GET", "/API/UPDATE/check/")]
     [InlineData("GET", "/api/pregame")]

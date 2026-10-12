@@ -61,6 +61,10 @@ public interface IPromptsRepository
 
     Task<IReadOnlyList<PromptAnswer>> GetAnswersForGameAsync(long gameId);
 
+    /// <summary>Every game's answers in one read (the full review export), keyed by game id,
+    /// each list in <see cref="GetAnswersForGameAsync"/> order.</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<PromptAnswer>>> GetAllAnswersByGameAsync();
+
     /// <summary>
     /// Every custom-prompt answer recorded against the given objective, across
     /// all games. Joins <c>prompt_answers</c> → <c>objective_prompts</c> (scoped
