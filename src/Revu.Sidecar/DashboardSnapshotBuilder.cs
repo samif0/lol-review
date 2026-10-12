@@ -322,14 +322,16 @@ public sealed class DashboardSnapshotBuilder
             var reviewedCount = await _evidenceRepo.CountReviewedPatternsAsync();
 
             // Same reviewed/re-arm rule the Patterns page applies
-            // (PatternReviewGate over the card's moments — ≤6 cheap local
-            // reads), so the nag and the page can never disagree.
+            // (PatternReviewGate over the card's moments, every trend card's
+            // moments in one read), so the nag and the page can never disagree.
+            var trends = rawPatterns
+                .Where(p => p.Kind != Revu.Core.Constants.PatternConstants.KindSavedObjectiveEvidence).ToList();
+            var playlists = await _evidenceRepo.GetPatternMomentsAsync(trends);
             var pending = new List<ObjectivePatternItemDto>();
-            foreach (var p in rawPatterns)
+            foreach (var p in trends)
             {
-                if (p.Kind == Revu.Core.Constants.PatternConstants.KindSavedObjectiveEvidence) continue;
                 if (pending.Count >= PatternsTake) break;
-                var moments = await _evidenceRepo.GetPatternMomentsAsync(p);
+                var moments = playlists.GetValueOrDefault(p.PatternKey) ?? Array.Empty<PatternMoment>();
                 if (PatternReviewGate.IsReviewed(reviewedStamps, p.PatternKey, moments)) continue;
                 pending.Add(new ObjectivePatternItemDto(
                     Kind: p.Kind,

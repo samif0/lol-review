@@ -20,6 +20,30 @@ public sealed class PatternsSnapshotReadCountTests
     private static async Task<(int Opened, PatternsSnapshotDto Snapshot)> BuildAsync(int objectives)
     {
         using var scope = new SidecarWriteScope();
+        await SeedAsync(scope, objectives);
+
+        var counting = new CountingFactory(scope.ConnectionFactory);
+        var snapshot = await new PatternsSnapshotBuilder(new EvidenceRepository(counting),
+            NullLogger<PatternsSnapshotBuilder>.Instance).BuildAsync();
+        return (counting.Opened, snapshot);
+    }
+
+    private static async Task<(int Opened, DashboardDto Dashboard)> BuildDashboardAsync(int objectives)
+    {
+        using var scope = new SidecarWriteScope();
+        await SeedAsync(scope, objectives);
+
+        // Only the evidence reads are counted: that is where the per-card queries were.
+        var counting = new CountingFactory(scope.ConnectionFactory);
+        var dashboard = await new DashboardSnapshotBuilder(
+            scope.SessionLog, scope.Objectives, scope.Vod, new EvidenceRepository(counting), scope.DeathClassifications,
+            new RulesRepository(scope.ConnectionFactory), scope.Games, scope.CoachingStints, scope.Config,
+            NullLogger<DashboardSnapshotBuilder>.Instance).BuildAsync();
+        return (counting.Opened, dashboard);
+    }
+
+    private static async Task SeedAsync(SidecarWriteScope scope, int objectives)
+    {
         await scope.InitializeAsync();
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         await scope.Games.SaveAsync(TestGameStatsFactory.Create(8_801, timestamp: now - 3_600));
@@ -34,11 +58,6 @@ public sealed class PatternsSnapshotReadCountTests
                     Status: EvidenceStatuses.Evidence));
             }
         }
-
-        var counting = new CountingFactory(scope.ConnectionFactory);
-        var snapshot = await new PatternsSnapshotBuilder(new EvidenceRepository(counting),
-            NullLogger<PatternsSnapshotBuilder>.Instance).BuildAsync();
-        return (counting.Opened, snapshot);
     }
 
     [Fact]
@@ -53,5 +72,17 @@ public sealed class PatternsSnapshotReadCountTests
         Assert.Equal(oneOpened, sixOpened);
         Assert.Equal("", six.ErrorText);
         Assert.Contains(six.Patterns, card => card.Kind == PatternConstants.KindBadObjectiveEvidence);
+    }
+
+    [Fact]
+    public async Task TheDashboardNagCostsTheSameReadsForOneObjectiveOrSix()
+    {
+        var (oneOpened, one) = await BuildDashboardAsync(1);
+        var (sixOpened, six) = await BuildDashboardAsync(6);
+
+        Assert.Single(one.Patterns.Items);
+        Assert.Equal(4, six.Patterns.Items.Count); // the nag still shows at most four pending trends
+        Assert.All(six.Patterns.Items, item => Assert.Equal(PatternConstants.KindBadObjectiveEvidence, item.Kind));
+        Assert.Equal(oneOpened, sixOpened);
     }
 }
