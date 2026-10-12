@@ -98,7 +98,7 @@ public sealed partial class GameRepository
         cmd.Transaction = tx;
         cmd.CommandText = $"{ObjectiveGameCountSql} WHERE id IN (SELECT objective_id FROM game_objectives WHERE game_id = @id)";
         cmd.Parameters.AddWithValue("@id", gameId);
-        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        await ExecuteObjectiveGameCountAsync(conn, tx, cmd).ConfigureAwait(false);
     }
 
     // Game delete: the game's practice rows are already gone, so re-base by objective id.
@@ -113,7 +113,23 @@ public sealed partial class GameRepository
             return $"@o{i}";
         }).ToList();
         cmd.CommandText = $"{ObjectiveGameCountSql} WHERE id IN ({string.Join(", ", names)})";
-        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        await ExecuteObjectiveGameCountAsync(conn, tx, cmd).ConfigureAwait(false);
+    }
+
+    // The counted filter reads game_remakes, and hide and delete tolerate a database
+    // without it (a downgraded build last opened it, or the startup schema pass failed):
+    // create the table, as SetRemakeVerdictAsync does, and run the re-base once more.
+    private static async Task ExecuteObjectiveGameCountAsync(SqliteConnection conn, SqliteTransaction tx, SqliteCommand cmd)
+    {
+        try
+        {
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+        catch (SqliteException ex) when (RemakeSql.IsMissingTable(ex))
+        {
+            await RemakeSql.EnsureTableAsync(conn, tx).ConfigureAwait(false);
+            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
     }
 
     // Practice points (ObjectivesRepository.PracticePoints per practiced objective) count

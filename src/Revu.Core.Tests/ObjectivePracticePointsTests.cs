@@ -128,6 +128,39 @@ public sealed class ObjectivePracticePointsTests
         Assert.Equal(0, await ScoreAsync(scope, objectiveId));
     }
 
+    [Fact]
+    public async Task HideAndDelete_TolerateADatabaseWithoutTheRemakesTable()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var objectiveId = await scope.Objectives.CreateAsync("Ward river");
+        await SeedAsync(scope, 6561, 6562);
+        await scope.Objectives.RecordGameAsync(6561, objectiveId, practiced: true);
+        await scope.Objectives.RecordGameAsync(6562, objectiveId, practiced: true);
+
+        await DropRemakesTableAsync(scope);
+        await scope.Games.SetHiddenAsync(6561, true);
+        var hidden = (await scope.Objectives.GetAsync(objectiveId))!;
+        Assert.Equal(2, hidden.Score);
+        Assert.Equal(1, hidden.GameCount);
+
+        await DropRemakesTableAsync(scope);
+        await scope.Games.DeleteAsync(6562);
+        var deleted = (await scope.Objectives.GetAsync(objectiveId))!;
+        Assert.Equal(0, deleted.Score);
+        Assert.Equal(0, deleted.GameCount);
+        Assert.Equal(0, await CountAsync(scope, "SELECT COUNT(*) FROM games WHERE game_id = 6562"));
+    }
+
+    // A database a downgraded build last opened, or one whose startup schema pass failed.
+    private static async Task DropRemakesTableAsync(TestDatabaseScope scope)
+    {
+        using var conn = scope.OpenConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DROP TABLE IF EXISTS game_remakes";
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private static async Task SeedAsync(TestDatabaseScope scope, params long[] gameIds)
     {
         using var conn = scope.OpenConnection();
