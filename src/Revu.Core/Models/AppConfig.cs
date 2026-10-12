@@ -26,7 +26,7 @@ public class AppConfig
 
     // ── Riot API proxy (Path B: session-based auth) ─────────────────
     // Session token is issued by POST /auth/verify after the user enters an
-    // invite code, receives a magic-link email, and pastes the one-time code
+    // email, receives a magic-link email, and pastes the one-time code
     // back into the app. Stored here so the app can authenticate on restart.
 
     /// <summary>
