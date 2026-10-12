@@ -32,6 +32,15 @@ test('player-facing copy uses words or a plain hyphen, never an em or en dash', 
   }
 });
 
+test('onboarding promises nothing Settings cannot do and says Sign in', () => {
+  const html = visibleText(read('onboarding.html'));
+  assert.doesNotMatch(html, /change this in Settings/i, 'Settings has no main role control');
+  assert.doesNotMatch(html, />\s*Log in\s*</);
+  assert.match(html, /<div class="seclabel onb-sectitle">Sign in<\/div>/);
+  for (const role of ['Top', 'Jungle', 'Mid', 'ADC', 'Support']) assert.match(html, new RegExp(`type="button">${role}</button>`));
+  assert.doesNotMatch(read('onboarding.js'), /RANK DETECTED:/);
+});
+
 test('tilt check states one duration and makes no physiological claim', () => {
   const html = visibleText(read('tiltcheck.html'));
   const js = read('tiltcheck.js');
