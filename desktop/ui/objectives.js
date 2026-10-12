@@ -809,21 +809,27 @@ async function submitForm(submitBtn) {
 }
 
 // ── celebration overlay ───────────────────────────────────────────────────────
-// Shown after a successful mark-complete; auto-dismisses after 5s. Stats line
-// mirrors the WinUI "{score} pts • {games} games played".
-let _celebrateTimer = null;
+// Shown after a successful mark-complete. It is an alert dialog: screen readers
+// announce it, focus moves to Continue, and it stays until Continue or Escape so
+// nobody loses the moment to a timer (WCAG 2.2.1).
+let _celebrateReturnFocus = null;
 function showCelebration(obj) {
   if (!obj) return;
   $('celebrate-title').textContent = obj.title || '';
   const games = Number(obj.gameCount) || 0;
-  $('celebrate-stats').textContent = `${Number(obj.score) || 0} points · ${games} games played`;
+  $('celebrate-stats').textContent = `${Number(obj.score) || 0} points · ${games} ${games === 1 ? 'game' : 'games'} played`;
+  _celebrateReturnFocus = document.activeElement;
   show($('celebrate'), true);
-  if (_celebrateTimer) clearTimeout(_celebrateTimer);
-  _celebrateTimer = setTimeout(dismissCelebration, 5000);
+  $('celebrate-continue').focus();
 }
 function dismissCelebration() {
-  if (_celebrateTimer) { clearTimeout(_celebrateTimer); _celebrateTimer = null; }
-  show($('celebrate'), false);
+  const overlay = $('celebrate');
+  if (!overlay || overlay.hidden) return;
+  show(overlay, false);
+  // The completed card re-rendered away; fall back to a stable control.
+  const back = _celebrateReturnFocus && _celebrateReturnFocus.isConnected ? _celebrateReturnFocus : $('new-objective');
+  _celebrateReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 // ── delete confirm ────────────────────────────────────────────────────────────
@@ -994,8 +1000,15 @@ document.addEventListener('change', (ev) => {
   else if (id === 'f-crit-metric') syncCriteriaVisibility(true);
 });
 
-// Champion typeahead: Enter (or picking a datalist suggestion) adds the champ.
+// The celebration dialog is modal: Escape closes it and Tab stays on its only
+// control. Champion typeahead: Enter (or picking a datalist suggestion) adds the champ.
 document.addEventListener('keydown', (ev) => {
+  const celebrate = $('celebrate');
+  if (celebrate && !celebrate.hidden) {
+    if (ev.key === 'Escape') { ev.preventDefault(); dismissCelebration(); }
+    else if (ev.key === 'Tab') { ev.preventDefault(); $('celebrate-continue').focus(); }
+    return;
+  }
   if (ev.target && ev.target.id === 'f-champ-input' && ev.key === 'Enter') {
     ev.preventDefault();
     addChamp(ev.target.value);

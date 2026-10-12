@@ -201,16 +201,13 @@
     </div>
   </div>
 
-  <!-- MILESTONE CELEBRATION OVERLAY — full-screen scrim + HUD card, shown when an
-       objective is marked complete. Auto-dismisses after 5s; CONTINUE closes it. -->
-  <div class="obj-celebrate" id="celebrate" hidden>
+  <!-- MILESTONE CELEBRATION: a modal alert shown when an objective is marked
+       complete. It is announced, takes focus, and stays until Continue or Escape. -->
+  <div class="obj-celebrate" id="celebrate" role="alertdialog" aria-modal="true"
+       aria-labelledby="celebrate-head" aria-describedby="celebrate-title celebrate-stats" hidden>
     <div class="obj-celebrate-card glass">
-      <span class="obj-celebrate-bracket tl" aria-hidden="true"></span>
-      <span class="obj-celebrate-bracket tr" aria-hidden="true"></span>
-      <span class="obj-celebrate-bracket bl" aria-hidden="true"></span>
-      <span class="obj-celebrate-bracket br" aria-hidden="true"></span>
       <div class="obj-celebrate-eyebrow">Milestone reached</div>
-      <div class="obj-celebrate-head">Learning objective complete</div>
+      <h2 class="obj-celebrate-head" id="celebrate-head">Learning objective complete</h2>
       <div class="obj-celebrate-title" id="celebrate-title"></div>
       <div class="obj-celebrate-stats" id="celebrate-stats"></div>
       <div class="obj-celebrate-line">Skill acquired: carry it into your next games.</div>

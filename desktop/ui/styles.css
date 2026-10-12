@@ -678,28 +678,19 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 /* Completed-row action strip — right-aligned, tighter top border. */
 .obj-done-actrow{justify-content:flex-end;width:100%;flex-basis:100%;margin-top:12px;padding-top:11px}
 
-/* MILESTONE CELEBRATION OVERLAY — full-screen scrim + HUD card with corner
-   brackets; entrance scale/opacity. */
+/* MILESTONE CELEBRATION: full-screen scrim + a centered card (an alert dialog). */
 .obj-celebrate{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
   background:rgba(6,11,11,0.80);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:24px}
 .obj-celebrate[hidden]{display:none}
 .obj-celebrate-card{position:relative;max-width:420px;width:100%;text-align:center;padding:38px 34px 32px;
   border-color:rgba(var(--primary-rgb),0.42);
-  box-shadow:0 30px 80px -30px rgba(0,0,0,0.9),0 -22px 50px -34px rgba(var(--primary-rgb),0.45) inset;
-  animation:obj-celebrate-in .45s cubic-bezier(0.22,1,0.36,1) both}
-.obj-celebrate-bracket{position:absolute;width:16px;height:16px;border:2px solid rgba(var(--primary-rgb),0.7)}
-.obj-celebrate-bracket.tl{top:12px;left:12px;border-right:0;border-bottom:0}
-.obj-celebrate-bracket.tr{top:12px;right:12px;border-left:0;border-bottom:0}
-.obj-celebrate-bracket.bl{bottom:12px;left:12px;border-right:0;border-top:0}
-.obj-celebrate-bracket.br{bottom:12px;right:12px;border-left:0;border-top:0}
+  box-shadow:0 30px 80px -30px rgba(0,0,0,0.9),0 -22px 50px -34px rgba(var(--primary-rgb),0.45) inset}
 .obj-celebrate-eyebrow{font-family:var(--fm);font-size:var(--font-label);letter-spacing:2px;text-transform:uppercase;color:var(--gold)}
 .obj-celebrate-head{font-family:var(--fo);font-size:30px;font-weight:700;color:#fff;margin-top:12px;line-height:1.05}
 .obj-celebrate-title{font-family:var(--fb);font-size:15px;color:var(--gold);margin-top:14px;font-weight:600}
 .obj-celebrate-stats{font-family:var(--fm);font-size:11px;letter-spacing:0.8px;color:var(--t2);margin-top:8px}
 .obj-celebrate-line{font-family:var(--fb);font-size:12.5px;color:var(--t3);margin-top:16px;line-height:1.5}
 .obj-celebrate-cta{margin-top:24px;align-self:center}
-@keyframes obj-celebrate-in{from{opacity:0;transform:scale(0.85)}to{opacity:1;transform:scale(1)}}
-@media(prefers-reduced-motion:reduce){.obj-celebrate-card{animation:none}}
 
 /* ── REVIEW PAGE ──────────────────────────────────────────────────────────────
    Per-game review. Reuses shared primitives: .glass / .card / .strip / .stat /
@@ -2885,7 +2876,7 @@ body :is(code,pre,kbd,.vp-clock,.vp-time,.rv-death-time){font-family:ui-monospac
 body :is(svg,.ring-prog,.ringwrap,.pat-surface){filter:none!important}
 body :is(.aurora,.grain,.gamerow-sweep,.pat-scan){display:none!important}
 body :is(.appbar,.glass,.card,.stat,.rule-card,.pat-row,.mini,.onb-card,.tc-ring,.hardstop-card,.eyebrow)::before{content:none!important}
-body :is(.anim-rise,.obj-celebrate-card,.mj-saved){opacity:1;transform:none}
+body :is(.anim-rise,.mj-saved){opacity:1;transform:none}
 /* Loading indicators communicate pending work; they are not decoration. */
 body :is(.onb-spin,.vp-sharebar:not(.is-done):not(.is-error) .vp-sharebar-spin){animation:onb-spin 1s linear infinite!important}
 @media(prefers-reduced-motion:reduce){body :is(.onb-spin,.vp-sharebar-spin){animation:none!important}}

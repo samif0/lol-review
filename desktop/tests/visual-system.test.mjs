@@ -72,6 +72,13 @@ test('error messages use the error token, never the grey loss or muted tokens', 
   assert.ok(checked >= 10, `expected the app's error rules to be checked (saw ${checked})`);
 });
 
+test('removed pages and animations leave no CSS behind', () => {
+  const css = withoutComments(read('styles.css'));
+  // The shared layer forces animation:none; only the loading spinner is exempt.
+  assert.deepEqual([...css.matchAll(/@keyframes ([\w-]+)/g)].map(m => m[1]), ['onb-spin']);
+  assert.doesNotMatch(css, /data-sidebar-anim|\.(an|ses|srow|datenav)-/, 'Analytics, Session log and sidebar animation');
+});
+
 test('match results share one quiet green and red pair', () => {
   const css = read('styles.css');
   assert.match(css, /--result-win:#9ed7b9;--result-loss:#e6a5a8/);
