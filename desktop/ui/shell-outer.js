@@ -480,6 +480,21 @@ async function wireLiveAutoShow() {
     goto(file);
   };
 
+  // Settings "Minimize when a game starts" (on by default). The sidecar sends
+  // gameInProgress once per game, after the loading screen, so this never fights
+  // a player who restores the window mid-game. Read at that moment, so a saved
+  // change applies to the next game. A hard stop brings the window back itself.
+  const minimizeForGame = async () => {
+    try {
+      const cfg = await invoke('get_config');
+      if (cfg?.minimizeDuringGame !== true) return;
+      const win = await getWindow();
+      if (win) await win.minimize();
+    } catch (err) {
+      console.warn('[shell] could not minimize for the game:', err);
+    }
+  };
+
   let sawFirstLiveState = false;
   await listen('lcu-event', (event) => {
     const msg = event.payload || {};
@@ -487,7 +502,7 @@ async function wireLiveAutoShow() {
     const p = msg.payload || {};
     switch (t) {
       case 'champSelectStarted': liveGoto('pregame.html'); break;
-      case 'gameInProgress': liveGoto('ingame.html'); break;
+      case 'gameInProgress': liveGoto('ingame.html'); void minimizeForGame(); break;
       case 'gameEnded':
         handleTutorialGameEnded(p).then((handled) => {
           if (!handled) leaveLiveSurface();
