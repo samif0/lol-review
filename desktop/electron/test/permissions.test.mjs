@@ -43,6 +43,9 @@ test('speaker selection is granted only to the app document and its same-origin 
   assert.equal(allowMediaCheck(top, 'speaker-selection', 'revu-app://ui', { securityOrigin: 'revu-app://ui',
     embeddingOrigin: 'revu-app://ui' }), true);
   assert.equal(allowMediaCheck(top, 'speaker-selection', 'revu-app://ui', undefined), true);
+  // The check the pinned runtime sends from a page iframe before setSinkId (no request follows).
+  assert.equal(allowMediaCheck(top, 'speaker-selection', 'revu-app://ui/', { embeddingOrigin: 'revu-app://ui/', isMainFrame: false,
+    requestingUrl: 'revu-app://ui/vodplayer.html' }), true);
 
   for (const requestingUrl of ['about:srcdoc', 'revu-app://evil/x', 'https://revu.lol/', 'revu-app://user:pw@ui/x', undefined])
     assert.equal(allowMediaRequest(top, 'speaker-selection', speaker({ requestingUrl })), false, requestingUrl);

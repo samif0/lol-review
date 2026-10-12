@@ -10,11 +10,15 @@ const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inl
 
 const audioOnly = types => Array.isArray(types) && types.length > 0 && types.every(t => t === 'audio');
 // Two renderer permissions exist, both only for the app's own pages: microphone
-// capture for clip narration ('media', audio only) and 'speaker-selection', so the
-// players and the Settings test sound can play on the output device chosen in
-// Settings. Camera, screen/system capture and every other permission stay denied.
-// Pages run inside the same-origin app iframe (ui/index.html), so isMainFrame is
-// intentionally NOT required.
+// capture for clip narration ('media', audio only) and 'speaker-selection'. Chromium
+// lists output device ids and allows setSinkId (the players and the Settings test
+// sound) when the page passes either the audio 'media' check or the
+// 'speaker-selection' check; with both denied, setSinkId fails with SecurityError.
+// Verified in the pinned 42.7.1 runtime, where setSinkId consults only the checks
+// (no request arrives). Granting speaker selection keeps the output choice working
+// on its own rather than through the microphone grant. Camera, screen/system
+// capture and every other permission stay denied. Pages run inside the same-origin
+// app iframe (ui/index.html), so isMainFrame is intentionally NOT required.
 export function allowMediaRequest(contents, permission, details) {
   if (!isAppUrl(details?.requestingUrl) || !isAppUrl(contents?.getURL?.())) return false;
   if (permission === 'media') return audioOnly(details?.mediaTypes) && isAppUrl(details?.securityOrigin);
