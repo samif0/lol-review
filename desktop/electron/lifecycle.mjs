@@ -60,6 +60,26 @@ export async function askRecovery({ dialog, parent, kind, detail, openLogs, maxP
   return 'quit';
 }
 
+export const SLOW_START_BUTTONS = Object.freeze(['Keep waiting', 'Open logs', 'Quit']);
+
+/**
+ * A data upgrade that runs long offers a way out. Opening the logs keeps the choice open;
+ * Escape or an aborted `signal` (startup ended) means keep waiting. Resolves 'wait' or 'quit'.
+ */
+export async function askSlowStart({ dialog, signal, openLogs, maxPrompts = 10 }) {
+  const options = { type: 'warning', title: 'Revu', message: 'Revu is taking longer than expected to start',
+    detail: 'Revu is still updating your data. You can keep waiting, or quit and open Revu again later. '
+      + 'If you quit, Revu finishes the update the next time it opens.',
+    buttons: [...SLOW_START_BUTTONS], defaultId: 0, cancelId: 0, noLink: true, signal };
+  for (let prompt = 0; prompt < maxPrompts && !signal?.aborted; prompt++) {
+    const { response } = await dialog.showMessageBox(options);
+    if (signal?.aborted) return 'wait';
+    if (response !== 1) return response === 2 ? 'quit' : 'wait';
+    try { await openLogs(); } catch { /* The folder may be unavailable; offer the choice again. */ }
+  }
+  return 'wait';
+}
+
 /** A relaunch during the shutdown drain gets one notice instead of a silent no-op. */
 export function createClosingNotice(dialog) {
   let shown = false;

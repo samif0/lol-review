@@ -51,7 +51,7 @@ export async function backendRequest(hs, route, { method = 'GET', body, timeoutM
   return value;
 }
 
-// The sidecar publishes this before it prepares storage (migrations can take a while).
+// The sidecar publishes this before a schema upgrade (migrations can take a while).
 export function isStartingHandshake(value, { launchId, processId }) {
   return value?.state === 'starting' && value.apiVersion === 1
     && value.launchId === launchId && value.processId === processId;
@@ -75,7 +75,8 @@ const quiet = Object.freeze({ info() {}, warn() {}, error() {} });
 // A failed write is never retried: losing its response does not mean it failed.
 export class Sidecar {
   #child; #handshake; #stopping = false; #ready = false; #stopPromise;
-  constructor({ dataRoot, executable, isolated = false, onExit = () => {}, onPreparing = () => {}, log = quiet, stderrLog = null }) {
+  constructor({ dataRoot, executable, isolated = false, onExit = () => {}, onPreparing = () => {}, log = quiet, stderrLog = null,
+    preparingTimeoutMs = 10 * 60_000, spawnProcess = spawn }) {
     this.dataRoot = dataRoot;
     this.executable = executable;
     this.isolated = isolated;
@@ -83,6 +84,8 @@ export class Sidecar {
     this.onPreparing = onPreparing;
     this.log = log;
     this.stderrLog = stderrLog;
+    this.preparingTimeoutMs = preparingTimeoutMs;
+    this.spawnProcess = spawnProcess;
   }
   async start() {
     if (this.#child) throw new Error('Sidecar already started');
@@ -94,7 +97,7 @@ export class Sidecar {
     }
     if (this.isolated) environment.REVU_ISOLATED_HOST_TEST = '1';
     // stderr carries the runtime's report of a fatal crash; keep a capped copy of it.
-    const child = spawn(this.executable, [], { cwd: path.dirname(this.executable), windowsHide: true,
+    const child = this.spawnProcess(this.executable, [], { cwd: path.dirname(this.executable), windowsHide: true,
       stdio: ['ignore', 'ignore', this.stderrLog ? 'pipe' : 'ignore'],
       env: { ...environment, REVU_DATA_ROOT: root, REVU_HOST_LAUNCH_ID: launchId } });
     this.#child = child;
@@ -112,12 +115,13 @@ export class Sidecar {
     });
     const identity = { launchId, processId: child.pid, dataDirectory: path.join(root, 'LoLReviewData') };
     const startedAt = Date.now();
-    // A launch that has announced storage preparation is never cut off while it is
-    // alive: killing it would interrupt a migration. The deadline covers the time
-    // before that announcement, and the API check after the real handshake.
+    // 20 s covers an ordinary launch. Only a launch that announced a schema upgrade gets
+    // the longer preparing bound, measured from that announcement: still finite, so a
+    // hung backend cannot trap the user. Each finished migration set is recorded and the
+    // rest re-run safely, so the next launch continues an upgrade this one gave up on.
     let deadline = startedAt + 20000, preparing = false;
     try {
-      while (preparing || Date.now() < deadline) {
+      while (Date.now() < deadline) {
         if (spawnError) throw spawnError;
         if (child.exitCode !== null || child.signalCode !== null) throw new Error('Sidecar exited before becoming ready; another data owner or incompatible schema may be present');
         let verdict;
@@ -126,7 +130,12 @@ export class Sidecar {
           if (text.length > 4096) throw new Error('Invalid handshake size');
           const value = JSON.parse(text);
           if (isStartingHandshake(value, identity)) {
-            if (!preparing) { preparing = true; this.log.info('Sidecar is preparing data'); this.onPreparing(); }
+            if (!preparing) {
+              preparing = true;
+              deadline = Date.now() + this.preparingTimeoutMs;
+              this.log.info('Sidecar is upgrading its data');
+              this.onPreparing();
+            }
           } else {
             const hs = validateHandshake(value, identity);
             if (preparing) { preparing = false; deadline = Date.now() + 20000; }
@@ -146,6 +155,10 @@ export class Sidecar {
         // A verified backend that cannot open its database is an answer, not a timeout.
         if (verdict) throw verdict;
         await delay(100);
+      }
+      if (preparing) {
+        const minutes = Math.round(this.preparingTimeoutMs / 60_000);
+        throw new Error(`Updating your Revu data did not finish within ${minutes} minutes. Revu continues the update the next time it opens.`);
       }
       throw new Error('The owned sidecar did not become ready within 20 seconds');
     } catch (error) { await this.stop().catch(() => {}); throw error; }

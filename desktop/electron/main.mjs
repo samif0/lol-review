@@ -13,11 +13,11 @@ import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createBackgroundController } from './background.mjs';
 import { saveNarration } from './narration.mjs';
 import { createRollingLog, logDirectory } from './logging.mjs';
-import { askRecovery, createClosingNotice, createRendererRecovery, relaunchArgs, shellPage, shellUrl } from './lifecycle.mjs';
-import { createSplash } from './splash.mjs';
+import { askRecovery, askSlowStart, createClosingNotice, createRendererRecovery, relaunchArgs, shellPage, shellUrl } from './lifecycle.mjs';
+import { createSplash, createStartupProgress } from './splash.mjs';
 
 app.setName('Revu');
-let window, backend, eventAbort, configuration, native, afterShutdown, splash;
+let window, backend, eventAbort, configuration, native, afterShutdown, splash, progress;
 let recording, background, recorderReady = false, recorderAttached = false, recordingPrepared = false;
 let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
@@ -220,8 +220,10 @@ async function start() {
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
   hostLog.open(logDirectory(dataRoot));
   sidecarStderr.open(logDirectory(dataRoot));
+  // A login launch starts hidden in the tray.
+  const login = process.argv.includes('--revu-startup');
   hostLog.info(`Revu ${app.getVersion()} starting (${app.isPackaged ? 'packaged' : 'development'}`
-    + `${isolated ? ', isolated' : ''}${smoke ? ', smoke' : ''}${process.argv.includes('--revu-startup') ? ', login' : ''})`);
+    + `${isolated ? ', isolated' : ''}${smoke ? ', smoke' : ''}${login ? ', login' : ''})`);
   app.on('second-instance', () => {
     // The window is destroyed (or hidden for good) while a quit drains pending work.
     if (quitting) closingNotice();
@@ -232,15 +234,23 @@ async function start() {
   // Packaged builds have no menu, so no reload, zoom or DevTools accelerators.
   if (app.isPackaged) Menu.setApplicationMenu(null);
   splash = createSplash({ BrowserWindow, iconPath });
-  if (!smoke && !process.argv.includes('--revu-startup')) splash.show();
+  if (!smoke && !login) splash.show();
+  progress = createStartupProgress({ splash, login, askSlow: async signal => {
+    hostLog.warn('The data update is taking longer than expected');
+    const choice = await askSlowStart({ dialog, signal, openLogs });
+    hostLog.info(`Slow data update: ${choice}`);
+    if (choice === 'quit') app.quit();
+    return choice;
+  } });
   backend = new Sidecar({ dataRoot, executable, isolated, log: hostLog, stderrLog: sidecarStderr,
-    onPreparing: () => { if (!smoke) { splash.preparing(); splash.show(); } },
+    onPreparing: () => { if (!smoke) progress.preparing(); },
     onExit: () => {
       if (quitting) return;
       backendCrashed = true;
       void recover('sidecar');
     } });
   await backend.start();
+  progress.finish();
   if (quitting) return;
   recording = new RecordingService({ root: path.join(dataRoot, 'Revu', 'Recordings'), profile, backend, isolated,
     onChange: value => {
@@ -311,8 +321,10 @@ async function start() {
 start().catch(async error => {
   process.exitCode = 1;
   hostLog.error('Revu could not start', error);
+  progress?.finish();
   if (configuration?.smoke) await writeFile(path.join(configuration.dataRoot, 'electron-smoke-error.txt'), String(error.message)).catch(() => {});
-  else if (quitting) return; // Closed during startup; the quit already owns the exit.
+  // Closed during startup, or a backend crash already asked: that choice owns the exit.
+  else if (quitting || recovering) return;
   else if (!app.isReady() || !hostLog.file) dialog.showErrorBox('Revu could not start', String(error?.message || error));
   else {
     // A verified backend that cannot open its database explains why here.

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -119,5 +120,45 @@ test('a backend that exits during startup leaves its stderr and exit code in the
     const host = await readFile(hostLog.file, 'utf8');
     assert.match(host, /INFO  Sidecar started \(process \d+\)/);
     assert.match(host, /Sidecar exited \(code \d+, signal none\)/);
+  } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+// A stand-in for the backend process: the test drives its handshake and exit.
+function fakeProcess(onSpawn) {
+  const children = [];
+  const spawnProcess = (_executable, _args, options) => {
+    const child = Object.assign(new EventEmitter(), { pid: 4242 + children.length, exitCode: null, signalCode: null, stderr: null });
+    child.kill = () => {
+      if (child.exitCode !== null || child.signalCode !== null) return false;
+      child.signalCode = 'SIGTERM';
+      setImmediate(() => child.emit('exit', null, 'SIGTERM'));
+      return true;
+    };
+    child.exit = code => { child.exitCode = code; child.emit('exit', code, null); };
+    children.push(child);
+    setImmediate(() => { child.emit('spawn'); void onSpawn(child, options.env); });
+    return child;
+  };
+  return { spawnProcess, children };
+}
+const handshakeFile = env => path.join(env.REVU_DATA_ROOT, 'Revu', 'sidecar.json');
+async function writeHandshake(env, value) {
+  await mkdir(path.dirname(handshakeFile(env)), { recursive: true });
+  await writeFile(handshakeFile(env), JSON.stringify(value));
+}
+
+test('an announced upgrade gets a longer but finite wait, then the backend is ended', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'Revu.SidecarUpgrade.'));
+  try {
+    const { spawnProcess, children } = fakeProcess((child, env) => writeHandshake(env,
+      { state: 'starting', apiVersion: 1, launchId: env.REVU_HOST_LAUNCH_ID, processId: child.pid }));
+    let preparing = 0;
+    const sidecar = new Sidecar({ dataRoot: base, executable: path.join(base, 'Revu.Sidecar.exe'), spawnProcess,
+      preparingTimeoutMs: 400, onPreparing: () => preparing++ });
+    const startedAt = Date.now();
+    await assert.rejects(sidecar.start(), /Updating your Revu data did not finish within .* the next time it opens/);
+    assert.ok(Date.now() - startedAt >= 400, 'the preparing bound replaced the ordinary deadline');
+    assert.equal(preparing, 1);
+    assert.equal(children[0].signalCode, 'SIGTERM', 'a stuck upgrade cannot leave the backend running');
   } finally { await rm(base, { recursive: true, force: true }); }
 });

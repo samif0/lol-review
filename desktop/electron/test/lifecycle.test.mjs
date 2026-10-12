@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { askRecovery, createClosingNotice, createRendererRecovery, RECOVERY_BUTTONS, relaunchArgs, shellPage, shellUrl } from '../lifecycle.mjs';
-import { createSplash, SPLASH_TEXT, splashPage } from '../splash.mjs';
+import { askRecovery, askSlowStart, createClosingNotice, createRendererRecovery, RECOVERY_BUTTONS, relaunchArgs,
+  shellPage, shellUrl, SLOW_START_BUTTONS } from '../lifecycle.mjs';
+import { createSplash, createStartupProgress, SPLASH_TEXT, splashPage } from '../splash.mjs';
 
 test('reset, restore and crash relaunches never inherit the hidden login launch flag', () => {
   assert.deepEqual(relaunchArgs(['C:\\Revu\\current\\revu-desktop.exe', '--revu-startup']), []);
@@ -106,4 +107,81 @@ test('the splash is static, escaped markup and cannot be closed while data is pr
   splash.close();
   assert.equal(windows[0].destroyed, true);
   splash.close();
+});
+
+function fakeSplash() {
+  const calls = [];
+  return { calls, show: () => calls.push('show'), preparing: () => calls.push('preparing') };
+}
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('an upgrade on a login launch stays hidden in the tray until it runs long', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const splash = fakeSplash();
+  const asked = [];
+  const progress = createStartupProgress({ splash, login: true, slowAfterMs: 1000,
+    askSlow: async signal => { asked.push(signal); return 'wait'; } });
+  progress.preparing();
+  assert.deepEqual(splash.calls, ['preparing']);
+  t.mock.timers.tick(999);
+  assert.deepEqual(splash.calls, ['preparing']);
+  assert.equal(asked.length, 0);
+  // Still upgrading after the threshold: surface with a way out, then ask again later.
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepEqual(splash.calls, ['preparing', 'show']);
+  assert.equal(asked.length, 1);
+  t.mock.timers.tick(1000);
+  await settle();
+  assert.equal(asked.length, 2);
+  assert.deepEqual(splash.calls, ['preparing', 'show', 'show']);
+  // Startup ended: an open question closes and nothing is shown or asked again.
+  progress.finish();
+  assert.equal(asked[1].aborted, true);
+  t.mock.timers.tick(5000);
+  await settle();
+  progress.preparing();
+  assert.equal(asked.length, 2);
+  assert.deepEqual(splash.calls, ['preparing', 'show', 'show']);
+});
+
+test('an ordinary launch shows the upgrade at once, and quitting stops the questions', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const splash = fakeSplash();
+  let asked = 0;
+  const progress = createStartupProgress({ splash, slowAfterMs: 1000, askSlow: async () => { asked++; return 'quit'; } });
+  progress.preparing();
+  assert.deepEqual(splash.calls, ['preparing', 'show']);
+  t.mock.timers.tick(1000);
+  await settle();
+  t.mock.timers.tick(5000);
+  await settle();
+  assert.equal(asked, 1);
+  progress.finish();
+
+  // Startup that finishes before the threshold never asks.
+  const quick = createStartupProgress({ splash: fakeSplash(), slowAfterMs: 1000, askSlow: async () => assert.fail('asked') });
+  quick.preparing();
+  quick.finish();
+  t.mock.timers.tick(5000);
+  await settle();
+});
+
+test('a long data update offers keep waiting, the logs, or quit', async () => {
+  const dialog = fakeDialog([1, 2]);
+  let opened = 0;
+  assert.equal(await askSlowStart({ dialog, openLogs: async () => { opened++; } }), 'quit');
+  assert.equal(opened, 1);
+  const [options] = dialog.calls[0];
+  assert.deepEqual(options.buttons, [...SLOW_START_BUTTONS]);
+  assert.deepEqual(options.buttons, ['Keep waiting', 'Open logs', 'Quit']);
+  assert.equal(options.cancelId, 0);
+  assert.match(options.detail, /finishes the update the next time it opens/);
+  for (const text of [options.message, options.detail]) assert.doesNotMatch(text, /\u2014/);
+
+  assert.equal(await askSlowStart({ dialog: fakeDialog([0]), openLogs: async () => {} }), 'wait');
+  // Startup ending closes the box as cancelled; even a stray Quit then means nothing.
+  const controller = new AbortController();
+  const closing = { showMessageBox: async options => { assert.equal(options.signal, controller.signal); controller.abort(); return { response: 2 }; } };
+  assert.equal(await askSlowStart({ dialog: closing, signal: controller.signal, openLogs: async () => {} }), 'wait');
 });

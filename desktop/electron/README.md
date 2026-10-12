@@ -20,7 +20,7 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 - `logging.mjs`: size-capped rolling logs under `<dataRoot>/Revu/logs` (`host.log` and a
   copy of the sidecar's stderr; the sidecar writes `sidecar.log` there). Settings opens this folder.
 - `lifecycle.mjs` and `splash.mjs`: crash recovery (Restart Revu, Open logs, Quit), relaunch
-  arguments, and the startup window shown while the sidecar starts or prepares data.
+  arguments, and the startup window shown while the sidecar starts or upgrades data.
 
 The shared command catalog is `../ui/platform/commands.mjs`. Same-origin child
 pages deliberately use the trusted top document's bridge. The renderer uses its
@@ -58,7 +58,8 @@ The main process owns exactly one sidecar. Shutdown fences new commands, lets
 submitted HTTP requests finish under their existing deadlines (long jobs such as
 a backfill are waited on for at most 35 seconds and logged), and asks the
 backend to drain background writes and release its database lease. A sidecar
-that is preparing data on startup is never stopped by the startup deadline. Only its own
+that announced a schema upgrade gets 10 minutes instead of the 20-second startup
+deadline; a login launch stays hidden unless the upgrade runs long. Only its own
 unresponsive child can be terminated; failed writes are never retried. Successful
 reset/restore operations relaunch after shutdown. Velopack maintenance hooks exit
 before data access. Installed updates retain `LoLReview` and `revu-desktop.exe`.

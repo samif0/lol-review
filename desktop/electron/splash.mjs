@@ -48,3 +48,38 @@ export function createSplash({ BrowserWindow, iconPath }) {
     },
   };
 }
+
+/**
+ * What the host shows while the backend upgrades data. A login launch stays hidden in the
+ * tray. Any launch still upgrading after slowAfterMs surfaces and asks (askSlow resolves
+ * 'wait' or 'quit'), so a stuck upgrade always offers a way out. finish() closes an open
+ * question once startup ends either way.
+ */
+export function createStartupProgress({ splash, login = false, askSlow, slowAfterMs = 3 * 60_000 }) {
+  let timer = null, finished = false;
+  const question = new AbortController();
+  const arm = () => {
+    timer = setTimeout(async () => {
+      timer = null;
+      if (finished) return;
+      splash.show();
+      let choice = 'wait';
+      try { choice = await askSlow(question.signal); } catch { /* keep waiting; the backend bound still applies */ }
+      if (choice === 'wait' && !finished) arm();
+    }, slowAfterMs);
+  };
+  return {
+    preparing() {
+      if (finished) return;
+      splash.preparing();
+      if (!login) splash.show();
+      if (!timer) arm();
+    },
+    finish() {
+      finished = true;
+      clearTimeout(timer);
+      timer = null;
+      question.abort();
+    },
+  };
+}
