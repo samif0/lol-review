@@ -1089,7 +1089,7 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
 #rule-check-list{display:flex;flex-direction:column;gap:11px}
 .rule-check-item{font-size:13.5px;color:var(--t2);line-height:1.5}
 .rule-check-name{font-family:var(--fo);font-weight:600;color:#fff}
-.rule-check-dash{margin:0 6px;color:var(--t4)}
+.rule-check-dash{margin:0 6px 0 0;color:var(--t4)}
 .rule-check-reason{color:var(--t3)}
 /* Plan-led entry — IF cue (gold) / THEN plan (green) / TRIGGERED BY subhead. */
 .rule-check-item-plan{display:flex;flex-direction:column;gap:5px;
