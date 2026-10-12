@@ -44,8 +44,10 @@ It runs in the existing post-game map-state job using the responses already fetc
 with the original report's objective subscriptions. It never substitutes today's
 objectives for a missing match-start snapshot. The live report is preserved and its
 `Recovery` field is replaced on retry; no shadow candidate is appended to game events.
-`POST /api/events/reprocess/{gameId}` retries one saved match, including an already
-processed match. There is no UI addition or recorder dependency.
+There is no route to retry one saved match: recovery runs again only for a match
+that is back in the map-state queue (a failed fetch, or a re-captured game, which
+clears its map-state version).
+There is no UI addition or recorder dependency.
 
 The registered `RECORDED_EXCHANGE` candidate is a pair of positive, attributed damage
 totals from one death record involving the player and an opposing champion. Its
