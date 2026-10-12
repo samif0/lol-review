@@ -97,8 +97,8 @@
           Worker logs request metadata (timestamps, status codes) for
           rate limiting and abuse prevention; it does not log request
           bodies. To rate limit requests and count clip views fairly,
-          it keeps a one-way hash of your IP address in memory for at
-          most an hour. That hash is never written to Revu's database.
+          it keeps your IP address, or a hash of it, only in short-lived
+          server memory. It is never written to Revu's database.
         </li>
         <li>
           <strong>Email sign-in</strong>: you can sign in in the desktop
@@ -159,8 +159,11 @@
         </li>
         <li>
           A shared clip's page shows the video, its champion, a short
-          title, its length and a view count. Revu does not use your
-          private review notes as the title, and they are never sent
+          title, its length and a view count. In Revu 3.14.1 and
+          earlier, if you share a clip without typing a title, the
+          clip's note is used as its title, so it appears on that page
+          and in link previews. Later versions title it with the
+          champion and game time instead and never send your notes
           with a shared clip.
         </li>
         <li>
