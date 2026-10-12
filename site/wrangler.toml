@@ -1,3 +1,7 @@
 name = "revu-site"
-pages_build_output_dir = "."
+# Deploy with `node scripts/deploy-site.mjs` from the repository root. It stages
+# only the public files of site/ here (never tests/, README.md or this file) and
+# removes the stage afterwards, so a bare `wrangler pages deploy` fails instead of
+# publishing repo internals or a stale tree. Local preview: `wrangler pages dev .`
+pages_build_output_dir = "../artifacts/site-deploy"
 compatibility_date = "2025-04-01"

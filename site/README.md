@@ -3,7 +3,8 @@
 Static marketing, download, web review and clip-share site for Revu. Served
 from Cloudflare Pages, bound to the `revu.lol` apex + `www.revu.lol` redirect.
 
-No build step. Everything in this directory ships as-is.
+No build step. The deploy uploads the public files in this directory as-is;
+`tests/`, this README and `wrangler.toml` are never published.
 
 ## Look
 
@@ -104,22 +105,33 @@ node --test site/tests
 
 ## Deploy
 
-Commit first, then deploy manually via wrangler (must `cd site` first):
+Merge to `main` first, then deploy from an up-to-date, clean `main`
+checkout at the repository root:
 
 ```sh
-cd site
-npx wrangler pages deploy . --project-name=revu-site --branch=main
+node scripts/deploy-site.mjs
 ```
 
+The script runs `scripts/guard-deploy.mjs` (clean tree, `HEAD` equals
+`origin/main` after a fetch, `node --test site/tests` passes), stages only
+the public files into `artifacts/site-deploy` (the `pages_build_output_dir`
+in `wrangler.toml`), uploads them with the wrangler version pinned in
+`proxy/package-lock.json`, and removes the stage. A new file type in this
+directory fails the deploy until it is added to the allowlist in
+`scripts/deploy-site.mjs`. `node scripts/deploy-site.mjs --stage-only`
+stages without deploying, for a `wrangler pages dev ../artifacts/site-deploy`
+preview.
+
 For a change that touches web accounts, deploy in this order: apply the
-proxy D1 migration, deploy the proxy, commit, then run
-`npx wrangler pages deploy` for the site.
+proxy D1 migration, deploy the proxy (`npm run deploy` in `proxy/`, also
+guarded), then run `node scripts/deploy-site.mjs` for the site.
 
 Keep Cloudflare Rocket Loader off for revu.lol. It rewrites script tags,
 which breaks the strict CSP.
 
 Deploys are not triggered by git. Deploying an uncommitted or stale tree has
-clobbered the live site before, so always deploy from a committed checkout.
+clobbered the live site before, which is why the deploy script refuses
+anything but a clean checkout of `origin/main`.
 
 ## Do not touch
 
