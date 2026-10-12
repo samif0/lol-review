@@ -81,7 +81,9 @@ const definitions = {
   set_bookmark_tag: post("/api/bookmark/tag"),
   set_bookmark_quality: post("/api/bookmark/quality"),
   extract_clip: post("/api/clip/extract", { timeoutMs: 280_000 }),
-  auto_clip_objectives: post("/api/clip/auto-objectives"),
+  // Accepted background work in the sidecar: the deadline only bounds how long the page
+  // waits for the result; the batch and the download continue past it (SSE carries progress).
+  auto_clip_objectives: post("/api/clip/auto-objectives", { timeoutMs: 280_000 }),
   mark_pattern_reviewed: post("/api/pattern/mark-reviewed"),
   save_pattern_moment_note: post("/api/pattern/moment/note"),
   get_active_objectives: get("/api/objectives/active"),
@@ -105,9 +107,11 @@ const definitions = {
   scan_vods: post("/api/settings/scan-vods", { payload: false, timeoutMs: 120_000 }),
   recover_missing_games: post("/api/settings/recover-games", { payload: false, timeoutMs: 120_000 }),
   check_update: get("/api/update/check"),
-  download_update: post("/api/update/download", {"payload":false}),
+  download_update: post("/api/update/download", { payload: false, timeoutMs: 280_000 }),
   apply_update: native({}, {"sideEffect":"apply-update-stop-sidecar-exit"}),
-  get_export_markdown: get("/api/settings/export"),
+  // The sidecar writes the full export into Documents\Revu and answers with its path; the
+  // Markdown never crosses the renderer.
+  export_review_data: post("/api/settings/export", { payload: false, timeoutMs: 120_000 }),
   get_review_export_markdown: get("/api/review/export", {"gameId":"integer"}),
   app_version: native(),
   get_recording_status: native(),
@@ -121,6 +125,7 @@ const definitions = {
   get_microphone_access: native(),
   open_microphone_settings: native(),
   open_log_folder: native(),
+  open_export_folder: native(),
   review_vod: native({"gameId":"integer?"}),
   open_review: native({"gameId":"integer?"}),
   take_next_step: native(),

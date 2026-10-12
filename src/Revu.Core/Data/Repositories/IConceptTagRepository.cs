@@ -20,6 +20,9 @@ public interface IConceptTagRepository
 
     Task<IReadOnlyList<long>> GetIdsForGameAsync(long gameId);
 
+    /// <summary>Every game's tag ids in one read (the full review export), keyed by game id.</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<long>>> GetIdsByGameAsync();
+
     /// <summary>Replace the concept tags for a game.</summary>
     Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds, DbWriteSession? session = null);
 

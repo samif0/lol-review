@@ -554,6 +554,40 @@ public static class Schema
         ON prompt_answers (game_id);
         """;
 
+    // Hot per-game / per-objective lookups that used to full-scan (VOD + review loads,
+    // clip delete, the matchup journal, objective reconciliation, the event-key sweep's
+    // startup count). No schema version bump: CreatePostMigrationIndexesAsync runs these
+    // CREATE INDEX IF NOT EXISTS statements on every startup, so existing databases gain
+    // them on their next launch, each one individually tolerant, and an older build
+    // simply ignores an index it does not know.
+    public const string CreateVodBookmarksGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_vod_bookmarks_game ON vod_bookmarks (game_id);
+        """;
+
+    public const string CreateMatchupsGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_matchups_game ON matchups (game_id);
+        """;
+
+    public const string CreateMatchupNotesGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_matchup_notes_game ON matchup_notes (game_id);
+        """;
+
+    public const string CreateGameObjectivesObjectiveIndex = """
+        CREATE INDEX IF NOT EXISTS idx_game_objectives_objective ON game_objectives (objective_id);
+        """;
+
+    public const string CreateDerivedEventInstancesGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_derived_instances_game ON derived_event_instances (game_id);
+        """;
+
+    // The predicate matches the event-key sweep's "WHERE event_key IS NULL" textually, which
+    // is what lets SQLite use a partial index; leading with event_key makes it a covering
+    // search for both the startup COUNT(*) and the per-game stamping walk (otherwise the
+    // planner scans all of idx_game_events_key). event_key is a v16 ALTER column.
+    public const string CreateGameEventsUnkeyedIndex = """
+        CREATE INDEX IF NOT EXISTS idx_game_events_unkeyed ON game_events (event_key, game_id) WHERE event_key IS NULL;
+        """;
+
     public const string CreateMatchupNotesTable = """
         CREATE TABLE IF NOT EXISTS matchup_notes (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

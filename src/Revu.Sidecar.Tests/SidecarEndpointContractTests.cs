@@ -238,7 +238,7 @@ public sealed class SidecarEndpointContractTests
         GET /api/recording/session/{sessionId:guid}
         POST /api/recording/register
         GET /api/rules
-        GET /api/settings/export
+        POST /api/settings/export
         GET /api/settings/status
         GET /api/stint
         GET /api/tiltcheck

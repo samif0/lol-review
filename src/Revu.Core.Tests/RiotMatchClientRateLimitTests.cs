@@ -81,6 +81,51 @@ public sealed class RiotMatchClientRateLimitTests
         Assert.Equal(4, handler.Sent); // initial + MaxRateLimitRetries, then null
     }
 
+    // Never answers; only cancellation ends the send (HttpClient's timeout or the caller's).
+    private sealed class HangingHandler : HttpMessageHandler
+    {
+        public int Sent { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Sent++;
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("unreachable");
+        }
+    }
+
+    private static RiotMatchClient Client(HttpMessageHandler handler, TimeSpan timeout)
+    {
+        var config = new TestConfigService(new AppConfig
+        {
+            RiotSessionToken = "test-token",
+            RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
+        });
+        return new RiotMatchClient(new HttpClient(handler) { Timeout = timeout }, config, NullLogger<RiotMatchClient>.Instance);
+    }
+
+    [Fact]
+    public async Task HttpClientTimeout_ReturnsNull_PerTheContract_InsteadOfAbortingTheCaller()
+    {
+        // One slow proxy response used to surface as a cancellation and end a whole
+        // backfill run; it is a failed lookup like any other.
+        var handler = new HangingHandler();
+        var client = Client(handler, TimeSpan.FromMilliseconds(50));
+
+        Assert.Null(await client.GetMatchAsync("NA1_42", "na1"));
+        Assert.Null(await client.GetTimelineAsync("NA1_42", "na1"));
+        Assert.Equal(2, handler.Sent);
+    }
+
+    [Fact]
+    public async Task CallerCancellation_StillPropagates()
+    {
+        var client = Client(new HangingHandler(), Timeout.InfiniteTimeSpan);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.GetMatchAsync("NA1_42", "na1", cts.Token));
+    }
+
     [Fact]
     public async Task NonRetryableFailure_ReturnsNullWithoutRetry()
     {

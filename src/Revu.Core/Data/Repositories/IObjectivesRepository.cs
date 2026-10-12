@@ -189,6 +189,10 @@ public interface IObjectivesRepository
 
     Task<IReadOnlyList<GameObjectiveRecord>> GetGameObjectivesAsync(long gameId);
 
+    /// <summary>Every game's linked objectives in one read (the full review export), keyed by
+    /// game id, each list in <see cref="GetGameObjectivesAsync"/> order.</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<GameObjectiveRecord>>> GetAllGameObjectivesAsync();
+
     Task<IReadOnlySet<long>> GetGamesWithPracticedObjectivesAsync(IReadOnlyCollection<long> gameIds);
 
     Task<IReadOnlyList<ObjectiveGameEntry>> GetGamesForObjectiveAsync(long objectiveId);

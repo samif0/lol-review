@@ -1216,6 +1216,23 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         return await ReadGameObjectivesAsync(cmd);
     }
 
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<GameObjectiveRecord>>> GetAllGameObjectivesAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
+                   o.title, o.completion_criteria, o.type, o.is_priority, o.phase,
+                   go.criteria_met, o.criteria_metric, o.criteria_op, o.criteria_value
+            FROM game_objectives go
+            JOIN objectives o ON o.id = go.objective_id
+            ORDER BY go.game_id, o.is_priority DESC, o.created_at ASC, o.id ASC
+            """;
+        return (await ReadGameObjectivesAsync(cmd))
+            .GroupBy(static row => row.GameId)
+            .ToDictionary(static group => group.Key, static group => (IReadOnlyList<GameObjectiveRecord>)group.ToList());
+    }
+
     public async Task<IReadOnlySet<long>> GetGamesWithPracticedObjectivesAsync(IReadOnlyCollection<long> gameIds)
     {
         if (gameIds.Count == 0)

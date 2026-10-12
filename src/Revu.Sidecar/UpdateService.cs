@@ -139,14 +139,21 @@ public sealed class UpdateService
     /// Download (stage) the last-discovered update. Returns the local package path so
     /// the desktop main process can hand it to Update.exe apply. Re-checks if no update is cached
     /// (e.g. the UI called download without a prior check this session).
+    /// <paramref name="progress"/> receives Velopack's 0-100 percentages;
+    /// <paramref name="cancellationToken"/> stops the download itself (the sidecar passes its
+    /// shutdown token, never a request's, so a client that stops waiting does not cancel it).
     /// </summary>
-    public async Task<UpdateDownloadResult> DownloadAsync()
+    public async Task<UpdateDownloadResult> DownloadAsync(Action<int>? progress = null, CancellationToken cancellationToken = default)
     {
         var mgr = Mgr();
         if (!SafeIsInstalled(mgr))
             return new UpdateDownloadResult(Ok: false, PackagePath: null, Version: null, Message: "Not an installed app.");
 
-        await _lock.WaitAsync().ConfigureAwait(false);
+        try { await _lock.WaitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException)
+        {
+            return new UpdateDownloadResult(Ok: false, PackagePath: null, Version: null, Message: "Download stopped.");
+        }
         try
         {
             var update = _available ?? await mgr!.CheckForUpdatesAsync().ConfigureAwait(false);
@@ -155,7 +162,7 @@ public sealed class UpdateService
                 return new UpdateDownloadResult(Ok: false, PackagePath: null, Version: null, Message: "No update to download.");
 
             _logger.LogInformation("Downloading update v{Version}", update.TargetFullRelease.Version);
-            await mgr!.DownloadUpdatesAsync(update).ConfigureAwait(false);
+            await mgr!.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(false);
 
             // Velopack stages the package into the install's packages dir. We don't
             // resolve its path here: `Update.exe apply` with no -p applies the LATEST
@@ -166,6 +173,11 @@ public sealed class UpdateService
                 Ok: true, PackagePath: null,
                 Version: update.TargetFullRelease.Version.ToString(),
                 Message: "Downloaded.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Update download stopped (Revu is closing)");
+            return new UpdateDownloadResult(Ok: false, PackagePath: null, Version: null, Message: "Download stopped.");
         }
         catch (Exception ex)
         {

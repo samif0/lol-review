@@ -227,7 +227,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 110);
+  assert.equal(Object.keys(COMMANDS).length, 111);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);
@@ -264,6 +264,18 @@ test('command declarations keep immutable envelopes, required arguments and exce
   assert.equal(COMMANDS.extract_clip.timeoutMs, 280_000);
   assert.equal(COMMANDS.mix_clip_narration.timeoutMs, 280_000);
   assert.equal(COMMANDS.run_backfill.timeoutMs, 290_000);
+  // Accepted sidecar work: long enough for real batches, and a timeout never stops the work.
+  assert.equal(COMMANDS.auto_clip_objectives.timeoutMs, 280_000);
+  assert.equal(COMMANDS.download_update.timeoutMs, 280_000);
+  assert.deepEqual(COMMANDS.download_update.args, {});
+  // The sidecar saves the full export itself; the renderer only learns where it went.
+  assert.equal(COMMANDS.export_review_data.method, 'POST');
+  assert.equal(COMMANDS.export_review_data.route, '/api/settings/export');
+  assert.deepEqual(COMMANDS.export_review_data.args, {});
+  assert.equal(COMMANDS.export_review_data.timeoutMs, 120_000);
+  assert.ok(!Object.hasOwn(COMMANDS, 'get_export_markdown'));
+  assert.equal(COMMANDS.open_export_folder.method, 'NATIVE');
+  assert.deepEqual(COMMANDS.open_export_folder.args, {});
   // C0.7: Node fetch gives up waiting for response headers after 300 s.
   for (const [name, definition] of Object.entries(COMMANDS)) {
     if (definition.timeoutMs !== undefined) assert.ok(definition.timeoutMs <= 290_000, name);

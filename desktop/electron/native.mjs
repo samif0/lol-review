@@ -49,6 +49,13 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPr
         if (await shell.openPath(folder)) throw new Error('Unable to open the log folder');
         return null;
       }
+      case 'open_export_folder': {
+        // The fixed folder the sidecar saves "Export all reviews" into (Documents\Revu);
+        // never a path the page supplies.
+        if (await shell.openPath(path.join(app.getPath('documents'), 'Revu')))
+          throw new Error('Unable to open the export folder');
+        return null;
+      }
       case 'set_window_resolution': {
         if (args.resolution === 'maximized') { window.maximize(); return null; }
         const match = /^(\d+)x(\d+)$/.exec(args.resolution);

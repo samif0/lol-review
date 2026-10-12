@@ -55,6 +55,19 @@ test('native commands retain export cancellation and version behavior without in
   await assert.rejects(native('apply_update'), /isolated mode/);
 });
 
+test('the export folder action opens only the fixed Documents\\Revu folder the sidecar saves into', async () => {
+  const opened = [];
+  let failure = '';
+  const native = nativeCommands({
+    app: { getPath: name => { assert.equal(name, 'documents'); return path.join('C:', 'Users', 'me', 'Documents'); } },
+    shell: { openPath: async target => { opened.push(target); return failure; } },
+  });
+  assert.equal(await native('open_export_folder', { path: 'C:\\Windows\\System32\\cmd.exe' }), null);
+  assert.deepEqual(opened, [path.join('C:', 'Users', 'me', 'Documents', 'Revu')]);
+  failure = 'The system cannot find the file specified.';
+  await assert.rejects(native('open_export_folder', {}), /Unable to open the export folder/);
+});
+
 test('UI protocol serves approved assets with CSP and rejects arbitrary files and malformed paths', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'Revu.Protocol.'));
   const ui = path.join(root, 'ui');

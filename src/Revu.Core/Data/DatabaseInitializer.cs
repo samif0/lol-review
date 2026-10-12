@@ -395,6 +395,13 @@ public sealed class DatabaseInitializer
             // AllCreateStatements (which runs before the column exists).
             Schema.CreateGamesTimestampIndex,
             Schema.CreateGamesChampionIndex,
+            // Additive lookup indexes (no version bump); see Schema.CreateVodBookmarksGameIndex.
+            Schema.CreateVodBookmarksGameIndex,
+            Schema.CreateMatchupsGameIndex,
+            Schema.CreateMatchupNotesGameIndex,
+            Schema.CreateGameObjectivesObjectiveIndex,
+            Schema.CreateDerivedEventInstancesGameIndex,
+            Schema.CreateGameEventsUnkeyedIndex,
         ];
 
         foreach (var sql in indexes)

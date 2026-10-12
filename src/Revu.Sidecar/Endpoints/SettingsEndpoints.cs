@@ -67,22 +67,23 @@ public static partial class SidecarEndpoints
 
         // POST /api/update/download — stage the discovered update's package locally so the
         // desktop main process can apply it via Update.exe. Returns { ok, packagePath, version }.
-        app.MapPost("/api/update/download", async (UpdateService upd) =>
-            Results.Json(await upd.DownloadAsync(), jsonOptions));
+        // A full package can outlast any client deadline, so the download is accepted
+        // background work (SidecarJobs): giving up waiting never cancels it, asking again
+        // joins it, and progress goes out as updateDownloadProgress SSE events.
+        app.MapPost("/api/update/download", (UpdateService upd, SidecarJobs jobs, SidecarEventHub events,
+            ILogger<Program> log, CancellationToken ct) =>
+            DownloadUpdateAsync(upd.DownloadAsync, jobs, events, jsonOptions, log, ct));
 
-        // ── GET /api/settings/export (token-gated): build the Markdown review export ──
-        // Pure READ: IReviewExportService.ExportAllAsync bundles games/notes/prompts/
-        // objectives/tags/matchup notes/VOD links/bookmarks into a single Markdown
-        // string. The sidecar does NOT write the file — it returns { markdown, fileName }
-        // and the desktop main process saves it via the native save-file dialog. The
-        // suggested filename mirrors the WinUI picker (revu-review-export-{yyyyMMdd-HHmm}).
-        app.MapGet("/api/settings/export", async (IReviewExportService export, ILogger<Program> log, CancellationToken ct) =>
-        {
-            var markdown = await export.ExportAllAsync(ct);
-            var fileName = $"revu-review-export-{DateTime.Now:yyyyMMdd-HHmm}.md";
-            log.LogInformation("Review export built ({Chars} chars) -> {FileName}", markdown.Length, fileName);
-            return Results.Json(new { ok = true, markdown, fileName }, jsonOptions);
-        });
+        // ── POST /api/settings/export (token-gated): save the Markdown review export ──
+        // IReviewExportService bundles games/notes/prompts/objectives/tags/matchup notes/
+        // VOD links/bookmarks (one bulk read per table) and streams them to a new
+        // revu-review-export-{yyyyMMdd-HHmm}.md in Documents\Revu. The sidecar writes the
+        // file itself: a long history's Markdown used to round-trip through the renderer and
+        // failed past the 4 MiB IPC envelope. Returns { ok, path, fileName, games }; the
+        // desktop host opens that fixed folder on request. Denied in isolated host testing
+        // (the folder is outside the scratch root).
+        app.MapPost("/api/settings/export", (IReviewExportService export, ILogger<Program> log, CancellationToken ct) =>
+            SaveReviewExportAsync(export, ReviewExportFolder(), jsonOptions, log, ct));
 
         // POST /api/settings/reset — DESTRUCTIVE: wipe all data and start fresh. The Core
         // IBackupService.ResetAllDataAsync ALWAYS takes a full backup FIRST (returns its
@@ -244,5 +245,82 @@ public static partial class SidecarEndpoints
         if (LocalPathPolicy.FoldersOverlap(clips, AppDataPaths.RecordingsDirectory))
             return "Your clips folder can't be the same as, inside, or contain Revu's recordings folder. Choose a separate folder for clips.";
         return null;
+    }
+
+    /// <summary>
+    /// POST /api/update/download as accepted work: starts (or joins) the one update download
+    /// and waits for it while the client is listening. A client that gives up gets 499 while the
+    /// download continues; asking again returns the same download's result.
+    /// </summary>
+    internal static async Task<IResult> DownloadUpdateAsync(
+        Func<Action<int>?, CancellationToken, Task<UpdateDownloadResult>> download, SidecarJobs jobs,
+        SidecarEventHub events, JsonSerializerOptions jsonOptions, ILogger log, CancellationToken ct)
+    {
+        var job = jobs.Start("update-download", "update download", async stopping =>
+        {
+            var lastPercent = -1;
+            var result = await download(percent =>
+            {
+                // Velopack reports often; one event per whole percent is plenty.
+                if (percent == lastPercent) return;
+                lastPercent = percent;
+                events.Publish("updateDownloadProgress", new { percent, finished = false });
+            }, stopping);
+            events.Publish("updateDownloadProgress", new
+            {
+                percent = result.Ok ? 100 : Math.Max(lastPercent, 0), finished = true, ok = result.Ok,
+                version = result.Version, message = result.Message,
+            });
+            return result;
+        });
+        if (job is null)
+            return Results.Json(new UpdateDownloadResult(false, null, null, "Revu is closing; the download was not started."),
+                jsonOptions, statusCode: 503);
+
+        try
+        {
+            return Results.Json(await job.WaitAsync(ct), jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            log.LogInformation("Update download: the client stopped waiting; the download keeps running");
+            return Results.Json(new UpdateDownloadResult(false, null, null, "The request was cancelled."), jsonOptions, statusCode: 499);
+        }
+        catch (OperationCanceledException)
+        {
+            return Results.Json(new UpdateDownloadResult(false, null, null, "Download stopped."), jsonOptions, statusCode: 503);
+        }
+    }
+
+    /// <summary>Documents\Revu: where "Export all reviews" saves. The desktop host opens the
+    /// same fixed folder (app.getPath('documents')), never a path the page supplies.</summary>
+    internal static string ReviewExportFolder()
+    {
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(documents))
+            documents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents");
+        return Path.Combine(documents, "Revu");
+    }
+
+    internal static async Task<IResult> SaveReviewExportAsync(IReviewExportService export, string folder,
+        JsonSerializerOptions jsonOptions, ILogger log, CancellationToken ct)
+    {
+        try
+        {
+            var saved = await export.ExportAllToFolderAsync(folder, ct);
+            log.LogInformation("Review export saved ({Games} games) -> {Path}", saved.GameCount, saved.Path);
+            return Results.Json(new { ok = true, path = saved.Path, fileName = saved.FileName, games = saved.GameCount }, jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            log.LogInformation("Review export cancelled by the caller; nothing saved");
+            return Results.Json(new { ok = false, error = "The request was cancelled." }, jsonOptions, statusCode: 499);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.LogWarning(ex, "Review export could not be written to {Folder}", folder);
+            return Results.Json(new { ok = false, error = $"Couldn't save the export to {folder}. Check that the folder can be written to." },
+                jsonOptions, statusCode: 422);
+        }
     }
 }

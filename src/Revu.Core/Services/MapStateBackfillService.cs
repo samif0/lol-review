@@ -6,7 +6,9 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Services;
 
-public sealed record MapStateBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
+/// <param name="Remaining">Queued games this run did not reach (cap or time budget), less any
+/// an earlier run with the same <see cref="BackfillAttempts"/> already tried.</param>
+public sealed record MapStateBackfillResult(int Scanned, int Updated, int Skipped, int Failed, int Remaining = 0);
 
 /// <summary>
 /// v3.2 (schema v11): walks the REVIEW-QUEUE games (unreviewed + recent — see
@@ -52,12 +54,17 @@ public sealed class MapStateBackfillService
         _materializer = materializer;
     }
 
-    public async Task<MapStateBackfillResult> RunAsync(int maxGames = int.MaxValue, CancellationToken ct = default)
+    /// <param name="budget">Soft stop: once cancelled, no new game starts and the rest are
+    /// reported as <see cref="MapStateBackfillResult.Remaining"/> (never throws).</param>
+    /// <param name="attempts">The manual backfill's record of games already tried this session:
+    /// untried games go first, and only they count as remaining.</param>
+    public async Task<MapStateBackfillResult> RunAsync(int maxGames = int.MaxValue, CancellationToken ct = default,
+        CancellationToken budget = default, BackfillAttempts? attempts = null)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await RunLockedAsync(maxGames, ct).ConfigureAwait(false);
+            return await RunLockedAsync(maxGames, ct, budget: budget, attempts: attempts).ConfigureAwait(false);
         }
         finally
         {
@@ -65,7 +72,8 @@ public sealed class MapStateBackfillService
         }
     }
 
-    private async Task<MapStateBackfillResult> RunLockedAsync(int maxGames, CancellationToken ct)
+    private async Task<MapStateBackfillResult> RunLockedAsync(int maxGames, CancellationToken ct, long? requestedGame = null,
+        CancellationToken budget = default, BackfillAttempts? attempts = null)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -75,7 +83,9 @@ public sealed class MapStateBackfillService
             return new MapStateBackfillResult(0, 0, 0, 0);
         }
 
-        var allIds = await _games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version).ConfigureAwait(false);
+        IReadOnlyList<long> queue = requestedGame is { } requested
+            ? [requested] : await _games.GetGameIdsMissingMapStateAsync(MapStateAnalyzer.Version).ConfigureAwait(false);
+        var allIds = attempts?.Order(queue) ?? queue.ToList();
         var ids = allIds.Take(maxGames).ToList();
         if (ids.Count == 0)
         {
@@ -90,7 +100,9 @@ public sealed class MapStateBackfillService
         foreach (var gameId in ids)
         {
             ct.ThrowIfCancellationRequested();
+            if (budget.IsCancellationRequested) break;
             scanned++;
+            attempts?.Tried(gameId);
 
             var matchId = $"{platform}_{gameId}";
 
@@ -171,10 +183,11 @@ public sealed class MapStateBackfillService
             await RematerializeAsync(gameId).ConfigureAwait(false);
         }
 
+        var remaining = attempts?.CountUntried(allIds.Skip(scanned)) ?? allIds.Count - scanned;
         _logger.LogInformation(
-            "Map-state backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed}",
-            scanned, updated, skipped, failed);
-        return new MapStateBackfillResult(scanned, updated, skipped, failed);
+            "Map-state backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed} remaining={Remaining}",
+            scanned, updated, skipped, failed, remaining);
+        return new MapStateBackfillResult(scanned, updated, skipped, failed, remaining);
     }
 
     // The stored fights (and the death stamps) change which pattern anchors the game

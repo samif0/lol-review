@@ -78,6 +78,10 @@ public interface IVodRepository
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);
 
+    /// <summary>Every game's bookmarks in one read (the full review export), keyed by game id,
+    /// each list in game-time order like <see cref="GetBookmarksAsync"/>.</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<VodBookmarkRecord>>> GetAllBookmarksByGameAsync();
+
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksForObjectiveAsync(long objectiveId);
 
     Task<IReadOnlySet<long>> GetGamesWithObjectiveTaggedBookmarksAsync(IReadOnlyCollection<long> gameIds);

@@ -19,8 +19,14 @@ public interface IAutoClipService
     /// When set, only clip events tied to THIS objective (the framed view). Null clips
     /// every active-objective-tied event.
     /// </param>
-    Task<AutoClipResult> ClipObjectiveEventsAsync(long gameId, long? objectiveId, CancellationToken ct = default);
+    /// <param name="progress">Reported before each planned clip, with <c>Done</c> = the planned clips
+    /// finished so far (extracted or skipped). There is no final report: the returned result is it.</param>
+    Task<AutoClipResult> ClipObjectiveEventsAsync(long gameId, long? objectiveId, CancellationToken ct = default,
+        IProgress<AutoClipProgress>? progress = null);
 }
+
+/// <summary>Where a running auto-clip batch is: <paramref name="Done"/> of <paramref name="Total"/> planned clips.</summary>
+public readonly record struct AutoClipProgress(int Done, int Total, int Created, int Skipped);
 
 /// <summary>Outcome of an auto-clip run, surfaced to the caller / UI.</summary>
 /// <param name="Created">Clips successfully extracted + persisted.</param>

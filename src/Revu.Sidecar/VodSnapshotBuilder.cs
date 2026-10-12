@@ -88,6 +88,10 @@ public sealed class VodSnapshotBuilder
             return Empty(generatedAt, gameId);
         }
 
+        // The repositories take no token, so the request's abort is honoured between reads:
+        // a player that navigated away stops the remaining work instead of finishing it.
+        ct.ThrowIfCancellationRequested();
+
         // Resolve the VOD file path (file must exist on disk to be playable).
         string filePath = "";
         try
@@ -143,6 +147,7 @@ public sealed class VodSnapshotBuilder
                     Narration: NarrationDtos.MapOrNull(narrationByBookmarkId.GetValueOrDefault(b.Id)))));
         }
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: bookmarks load failed for {GameId}", gameId); }
+        ct.ThrowIfCancellationRequested();
 
         // Active-objective event-token ties → which events light up the priority lane.
         // Shared resolver (Revu.Core) so the timeline + the auto-clipper agree exactly.
@@ -179,12 +184,20 @@ public sealed class VodSnapshotBuilder
             if (c.SubjectKey.Length > 0) bySubject.TryAdd(c.SubjectKey, c);
         }
 
+        ct.ThrowIfCancellationRequested();
+
+        // One read of the eligible events feeds both the timeline markers and the evidence
+        // inbox filter below (null = the read failed; the inbox then retries it once).
+        IReadOnlyList<GameEvent>? eligibleEvents = null;
+        try { eligibleEvents = await _eventsRepo.GetEligibleEventsAsync(gameId); }
+        catch (Exception ex) { _logger.LogDebug(ex, "VOD: game events load failed for {GameId}", gameId); }
+
         // Live event timeline (kills/deaths/objectives) → colored markers. Each event
         // is tagged with its tied objective (if any) so the timeline can prioritize it.
         var gameEvents = new List<VodEventDto>();
         try
         {
-            var raw = (await _eventsRepo.GetEligibleEventsAsync(gameId))
+            var raw = (eligibleEvents ?? [])
                 .OrderBy(e => e.GameTimeS)
                 .ToList();
 
@@ -238,6 +251,7 @@ public sealed class VodSnapshotBuilder
         // the Bookmarks list above (the 3rd lane of the 3-way filter).
         var autoMoments = new List<VodEvidenceDto>();
         var savedClips = new List<VodEvidenceDto>();
+        ct.ThrowIfCancellationRequested();
         try
         {
             // v3.10: untouched auto anchors (the post-game pass's trades / fights /
@@ -245,7 +259,7 @@ public sealed class VodSnapshotBuilder
             // Timeline Inbox from game events" setting is on.
             var raw = EvidenceAutoAnchors.ForSurface(
                 await _evidenceRepo.GetForGameAsync(gameId, includeDismissed: false),
-                _config.AutoTimelineClippingEnabled, await _eventsRepo.GetEligibleEventsAsync(gameId));
+                _config.AutoTimelineClippingEnabled, eligibleEvents ?? await _eventsRepo.GetEligibleEventsAsync(gameId));
             foreach (var item in raw.OrderBy(i => i.StartTimeSeconds ?? int.MaxValue))
             {
                 var dto = MapEvidence(item);
