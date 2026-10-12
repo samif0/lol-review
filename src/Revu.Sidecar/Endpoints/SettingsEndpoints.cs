@@ -163,8 +163,11 @@ public static partial class SidecarEndpoints
     internal static string? ApplyConfigSave(SaveConfigBody body, Revu.Core.Models.AppConfig cfg)
     {
             // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
-            if (ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent)) cfg.AscentFolder = ascent;
-            if (ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips)) cfg.ClipsFolder = clips;
+            var ascentSet = ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent);
+            if (ascentSet) cfg.AscentFolder = ascent;
+            var clipsSet = ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips);
+            if (clipsSet) cfg.ClipsFolder = clips;
+            if ((ascentSet || clipsSet) && ClipsFolderConflict(cfg) is { } conflict) return conflict;
             // Server-side clamp mirroring the Settings page (100–50000 MB). This value
             // feeds EnforceFolderSizeLimitAsync — an unclamped 0 (or negative) would
             // make the next clip extraction delete EVERY clip in the folder.
@@ -200,5 +203,18 @@ public static partial class SidecarEndpoints
             // login path leaves this null — /api/auth/resolve already set it false.
             if (body.OnboardingSkipped is not null) cfg.OnboardingSkipped = body.OnboardingSkipped.Value;
             return null;
+    }
+
+    // H5: clip cleanup deletes old clips from the clips folder, so that folder must never
+    // be, contain, or sit inside a folder of game recordings (the Ascent folder or Revu's
+    // own recordings folder). A blank clips folder means the default one.
+    internal static string? ClipsFolderConflict(Revu.Core.Models.AppConfig cfg)
+    {
+        var clips = string.IsNullOrWhiteSpace(cfg.ClipsFolder) ? AppDataPaths.ClipsDirectory : cfg.ClipsFolder;
+        if (!string.IsNullOrWhiteSpace(cfg.AscentFolder) && LocalPathPolicy.FoldersOverlap(clips, cfg.AscentFolder))
+            return "Your clips folder can't be the same as, inside, or contain your Ascent recordings folder. Choose a separate folder for clips.";
+        if (LocalPathPolicy.FoldersOverlap(clips, AppDataPaths.RecordingsDirectory))
+            return "Your clips folder can't be the same as, inside, or contain Revu's recordings folder. Choose a separate folder for clips.";
+        return null;
     }
 }

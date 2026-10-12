@@ -21,17 +21,26 @@ public sealed class ClipEvictionTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private sealed class FakeGuard(params string[] protectedPaths) : IClipRetentionGuard
+    // Every top-level file in the folder counts as a Revu clip unless listed in NotRevu.
+    private sealed class FakeGuard(string dir, params string[] protectedPaths) : IClipRetentionGuard
     {
         public HashSet<string> Paths { get; } = new(protectedPaths.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> NotRevu { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Task<IReadOnlySet<string>> GetProtectedPathsAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlySet<string>>(Paths);
+        public Task<IReadOnlySet<string>> GetRevuClipPathsAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlySet<string>>(Directory.EnumerateFiles(dir).Select(Path.GetFullPath)
+                .Where(p => !NotRevu.Contains(p)).ToHashSet(StringComparer.OrdinalIgnoreCase));
         public IDisposable Pin(string path) => throw new NotSupportedException();
     }
+
+    private FakeGuard Guard(params string[] protectedPaths) => new(_dir, protectedPaths);
 
     private sealed class ThrowingGuard : IClipRetentionGuard
     {
         public Task<IReadOnlySet<string>> GetProtectedPathsAsync(CancellationToken ct = default) =>
+            throw new InvalidOperationException("db locked");
+        public Task<IReadOnlySet<string>> GetRevuClipPathsAsync(CancellationToken ct = default) =>
             throw new InvalidOperationException("db locked");
         public IDisposable Pin(string path) => throw new NotSupportedException();
     }
@@ -56,7 +65,7 @@ public sealed class ClipEvictionTests : IDisposable
         var fresh = Clip("fresh.mp4", 2 * Mb, ageMinutes: 0);
         File.SetLastWriteTimeUtc(fresh, DateTime.UtcNow.AddMinutes(-600)); // oldest on disk, still exempt
 
-        await Service(new FakeGuard()).EnforceFolderSizeLimitAsync(_dir, 3 * Mb, justWritten: fresh);
+        await Service(Guard()).EnforceFolderSizeLimitAsync(_dir, 3 * Mb, justWritten: fresh);
 
         Assert.True(File.Exists(fresh));
         Assert.False(File.Exists(older));
@@ -68,7 +77,7 @@ public sealed class ClipEvictionTests : IDisposable
         var older = Clip("older.mp4", 2 * Mb, ageMinutes: 60);
         var fresh = Clip("fresh.mp4", 5 * Mb, ageMinutes: 0);
 
-        await Service(new FakeGuard()).EnforceFolderSizeLimitAsync(_dir, 3 * Mb, justWritten: fresh);
+        await Service(Guard()).EnforceFolderSizeLimitAsync(_dir, 3 * Mb, justWritten: fresh);
 
         // Deleting older could never get the folder under 3 MB, so it is kept.
         Assert.True(File.Exists(fresh));
@@ -86,7 +95,7 @@ public sealed class ClipEvictionTests : IDisposable
         var plainOld = Clip("plain-old.mp4", 1 * Mb, ageMinutes: 600);
         var plainNew = Clip("plain-new.mp4", 1 * Mb, ageMinutes: 10);
 
-        await Service(new FakeGuard(sharedA, sharedB)).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
+        await Service(Guard(sharedA, sharedB)).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
 
         Assert.True(File.Exists(sharedA));
         Assert.True(File.Exists(sharedB));
@@ -103,7 +112,7 @@ public sealed class ClipEvictionTests : IDisposable
         var plainMid = Clip("plain-mid.mp4", 1 * Mb, ageMinutes: 300);
         var plainNew = Clip("plain-new.mp4", 1 * Mb, ageMinutes: 10);
 
-        await Service(new FakeGuard(shared)).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
+        await Service(Guard(shared)).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
 
         Assert.True(File.Exists(shared));
         Assert.False(File.Exists(plainOld));
@@ -118,7 +127,7 @@ public sealed class ClipEvictionTests : IDisposable
         var shared = Clip("shared.webm", 2 * Mb, ageMinutes: 200);
         var plain = Clip("plain.mp4", 2 * Mb, ageMinutes: 100);
 
-        await Service(new FakeGuard(narratedSource, shared)).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
+        await Service(Guard(narratedSource, shared)).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
 
         Assert.True(File.Exists(narratedSource));
         Assert.True(File.Exists(shared));
@@ -133,7 +142,7 @@ public sealed class ClipEvictionTests : IDisposable
         var newClip = Clip("new.mp4", 1 * Mb, ageMinutes: 10);
 
         // Top level alone (2 MB) fits in 5 MB; with the 4 MB render it does not.
-        await Service(new FakeGuard()).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
+        await Service(Guard()).EnforceFolderSizeLimitAsync(_dir, 5 * Mb);
 
         Assert.True(File.Exists(render));
         Assert.False(File.Exists(oldClip));
@@ -148,7 +157,7 @@ public sealed class ClipEvictionTests : IDisposable
         var newer = Clip("3.mp4", 1 * Mb, ageMinutes: 200);
         var notAClip = Clip("notes.txt", 3 * Mb, ageMinutes: 999);
 
-        await Service(new FakeGuard()).EnforceFolderSizeLimitAsync(_dir, 2 * Mb);
+        await Service(Guard()).EnforceFolderSizeLimitAsync(_dir, 2 * Mb);
 
         Assert.False(File.Exists(oldest));
         Assert.True(File.Exists(middle));
@@ -162,7 +171,7 @@ public sealed class ClipEvictionTests : IDisposable
         var a = Clip("a.mp4", 2 * Mb, ageMinutes: 30);
         var b = Clip("b.mp4", 2 * Mb, ageMinutes: 20);
 
-        await Service(new FakeGuard(a)).EnforceFolderSizeLimitAsync(_dir, 1 * Mb, justWritten: b);
+        await Service(Guard(a)).EnforceFolderSizeLimitAsync(_dir, 1 * Mb, justWritten: b);
 
         Assert.True(File.Exists(a));
         Assert.True(File.Exists(b));
@@ -176,6 +185,61 @@ public sealed class ClipEvictionTests : IDisposable
         await Service(new ThrowingGuard()).EnforceFolderSizeLimitAsync(_dir, 1 * Mb);
 
         Assert.True(File.Exists(a));
+    }
+
+    [Fact]
+    public async Task NoRetentionGuard_DeletesNothing()
+    {
+        var a = Clip("a.mp4", 3 * Mb, ageMinutes: 30);
+
+        await Service(null).EnforceFolderSizeLimitAsync(_dir, 1 * Mb);
+
+        Assert.True(File.Exists(a));
+    }
+
+    [Fact]
+    public async Task AVideoRevuDidNotCreate_IsNeverDeleted_EvenWhenOldest()
+    {
+        // H5: the clips folder pointed at a recordings folder. The full-game recording is
+        // the oldest file; only Revu's own clips may go.
+        var recording = Clip("2026-07-01 ranked.mp4", 3 * Mb, ageMinutes: 9000);
+        var oldClip = Clip("old-clip.mp4", 1 * Mb, ageMinutes: 600);
+        var newClip = Clip("new-clip.mp4", 1 * Mb, ageMinutes: 10);
+        var guard = Guard();
+        guard.NotRevu.Add(recording);
+
+        await Service(guard).EnforceFolderSizeLimitAsync(_dir, 4 * Mb);
+
+        Assert.True(File.Exists(recording));
+        Assert.False(File.Exists(oldClip));
+        Assert.True(File.Exists(newClip));
+    }
+
+    [Fact]
+    public async Task ForeignVideosFillingTheLimit_DeleteNothing()
+    {
+        var recording = Clip("recording.mkv", 5 * Mb, ageMinutes: 9000);
+        var clip = Clip("clip.mp4", 1 * Mb, ageMinutes: 60);
+        var guard = Guard();
+        guard.NotRevu.Add(recording);
+
+        await Service(guard).EnforceFolderSizeLimitAsync(_dir, 4 * Mb);
+
+        Assert.True(File.Exists(recording));
+        Assert.True(File.Exists(clip));
+    }
+
+    [Fact]
+    public async Task UsageMeter_MeasuresExactlyWhatEvictionWeighs()
+    {
+        Clip("a.mp4", 1 * Mb, ageMinutes: 10);
+        Clip("b.webm", 2 * Mb, ageMinutes: 10);
+        Clip("notes.txt", 5 * Mb, ageMinutes: 10);
+        Clip("r_narrated_1.mp4", 1 * Mb, ageMinutes: 10, subdir: ClipService.NarratedFolderName);
+        Clip("deep.mp4", 7 * Mb, ageMinutes: 10, subdir: "nested");
+
+        Assert.Equal(4 * Mb, ClipService.MeasureFolderBytes(_dir));
+        Assert.Equal(0, ClipService.MeasureFolderBytes(Path.Combine(_dir, "missing")));
     }
 
     [Fact]
@@ -195,6 +259,7 @@ public sealed class ClipEvictionTests : IDisposable
         await narrations.UpsertAsync(ClipNarrationRepositoryTests.Record(bm, gameId, narrated: render, source: source));
         var guard = new ClipRetentionGuard(narrations, scope.Vod);
         var pinned = Path.Combine(_dir, "pinned.mp4");
+        Assert.Contains(Path.Combine(_dir, "plain.mp4"), await guard.GetRevuClipPathsAsync());
 
         var first = guard.Pin(pinned);
         var second = guard.Pin(pinned.ToUpperInvariant());
@@ -211,4 +276,45 @@ public sealed class ClipEvictionTests : IDisposable
         second.Dispose();
         Assert.DoesNotContain(pinned, await guard.GetProtectedPathsAsync());
     }
+
+    [Fact]
+    public async Task RetentionGuard_ProtectsKeptClipsAndLinkedRecordings_ButNotUntouchedOrAutoClips()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var narrations = new ClipNarrationRepository(scope.ConnectionFactory);
+        var gameId = await scope.Games.SaveManualAsync("Ahri", true);
+        var objectiveId = await scope.Objectives.CreateWithPhasesAsync(
+            "Wave control", "", "primary", "", "", practicePre: false, practiceIn: true, practicePost: false);
+        string P(string name) => Path.Combine(_dir, name);
+
+        await scope.Vod.AddBookmarkAsync(gameId, 10, "rated", clipPath: P("rated.mp4"), quality: "good");
+        await scope.Vod.AddBookmarkAsync(gameId, 20, "tagged", clipPath: P("tagged.mp4"), objectiveId: objectiveId);
+        await scope.Vod.AddBookmarkAsync(gameId, 30, "plain", clipPath: P("plain.mp4"));
+        var saved = await scope.Vod.AddBookmarkAsync(gameId, 40, "saved", clipPath: P("saved.mp4"));
+        await ClipEvidence(scope, gameId, saved, $"clip:{saved}", EvidenceStatuses.Evidence, null);
+        var auto = await scope.Vod.AddBookmarkAsync(gameId, 50, "auto", clipPath: P("auto.mp4"), objectiveId: objectiveId);
+        await ClipEvidence(scope, gameId, auto, $"autoclip:{gameId}:7", EvidenceStatuses.NeedsReview, objectiveId);
+        await scope.Vod.LinkVodAsync(gameId, P("full-game.mp4"));
+
+        var guard = new ClipRetentionGuard(narrations, scope.Vod);
+        var kept = await guard.GetProtectedPathsAsync();
+        var revu = await guard.GetRevuClipPathsAsync();
+
+        Assert.Contains(P("rated.mp4"), kept);
+        Assert.Contains(P("tagged.mp4"), kept);
+        Assert.Contains(P("saved.mp4"), kept);
+        Assert.Contains(P("full-game.mp4"), kept);
+        Assert.DoesNotContain(P("plain.mp4"), kept);
+        Assert.DoesNotContain(P("auto.mp4"), kept);
+        Assert.Equal(5, revu.Count);
+        Assert.DoesNotContain(P("full-game.mp4"), revu);
+    }
+
+    private static Task ClipEvidence(TestDatabaseScope scope, long gameId, long bookmarkId, string sourceKey,
+        string status, long? objectiveId) =>
+        scope.Evidence.UpsertAsync(new EvidenceUpsert(
+            GameId: gameId, SourceKind: EvidenceKinds.Clip, SourceId: bookmarkId, SourceKey: sourceKey,
+            StartTimeSeconds: 0, EndTimeSeconds: 10, Title: "t", Note: "n", ObjectiveId: objectiveId,
+            PromptId: null, Polarity: EvidencePolarities.Neutral, Status: status));
 }
