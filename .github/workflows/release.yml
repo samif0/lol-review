@@ -48,6 +48,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      dotnet_sdk: ${{ steps.sdk.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -88,6 +89,17 @@ jobs:
             exit 1
           fi
           echo "Tagged commit $commit is on origin/main."
+
+      # The publish job has no checkout, so it reads the SDK pin from here.
+      - name: Read the pinned .NET SDK
+        id: sdk
+        run: |
+          sdk="$(jq -r '.sdk.version' global.json)"
+          if ! printf '%s' "$sdk" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::global.json must pin an exact .NET SDK version."
+            exit 1
+          fi
+          echo "version=$sdk" >> "$GITHUB_OUTPUT"
 
   test:
     needs: guard
@@ -345,6 +357,13 @@ jobs:
         with:
           name: velopack-release
           path: Releases
+
+      # Same SDK as every other job (global.json, read by the guard job), so vpk
+      # never depends on whichever .NET the runner image happens to carry.
+      - name: Setup .NET (global.json pin)
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ needs.guard.outputs.dotnet_sdk }}
 
       - name: Install vpk CLI
         working-directory: ${{ runner.temp }}
