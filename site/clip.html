@@ -158,14 +158,30 @@
   <script>
     (function () {
       var params = new URLSearchParams(location.search);
-      // The proxy override exists for local dev (wrangler dev) ONLY. Never
-      // honor an arbitrary origin from the URL: a crafted share link could
-      // otherwise make this trusted page fetch and play attacker-controlled
-      // content under revu.lol.
+      // The proxy override exists for local dev (wrangler dev) ONLY: it is
+      // honored only while this page itself is served from localhost, and only
+      // for a loopback proxy. On revu.lol a crafted share link can never make
+      // this page fetch or play content from anywhere but clips.revu.lol.
       var PROXY_BASE = "https://clips.revu.lol";
       var proxyOverride = (params.get("proxy") || "").replace(/\/+$/, "");
-      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(proxyOverride)) {
+      var servedLocally = /^(localhost|127\.0\.0\.1)$/.test(String(location.hostname || ""));
+      if (servedLocally && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(proxyOverride)) {
         PROXY_BASE = proxyOverride;
+      }
+
+      // A reload in the same tab is not a new view. The server also counts at
+      // most one view per viewer per clip per hour.
+      function firstViewThisTab(clipId) {
+        try {
+          var store = typeof sessionStorage !== "undefined" ? sessionStorage : null;
+          if (!store) return true;
+          var key = "revu.clip.viewed." + clipId;
+          if (store.getItem(key) === "1") return false;
+          store.setItem(key, "1");
+        } catch (e) {
+          // Storage blocked: the server-side dedupe still applies.
+        }
+        return true;
       }
 
       function resolveId() {
@@ -650,7 +666,9 @@
 
           show(elClip);
 
-          fetch(PROXY_BASE + "/clip-view/" + encodeURIComponent(id), { method: "POST" }).catch(function () {});
+          if (firstViewThisTab(id)) {
+            fetch(PROXY_BASE + "/clip-view/" + encodeURIComponent(id), { method: "POST" }).catch(function () {});
+          }
         })
         .catch(notFound);
 
