@@ -51,6 +51,7 @@
   "overrides": {
     "esbuild": "0.28.2",
     "builder-util-runtime": "9.7.0",
-    "@overwolf/builder-util-runtime": "npm:builder-util-runtime@9.7.0"
+    "@overwolf/builder-util-runtime": "npm:builder-util-runtime@9.7.0",
+    "global-agent": "4.1.3"
   }
 }
