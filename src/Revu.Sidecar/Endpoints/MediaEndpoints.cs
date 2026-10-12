@@ -107,16 +107,15 @@ public static partial class SidecarEndpoints
         // default the note to "Clip", extract via ffmpeg into ClipsFolder, then on success
         // add a clip-backed bookmark (returns id), mark the objective practiced if tagged,
         // and upsert the evidence row (polarity = quality or neutral; status = evidence
-        // when a quality is set, else needs_review). vodPath + championName ride in the
-        // body — the frontend has both from the loaded VOD snapshot, matching the VM which
-        // reads them from its loaded VodPath/ChampionName state. Returns the clip path +
-        // bookmark id so the frontend can confirm + refetch.
+        // when a quality is set, else needs_review). The recording is the one Revu linked to
+        // gameId (server-side, local paths only); a vodPath in the body is ignored, so the
+        // renderer can never point ffmpeg at an arbitrary or network file. championName
+        // rides in the body. Returns the clip path + bookmark id so the frontend can
+        // confirm + refetch.
         app.MapPost("/api/clip/extract", async (ExtractClipBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             if (body is null || body.GameId <= 0)
                 return Results.BadRequest(new { error = "gameId required" });
-            if (string.IsNullOrWhiteSpace(body.VodPath))
-                return Results.BadRequest(new { error = "vodPath required" });
 
             // Order + clamp the range exactly like the VM (start = min, end = max).
             var startS = Math.Max(0, Math.Min(body.StartTimeS, body.EndTimeS));
@@ -125,6 +124,10 @@ public static partial class SidecarEndpoints
                 return Results.BadRequest(new { error = "clip range must be at least 1s" });
             if (NarrationRequestValidator.ExtractRangeError(startS, endS) is { } tooLong)
                 return Results.Json(new { ok = false, error = tooLong }, jsonOptions, statusCode: 422);
+
+            var vodPath = await ResolveLocalVodPathAsync(w.Vod, body.GameId);
+            if (vodPath is null)
+                return Results.Json(new { ok = false, error = NoLocalRecording }, jsonOptions, statusCode: 422);
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
@@ -148,7 +151,7 @@ public static partial class SidecarEndpoints
             string? clipPath;
             try
             {
-                clipPath = await w.Clips.ExtractClipAsync(body.VodPath, startS, endS, champion, clipsFolder, ct);
+                clipPath = await w.Clips.ExtractClipAsync(vodPath, startS, endS, champion, clipsFolder, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -310,6 +313,19 @@ public static partial class SidecarEndpoints
                 body.BookmarkId, fileDeleted, remoteDeleted);
             return Results.Json(new { ok = true, fileDeleted, remoteDeleted }, jsonOptions);
         });
+    }
+
+    internal const string NoLocalRecording = "This game has no recording on this PC to clip from.";
+
+    // The recording Revu linked to the game (vod_files), never a renderer-supplied path.
+    // Null when there is none, it is gone, or it is not a local path: the UNC check runs
+    // before File.Exists, so a network path is never touched (LocalPathPolicy).
+    internal static async Task<string?> ResolveLocalVodPathAsync(IVodRepository vods, long gameId)
+    {
+        var paths = await vods.GetVodPathsAsync(new[] { gameId });
+        if (!paths.TryGetValue(gameId, out var stored)) return null;
+        if (!LocalPathPolicy.TryGetLocalFullPath(stored, out var full)) return null;
+        return File.Exists(full) ? full : null;
     }
 
     // The public slug in a revu.lol/<slug> share URL (the last non-empty path segment),
