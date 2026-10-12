@@ -43,7 +43,7 @@ class FakeRecorder extends EventTarget {
 }
 const flush = async (n = 8) => { for (let i = 0; i < n; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
 
-function environment({ access = 'granted', micError = null, savedMic = null, savedOutput = null, devicesGate = null } = {}) {
+function environment({ access = 'granted', micError = null, savedMic = null, savedOutput = null, devicesGate = null, gumGate = null } = {}) {
   const names = ['close', 'shared', 'mic-block', 'mic', 'level', 'blocked', 'open-settings', 'countdown', 'rec', 'game', 'game-out',
     'voice', 'voice-out', 'duck', 'sync-row', 'nudge-minus', 'nudge-plus', 'sync', 'record', 'stop', 'apply', 'record-again',
     'remove', 'done', 'status'];
@@ -71,6 +71,7 @@ function environment({ access = 'granted', micError = null, savedMic = null, sav
     navigator: { mediaDevices: {
       async getUserMedia(constraints) {
         calls.gum.push(constraints);
+        if (gumGate) await gumGate;
         const failure = micFailures.shift();
         if (failure) throw Object.assign(new Error(failure), { name: failure });
         const track = { label: 'USB Mic', stopped: false, stop() { this.stopped = true; }, getSettings: () => ({ deviceId: 'mic-1' }) };
@@ -610,6 +611,23 @@ test('closing while the microphone list loads never starts a level meter afterwa
     assert.equal(env.calls.audio.length, 0, 'no AudioContext outlives the studio');
     assert.equal(env.storage.has('revu.narration.mic'), false);
     assert.equal(env.tracks[0].stopped, true);
+  } finally { env.restore(); }
+});
+
+test('closing while a refused microphone opens never opens the system default in its place', async () => {
+  let refuse;
+  const env = environment({ micError: 'OverconstrainedError', savedMic: { deviceId: 'mic-1', label: 'USB Mic' },
+    gumGate: new Promise(resolve => { refuse = resolve; }) });
+  try {
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.deepEqual(env.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'mic-1' }]);
+    studio.close();
+    refuse();
+    await flush();
+    assert.equal(env.calls.gum.length, 1, 'no retry after the studio closed');
+    assert.equal(env.tracks.length, 0);
+    assert.equal(env.calls.audio.length, 0);
   } finally { env.restore(); }
 });
 

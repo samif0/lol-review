@@ -1,6 +1,7 @@
 import { clampOffset, computeOffsetMs, createStudioStateMachine, formatClock, formatSync, isActiveWork, isEndOfClipPause,
   MAX_TAKE_MS, micErrorMessage, MIC_COPY, MIN_TAKE_MS, pickMimeType, rmsLevel } from './narration-capture.mjs';
 import { bindOutputSink, DEFAULT_DEVICE_ID, onAudioPrefsChange, resolveAudioDevice, saveAudioPref } from './audio-devices.mjs';
+import { fillMicSelect, openNarrationMic } from './narration-mic.mjs';
 
 // Narration studio: a modal <dialog> on the VOD page. The user talks over the saved
 // clip file at 1x; stopping a take saves it at once (the host renders the narrated
@@ -62,7 +63,7 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
   let closed = false, stream = null, audio = null, analyser = null, source = null, levelFrame = 0, accessStatus = 'unknown';
   // micRequest: the device the setup microphone was asked for ('' = system default).
   let micToken = 0, micRequest = null, micPending = false;
-  const micLabels = new Map();
+  let micLabels = new Map();
   let takeId = 0, take = null, dispatched = Promise.resolve();
   const mix = { gameVolume: 0.8, narrationVolume: 1, duck: true, offsetMs: 0 };
   const finite = (value, fallback) => (Number.isFinite(Number(value)) && value !== null && value !== '' ? Number(value) : fallback);
@@ -176,15 +177,6 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
     try { source?.disconnect(); } catch (_) { /* detached */ }
     source = null;
   }
-  async function acquire(deviceId) {
-    const constraints = deviceId => ({ audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: true,
-      noiseSuppression: true, autoGainControl: true, channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } }, video: false });
-    try { return await navigator.mediaDevices.getUserMedia(constraints(deviceId)); }
-    catch (err) {
-      if (deviceId && micErrorMessage(err, accessStatus) === null) return navigator.mediaDevices.getUserMedia(constraints(undefined));
-      throw err;
-    }
-  }
   // Without a deviceId the saved microphone opens. A newer call supersedes an
   // older one still waiting for the device.
   async function startMic(deviceId) {
@@ -199,7 +191,8 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
       if (closed || token !== micToken) return;
       micRequest = micKey(wanted);
       let next;
-      try { next = await acquire(wanted); }
+      // A refused device falls back to the default only while this request is current.
+      try { next = await openNarrationMic(wanted, { accessStatus, cancelled: () => closed || token !== micToken }); }
       catch (err) {
         if (token !== micToken) return;
         stopStream(); render(); status(micErrorMessage(err, accessStatus) || MIC_COPY.busy); return;
@@ -230,23 +223,7 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
     }
     void startMic(wanted);
   }
-  async function fillDevices(activeId) {
-    const select = q('mic');
-    if (!select) return;
-    let inputs = [];
-    try { inputs = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput'); } catch (_) { /* keep empty */ }
-    const rank = device => device.deviceId === 'default' ? 0 : device.deviceId === 'communications' ? 2 : 1;
-    inputs.sort((a, b) => rank(a) - rank(b));
-    micLabels.clear();
-    for (const device of inputs) micLabels.set(device.deviceId, device.label || '');
-    select.replaceChildren(...inputs.map((device, index) => {
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.textContent = device.label || `Microphone ${index + 1}`;
-      return option;
-    }));
-    select.value = inputs.some(device => device.deviceId === activeId) ? activeId : (inputs[0]?.deviceId || '');
-  }
+  async function fillDevices(activeId) { micLabels = await fillMicSelect(q('mic'), activeId); }
   function startMeter() {
     if (closed || !stream) return;
     try {
