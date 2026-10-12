@@ -1,11 +1,23 @@
 # revu-proxy
 
-Cloudflare Worker that proxies Riot API requests for the Revu desktop app.
+Cloudflare Worker behind the Revu desktop app and revu.lol: the Riot API
+passthrough, email-code sign-in, clip sharing (R2 + D1), narration transcripts
+(Workers AI) and the revu.lol web account API.
 
-The desktop app calls this Worker with a bearer token; the Worker forwards to the
-Riot API using the operator's permanent `RIOT_API_KEY`. Tokens in `ALLOWED_TOKENS`
-gate access (Path A). Session tokens from `/auth/verify` also gate access (Path B,
-backed by D1).
+Who calls it, and how they authenticate:
+
+- **Desktop app**: `Authorization: Bearer <session token>` from `/auth/verify`,
+  stored hashed in D1 `sessions`. Every Bearer resolves to a real account. There
+  is no static token allowlist: the old `ALLOWED_TOKENS` secret was deleted on
+  2026-06-19 and the code path that read it is gone. Do not re-add it.
+- **Web review tool** (revu.lol home page): a 30-minute JWT from `/web/session`
+  after a Turnstile check, for the `/web/*` Riot passthrough only.
+- **Web accounts** (revu.lol sign-in, My clips, Account): the `__Host-revu_web`
+  cookie, read only by `/auth/web/*` (see [Web accounts](#web-accounts-revulol)).
+
+The Worker forwards Riot calls with the server-side `RIOT_API_KEY`; users never
+see it. Only the Riot passthrough needs it: sign-in, sign-out, clips and
+transcripts keep working while it is missing or being rotated.
 
 ## Setup
 
@@ -18,18 +30,32 @@ wrangler login   # one-time, opens browser
 ## Secrets
 
 ```sh
-# Paste your permanent Riot key when prompted
+# Your permanent Riot key
 wrangler secret put RIOT_API_KEY
 
-# Comma-separated list of per-user static tokens (Path A).
-# Generate with: node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
-wrangler secret put ALLOWED_TOKENS
-
-# Resend API key for sending magic-link emails (Path B).
+# Resend API key for the sign-in code emails
 wrangler secret put RESEND_API_KEY
+
+# Turnstile secret and the web review tool's JWT signing secret
+wrangler secret put TURNSTILE_SECRET_KEY
+wrangler secret put WEB_JWT_SECRET
+
+# Recommended: a random pepper for sign-in code hashes (see below)
+# node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+wrangler secret put LOGIN_CODE_PEPPER
 ```
 
-To rotate: re-run the same command with a new value.
+To rotate: re-run the same command with a new value. Rotating
+`LOGIN_CODE_PEPPER` (or setting it the first time) makes codes issued in the
+previous 10 minutes stop verifying; people just request a new code.
+
+`LOGIN_CODE_PEPPER` is optional. Without it, `login_requests.code` stores a plain
+sha256 of the code, and codes are only about 40 bits, so a leaked table could be
+brute-forced offline within a code's 10-minute life. With it, the column stores
+HMAC-SHA256(pepper, code) and the table alone is useless.
+
+There is no `ALLOWED_TOKENS` secret. If an old deployment still has one, delete
+it (`wrangler secret delete ALLOWED_TOKENS`); the Worker ignores it.
 
 ## Deploy
 
@@ -40,8 +66,9 @@ npm run deploy
 The deploy URL will look like:
 `https://revu-proxy.<your-cloudflare-subdomain>.workers.dev`
 
-Rename the Worker by changing `name` in `wrangler.toml` and redeploying; update the
-desktop app's proxy URL config accordingly.
+The Worker URL is compiled into the desktop app
+(`src/Revu.Core/Services/RiotProxyEndpoint.cs`); renaming the Worker means
+shipping a desktop build with the new URL.
 
 ## Smoke test
 
@@ -49,17 +76,18 @@ desktop app's proxy URL config accordingly.
 # health (unauthenticated)
 curl https://revu-proxy.<sub>.workers.dev/health
 
-# account lookup (authenticated) — returns { puuid, gameName, tagLine }
-curl -H "Authorization: Bearer <your-token>" \
-  "https://revu-proxy.<sub>.workers.dev/account?riotId=chapy%23hapy&region=na1"
+# account lookup, with a desktop session token (sign in through the app, or
+# POST /auth/login then /auth/verify) → { puuid, gameName, tagLine }
+curl -H "Authorization: Bearer <session-token>" \
+  "https://revu-proxy.<sub>.workers.dev/account?riotId=<gameName>%23<tagLine>&region=na1"
 
 # recent match ids
-curl -H "Authorization: Bearer <your-token>" \
+curl -H "Authorization: Bearer <session-token>" \
   "https://revu-proxy.<sub>.workers.dev/matches?puuid=<PUUID>&region=na1&count=5&queue=420"
 
 # one match
-curl -H "Authorization: Bearer <your-token>" \
-  "https://revu-proxy.<sub>.workers.dev/match/NA1_5544880520?region=na1"
+curl -H "Authorization: Bearer <session-token>" \
+  "https://revu-proxy.<sub>.workers.dev/match/<MATCH_ID>?region=na1"
 ```
 
 ## Logs
@@ -68,58 +96,111 @@ curl -H "Authorization: Bearer <your-token>" \
 wrangler tail
 ```
 
-Each request logs `{ token, path, status, ms }` as JSON — no raw tokens, just an
-8-char sha256 prefix.
+Each Riot passthrough request logs `{ token, userId?, path, status, ms }` as
+JSON. `token` is the first 16 hex characters of sha256(token) (for web tool
+calls, of the JWT's id), never the token itself; `userId` is present for desktop
+calls. Sign-in failures log an 8-character hash of the email, never the address.
 
 ## Rate limits
 
-- Per token: `PER_TOKEN_RPS` (default 4; lowered to 2 for session tokens in Path B)
-- Aggregate (all tokens): `AGGREGATE_RPS` (default 18)
+The Riot key has one app-wide rate limit, so every upstream Riot call is charged
+to a budget enforced by the `GlobalRateLimiter` Durable Object (one global
+counter across all isolates). Only calls that actually reach Riot are charged:
+a `/match` or `/timeline` served from the edge cache, or a request rejected by
+validation, costs nothing.
+
+| Var | Default | Meaning |
+|-----|---------|---------|
+| `AGGREGATE_RPS` | 18 | Hard cap for everyone, per second. Keep it under the key's real app-rate limit |
+| `PER_TOKEN_RPS` | 2 | Per desktop session or web JWT, per second (per isolate) |
+| `WEB_AGGREGATE_RPS` | a third of `AGGREGATE_RPS` | The most the anonymous web tool may use. Desktop may use the whole aggregate while web is idle, and always keeps the rest |
+| `WEB_PER_IP_RPS` | 3 | Per address (IPv6 by /64) across every web JWT, per second |
+| `WEB_SESSIONS_PER_IP` | 12 | Web JWTs minted per address per 30 minutes (a JWT lives 30 minutes) |
 
 Adjust in `wrangler.toml` `[vars]`. If you upgrade to a higher-tier Riot key,
-bump `AGGREGATE_RPS` accordingly (stay ~10% below Riot's ceiling).
+bump `AGGREGATE_RPS` (stay about 10% below Riot's ceiling). The Riot budget
+fails OPEN if the Durable Object is unreachable (per-isolate gates and Riot's
+own 429s remain). Addresses are hashed before they reach the Durable Object,
+and its counters live in memory only.
+
+Other limits (none of them touch the Riot budget):
+
+- `POST /auth/login` and `POST /auth/verify`: 5 per minute per address per
+  isolate, and 10 per minute per address globally (Durable Object, fails open).
+- Sign-in emails: 3 per email per 15 minutes, and `EMAIL_DAILY_SEND_CAP` (default
+  100) per UTC day across all users and both sign-in flows. Past the daily cap,
+  both answer 503 `email_daily_cap` with a `Retry-After` to UTC midnight. Set it
+  to what your Resend plan allows per day; 100 keeps a free plan's monthly quota
+  safe even under a sustained attack.
+- `POST /clips`: 30 per minute per user. `POST /clips/uploads`: 6 per minute per
+  user. `POST /transcribe`: 30 per minute per user.
+- `POST /clip-view/:id`: counts at most one view per address per clip per hour.
 
 ## Endpoints
 
-All `/matches`, `/match/:id`, `/account` require `Authorization: Bearer <token>`.
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/health` | none | |
+| GET | `/account` | session | `riotId=gameName%23tagLine`, `region=na1` → Riot account (puuid) |
+| GET | `/matches` | session | `puuid`, `region`, `count?` (1 to 100), `queue?` → match ids |
+| GET | `/match/:id` | session | `region` → match JSON (edge cached) |
+| GET | `/timeline/:id` | session | `region` → match timeline JSON (edge cached) |
+| GET | `/rank` | session | `puuid`, `region` → League-V4 entries |
+| POST | `/auth/login` | none | `{ email }` → emails a code → `{ sent: true }` |
+| POST | `/auth/verify` | none | `{ code, email? }` → `{ session_token, expires_at }` (see below) |
+| POST | `/auth/logout` | session | Revokes the calling session only |
+| POST | `/web/session` | none | `{ turnstileToken }` → `{ token, expiresIn }`, a 30-minute web tool JWT |
+| GET | `/web/account`, `/web/matches`, `/web/match/:id`, `/web/timeline/:id`, `/web/rank` | web JWT | Same as the desktop routes |
 
-| Method | Path | Params | Notes |
-|--------|------|--------|-------|
-| GET | `/health` | — | No auth |
-| GET | `/account` | `riotId=gameName%23tagLine`, `region=na1` | → Riot account (puuid) |
-| GET | `/matches` | `puuid`, `region`, `count`, `queue?` | → array of match ids |
-| GET | `/match/:id` | `region` | → full match JSON |
-| POST | `/auth/signup` | body: `{ email, inviteCode }` | → sends magic link |
-| POST | `/auth/login` | body: `{ email }` | → sends magic link |
-| GET | `/auth/verify` | `code=XXXX` | → `{ session_token, expires_at }` |
-| POST | `/auth/logout` | auth required | invalidates current session |
+`region` is a platform id (`na1`, `euw1`, `kr`, `oc1`, ...; 17 in all). Match-V5
+goes to its regional cluster (americas, asia, europe, sea). Account-V1 has no sea
+host, so OCE and SEA platforms use asia for it (Riot documents americas, asia and
+europe for Account-V1, each answering for every account). League-V4 is
+platform-routed. A Riot call that takes longer than 10 s is 504 `riot_timeout`;
+any other upstream failure is 502 `proxy_error`. A session lookup that D1 can't
+answer is 503 `auth_unavailable`, never a 401. Anything unexpected is a JSON 500
+`internal` with CORS headers.
 
-`region` is a platform id (`na1`, `euw1`, `kr`, …). The Worker maps it to the right
-regional cluster per endpoint.
+### Desktop sign-in
+
+- `POST /auth/login` stores only a hash of the 8-character code (10 minutes,
+  single use). A failed email send deletes its row and refunds the daily count,
+  so it never throttles a retry.
+- `POST /auth/verify` with `{ email, code }` is bound to the email: every attempt
+  first adds 1 to `attempts` on that email's live desktop codes, then a code is
+  consumed only while `attempts <= 5`. `{ code }` alone is still accepted for
+  desktop builds that don't send the email yet; it can't consume a code that
+  bound attempts already burned. Set `REQUIRE_VERIFY_EMAIL = "1"` once desktop
+  builds that send the email are the norm; code-only verify then answers 400
+  `email_required`.
+- The first successful verify for a new email creates the account.
+- Web codes (purpose `web`) are refused here; desktop codes are refused at
+  `/auth/web/email/verify`.
 
 ## Clip sharing and transcripts
 
 Owner routes need `Authorization: Bearer <session token>` from a real account
-session (D1). A static operator token gets 403 `login_required`. A missing or
-bad token gets 401: `unauthorized` on the 3.14.0 routes (uploads, parts,
-complete, transcripts, `/transcribe`); the older routes keep their historical
-codes (`missing_bearer`, `empty_token`, `invalid_token`). Errors are JSON
+session (D1). A missing or bad token gets 401: `unauthorized` on the 3.14.0
+routes (uploads, parts, complete, transcripts, `/transcribe`); the older routes
+keep their historical codes (`missing_bearer`, `empty_token`, `invalid_token`).
+A session lookup D1 can't answer is 503 `auth_unavailable`. Errors are JSON
 `{ error, message? }`. Content-Type checks compare the media type only, so
 `text/plain; charset=utf-8` is fine.
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). 201 `{ id, url, expires_at }` |
+| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). The body goes straight to R2; then one 16-byte ranged read checks the video magic bytes, and a mismatch is deleted and 415 `unsupported_media_type`. 30 per minute per user. 201 `{ id, url, expires_at }` |
 | POST | `/clips/uploads?title&champion&duration&size&narrated=0\|1` | owner | Start a multipart upload (`video/mp4` or `video/webm`, empty body). duration 1 to 610 s, size up to 2 GiB. 201 `{ id, part_size, part_count, expires_at }`. 6 per minute per user, at most 2 pending uploads |
 | PUT | `/clips/:id/parts/:n` | owner | Raw part bytes. `Content-Length` required and exact (`part_size`, last part is the remainder). 200 `{ part_number, etag }` |
 | POST | `/clips/:id/complete` | owner | `{ parts: [ { part_number, etag } ] }`. Idempotent. 201 `{ id, url, expires_at }` |
 | DELETE | `/clips/:id` | owner | Aborts a pending upload, deletes the R2 object, the transcript and the row |
 | GET | `/clips/mine` | owner | Own clips, including `status`, `narrated`, `has_transcript` |
-| POST | `/transcribe?offset_ms&duration_ms&language=en` | owner | `text/plain` base64 of a mono 16 kHz 24 kbps MP3 chunk (at most 1 MiB, `Content-Length` required). Whisper via Workers AI. Charged the larger of `duration_ms` and the length the body implies at 24 kbps; a body far longer than `duration_ms` is 400. 7200 audio s per user per day, 10800 s across all users, 30 requests per minute per user |
+| POST | `/transcribe?offset_ms&duration_ms&language=en` | owner | `text/plain` base64 of a mono 16 kHz 24 kbps MP3 chunk (at most 1 MiB, `Content-Length` required). Whisper via Workers AI. Charged the larger of `duration_ms` and the length the body implies at 24 kbps; a body far longer than `duration_ms` is 400. 1200 audio s per user per day (a ninth of the global cap, so a few accounts can't switch transcripts off for everyone), 10800 s across all users, 30 requests per minute per user |
 | PUT | `/clips/:id/transcript` | owner | Version 1 transcript document (at most 256 KiB, 3000 segments; 8 MiB of transcripts per account across live clips). Zero segments removes it. The VTT is generated on read |
 | DELETE | `/clips/:id/transcript` | owner | Idempotent |
 | GET | `/clip-meta/:id` | public | Adds `narrated`, `has_transcript`, `transcript_language` |
-| GET | `/clip-file/:id` | public | Video bytes, Range supported |
+| GET, HEAD | `/clip-file/:id` | public | Video bytes. One `bytes=` Range is a 206; a range past the end is 416; If-None-Match is honored (304) and so is If-Range; HEAD reads metadata only |
+| POST | `/clip-view/:id` | public | Counts a view, at most once per address per clip per hour. Always 200 `{ ok: true }` |
 | GET, HEAD | `/clip-transcript/:id[?format=vtt]` | public | JSON `{ id, language, segments }` or WebVTT |
 
 Pending (still uploading) clips are 404 on every public route. Clips expire 3 days
@@ -160,7 +241,23 @@ npx wrangler d1 migrations apply revu-db --remote
 
 The scheduled handler runs hourly (`0 * * * *`). In order it purges expired clips
 and expired pending uploads (aborting the upload and deleting the R2 object), then
-expired sessions, then `transcribe_usage` rows older than 7 days.
+expired sessions, then `login_requests` rows that expired over an hour ago (with
+their email addresses, used or not), then `transcribe_usage` rows older than 7
+days, then `email_send_usage` rows older than 7 days.
+
+### Migration 0005 and deploy order
+
+`migrations/0005_email_send_usage.sql` is additive: one `email_send_usage` table
+(a count per UTC day, no addresses) behind the daily sign-in email ceiling. Apply
+it before deploying the Worker that uses it. If it is missing, the ceiling fails
+open (sign-in keeps working, uncapped) and logs `email_budget.reserve` errors.
+
+```sh
+cd proxy
+npx wrangler d1 migrations list revu-db --remote
+npx wrangler d1 migrations apply revu-db --remote
+npx wrangler deploy
+```
 
 ### Optional R2 lifecycle rule
 
@@ -258,14 +355,21 @@ after a successful verify it upserts the email identity (best effort).
   `attempts <= 5`, so at most 5 guesses are evaluated per code.
 - Codes use rejection sampling (bytes below 248) over a 31-character alphabet.
 
-Accepted risks (documented, not fixed in v1):
+- Every code email (web and desktop) counts toward the global
+  `EMAIL_DAILY_SEND_CAP`; past it, start answers 503 `email_daily_cap` with
+  `retry_after` to UTC midnight.
 
-- Lockout: anyone who knows an email can burn its live web codes with 5 bad
+Accepted risks (documented, not fixed):
+
+- Lockout: anyone who knows an email can burn its live codes with 5 bad
   guesses, or use up the 3-per-15-minutes budget through the desktop
-  `/auth/login` (which has no Turnstile). The workaround is to wait 15 minutes
-  or sign in from the desktop app.
-- Email bombing: Turnstile does not stop it through `/auth/login`; only the
-  per-email cap bounds it. Durable per-IP and per-email limits are a follow-up.
+  `/auth/login` (which can't run Turnstile). The workaround is to wait 15
+  minutes or sign in from the other surface.
+- Email bombing and quota burn through `/auth/login`: bounded by the per-email
+  cap, the global per-address limit and the daily ceiling, which pauses sign-in
+  emails for everyone until UTC midnight once reached. That outage is the price
+  of protecting the provider quota; alerting on `email_budget.cap` log lines is
+  a follow-up.
 
 ### Account deletion
 
@@ -286,8 +390,8 @@ backfilled for every user, with `subject` = SQL `lower(email)`). Identities are
 informational in v1; sign-in still keys on `users.email`.
 
 Apply the migration BEFORE deploying the Worker (otherwise the web routes 500;
-the desktop stays safe because its SQL is unchanged and the identity upsert is
-wrapped in try/catch), then deploy the site:
+desktop `/auth/verify` also reads `login_requests.attempts` now, so it needs
+0004 too), then deploy the site:
 
 ```sh
 cd proxy
