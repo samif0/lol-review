@@ -40,6 +40,28 @@ public sealed class FirstWriteBackupTriggerTests
         return Convert.ToInt64(cmd.ExecuteScalar());
     }
 
+    // True when another connection can take the write lock now: no transaction is holding
+    // it, so neither the backup nor any other writer would be kept waiting.
+    private static bool WriteLockIsFree(TestDatabaseScope scope)
+    {
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = scope.DatabasePath, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 1,
+        }.ToString());
+        conn.Open();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "BEGIN IMMEDIATE; ROLLBACK;";
+            cmd.ExecuteNonQuery();
+            return true;
+        }
+        catch (SqliteException)
+        {
+            return false;
+        }
+    }
+
     private static async Task<long> DanglingRetimeAsync(TestDatabaseScope scope, long gameId)
     {
         await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId));
@@ -82,16 +104,19 @@ public sealed class FirstWriteBackupTriggerTests
 
         var backups = 0;
         long seenAtBackup = -1;
+        var writeLockFreeAtBackup = false;
         var result = await new EventCorrectionSweep(scope.ConnectionFactory).RunAsync(beforeFirstWrite: () =>
         {
             backups++;
             seenAtBackup = CommittedScalar(scope, $"SELECT game_time_s FROM game_events WHERE game_id = {gameId}");
+            writeLockFreeAtBackup = WriteLockIsFree(scope);
             return Task.CompletedTask;
         });
 
         Assert.Equal(1, result.OrphansResolved);
         Assert.Equal(1, backups);
         Assert.Equal(812, seenAtBackup);
+        Assert.True(writeLockFreeAtBackup, "the backup must not run inside the sweep's write transaction");
         Assert.Equal(815, CommittedScalar(scope, $"SELECT game_time_s FROM game_events WHERE game_id = {gameId}"));
     }
 

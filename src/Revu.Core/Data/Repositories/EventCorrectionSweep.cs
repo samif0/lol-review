@@ -43,7 +43,8 @@ public sealed class EventCorrectionSweep
     /// ResolveOrphansAsync per game that has a dangling correction, each game in its own transaction,
     /// per-game try/catch. Never inserts game_events rows. <paramref name="beforeFirstWrite"/> (the
     /// session backup) runs once, right before the first change this sweep actually makes: a correction
-    /// that still has no twin writes nothing, so it no longer costs a backup on every launch.</summary>
+    /// that still has no twin writes nothing, so it no longer costs a backup on every launch. It never
+    /// runs while this sweep holds a write transaction.</summary>
     public async Task<EventCorrectionSweepResult> RunAsync(int maxRows = 20_000, CancellationToken ct = default,
         Func<Task>? beforeFirstWrite = null)
     {
@@ -77,19 +78,32 @@ public sealed class EventCorrectionSweep
             ct.ThrowIfCancellationRequested();
             try
             {
-                using var conn = _factory.CreateConnection();
-                using var tx = conn.BeginTransaction();
-                var changesBefore = beforeFirstWrite is null ? 0 : await TotalChangesAsync(conn, tx);
-                resolved += await EventCorrectionApplier.ResolveOrphansAsync(conn, tx, gameId);
-                if (beforeFirstWrite is not null && await TotalChangesAsync(conn, tx) != changesBefore)
+                using (var conn = _factory.CreateConnection())
+                using (var tx = conn.BeginTransaction())
                 {
-                    // The backup reads through its own connection, so it captures the committed
-                    // state from just before this still-open transaction.
-                    await beforeFirstWrite();
-                    beforeFirstWrite = null;
+                    var changesBefore = beforeFirstWrite is null ? 0 : await TotalChangesAsync(conn, tx);
+                    var count = await EventCorrectionApplier.ResolveOrphansAsync(conn, tx, gameId);
+                    if (beforeFirstWrite is null || await TotalChangesAsync(conn, tx) == changesBefore)
+                    {
+                        await tx.CommitAsync(ct);
+                        resolved += count;
+                        touched++;
+                        continue;
+                    }
+                    // This game is the sweep's first real change. Roll it back before the
+                    // backup, so the backup never keeps every other writer waiting on this
+                    // transaction's write lock, then redo the game below.
+                    await tx.RollbackAsync(ct);
                 }
-                await tx.CommitAsync(ct);
-                touched++;
+                await beforeFirstWrite();
+                beforeFirstWrite = null;
+                using (var conn = _factory.CreateConnection())
+                using (var tx = conn.BeginTransaction())
+                {
+                    resolved += await EventCorrectionApplier.ResolveOrphansAsync(conn, tx, gameId);
+                    await tx.CommitAsync(ct);
+                    touched++;
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
