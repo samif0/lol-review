@@ -44,6 +44,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("POST", "/API/EVENT/CORRECT/")]
     [InlineData("POST", "/api/correction/revert")]
     [InlineData("GET", "/api/missed-games")]
+    [InlineData("GET", "/api/host/health")] // the database-failure reason for isolated and smoke launches
     public void AuditedReviewAndDatabaseOperationsRemainAvailable(string method, string route) => Assert.True(IsolatedHostPolicy.Allows(method, route));
 
     [Theory]
