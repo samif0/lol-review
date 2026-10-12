@@ -125,6 +125,23 @@ test('a saved game asks Home to refresh what it joins; a dismissal or failure do
   assert.deepEqual(refreshed, [7001]);
 });
 
+test('a game Revu saves itself asks Home to refresh too, once its row has landed', () => {
+  const f = fixture();
+  const refreshed = [], commands = [];
+  const card = createMissedGamesCard({
+    section: f.section, list: f.list, heading: f.heading, status: f.status, doc: f.doc,
+    invoke: async command => { commands.push(command); return { games: [] }; },
+    onSaved: gameId => refreshed.push(gameId),
+  });
+  card.handleEvent({ type: 'gameEnded', payload: { gameId: 9, saved: false, pending: true } });
+  card.handleEvent({ type: 'gameEnded', payload: { gameId: 9, saved: true } });
+  card.handleEvent({ type: 'gameRecovered', payload: { gameId: 7001, saved: true } });
+  card.handleEvent({ type: 'gameRecovered', payload: { saved: false, error: 'disk full' } });
+  card.handleEvent({ type: 'champSelectStarted', payload: { saved: true } });
+  assert.deepEqual(refreshed, [9, 7001]);
+  assert.deepEqual(commands, [], 'the waiting list follows missedReviews alone');
+});
+
 test('a failed save keeps the game and says so in sentence case', async () => {
   const f = fixture();
   const section = f.section;

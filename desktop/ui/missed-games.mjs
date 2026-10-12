@@ -165,13 +165,22 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
       setStatus(action === 'save' ? 'Couldn’t save this game. Try again.' : 'Couldn’t dismiss this game. Try again.');
     }
     if (hadFocus) restoreFocus(index);
-    if (!failed && result?.saved === true && typeof onSaved === 'function') {
-      try { onSaved(gameId); } catch (err) { console.warn('[missed games] refresh after save failed:', err); }
-    }
+    if (!failed && result?.saved === true) notifySaved(gameId);
+  }
+
+  function notifySaved(gameId) {
+    if (typeof onSaved !== 'function') return;
+    try { onSaved(gameId); } catch (err) { console.warn('[missed games] refresh after save failed:', err); }
   }
 
   // The sidecar announces every change to the list as 'missedReviews' with the whole list.
+  // A game Revu saves itself (the game just played, or one a Save here left to that save
+  // while it was still landing) is announced as a saved 'gameEnded' or 'gameRecovered'.
   function handleEvent(message) {
+    if ((message?.type === 'gameEnded' || message?.type === 'gameRecovered') && message.payload?.saved === true) {
+      notifySaved(message.payload.gameId);
+      return;
+    }
     if (message?.type !== 'missedReviews') return;
     const payload = message.payload || {};
     if (Array.isArray(payload.games)) setGames(payload.games);
