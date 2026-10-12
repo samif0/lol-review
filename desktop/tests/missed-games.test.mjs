@@ -5,7 +5,7 @@ import { createMissedGamesCard, describeMissedGame, mountMissedGames, shortDate 
 // Finished games Revu did not save reach the player on Home: the card follows the
 // sidecar's 'missedReviews' event and saves or dismisses one through the renderer command.
 
-function element(tagName = 'DIV') {
+function element(tagName = 'DIV', owner = {}) {
   const listeners = new Map(), attributes = new Map();
   return {
     tagName, children: [], dataset: {}, hidden: false, disabled: false, className: '', textContent: '', type: '',
@@ -17,6 +17,8 @@ function element(tagName = 'DIV') {
     getAttribute: name => attributes.get(name) ?? null,
     addEventListener(type, listener) { listeners.set(type, listener); },
     click() { return listeners.get('click')?.({ type: 'click' }); },
+    focus() { owner.activeElement = this; },
+    contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false; },
   };
 }
 
@@ -30,8 +32,8 @@ function find(node, predicate) {
 }
 
 function fixture(listResponses = []) {
-  const doc = { createElement: tag => element(tag.toUpperCase()) };
-  const section = element('SECTION'), list = element(), heading = element('H2'), status = element('P');
+  const doc = { activeElement: null, createElement: tag => element(tag.toUpperCase(), doc) };
+  const section = element('SECTION', doc), list = element('DIV', doc), heading = element('H2', doc), status = element('P', doc);
   section.hidden = true;
   status.hidden = true;
   const calls = [];
@@ -42,7 +44,7 @@ function fixture(listResponses = []) {
     return { ok: true };
   };
   const card = createMissedGamesCard({ section, list, heading, status, invoke, doc });
-  return { card, section, list, heading, status, calls };
+  return { card, section, list, heading, status, calls, doc };
 }
 
 const juneFourteenth = Date.UTC(2026, 5, 14, 12) / 1000;
@@ -129,4 +131,39 @@ test('describeMissedGame and shortDate never print ISO dates', () => {
 test('browser previews and pages without the card mount nothing', async () => {
   assert.equal(await mountMissedGames({ getElementById: () => null }), null);
   assert.equal(await mountMissedGames({ getElementById: () => element('SECTION') }), null);
+});
+
+test('after Save or Dismiss, keyboard focus stays on the card, on the game now in that place', async () => {
+  const second = { ...ahri, gameId: 7002 }, third = { ...ahri, gameId: 7003, championName: 'Lux' };
+  const f = fixture([[second, third], [second]]);
+  f.card.handleEvent({ type: 'missedReviews', payload: { games: [ahri, second, third] } });
+  assert.equal(f.heading.getAttribute('tabindex'), '-1');
+
+  const save = find(f.list.children[0], n => n.className === 'cta');
+  save.focus();
+  await save.click();
+  assert.equal(f.doc.activeElement.parent.parent.dataset.gameId, '7002', 'the next game takes the place of the saved one');
+
+  const dismissLast = find(f.list.children[1], n => n.className === 'home-review-skip');
+  dismissLast.focus();
+  await dismissLast.click();
+  assert.equal(f.doc.activeElement.parent.parent.dataset.gameId, '7002', 'the last game left takes focus');
+});
+
+test('a game that no longer waits is treated as resolved, not as a failure', async () => {
+  const f = fixture();
+  const card = createMissedGamesCard({
+    section: f.section, list: f.list, heading: f.heading, status: f.status, doc: f.doc,
+    invoke: async (command) => {
+      if (command === 'resolve_missed_game') throw new Error('That game is no longer waiting to be saved.');
+      return { games: [] };
+    },
+  });
+  card.handleEvent({ type: 'missedReviews', payload: { games: [ahri] } });
+  const originalError = console.error;
+  console.error = () => {};
+  try { await card.resolve(7001, 'save'); } finally { console.error = originalError; }
+  assert.equal(f.status.hidden, true);
+  assert.equal(f.status.textContent, '');
+  assert.equal(f.section.hidden, true);
 });

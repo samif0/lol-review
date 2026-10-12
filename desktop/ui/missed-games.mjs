@@ -36,6 +36,8 @@ const validGames = (games) => (Array.isArray(games) ? games : [])
 export function createMissedGamesCard({ section, list, heading, status, invoke, doc = globalThis.document }) {
   let games = [];
   const pending = new Set();
+  // Focus lands here when the last row the player acted on goes away.
+  heading?.setAttribute?.('tabindex', '-1');
 
   function setStatus(text) {
     if (!status) return;
@@ -119,20 +121,48 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
     }
   }
 
+  function firstButton(node) {
+    if (node?.tagName === 'BUTTON') return node;
+    for (const child of node?.children || []) {
+      const hit = firstButton(child);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // The row the player acted on is rebuilt or gone: keep keyboard focus in the card, on the
+  // row now in its place (or the last one), else on the heading.
+  function restoreFocus(index) {
+    if (section.hidden) return;
+    const rows = list.children;
+    const target = rows.length ? firstButton(rows[Math.min(index, rows.length - 1)]) : null;
+    if (target && !target.disabled) target.focus?.();
+    else heading?.focus?.();
+  }
+
   async function resolve(gameId, action) {
     if (pending.has(gameId)) return;
+    const active = doc?.activeElement;
+    const hadFocus = !!active && typeof list.contains === 'function' && list.contains(active);
+    const index = Math.max(0, games.findIndex((game) => game.gameId === gameId));
     pending.add(gameId);
     setStatus('');
     render();
+    let failed = false;
     try {
       await invoke('resolve_missed_game', { payload: { gameId, action } });
     } catch (err) {
+      failed = true;
       console.error(`[missed games] ${action} failed:`, err);
-      setStatus(action === 'save' ? 'Couldn’t save this game. Try again.' : 'Couldn’t dismiss this game. Try again.');
     } finally {
       pending.delete(gameId);
     }
     await refresh();
+    // A game that no longer waits was already saved or dismissed: nothing to try again.
+    if (failed && games.some((game) => game.gameId === gameId)) {
+      setStatus(action === 'save' ? 'Couldn’t save this game. Try again.' : 'Couldn’t dismiss this game. Try again.');
+    }
+    if (hadFocus) restoreFocus(index);
   }
 
   // The sidecar announces every change to the list as 'missedReviews' with the whole list.
