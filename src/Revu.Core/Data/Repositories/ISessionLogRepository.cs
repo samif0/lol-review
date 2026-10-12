@@ -229,8 +229,8 @@ public interface ISessionLogRepository
 
     /// <summary>
     /// Bulk-fetch all (game_id → mental_rating) pairs from session_log in a single
-    /// query. Used by AnalysisService to avoid one-per-game N+1 round-trips when
-    /// building a filtered profile. Only rows where is_skipped = 0 are included.
+    /// query. Used by ReviewExportService to avoid one-per-game N+1 round-trips
+    /// when exporting many games. Only rows where is_skipped = 0 are included.
     /// </summary>
     Task<IReadOnlyDictionary<long, int>> GetAllMentalRatingsAsync();
 }

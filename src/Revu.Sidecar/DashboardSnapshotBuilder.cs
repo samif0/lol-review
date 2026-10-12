@@ -487,12 +487,7 @@ public sealed class DashboardSnapshotBuilder
     }
 
     /// <summary>
-    /// Static Start Block next-step copy. The full WinUI stage machine
-    /// (NoGames/HasUnreviewed/NeedsObjective/Normal) drives richer copy in the
-    /// app; for v1 the sidecar ships the canonical Start Block card the Tauri
-    /// frontend already renders (the per-stage variants need IAnalysisService
-    /// and overall-stats wiring that's out of scope for the read-only snapshot).
-    /// TODO: port ComputeStageAsync once the stage queries are exposed in Core.
+    /// Static Start Block next-step copy: the one card the dashboard renders.
     /// </summary>
     private static NextStepDto BuildNextStep() => new(
         Kicker: "Next step · Start Block",

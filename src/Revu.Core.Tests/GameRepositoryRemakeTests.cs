@@ -31,6 +31,26 @@ public sealed class GameRepositoryRemakeTests
     }
 
     [Fact]
+    public async Task SpottedProblems_ThatSeedObjectiveSuggestions_SkipRemakes()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var now = DateTimeOffset.Now;
+        using (var conn = scope.OpenConnection())
+        {
+            await InsertGameAsync(conn, 5051, win: false, now.AddMinutes(-60));
+            await InsertGameAsync(conn, 5052, win: false, now.AddMinutes(-30), duration: 386);
+        }
+        foreach (var id in new long[] { 5051, 5052 })
+            await scope.Games.UpdateReviewAsync(id, new Revu.Core.Models.GameReview { SpottedProblems = "Late to river" });
+        await MarkAsync(scope, 5052);
+
+        var problems = await scope.Games.GetRecentSpottedProblemsAsync();
+
+        Assert.Equal(new long[] { 5051 }, problems.Select(p => p.GameId));
+    }
+
+    [Fact]
     public async Task Precedence_UserIsSticky_MatchV5CorrectsCapture()
     {
         using var scope = new TestDatabaseScope();
