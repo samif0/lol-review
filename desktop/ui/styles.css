@@ -1,63 +1,8 @@
-@font-face {
-  font-family: 'Exo 2';
-  src: url('./fonts/Exo2.woff2') format('woff2');
-  font-weight: 300 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Orbitron';
-  src: url('./fonts/Orbitron.woff2') format('woff2');
-  font-weight: 500 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Share Tech Mono';
-  src: url('./fonts/ShareTechMono-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-display: swap;
-}
-/* Typography-variant fonts (for the A/B/C type explorations). */
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('./fonts/SpaceGrotesk.ttf') format('truetype');
-  font-weight: 300 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Inter';
-  src: url('./fonts/Inter.ttf') format('truetype');
-  font-weight: 300 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Rajdhani';
-  src: url('./fonts/Rajdhani-Bold.woff2') format('woff2');
-  font-weight: 500 700;
-  font-display: swap;
-}
-
 *{margin:0;padding:0;box-sizing:border-box}
 /* The [hidden] attribute must always win. Class rules with display:flex/block
    (.seclabel, .glass, .pill, .hint, etc.) otherwise override the UA
    [hidden]{display:none}, leaving "hidden" sections + labels visibly empty. */
 [hidden]{display:none !important}
-:root{
-  /* readability pass: muted tiers lifted; mono labels brighter */
-  --t1:#ffffff;--t2:#ece8f7;--t3:#c9c2dc;--t4:#a79ec2;
-  --accent:var(--primary);--gold:var(--primary);--win:var(--primary);--loss:var(--muted);
-  --glass:rgba(255,255,255,0.07);--glass2:rgba(255,255,255,0.05);
-  --gline:rgba(255,255,255,0.18);--gline2:rgba(255,255,255,0.11);
-  /* CLEAN type system (chosen 2026-06-14): Space Grotesk for display +
-     headings + numbers, Inter for body, Space Grotesk small-caps for the
-     little all-caps labels (no monospace — reads as a polished modern tool,
-     not an esports HUD). */
-  --fo:'Space Grotesk',sans-serif;--fb:'Inter',sans-serif;--fm:'Space Grotesk',sans-serif;
-  --tsh:0 1px 8px rgba(var(--bg-rgb),0.55);
-  /* Label legibility: brighter tier + reduced tracking so the small all-caps
-     labels read clearly instead of dim/cramped. */
-  --label-spacing:2px;
-  --label-bright:var(--t3);
-}
 /* scrollbar-gutter:stable always reserves the scrollbar's width so the centered
    content doesn't shift when a vertical scrollbar appears/disappears (the "UI
    jumps on scroll / page switch" issue). */
@@ -101,7 +46,7 @@ body{font-family:var(--fb);color:var(--t2);min-height:100vh;padding-bottom:64px;
    there is no missing-nav frame to cover — so it's been removed. */
 
 /* ── APP SHELL: left nav rail (static <nav> before .shell on every page) ──────
-   Matches the dashboard's clean style: glass rail, Space Grotesk labels,
+   Matches the dashboard's clean style: glass rail, system-font labels,
    accent-energized active state. The page content sits in .shell to its right. */
 .nav{position:fixed;left:0;top:34px;bottom:0;width:72px;z-index:30;
   display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0;
@@ -1896,7 +1841,7 @@ select.obj-input option{background:var(--surface);color:var(--t1)}
    2-col layout — video + transport + event timeline + (coming-soon) tag/clip
    tools on the left, a Moments-to-review inbox on the right. Reuses the shared
    kit (.glass / .primary / .card / .cta / .seclabel) and only adds the player
-   surfaces. House palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
+   surfaces. House palette + system font, .16s hovers, motion-guarded. */
 .vp-wrap{margin-top:22px}
 .vp-novod{margin-top:18px}
 /* The way OUT of the no-recording state — back to this game's review. */
@@ -2584,7 +2529,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
    GET /api/config + POST /api/config/save. Reuses the shared kit (.card /
    .seclabel / .eyebrow / .hero / .cta / .obj-field / .obj-input / .statusline)
    and only adds the toggle switch + setting-row + save-row chrome below. House
-   palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
+   palette + system font, .16s hovers, motion-guarded. */
 .set-subt{font-family:var(--fm);font-size:11px;letter-spacing:2px;color:var(--t4);margin-top:8px}
 .set-card{display:flex;flex-direction:column;gap:14px;padding:20px 22px}
 .set-card .seclabel{margin-bottom:2px}
@@ -2876,7 +2821,7 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
    MANUAL ENTRY PAGE (manualentry.html / manualentry.js) — hand-log a game +
    minimal review, backed by GET /api/objectives/active + POST /api/game/manual.
    Reuses the shared kit (.card / .bracket / .seclabel / .eyebrow / .hero / .cta /
-   .errpanel). House palette + Space Grotesk/Inter, .16s hovers, motion-guarded. */
+   .errpanel). House palette + system font, .16s hovers, motion-guarded. */
 /* Blue-accent bracket variant (objectives card) — complements .bracket-gold. */
 .bracket-blue{border-color:rgba(var(--primary-rgb),0.4)}
 .bracket-blue::after{border-top-color:rgba(var(--primary-rgb),0.7);border-left-color:rgba(var(--primary-rgb),0.7);opacity:1}
@@ -3370,7 +3315,9 @@ select.inp optgroup{background:var(--surface);color:var(--muted);font-weight:500
 }
 
 /* Shared application system. Older page selectors above retain their layout and
-   behavior; this layer owns palette, typography, controls and shell geometry. */
+   behavior; this layer owns palette, typography, controls and shell geometry.
+   Type system: every role renders in the Windows UI face (--font-ui, Segoe UI).
+   No webfonts ship; --fo/--fb/--fm remain only as aliases for older selectors. */
 :root{
   color-scheme:dark;
   --bg:#212121;--surface:#2b2b2b;--surface-raised:#303030;--border:#383838;

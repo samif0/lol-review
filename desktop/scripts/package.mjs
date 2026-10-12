@@ -18,7 +18,7 @@ export function isAppFile(relative) {
   if (relative === 'package.json' || relative === 'runtime/overwolf.mjs'
       || relative === 'electron/branding/revu.ico') return true;
   if (/^electron\/[^/]+\.(mjs|cjs)$/.test(relative)) return true;
-  if (!/^ui\/(?:[^/]+|(?:fonts|platform)\/[^/]+)$/.test(relative)) return false;
+  if (!/^ui\/(?:[^/]+|platform\/[^/]+)$/.test(relative)) return false;
   return uiExtensions.has(path.posix.extname(relative)) || /^ui\/sample-[^/]+\.json$/.test(relative);
 }
 
@@ -31,7 +31,7 @@ async function copyRegular(source, destination) {
 
 export async function stageApp(root, destination) {
   const files = ['package.json', 'runtime/overwolf.mjs', 'electron/branding/revu.ico'];
-  for (const directory of ['electron', 'ui', 'ui/fonts', 'ui/platform']) {
+  for (const directory of ['electron', 'ui', 'ui/platform']) {
     const source = path.join(root, directory);
     if (!(await lstat(source)).isDirectory()) throw new Error(`Packaging requires a real directory: ${source}`);
     for (const entry of await readdir(source, { withFileTypes: true })) {
@@ -75,7 +75,7 @@ export async function verifyPackage(directory) {
     const metadata = asar.statFile(archive, path.normalize(item), false);
     if (metadata.link || metadata.unpacked) throw new Error(`Aliased or unpacked app entry: ${item}`);
     if (metadata.files) {
-      if (!['electron', 'electron/branding', 'runtime', 'ui', 'ui/fonts', 'ui/platform'].includes(item))
+      if (!['electron', 'electron/branding', 'runtime', 'ui', 'ui/platform'].includes(item))
         throw new Error(`Unexpected packaged app directory: ${item}`);
     } else {
       if (!isAppFile(item)) throw new Error(`Unexpected packaged app file: ${item}`);
