@@ -14,9 +14,12 @@
 //   • textContent-only writes (no innerHTML for server/data strings). The bar
 //     markup emitted by renderTransportBar is a fixed, trusted template.
 //   • Platform media resolution is shared with the full VOD player.
+//   • The owned <video> plays on the output device chosen in Settings
+//     (audio-devices.mjs) and follows later changes to that choice.
 
 export { getMedia, resolveAssetUrl } from './platform/index.mjs';
 import { gameToMedia, mediaToGame, timeOrigin } from './video-timeline.mjs';
+import { bindOutputSink } from './audio-devices.mjs';
 
 // ── seek-step model (shared) ──────────────────────────────────────────────────
 // The skip amount for the ◀▶ transport buttons + Left/Right arrows. Up/Down arrows
@@ -482,6 +485,8 @@ export function createTransport({
       video.addEventListener('ratechange', syncRateSelection);
       onVolume();
       syncRateSelection();
+      // Game and clip audio follow the Settings output choice for the page's life.
+      bindOutputSink(video);
       if (clickToToggle) {
         video.addEventListener('click', (ev) => {
           if (stopProp) ev.stopPropagation();

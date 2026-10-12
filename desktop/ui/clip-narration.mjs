@@ -1,10 +1,15 @@
 import { clampOffset, computeOffsetMs, createStudioStateMachine, formatClock, formatSync, isActiveWork, isEndOfClipPause,
   MAX_TAKE_MS, micErrorMessage, MIC_COPY, MIN_TAKE_MS, pickMimeType, rmsLevel } from './narration-capture.mjs';
+import { bindOutputSink, DEFAULT_DEVICE_ID, onAudioPrefsChange, resolveAudioDevice, saveAudioPref } from './audio-devices.mjs';
+import { fillMicSelect, openNarrationMic } from './narration-mic.mjs';
 
 // Narration studio: a modal <dialog> on the VOD page. The user talks over the saved
 // clip file at 1x; stopping a take saves it at once (the host renders the narrated
 // MP4), then the studio plays that real render. Pure timing/state logic lives in
 // narration-capture.mjs; this module owns the dialog, microphone and recorder.
+// The microphone choice is shared with Settings (audio-devices.mjs): the studio
+// opens the saved device, saves a device picked here, and follows a change made in
+// Settings while it waits to record. Its clip preview plays on the chosen output.
 
 export const STUDIO_COPY = Object.freeze({
   shared: 'This clip is shared. Saving a narration removes the current link. Share again afterwards to get a new one.',
@@ -18,7 +23,6 @@ export const STUDIO_COPY = Object.freeze({
   tooShort: 'Recording was too short. Record at least one second.',
   shareCleared: 'Narration changed. Share again to update the link.',
 });
-const MIC_KEY = 'revu.narration.mic';
 
 // Either saved-clip row kind (VodEvidenceDto or VodBookmarkDto) -> studio context.
 export function clipRowNarrationContext(row) {
@@ -35,13 +39,10 @@ export function clipRowNarrationContext(row) {
   };
 }
 
-function readSavedMic() {
-  try { const value = JSON.parse(localStorage.getItem(MIC_KEY) || 'null'); return typeof value?.deviceId === 'string' ? value : null; }
-  catch (_) { return null; }
-}
-function saveMic(deviceId, label) {
-  try { localStorage.setItem(MIC_KEY, JSON.stringify({ deviceId, label: label || '' })); } catch (_) { /* best effort */ }
-}
+// '' and Chromium's virtual "default" both mean the system default microphone.
+const micKey = deviceId => (!deviceId || deviceId === DEFAULT_DEVICE_ID ? '' : deviceId);
+// The saved microphone if it is connected (matched by id, then name), else ''.
+const preferredMic = async () => (await resolveAudioDevice('input')).deviceId;
 // Electron prefixes rejected IPC errors; show only the sidecar's sentence.
 function saveErrorText(err) {
   const raw = String(err?.message || err || '').replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:\w*Error:\s*)+/, '').trim();
@@ -60,6 +61,9 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
   const q = name => dialog.querySelector(`[data-nr="${name}"]`);
   const video = q('video');
   let closed = false, stream = null, audio = null, analyser = null, source = null, levelFrame = 0, accessStatus = 'unknown';
+  // micRequest: the device the setup microphone was asked for ('' = system default).
+  let micToken = 0, micRequest = null, micPending = false;
+  let micLabels = new Map();
   let takeId = 0, take = null, dispatched = Promise.resolve();
   const mix = { gameVolume: 0.8, narrationVolume: 1, duck: true, offsetMs: 0 };
   const finite = (value, fallback) => (Number.isFinite(Number(value)) && value !== null && value !== '' ? Number(value) : fallback);
@@ -173,49 +177,53 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
     try { source?.disconnect(); } catch (_) { /* detached */ }
     source = null;
   }
-  async function acquire(deviceId) {
-    const constraints = deviceId => ({ audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: true,
-      noiseSuppression: true, autoGainControl: true, channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } }, video: false });
-    try { return await navigator.mediaDevices.getUserMedia(constraints(deviceId)); }
-    catch (err) {
-      if (deviceId && micErrorMessage(err, accessStatus) === null) return navigator.mediaDevices.getUserMedia(constraints(undefined));
-      throw err;
+  // Without a deviceId the saved microphone opens. A newer call supersedes an
+  // older one still waiting for the device.
+  async function startMic(deviceId) {
+    const token = ++micToken;
+    micPending = true;
+    if (deviceId !== undefined) micRequest = micKey(deviceId);
+    try {
+      try { accessStatus = (await invoke('get_microphone_access'))?.status || 'unknown'; } catch (_) { accessStatus = 'unknown'; }
+      if (closed || token !== micToken) return;
+      if (accessStatus === 'denied') { stopStream(); render(); return; }
+      const wanted = deviceId ?? await preferredMic();
+      if (closed || token !== micToken) return;
+      micRequest = micKey(wanted);
+      let next;
+      // A refused device falls back to the default only while this request is current.
+      try { next = await openNarrationMic(wanted, { accessStatus, cancelled: () => closed || token !== micToken }); }
+      catch (err) {
+        if (token !== micToken) return;
+        stopStream(); render(); status(micErrorMessage(err, accessStatus) || MIC_COPY.busy); return;
+      }
+      if (closed || sm.state !== 'setup' || token !== micToken) { for (const track of next.getTracks()) track.stop(); return; }
+      stopStream();
+      stream = next;
+      const track = stream.getAudioTracks()[0];
+      const activeId = track?.getSettings?.().deviceId || wanted || 'default';
+      await fillDevices(activeId);
+      if (closed) return; // close() already released the stream while the devices were listed
+      if (Object.values(MIC_COPY).includes(q('status')?.textContent)) status('');
+      startMeter();
+      render();
+    } finally { if (token === micToken) micPending = false; }
+  }
+  // A choice made in Settings (or another window), or a microphone plugged in or
+  // removed, reopens the setup microphone when it changes which device to use.
+  async function followMicChoice(change) {
+    if (closed || change.which === 'output' || sm.state !== 'setup') return;
+    const wanted = micKey(await preferredMic());
+    if (closed || sm.state !== 'setup') return;
+    const live = stream?.getAudioTracks?.()[0];
+    const healthy = !!stream && live?.readyState !== 'ended';
+    if (wanted === micRequest && (micPending || healthy)) {
+      if (change.reason === 'devicechange' && healthy) await fillDevices(live?.getSettings?.().deviceId || wanted || 'default');
+      return;
     }
+    void startMic(wanted);
   }
-  async function startMic(deviceId = readSavedMic()?.deviceId) {
-    try { accessStatus = (await invoke('get_microphone_access'))?.status || 'unknown'; } catch (_) { accessStatus = 'unknown'; }
-    if (closed) return;
-    if (accessStatus === 'denied') { stopStream(); render(); return; }
-    let next;
-    try { next = await acquire(deviceId); }
-    catch (err) { stopStream(); render(); status(micErrorMessage(err, accessStatus) || MIC_COPY.busy); return; }
-    if (closed || sm.state !== 'setup') { for (const track of next.getTracks()) track.stop(); return; }
-    stopStream();
-    stream = next;
-    const track = stream.getAudioTracks()[0];
-    const activeId = track?.getSettings?.().deviceId || deviceId || 'default';
-    await fillDevices(activeId);
-    if (closed) return; // close() already released the stream while the devices were listed
-    saveMic(activeId, track?.label);
-    if (Object.values(MIC_COPY).includes(q('status')?.textContent)) status('');
-    startMeter();
-    render();
-  }
-  async function fillDevices(activeId) {
-    const select = q('mic');
-    if (!select) return;
-    let inputs = [];
-    try { inputs = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput'); } catch (_) { /* keep empty */ }
-    const rank = device => device.deviceId === 'default' ? 0 : device.deviceId === 'communications' ? 2 : 1;
-    inputs.sort((a, b) => rank(a) - rank(b));
-    select.replaceChildren(...inputs.map((device, index) => {
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.textContent = device.label || `Microphone ${index + 1}`;
-      return option;
-    }));
-    select.value = inputs.some(device => device.deviceId === activeId) ? activeId : (inputs[0]?.deviceId || '');
-  }
+  async function fillDevices(activeId) { micLabels = await fillMicSelect(q('mic'), activeId); }
   function startMeter() {
     if (closed || !stream) return;
     try {
@@ -427,7 +435,10 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
     closed = true;
     life.abort();
     cancelAnimationFrame(levelFrame);
+    micToken++;
     stopStream();
+    stopFollowing();
+    releaseOutput();
     try { audio?.close(); } catch (_) { /* already closed */ }
     audio = null; analyser = null;
     if (video) { video.pause(); video.removeAttribute('src'); video.load?.(); }
@@ -460,13 +471,21 @@ export function openNarrationStudio({ dialog, ctx: initialCtx, gameId, media, in
   on(q('apply'), 'click', () => void applyMix());
   on(q('remove'), 'click', () => void removeNarration());
   on(q('open-settings'), 'click', () => void invoke('open_microphone_settings').catch(() => {}));
-  on(q('mic'), 'change', event => { if (sm.state === 'setup') void startMic(event.target.value); });
+  on(q('mic'), 'change', event => {
+    if (sm.state !== 'setup') return;
+    const deviceId = event.target.value;
+    micRequest = micKey(deviceId);
+    saveAudioPref('input', { deviceId, label: micLabels.get(deviceId) || '' });
+    void startMic(deviceId);
+  });
   on(q('game'), 'input', event => { mix.gameVolume = Math.min(1.5, Math.max(0, Number(event.target.value) || 0)); syncMixInputs(); });
   on(q('voice'), 'input', event => { mix.narrationVolume = Math.min(2, Math.max(0, Number(event.target.value) || 0)); syncMixInputs(); });
   on(q('duck'), 'change', event => { mix.duck = !!event.target.checked; syncMixInputs(); });
   on(q('nudge-minus'), 'click', () => { mix.offsetMs = clampOffset(mix.offsetMs - 50); syncMixInputs(); });
   on(q('nudge-plus'), 'click', () => { mix.offsetMs = clampOffset(mix.offsetMs + 50); syncMixInputs(); });
 
+  const stopFollowing = onAudioPrefsChange(change => void followMicChoice(change));
+  const releaseOutput = bindOutputSink(video);
   pauseMainVod?.();
   Object.assign(mix, stored());
   status('');

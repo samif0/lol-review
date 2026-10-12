@@ -9,10 +9,13 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 - `native.mjs`: dialogs, exports, window sizing, external URLs, installed updates, and the Windows
   microphone privacy status and settings page.
 - `sidecar.mjs`: launch-specific authenticated backend ownership, HTTP and SSE.
-- `protocols.mjs`: application assets, the renderer's network policy and its permissions. The only
-  permission granted is audio-only microphone capture for clip narration, requested from the app
-  origin (`revu-app://ui`, including its same-origin page iframe). Camera, screen capture, speaker
-  selection and every other permission stay denied, and the UI CSP is unchanged.
+- `protocols.mjs`: application assets, the renderer's network policy and its permissions. Two
+  permissions are granted, both only to the app origin (`revu-app://ui`, including its same-origin
+  page iframe): audio-only microphone capture for clip narration, and speaker selection. Chromium
+  lets a page list output devices and switch playback with `setSinkId` when either check passes, so
+  playback and the Settings test sound can use the output device chosen in Settings without
+  depending on the microphone grant. Camera, screen capture and every other permission stay denied,
+  and the UI CSP is unchanged.
 - `narration.mjs`: validates a narration take, writes it atomically under
   `<dataRoot>/Revu/Narration` and asks the sidecar to render the narrated clip.
 - `media.mjs`: revocable media grants and byte-range playback.

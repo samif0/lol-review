@@ -55,6 +55,13 @@ body.settings-page .obj-input:focus{border-color:var(--muted)!important;outline:
 .settings-page .settings-path-field input{min-width:0;flex:1}
 .settings-page .settings-path-field button{flex-shrink:0}
 .settings-page .settings-short-field{max-width:240px}
+/* Audio devices: a select with its test button, and a live microphone level. */
+.settings-page .settings-audio-field{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.settings-page .settings-audio-field select{min-width:0;flex:1 1 220px}
+.settings-page .settings-audio-field button{flex-shrink:0}
+.settings-page .settings-audio-meter{height:6px;max-width:420px;border-radius:999px;background:var(--surface-raised);overflow:hidden}
+.settings-page .settings-audio-meter>span{display:block;width:0;height:100%;border-radius:inherit;background:var(--primary)}
+.settings-page .settings-audio-missing{color:var(--text)}
 body.settings-page .set-toggle{position:relative;width:38px;height:22px;min-height:0;border:1px solid var(--muted)!important;border-radius:12px!important;background:var(--surface-raised)!important;flex-shrink:0;box-shadow:none;padding:0;cursor:pointer}
 .settings-page .set-toggle>i{position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transform:none;box-shadow:none;transition:transform .12s ease}
 body.settings-page .set-toggle.on,body.settings-page .set-toggle.on:hover:not(:disabled){background:var(--primary)!important;border-color:var(--primary)!important}

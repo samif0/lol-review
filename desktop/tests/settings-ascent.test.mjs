@@ -113,6 +113,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
+    change: async (id, value) => { ids.get(id).value = value; await emit('change', ids.get(id)); },
     render: () => context.hooks.render(plain(config)),
     payload: element => plain(context.hooks.collectPayload(element)),
     failRead: (message = 'Read interrupted') => { failRead = message; },
@@ -140,6 +141,19 @@ test('leaving Settings sees unsaved cards in hidden categories and saves each on
   assert.equal(failing.$('clipsFolder').value, 'F:\\Clips');
   assert.equal(failing.$('clips-save-status').textContent, 'Disk is full.');
   assert.deepEqual(failing.categoryClicks, ['playback'], 'Settings opens the category of the card that could not save');
+});
+
+test('an audio device choice never marks Settings dirty or reaches the leave guard', async () => {
+  const f = await fixture();
+  // Like settings.html, the audio selects sit outside every data-config-group and data-native-group card.
+  for (const id of ['audioInput', 'audioOutput']) f.ids.set(id, node(id, 'SELECT'));
+  await f.edit('audioInput', 'mic-desk'); await f.change('audioInput', 'mic-desk');
+  await f.change('audioOutput', 'phones');
+  assert.equal(f.dirty(), false);
+  assert.ok(Object.values(f.groups).every(group => group.dataset.dirty !== 'true'));
+  assert.equal(await f.saveBeforeLeaving(), true, 'leaving Settings needs no prompt');
+  assert.deepEqual(f.requests.filter(request => request.command === 'save_config'), []);
+  assert.deepEqual(f.categoryClicks, []);
 });
 
 test('automatic matchup notes default off, save only review preferences and keep unrelated drafts', async () => {
