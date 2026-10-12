@@ -10,7 +10,8 @@ namespace Revu.Core.Services;
 /// Database backup service. Two modes:
 /// 1. Safety backups: always-on, stored next to the live DB in the user data root,
 ///    no config needed, tiered retention (the last 3, the newest per day for 7 days,
-///    the newest per week for 4 weeks). Game-delete backups have their own budget.
+///    the newest per week for 4 weeks). Game-delete and objective-delete backups each
+///    have their own budget.
 /// 2. User backups: when the Settings toggle is on, stored in the chosen local folder
 ///    (or beside the safety backups when none is chosen), at most one a day, same
 ///    tiered retention with a longer recent tier.
@@ -31,6 +32,15 @@ public sealed partial class BackupService : IBackupService
     /// </summary>
     private const string DeletePrefix = "delete_backup_";
     private const int MaxDeleteBackups = 5;
+
+    /// <summary>
+    /// Backups taken before a learning objective is deleted. A small pool of their own:
+    /// objective deletes are rare and each snapshot is the only way back to that
+    /// objective's prompts and written answers, so a burst of game deletes or routine
+    /// session backups never evicts one, and one never evicts theirs.
+    /// </summary>
+    private const string ObjectiveDeletePrefix = "delete_objective_backup_";
+    private const int MaxObjectiveDeleteBackups = 3;
 
     private static readonly BackupRetention SafetyRetention = new(KeepRecent: 3, KeepDaily: 7, KeepWeekly: 4);
     private static readonly BackupRetention UserRetention = new(KeepRecent: 5, KeepDaily: 7, KeepWeekly: 4);
@@ -71,9 +81,11 @@ public sealed partial class BackupService : IBackupService
         var dataDir = Path.GetDirectoryName(dbPath)!;
         var backupDir = Path.Combine(dataDir, "backups");
 
-        // Callers name their reason; GameRepository passes "delete-game-<id>".
+        // Callers name their reason; GameRepository passes "delete-game-<id>" and the
+        // objective delete "delete-objective-<id>".
         var isDelete = (reason ?? "").StartsWith("delete-", StringComparison.OrdinalIgnoreCase);
-        var prefix = isDelete ? DeletePrefix : SafetyPrefix;
+        var isObjectiveDelete = (reason ?? "").StartsWith("delete-objective-", StringComparison.OrdinalIgnoreCase);
+        var prefix = isObjectiveDelete ? ObjectiveDeletePrefix : isDelete ? DeletePrefix : SafetyPrefix;
         var dest = Path.Combine(backupDir, $"{prefix}{DateTime.Now:yyyyMMdd_HHmmss}.db");
         if (File.Exists(dest))
         {
@@ -84,9 +96,9 @@ public sealed partial class BackupService : IBackupService
         try
         {
             Directory.CreateDirectory(backupDir);
-            // A game delete goes ahead either way, so its snapshot is kept even when
-            // quick_check finds a problem; it has its own budget and never evicts a good
-            // safety backup.
+            // A game or objective delete goes ahead either way, so its snapshot is kept
+            // even when quick_check finds a problem; it has its own budget and never
+            // evicts a good safety backup.
             await Task.Run(() => CreateVerifiedCopy(dbPath, dest, requireIntact: !isDelete)).ConfigureAwait(false);
             _logger.LogInformation(
                 "Safety backup created: {Dest} (reason: {Reason}, size: {Size} bytes)",
@@ -98,7 +110,9 @@ public sealed partial class BackupService : IBackupService
             return;
         }
 
-        if (isDelete)
+        if (isObjectiveDelete)
+            await PruneNewestAsync(backupDir, ObjectiveDeletePrefix, MaxObjectiveDeleteBackups).ConfigureAwait(false);
+        else if (isDelete)
             await PruneNewestAsync(backupDir, DeletePrefix, MaxDeleteBackups).ConfigureAwait(false);
         else
             await PruneTieredAsync(backupDir, SafetyPrefix, SafetyRetention).ConfigureAwait(false);
@@ -297,11 +311,13 @@ public sealed partial class BackupService : IBackupService
                     ? "Safety"
                     : fileName.StartsWith(DeletePrefix, StringComparison.OrdinalIgnoreCase)
                         ? "Before a game was deleted"
-                        : fileName.StartsWith(UserPrefix, StringComparison.OrdinalIgnoreCase)
-                            ? "User backup"
-                            : fileName.StartsWith(CoachMigrationPrefix, StringComparison.OrdinalIgnoreCase)
-                                ? "Coach migration"
-                                : "Backup";
+                        : fileName.StartsWith(ObjectiveDeletePrefix, StringComparison.OrdinalIgnoreCase)
+                            ? "Before a learning objective was deleted"
+                            : fileName.StartsWith(UserPrefix, StringComparison.OrdinalIgnoreCase)
+                                ? "User backup"
+                                : fileName.StartsWith(CoachMigrationPrefix, StringComparison.OrdinalIgnoreCase)
+                                    ? "Coach migration"
+                                    : "Backup";
         var mb = sizeBytes / (1024.0 * 1024.0);
         return $"{kind} · {timestamp:MMM d yyyy, h:mm tt} · {mb:F1} MB";
     }

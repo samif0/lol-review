@@ -8,9 +8,9 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// Backups are consistent online copies that pass quick_check, keep tiered history,
-/// give game deletes their own budget, and the user's automatic backup runs at most
-/// daily. Restore accepts only a listed backup and validates it before the live
-/// database is touched.
+/// give game deletes and objective deletes their own budgets, and the user's automatic
+/// backup runs at most daily. Restore accepts only a listed backup and validates it
+/// before the live database is touched.
 /// </summary>
 public sealed class BackupServiceSafetyTests
 {
@@ -104,6 +104,39 @@ public sealed class BackupServiceSafetyTests
         Assert.Equal(5, Directory.GetFiles(BackupDir(scope), "delete_backup_*.db").Length);
         var labels = (await Service(scope).ListBackupsAsync()).Select(b => b.Label).ToList();
         Assert.Contains(labels, l => l.StartsWith("Before a game was deleted", StringComparison.Ordinal));
+        Assert.All(labels, l => Assert.DoesNotContain("—", l));
+    }
+
+    [Fact]
+    public async Task ObjectiveDeleteBackups_HaveTheirOwnLabelAndBudget_SeparateFromGameDeletes()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        Directory.CreateDirectory(BackupDir(scope));
+        var today = DateTime.Now;
+        var objectiveBackups = Enumerable.Range(1, 3)
+            .Select(i => Path.Combine(BackupDir(scope), $"delete_objective_backup_{today.AddMinutes(-20 - i):yyyyMMdd_HHmmss}.db"))
+            .ToList();
+        foreach (var path in objectiveBackups) File.WriteAllText(path, "o");
+        for (var i = 1; i <= 5; i++)
+            File.WriteAllText(Path.Combine(BackupDir(scope), $"delete_backup_{today.AddMinutes(-10 - i):yyyyMMdd_HHmmss}.db"), "d");
+        var service = Service(scope);
+
+        // A game delete prunes only its own pool.
+        await service.CreateSafetyBackupAsync("delete-game-42");
+        foreach (var path in objectiveBackups) Assert.True(File.Exists(path));
+        Assert.Equal(5, Directory.GetFiles(BackupDir(scope), "delete_backup_*.db").Length);
+
+        // An objective delete keeps the newest 3 of its own and leaves the game pool alone.
+        await service.CreateSafetyBackupAsync("delete-objective-9");
+        Assert.Equal(3, Directory.GetFiles(BackupDir(scope), "delete_objective_backup_*.db").Length);
+        Assert.False(File.Exists(objectiveBackups[^1]));
+        Assert.Equal(5, Directory.GetFiles(BackupDir(scope), "delete_backup_*.db").Length);
+        Assert.Empty(Directory.GetFiles(BackupDir(scope), "safety_backup_*.db"));
+
+        var labels = (await service.ListBackupsAsync()).Select(b => b.Label).ToList();
+        Assert.Equal(3, labels.Count(l => l.StartsWith("Before a learning objective was deleted", StringComparison.Ordinal)));
+        Assert.Equal(5, labels.Count(l => l.StartsWith("Before a game was deleted", StringComparison.Ordinal)));
         Assert.All(labels, l => Assert.DoesNotContain("—", l));
     }
 
