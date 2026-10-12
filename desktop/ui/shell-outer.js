@@ -492,9 +492,8 @@ async function wireLiveAutoShow() {
       case 'champSelectStarted': liveGoto('pregame.html'); break;
       case 'gameInProgress': liveGoto('ingame.html'); break;
       case 'gameEnded':
-        handleTutorialGameEnded(p).then((handled) => {
-          if (!handled) leaveLiveSurface();
-        });
+        // The tutorial handoff only updates optional help; the live surface always exits.
+        handleTutorialGameEnded(p).then(() => leaveLiveSurface());
         break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
       case 'vodLinked':

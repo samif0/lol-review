@@ -56,3 +56,11 @@ test('a remake game end skips the first-review handoff but still leaves the live
   assert.ok(!shell.commands.includes('save_config'));
   assert.deepEqual(shell.navigations, ['dashboard.html']);
 });
+
+test('a saved game end records the first-review handoff and then leaves the live surface', async () => {
+  const shell = await shellFor('ingame.html');
+  shell.emit('gameEnded', { gameId: 42, saved: true });
+  for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(shell.commands.filter(command => command.endsWith('_config')), ['get_config', 'save_config']);
+  assert.deepEqual(shell.navigations, ['dashboard.html']);
+});
