@@ -171,8 +171,15 @@ internal static class FfmpegRunner
     }
 
     private static string? FindInPath(string executable)
+        => FindInPath(executable, Environment.GetEnvironmentVariable("PATH"));
+
+    /// <summary>
+    /// PATH lookup over <paramref name="pathEnv"/>. Relative entries (".", "bin",
+    /// "C:tools") are skipped: they resolve against the current directory, which is not
+    /// a location the user chose to trust.
+    /// </summary>
+    internal static string? FindInPath(string executable, string? pathEnv)
     {
-        var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrEmpty(pathEnv)) return null;
 
         foreach (var dir in pathEnv.Split(Path.PathSeparator))
@@ -180,6 +187,7 @@ internal static class FfmpegRunner
             if (string.IsNullOrWhiteSpace(dir)) continue;
             try
             {
+                if (!Path.IsPathFullyQualified(dir.Trim())) continue;
                 var fullPath = Path.Combine(dir.Trim(), executable + ".exe");
                 if (File.Exists(fullPath)) return fullPath;
             }

@@ -53,4 +53,24 @@ public sealed class FfmpegDiscoveryTests
         Assert.DoesNotContain(null, candidates);
         Assert.Equal(3, candidates.Count);
     }
+
+    [Fact]
+    public void PathLookupSkipsRelativeEntriesThatResolveAgainstTheCurrentDirectory()
+    {
+        var name = "ffmpeg-path-" + Guid.NewGuid().ToString("N");
+        var dir = Path.Combine(Environment.CurrentDirectory, name);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(dir, "ffmpeg.exe"), []);
+
+            Assert.Null(FfmpegRunner.FindInPath("ffmpeg", name));
+            Assert.Null(FfmpegRunner.FindInPath("ffmpeg", @".\" + name));
+            Assert.Equal(Path.Combine(dir, "ffmpeg.exe"), FfmpegRunner.FindInPath("ffmpeg", name + Path.PathSeparator + dir));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
 }
