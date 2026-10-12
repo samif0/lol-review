@@ -146,7 +146,6 @@ internal sealed record SaveConfigBody(
     string? BackupFolder,
     bool? TiltFixMode,
     bool? RequireReviewNotes,
-    bool? SidebarAnimationEnabled,
     bool? MinimizeDuringGame,
     bool? AutoTimelineClippingEnabled,
     bool? AutoTimelineClippingHintDismissed,

@@ -201,7 +201,6 @@ public sealed class TestConfigService : IConfigService
     public string RiotPuuid => Current.RiotPuuid;
     public string PrimaryRole => Current.PrimaryRole;
     public bool OnboardingSkipped => Current.OnboardingSkipped;
-    public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
     public bool MinimizeDuringGame => Current.MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => Current.AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => Current.AutoTimelineClippingHintDismissed;

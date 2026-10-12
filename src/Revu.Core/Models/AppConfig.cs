@@ -64,17 +64,13 @@ public class AppConfig
     // rejected by the user. A stale benchmark_rank key in config.json is
     // ignored harmlessly by the deserializer.)
 
-    /// <summary>
-    /// v2.15.0: sidebar page-enter animation. Some users find it distracting.
-    /// Default true to keep the existing feel for anyone who hasn't touched
-    /// the toggle.
-    /// </summary>
-    public bool SidebarAnimationEnabled { get; set; } = true;
+    // (SidebarAnimationEnabled removed: its Settings toggle went with the Tauri
+    // shell and the rail animation it gated no longer renders. A stale
+    // sidebar_animation_enabled key in config.json is ignored by the deserializer.)
 
     /// <summary>
-    /// v2.16.1: minimize the window + suspend always-on UI animations
-    /// (sidebar trails, ring pulses) while a League game is in progress.
-    /// Restores both on game end. Cuts steady-state GPU/CPU during play.
+    /// Minimize the window when a League game starts (the shell acts on the
+    /// once-per-game gameInProgress event). Default on.
     /// </summary>
     public bool MinimizeDuringGame { get; set; } = true;
 

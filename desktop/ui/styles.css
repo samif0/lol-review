@@ -122,8 +122,8 @@ body{font-family:var(--fb);color:var(--t2);min-height:100vh;padding-bottom:64px;
    left + right edges, with a gentle traveling highlight that pulses DOWN each
    trace (a subtle moving glint, not a sweeping blob). A soft ambient accent glow
    pools at the rail's foot. GPU-cheap (background-position + opacity only — no
-   layout), pointer-events off, behind the nav items. Honors prefers-reduced-motion
-   + the body[data-sidebar-anim="off"] gate. The traces are drawn on a single
+   layout), pointer-events off, behind the nav items. Honors prefers-reduced-motion.
+   The traces are drawn on a single
    full-height ::before (both edges via two backgrounds); ::after is the foot glow. */
 .nav::before,.nav::after{content:'';position:absolute;pointer-events:none;z-index:0}
 /* Two full-height edge traces (left + right). Each is a thin vertical line with a
@@ -168,9 +168,7 @@ body{font-family:var(--fb);color:var(--t2);min-height:100vh;padding-bottom:64px;
 }
 /* Lift the rail contents above the trail layer. */
 .nav-i,.nav-spacer{position:relative;z-index:1}
-/* Settings gate + accessibility: stop the traveling glint (base traces stay).
-   Higher specificity than .nav.nav-ready::before so the gate wins. */
-body[data-sidebar-anim="off"] .nav.nav-ready::before{animation:none}
+/* Accessibility: stop the traveling glint (base traces stay). */
 @media(prefers-reduced-motion:reduce){
   .nav.nav-ready::before{animation:none}
 }
