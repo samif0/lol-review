@@ -23,8 +23,8 @@ internal static class FfmpegRunner
     public const int DefaultStderrChars = 64 * 1024;
 
     /// <summary>
-    /// Locate ffmpeg: bundled next to the exe, then PATH, then common Windows install
-    /// locations (Revu's own folder, Program Files, C:\ffmpeg, scoop, WinGet).
+    /// Locate ffmpeg: bundled next to the exe, then PATH, then well-known per-user and
+    /// Program Files install locations (see <see cref="FfmpegCandidatePaths"/>).
     /// </summary>
     public static Task<string?> FindFfmpegAsync(ILogger? logger = null)
     {
@@ -57,25 +57,38 @@ internal static class FfmpegRunner
                 logger?.LogDebug(ex, "WinGet ffmpeg search failed");
             }
 
-            string?[] commonPaths =
-            [
-                Path.Combine(localAppData, "Revu", "ffmpeg.exe"),
-                Path.Combine(programFiles, "ffmpeg", "bin", "ffmpeg.exe"),
-                @"C:\ffmpeg\bin\ffmpeg.exe",
-                @"C:\ffmpeg\ffmpeg.exe",
-                Path.Combine(userProfile, "scoop", "shims", "ffmpeg.exe"),
-                wingetFfmpeg,
-            ];
-
-            foreach (var path in commonPaths)
+            foreach (var path in FfmpegCandidatePaths(localAppData, programFiles, userProfile, wingetFfmpeg))
             {
-                if (path is null) continue;
                 if (File.Exists(path)) { logger?.LogInformation("Found ffmpeg: {Path}", path); return path; }
             }
 
             logger?.LogWarning("ffmpeg not found in any checked location");
             return null;
         });
+    }
+
+    /// <summary>
+    /// Ordered list of well-known ffmpeg install locations probed after the bundled
+    /// copy and PATH. Only directories owned by the current user or an administrator
+    /// are listed (the user's profile, Program Files); folders directly under a drive
+    /// root are deliberately excluded because any local account can create them.
+    /// Pure function of the caller-supplied folders so it can be unit tested; a null
+    /// <paramref name="wingetHit"/> is simply omitted.
+    /// </summary>
+    internal static IReadOnlyList<string> FfmpegCandidatePaths(
+        string localAppData,
+        string programFiles,
+        string userProfile,
+        string? wingetHit)
+    {
+        var candidates = new List<string>
+        {
+            Path.Combine(localAppData, "Revu", "ffmpeg.exe"),
+            Path.Combine(programFiles, "ffmpeg", "bin", "ffmpeg.exe"),
+            Path.Combine(userProfile, "scoop", "shims", "ffmpeg.exe"),
+        };
+        if (wingetHit is not null) candidates.Add(wingetHit);
+        return candidates;
     }
 
     /// <summary>
