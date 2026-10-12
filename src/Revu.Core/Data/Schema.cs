@@ -988,8 +988,8 @@ public static class Schema
 
     /// <summary>
     /// v2.15.0: objectives can practice any subset of {pre, in, post} game
-    /// phases instead of being locked to one. Backfilled from the legacy
-    /// <c>phase</c> column by DatabaseInitializer.BackfillObjectivePracticePhasesAsync.
+    /// phases instead of being locked to one. The columns default to 0; sidecar
+    /// startup does not backfill them from the legacy <c>phase</c> column.
     /// </summary>
     public static readonly string[] MigrateObjectivesPracticePhases =
     [
@@ -1346,9 +1346,9 @@ public static class Schema
         CreateObjectiveEventTypesTable,
         CreateObjectiveEventTypesIndex,
         // v2.15.0 NOTE: CreateObjectivePromptsIndex + CreatePromptAnswersIndex
-        // reference columns (phase, etc.) that only exist after
-        // NormalizeObjectivePromptsTableAsync has run. They're applied
-        // separately from DatabaseInitializer after normalize completes.
+        // reference columns (phase, etc.) that a pre-v2.15 prompt table lacks.
+        // DatabaseInitializer.ApplySeedsAndIndexesAsync creates them after the
+        // migrations, and each index there tolerates a missing column.
         CreateMatchupNotesTable,
         CreateMatchupsTable,
         CreateMatchupsLaneIndex,
