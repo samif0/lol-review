@@ -230,7 +230,7 @@ public sealed class ClipEvictionTests : IDisposable
     }
 
     [Fact]
-    public async Task UsageMeter_MeasuresExactlyWhatEvictionWeighs()
+    public void UsageMeter_MeasuresExactlyWhatEvictionWeighs()
     {
         Clip("a.mp4", 1 * Mb, ageMinutes: 10);
         Clip("b.webm", 2 * Mb, ageMinutes: 10);
