@@ -9,17 +9,24 @@ const contentTypes = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': '
 const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://raw.communitydragon.org https://ddragon.leagueoflegends.com; font-src 'self' data:; media-src revu-media:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
 const audioOnly = types => Array.isArray(types) && types.length > 0 && types.every(t => t === 'audio');
-// Microphone narration is the only renderer permission. Camera, screen/system capture,
-// speaker selection and every other permission stay denied. Pages run inside the
-// same-origin app iframe (ui/index.html), so isMainFrame is intentionally NOT required.
+// Two renderer permissions exist, both only for the app's own pages: microphone
+// capture for clip narration ('media', audio only) and 'speaker-selection', so the
+// players and the Settings test sound can play on the output device chosen in
+// Settings. Camera, screen/system capture and every other permission stay denied.
+// Pages run inside the same-origin app iframe (ui/index.html), so isMainFrame is
+// intentionally NOT required.
 export function allowMediaRequest(contents, permission, details) {
-  return permission === 'media' && audioOnly(details?.mediaTypes)
-    && isAppUrl(details?.securityOrigin) && isAppUrl(details?.requestingUrl) && isAppUrl(contents?.getURL?.());
+  if (!isAppUrl(details?.requestingUrl) || !isAppUrl(contents?.getURL?.())) return false;
+  if (permission === 'media') return audioOnly(details?.mediaTypes) && isAppUrl(details?.securityOrigin);
+  // A speaker-selection request carries no media types and may omit the security origin.
+  if (permission === 'speaker-selection') return !details?.securityOrigin || isAppUrl(details.securityOrigin);
+  return false;
 }
 export function allowMediaCheck(contents, permission, requestingOrigin, details) {
-  return permission === 'media' && details?.mediaType === 'audio' && isAppUrl(requestingOrigin)
-    && (!details?.securityOrigin || isAppUrl(details.securityOrigin))
+  const appOnly = isAppUrl(requestingOrigin) && (!details?.securityOrigin || isAppUrl(details.securityOrigin))
     && (!details?.embeddingOrigin || isAppUrl(details.embeddingOrigin)) && isAppUrl(contents?.getURL?.());
+  if (permission === 'media') return appOnly && details?.mediaType === 'audio';
+  return permission === 'speaker-selection' && appOnly;
 }
 
 export function registerProtocols({ protocol, session, uiDirectory, media }) {
