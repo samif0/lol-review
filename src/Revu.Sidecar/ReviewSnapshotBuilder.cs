@@ -8,29 +8,20 @@ using Revu.Core.Services;
 namespace Revu.Sidecar;
 
 /// <summary>
-/// Builds the read-only review snapshot served at GET /api/review.
+/// Builds the review snapshot served at GET /api/review: the post-game review
+/// surface for ONE game as the camelCase JSON contract (see <see cref="ReviewDto"/>
+/// and desktop/ui/sample-review.json), built only from the Core repo + query
+/// interfaces.
 ///
 /// <para>
-/// Mirrors the post-game review surface for ONE game (the WinUI
-/// <c>ReviewViewModel</c>), minus all WinUI/dispatcher/workflow-service
-/// concerns, and emits the camelCase JSON contract (see <see cref="ReviewDto"/>
-/// and desktop/ui/sample-review.json). It deliberately does NOT reference the
-/// WinUI ViewModel — only the Core repo + query interfaces.
+/// SUBJECT SELECTION: the review page is normally opened with a specific gameId.
+/// Without one the endpoint picks the most recent unreviewed game in the last 3
+/// days, falling back to the most recent reviewed game.
 /// </para>
 ///
 /// <para>
-/// SUBJECT SELECTION: the review page is normally opened with a specific gameId
-/// (deferred nav). For v1 the endpoint returns a SAMPLE subject — the most
-/// recent unreviewed game in the last 3 days, falling back to the most recent
-/// reviewed game — so the desktop renderer can preview the page without nav.
-/// </para>
-///
-/// <para>
-/// READ-ONLY ABSOLUTE: only repo READ methods are called. The review FORM
-/// (mental rating / debrief / tags / save / skip) is a MUTATION surface and is
-/// DEFERRED: its current saved values ship for read-only display
-/// (<see cref="ReviewFormDto"/> with Editable=false), but nothing is written.
-/// The objective practiced-toggle is likewise deferred.
+/// READ-ONLY: only repo READ methods are called. The page writes through the
+/// separate review, draft, evidence and bookmark routes.
 /// </para>
 ///
 /// <para>
@@ -47,10 +38,10 @@ namespace Revu.Sidecar;
 /// </summary>
 public sealed class ReviewSnapshotBuilder
 {
-    // ── Tunables (mirror ReviewViewModel / the unreviewed window) ───────────
+    // ── Tunables (the unreviewed window and list caps) ──────────────────────
     private const int UnreviewedWindowDays = 3;
     private const int RecentScanLimit = 30;
-    // Mirror ReviewViewModel.MaxEvidenceInboxItems — cap on the ATTACHED list.
+    // Cap on the ATTACHED evidence list.
     // The unassigned "EVIDENCE TO SORT" inbox is intentionally uncapped (P-013).
     private const int MaxEvidenceInbox = 12;
 
@@ -62,11 +53,6 @@ public sealed class ReviewSnapshotBuilder
     private const string NeutralHex = "#9fb0c3";
     private const string PrimaryTextHex = "#f4f3ff";
     private const string RingTrackHex = "rgba(255,255,255,0.13)";
-
-    private static readonly string[] EditingNoteText =
-    {
-        "Review editing is coming soon; these fields are read-only in this preview.",
-    };
 
     private readonly IGameHistoryQuery _gameHistory;
     private readonly IGameRepository _gameRepo;
@@ -761,9 +747,9 @@ public sealed class ReviewSnapshotBuilder
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Review form — READ-ONLY saved values. Editing/save are DEFERRED mutations.
+    // Review form — the saved values (or the unsaved draft) that pre-fill it.
     // Text fields read straight off the GameStats row; the mental rating comes
-    // from the per-game (game_id → mental_rating) map on session_log.
+    // from the game's session_log row.
     // ─────────────────────────────────────────────────────────────────────────
 
     private async Task<ReviewFormDto> BuildFormAsync(GameStats game, Revu.Core.Models.ReviewDraft? draft)
@@ -776,7 +762,7 @@ public sealed class ReviewSnapshotBuilder
         var focusAdherence = entry?.FocusAdherence;
 
         // Overlay the unsaved autosave draft when present. The overlay is
-        // UNCONDITIONAL for the fields the Tauri form renders — the draft holds
+        // UNCONDITIONAL for the fields the review form renders — the draft holds
         // exactly what the user last had, including deliberately cleared text
         // (a non-empty-only overlay would resurrect deleted committed text).
         // Fields the form doesn't render keep their committed values for the
@@ -788,8 +774,6 @@ public sealed class ReviewSnapshotBuilder
         }
 
         return new ReviewFormDto(
-            Editable: false,
-            EditingNote: EditingNoteText[0],
             MentalRating: mentalRating,
             MentalRatingColorHex: MentalRatingHex(mentalRating),
             WentWell: game.WentWell,
@@ -1018,8 +1002,7 @@ public sealed class ReviewSnapshotBuilder
 
     // ─────────────────────────────────────────────────────────────────────────
     // Matchup history — past notes for the same champ-vs-enemy matchup, newest
-    // first, excluding this game's own note (mirror ReviewWorkflowService
-    // .GetMatchupHistoryAsync + ReviewViewModel.BuildMatchupMetaText). Read-only.
+    // first, excluding this game's own note. Read-only.
     // ─────────────────────────────────────────────────────────────────────────
 
     private async Task<ReviewMatchupJournalDto> BuildMatchupJournalAsync(GameStats game)
@@ -1077,7 +1060,7 @@ public sealed class ReviewSnapshotBuilder
         return result;
     }
 
-    /// <summary>Mirror of ReviewWorkflowService.ParseHelpful.</summary>
+    /// <summary>matchup_notes.helpful: 1 = helpful, 0 = not helpful, otherwise unrated.</summary>
     private static bool? ParseHelpful(int? value) => value switch
     {
         1 => true,

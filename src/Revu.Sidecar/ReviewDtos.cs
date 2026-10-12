@@ -3,26 +3,16 @@
 namespace Revu.Sidecar;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Response DTOs for GET /api/review.
+// Response DTOs for GET /api/review: the display shape for ONE game, with
+// only *Hex strings the desktop renderer resolves itself. Property names are
+// PascalCase here; the serializer is configured with JsonNamingPolicy.CamelCase,
+// so the wire shape is camelCase and matches desktop/ui/sample-review.json.
 //
-// Mirrors the WinUI ReviewViewModel's display shape for ONE game WITHOUT any
-// XAML/WinUI types — no SolidColorBrush, only *Hex strings the desktop renderer
-// resolves itself. Property names are PascalCase here; the serializer is
-// configured with JsonNamingPolicy.CamelCase in Program.cs, so the wire shape
-// is camelCase and matches desktop/ui/sample-review.json verbatim.
-//
-// READ-ONLY: the review FORM (mental rating / debrief textareas / tags / save /
-// skip) is a MUTATION surface and is therefore DEFERRED. The form's current
-// saved values are shipped for read-only DISPLAY (see ReviewFormDto), with
-// Editable=false and an EditingNote so the frontend can render the inputs
-// disabled. Wiring save is out of scope for the read-only snapshot.
-//
-// The death-audit / evidence-triage / matchup-history / concept-tag-catalog
-// sections added in Batch-1A are also READ-ONLY: classification, evidence
-// triage, and tag selection are MUTATIONS deferred to a later write batch. The
-// snapshot ships their CURRENT state (saved death classes, attached vs
-// unassigned evidence, past matchup notes, the full tag catalog w/ selection
-// flags) so the frontend can render the rows without yet writing anything.
+// This snapshot is a READ: it ships the current saved state (the review form's
+// values, saved death classes, attached vs unassigned evidence, past matchup
+// notes, the tag catalog with selection flags). The page edits through the
+// separate write routes (/api/review/save, /api/review/draft/save, the evidence
+// and bookmark routes), never through this payload.
 //
 // Null vs empty:
 //   - subject is nullable: null = the DB has no reviewable game to sample
@@ -61,10 +51,10 @@ public sealed record ReviewSubjectDto(
     // line rides on the header (LaningAt10Line / HasLaningAt10).
     IReadOnlyList<ReviewStatDto> Stats,
     // Active objectives that could be practiced this game (IObjectivesRepository
-    // .GetActiveAsync). Read-only — the "mark practiced" toggle is DEFERRED.
+    // .GetActiveAsync), with the saved or drafted practiced flag and note.
     IReadOnlyList<ReviewObjectiveDto> Objectives,
     bool HasObjectives,
-    // The existing saved review text fields on the game row (read-only display).
+    // The saved (or drafted) review form values for this game.
     ReviewFormDto Form,
     // Death audit: one row per DEATH event from the live kill feed, each with the
     // saved cause classification (if any) + the six selectable cause chips. The
@@ -241,14 +231,10 @@ public sealed record ReviewPromptClipDto(
     string ObjectiveTitle = "");
 
 /// <summary>
-/// The review form's saved values, for READ-ONLY display. The frontend renders
-/// these into disabled inputs. <see cref="Editable"/> is always false in v1 and
-/// <see cref="EditingNote"/> carries the "review editing coming soon" copy.
-/// Save/skip are DEFERRED mutations.
+/// The review form's saved values (or the unsaved draft) that pre-fill the
+/// editable form. Saving goes through POST /api/review/save.
 /// </summary>
 public sealed record ReviewFormDto(
-    bool Editable,
-    string EditingNote,
     // 1–10 mental rating from the session log / review (0 when unset).
     int MentalRating,
     string MentalRatingColorHex,
@@ -368,7 +354,7 @@ public sealed record ReviewMatchupHistoryDto(
 
 /// <summary>
 /// One concept tag from the catalog with its selection state for THIS game.
-/// Mirrors ReviewTagState (IConceptTagRepository.GetAllAsync + GetIdsForGameAsync).
+/// From IConceptTagRepository.GetAllAsync + GetIdsForGameAsync.
 /// The toggle grid is a DEFERRED write — IsSelected ships read-only.
 /// </summary>
 public sealed record ReviewTagDto(
