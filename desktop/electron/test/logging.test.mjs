@@ -3,7 +3,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createRollingLog, logDirectory, redact } from '../logging.mjs';
+import { createRollingLog, logDirectory, redact, runtimeLogDirectory } from '../logging.mjs';
 
 async function scratch(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'Revu.HostLog.'));
@@ -13,6 +13,9 @@ async function scratch(t) {
 
 test('logs live under the data root next to the sidecar log', () => {
   assert.equal(logDirectory(path.resolve('scratch')), path.join(path.resolve('scratch'), 'Revu', 'logs'));
+  // The runtime's logs sit inside the folder Open logs shows, not beside the profile.
+  const runtime = runtimeLogDirectory(path.resolve('scratch'));
+  assert.equal(path.dirname(runtime), logDirectory(path.resolve('scratch')));
 });
 
 test('lines carry time, level, message and error stack; early lines wait for open', async t => {

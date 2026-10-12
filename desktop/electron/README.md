@@ -18,7 +18,8 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 - `media.mjs`: revocable media grants and byte-range playback.
 - `preload.cjs`: the sandboxed renderer API; filesystem and bearer access stay private.
 - `logging.mjs`: size-capped rolling logs under `<dataRoot>/Revu/logs` (`host.log` and a
-  copy of the sidecar's stderr; the sidecar writes `sidecar.log` there). Settings opens this folder.
+  copy of the sidecar's stderr; the sidecar writes `sidecar.log` there, and the Overwolf
+  runtime writes to `logs/runtime`). Settings opens this folder.
 - `lifecycle.mjs` and `splash.mjs`: crash recovery (Restart Revu, Open logs, Quit), relaunch
   arguments, and the startup window shown while the sidecar starts or upgrades data.
 

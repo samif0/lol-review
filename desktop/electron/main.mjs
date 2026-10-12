@@ -12,7 +12,7 @@ import { RecordingService } from './recording-service.mjs';
 import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createBackgroundController } from './background.mjs';
 import { saveNarration } from './narration.mjs';
-import { createRollingLog, logDirectory } from './logging.mjs';
+import { createRollingLog, logDirectory, runtimeLogDirectory } from './logging.mjs';
 import { askRecovery, askSlowStart, createClosingNotice, createRendererRecovery, relaunchArgs, shellPage, shellUrl } from './lifecycle.mjs';
 import { createSplash, createStartupProgress } from './splash.mjs';
 
@@ -223,7 +223,8 @@ async function start() {
   if (process.platform === 'win32') app.setAppUserModelId(windowsAppId);
   app.setPath('userData', profile);
   app.setPath('sessionData', path.join(profile, 'session'));
-  app.setAppLogsPath(path.join(dataRoot, 'Revu', 'RuntimeLogs'));
+  // The runtime's own logs sit with Revu's, so "Open logs" shows everything support needs.
+  app.setAppLogsPath(runtimeLogDirectory(dataRoot));
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
   hostLog.open(logDirectory(dataRoot));
   sidecarStderr.open(logDirectory(dataRoot));

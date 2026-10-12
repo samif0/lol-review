@@ -3,8 +3,9 @@ import path from 'node:path';
 
 // Revu's own logs live beside the handshake, under the data root (respects --data-root
 // and REVU_DATA_ROOT). The sidecar writes sidecar.log here; the host writes host.log
-// and a capped copy of the sidecar's stderr. Overwolf's runtime keeps RuntimeLogs.
+// and a capped copy of the sidecar's stderr. Overwolf's runtime logs go to its runtime subfolder.
 export const logDirectory = dataRoot => path.join(dataRoot, 'Revu', 'logs');
+export const runtimeLogDirectory = dataRoot => path.join(logDirectory(dataRoot), 'runtime');
 
 const SECRETS = [
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g, '[email]'],
