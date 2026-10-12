@@ -57,6 +57,24 @@ public sealed class ProtectedSecretStoreTests : IDisposable
     }
 
     [WindowsFact]
+    public void UndecryptableStore_ReadOnly_IsKeptOnce_NotCopiedOnEveryRead()
+    {
+        // A signed-out user never writes, so only reads reach the bad store. Config loads
+        // read it several times a second; the stamps below land in different seconds.
+        File.WriteAllBytes(StorePath, [1, 2, 3, 4, 5]);
+        var store = Store();
+
+        Assert.Null(store.GetSecret("riot_session_token"));
+        Thread.Sleep(1100);
+        Assert.Null(store.GetSecret("riot_id"));
+        Assert.Null(Store().GetSecret("riot_puuid"));
+
+        var copy = Assert.Single(Directory.GetFiles(_dir, "protected_secrets.bin.corrupt-*"));
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, File.ReadAllBytes(copy));
+        Assert.False(File.Exists(StorePath));
+    }
+
+    [WindowsFact]
     public void MissingStore_IsEmpty_AndSetCreatesIt()
     {
         var store = Store();

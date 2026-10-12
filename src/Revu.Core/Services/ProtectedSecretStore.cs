@@ -103,8 +103,9 @@ public sealed class ProtectedSecretStore : IProtectedSecretStore
     /// cannot be read (sharing violation, IO error) is retried briefly and then THROWS:
     /// SetSecret/ClearSecret rewrite the whole file from this result, so treating a
     /// failed read as empty would erase every other secret (the session token and the
-    /// identity mirrors). Content that can never be decrypted or parsed is kept as a
-    /// .corrupt copy and then treated as empty, so a damaged store cannot block sign-in.
+    /// identity mirrors). Content that can never be decrypted or parsed is moved aside
+    /// as a .corrupt copy and then treated as empty, so a damaged store cannot block
+    /// sign-in, and it is kept once rather than copied again on every read.
     /// </summary>
     private Dictionary<string, string> ReadUnlocked()
     {
@@ -146,22 +147,26 @@ public sealed class ProtectedSecretStore : IProtectedSecretStore
         }
         catch (Exception ex) when (ex is CryptographicException or JsonException)
         {
-            _logger.LogError(ex, "Protected secret store could not be decrypted; keeping a copy and starting a new one.");
-            PreserveUnreadableStore();
+            _logger.LogError(ex, "Protected secret store could not be decrypted; keeping it aside and starting a new one.");
+            MoveUnreadableStoreAside();
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
     }
 
-    private void PreserveUnreadableStore()
+    // Moved, not copied (callers hold _gate): the next read then finds no file, which is
+    // already an empty store. A copy left the bad file in place, so every config load
+    // made another .corrupt copy until something wrote a new store.
+    private void MoveUnreadableStoreAside()
     {
         try
         {
-            var copy = $"{_filePath}.corrupt-{DateTime.Now:yyyyMMdd_HHmmss}";
-            if (!File.Exists(copy)) File.Copy(_filePath, copy);
+            var aside = $"{_filePath}.corrupt-{DateTime.Now:yyyyMMdd_HHmmss}";
+            if (File.Exists(aside)) aside = $"{aside}-{Guid.NewGuid():N}";
+            File.Move(_filePath, aside);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not keep a copy of the unreadable protected secret store.");
+            _logger.LogWarning(ex, "Could not move the unreadable protected secret store aside.");
         }
     }
 
