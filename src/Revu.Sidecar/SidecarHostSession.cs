@@ -46,7 +46,7 @@ public sealed class SidecarHostSession : IDisposable
         var temporary = _handshakePath + "." + LaunchId + ".tmp";
         try
         {
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new { port, token,
+            SidecarHandshakeFile.CreateOwnerOnly(temporary, JsonSerializer.SerializeToUtf8Bytes(new { port, token,
                 apiVersion = ApiVersion, launchId = LaunchId, processId = Environment.ProcessId,
                 dataDirectory = DataDirectory, schemaVersion = Schema.CurrentAppSchemaVersion }));
             File.Move(temporary, _handshakePath, overwrite: true);
