@@ -269,7 +269,7 @@ open (sign-in keeps working, uncapped) and logs `email_budget.reserve` errors.
 cd proxy
 npx wrangler d1 migrations list revu-db --remote
 npx wrangler d1 migrations apply revu-db --remote
-npx wrangler deploy
+npm run deploy                        # guarded, see Deploy above
 ```
 
 ### Optional R2 lifecycle rule
