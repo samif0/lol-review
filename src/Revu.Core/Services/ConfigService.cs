@@ -336,7 +336,7 @@ public sealed class ConfigService : IConfigService
         var json = ReadConfigText();
         if (json is null) return HydrateSecrets(new AppConfig());
 
-        var config = ParseOrRecover(json);
+        var config = ParseOrRecover(json, mayWrite: allowMigrationWrite);
         if (!TryMigrateSecretsFromConfig(config, out var migrated))
         {
             return config;
@@ -439,13 +439,16 @@ public sealed class ConfigService : IConfigService
         && ex is not (FileNotFoundException or DirectoryNotFoundException)
         && attempt < ReadRetryDelaysMs.Length;
 
-    private IOException Unreadable(Exception inner)
+    private ConfigUnreadableException Unreadable(Exception inner)
     {
         _logger.LogError(inner, "config.json at {Path} exists but cannot be read; refusing to use defaults", _configFile);
-        return new IOException("Your settings file could not be read right now. Nothing was changed; try again.", inner);
+        return new ConfigUnreadableException("Your settings file could not be read right now. Nothing was changed; try again.", inner);
     }
 
-    private AppConfig ParseOrRecover(string json)
+    // mayWrite is false on GetCached's contended fallback, which reads without the lock:
+    // there the .bak is only read, never copied over config.json, so it cannot race a
+    // writer that holds the lock.
+    private AppConfig ParseOrRecover(string json, bool mayWrite = true)
     {
         try
         {
@@ -454,7 +457,7 @@ public sealed class ConfigService : IConfigService
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "config.json at {Path} is not valid JSON", _configFile);
-            var kept = BackupCorruptConfig();
+            var kept = mayWrite && BackupCorruptConfig();
             if (TryReadBackupConfig(out var recovered))
             {
                 // Put the last good copy back only once the corrupt one is preserved.

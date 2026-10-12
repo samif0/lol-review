@@ -44,9 +44,9 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
 
         using (new FileStream(ConfigPath, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            await Assert.ThrowsAsync<IOException>(() => service.LoadAsync());
+            await Assert.ThrowsAsync<ConfigUnreadableException>(() => service.LoadAsync());
             var mutated = false;
-            await Assert.ThrowsAsync<IOException>(() => service.UpdateAsync(cfg => { mutated = true; cfg.TiltFixMode = false; return true; }));
+            await Assert.ThrowsAsync<ConfigUnreadableException>(() => service.UpdateAsync(cfg => { mutated = true; cfg.TiltFixMode = false; return true; }));
             Assert.False(mutated, "a change must never be applied to a config that failed to load");
             // The last good values stay cached for readers.
             Assert.True(service.TiltFixEnabled);
@@ -95,6 +95,36 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
     }
 
     [Fact]
+    public async Task CorruptConfig_ReadWithoutTheLock_UsesTheBak_ButWritesNothing()
+    {
+        await WriteConfigAsync(new AppConfig { TiltFixMode = false });
+        var secrets = new FirstReadBlocksSecretStore();
+        var service = new ConfigService(NullLogger<ConfigService>.Instance, secrets, ConfigPath);
+
+        // A load that holds the lock (stuck in the secret store) forces a getter onto the
+        // unlocked fallback read after 2 s.
+        var holder = Task.Run(() => service.LoadAsync());
+        Assert.True(secrets.Entered.Wait(TimeSpan.FromSeconds(10)));
+        try
+        {
+            await File.WriteAllTextAsync(ConfigPath, "{ \"tilt_fix_mode\": tr");
+            await File.WriteAllTextAsync(ConfigPath + ".bak",
+                JsonSerializer.Serialize(new AppConfig { TiltFixMode = true }, JsonOptions));
+
+            Assert.True(service.TiltFixEnabled);
+
+            // Only the lock holder may keep a .corrupt copy or put the .bak back.
+            Assert.Empty(Directory.GetFiles(_root, "config.json.corrupt-*"));
+            Assert.Equal("{ \"tilt_fix_mode\": tr", await File.ReadAllTextAsync(ConfigPath));
+        }
+        finally
+        {
+            secrets.Release.Set();
+            await holder;
+        }
+    }
+
+    [Fact]
     public async Task UpdateAsync_ThatDeclines_LeavesTheFileAndCacheUntouched()
     {
         await WriteConfigAsync(new AppConfig { ClipsMaxSizeMb = 4096 });
@@ -132,6 +162,27 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
         await service.UpdateAsync(cfg => { cfg.TiltFixMode = true; return true; });
 
         Assert.True(service.TiltFixEnabled);
+    }
+
+    // The first GetSecret call blocks until released; every later call answers at once.
+    private sealed class FirstReadBlocksSecretStore : IProtectedSecretStore
+    {
+        private int _calls;
+        public ManualResetEventSlim Entered { get; } = new();
+        public ManualResetEventSlim Release { get; } = new();
+
+        public string? GetSecret(string name)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                Entered.Set();
+                Release.Wait(TimeSpan.FromSeconds(30));
+            }
+            return null;
+        }
+
+        public void SetSecret(string name, string value) { }
+        public void ClearSecret(string name) { }
     }
 
     private sealed class MemorySecretStore : IProtectedSecretStore

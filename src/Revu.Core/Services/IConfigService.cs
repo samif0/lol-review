@@ -12,7 +12,8 @@ public interface IConfigService
 {
     /// <summary>
     /// Load config from disk. Defaults only when config.json does not exist; a file
-    /// that exists but cannot be read throws rather than being replaced by defaults.
+    /// that exists but cannot be read throws <see cref="ConfigUnreadableException"/>
+    /// rather than being replaced by defaults.
     /// </summary>
     Task<AppConfig> LoadAsync();
 
@@ -115,4 +116,16 @@ public interface IConfigService
             { "clip_in",       "Clip In" },
             { "clip_out",      "Clip Out" },
         };
+}
+
+/// <summary>
+/// config.json exists but could not be read, even after brief retries. Nothing was loaded
+/// and nothing was written. Separate from other IO failures so callers can tell "your
+/// settings could not be read" apart from a failed save.
+/// </summary>
+public sealed class ConfigUnreadableException : IOException
+{
+    public ConfigUnreadableException(string message, Exception inner) : base(message, inner)
+    {
+    }
 }

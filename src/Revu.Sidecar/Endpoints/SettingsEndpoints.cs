@@ -145,11 +145,18 @@ public static partial class SidecarEndpoints
                     return rejected is null;
                 });
             }
-            catch (IOException ex)
+            catch (ConfigUnreadableException ex)
             {
                 log.LogWarning(ex, "Config save refused: config.json could not be read");
                 return Results.Json(new { ok = false, error = "Your settings could not be read right now, so nothing was changed. Try again." },
                     jsonOptions, statusCode: 503);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A failed write: a full disk, a locked file or the secret store.
+                log.LogError(ex, "Config save failed while writing");
+                return Results.Json(new { ok = false, error = "Your settings could not be saved. Check that your drive has free space, then try again." },
+                    jsonOptions, statusCode: 500);
             }
             if (rejected is not null) return Results.BadRequest(new { error = rejected });
             log.LogInformation("Config saved via sidecar.");
