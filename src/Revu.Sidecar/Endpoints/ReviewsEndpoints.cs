@@ -211,7 +211,9 @@ public static partial class SidecarEndpoints
         // Resolve free-text tags (typed in the review tag input) to catalog ids —
         // find-or-create each by name — then merge with the toggled catalog ids so a
         // tag the user typed actually persists. Done only on explicit save (NOT draft
-        // autosave) so frequent drafts don't spawn catalog tags per keystroke.
+        // autosave) so frequent drafts don't spawn catalog tags per keystroke. Tag
+        // creation is deliberately outside the save's transaction: a tag left by a
+        // failed save is a harmless catalog entry that the retry finds by name.
         var tagIds = new List<long>(body.SelectedTagIds ?? new List<long>());
         if (body.FreeTextTags is { Count: > 0 })
         {
