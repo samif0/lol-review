@@ -47,18 +47,16 @@ public sealed partial class GameMonitorServiceTests
     {
         using var db = new TestDatabaseScope();
         await db.InitializeAsync();
-        var workflow = new GameLifecycleWorkflowService(
-            new GameService(db.Games, db.SessionLog, new RulesRepository(db.ConnectionFactory), db.GameEvents,
-                db.DerivedEvents, new TestConfigService(), NullLogger<GameService>.Instance),
-            db.MissedGameDecisions, db.Objectives, new NullCoachSidecarNotifier(),
-            NullLogger<GameLifecycleWorkflowService>.Instance);
+        // The save the sidecar's game-end workflow runs first (row, session log, live timeline).
+        var games = new GameService(db.Games, db.SessionLog, new RulesRepository(db.ConnectionFactory), db.GameEvents,
+            db.DerivedEvents, new TestConfigService(), NullLogger<GameService>.Instance);
 
         var messenger = new StrongReferenceMessenger();
         var collector = new MonitorMessageCollector(messenger);
-        var saves = new List<Task<ProcessGameEndResult>>();
+        var saves = new List<Task<long?>>();
         var sink = new object();
         messenger.Register<object, GameEndedMessage>(sink, (_, m) =>
-            saves.Add(workflow.ProcessGameEndAsync(new ProcessGameEndRequest(m.Stats), m.IsRecovered)));
+            saves.Add(games.ProcessGameEndAsync(new ProcessGameEndRequest(m.Stats))));
 
         var lcu = new FakeLcuClient
         {
@@ -93,8 +91,7 @@ public sealed partial class GameMonitorServiceTests
         Assert.Equal(9100, ended.Stats.GameId);
         Assert.False(ended.IsRecovered);
         Assert.Equal(1, capture.Calls);
-        var result = await Assert.Single(saves);
-        Assert.True(result.WasSaved);
+        Assert.Equal(9100, await Assert.Single(saves));
         Assert.NotNull(await db.Games.GetAsync(9100));
 
         await service.TickOnceAsync(); // Lobby: a captured game needs no match-history walk
