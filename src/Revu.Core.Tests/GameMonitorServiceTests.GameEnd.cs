@@ -329,4 +329,29 @@ public sealed partial class GameMonitorServiceTests
         Assert.Single(collector.GameEnded);
         Assert.Empty(collector.MissedGamesDetected);
     }
+
+    [Theory]
+    [InlineData(480, false)]  // Swiftplay
+    [InlineData(700, false)]  // Clash
+    [InlineData(440, false)]  // Ranked Flex
+    [InlineData(420, true)]   // Ranked Solo/Duo
+    [InlineData(-1, true)]    // the queue lookup failed: the save gate decides
+    public async Task OnlyRankedSoloOrAnUnknownQueueRunsTheGameEndCapture(int queueId, bool captured)
+    {
+        var messenger = new StrongReferenceMessenger();
+        var lcu = new FakeLcuClient
+        {
+            IsConnected = true, QueueId = queueId,
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress, GamePhase.EndOfGame]),
+        };
+        var capture = new FakeGameEndCaptureService { Result = TestGameStatsFactory.Create(9400) };
+        using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger, capture,
+            new FakeMatchHistoryReconciliationService());
+
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+
+        Assert.Equal(captured ? 1 : 0, capture.Calls);
+    }
 }

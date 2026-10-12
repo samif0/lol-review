@@ -34,31 +34,13 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
     private const int MaxCredentialBackoffTicks = 6;
 
     /// <summary>
-    /// Queue IDs that skip the review flow — everything except Ranked Solo/Duo
-    /// (420), the only queue <see cref="Constants.GameConstants.RankedQueueTypes"/>
-    /// lets the save path ingest. Ranked Flex (440) is deliberately listed: before
-    /// it was, flex games ran the whole live pipeline (collector, EOG capture)
-    /// only for ProcessGameEndAsync to decline them — and reconciliation then
-    /// re-surfaced them as "missed" forever.
+    /// Ranked Solo/Duo, the only queue <see cref="Constants.GameConstants.RankedQueueTypes"/>
+    /// lets the save path ingest. Every other known queue (Flex, normals, Swiftplay, ARAM,
+    /// Arena, Clash, rotating modes, customs) skips the live pipeline: running the collector
+    /// and the EOG capture for them only ended in ProcessGameEndAsync declining the game.
+    /// An unknown queue (-1, the lookup failed) still runs it and lets the save gate decide.
     /// </summary>
-    private static readonly HashSet<int> CasualQueueIds =
-    [
-        400,  // Normal Draft
-        430,  // Normal Blind
-        440,  // Ranked Flex — not reviewable (save gate is Ranked Solo/Duo only)
-        490,  // Quickplay / Normal
-        450,  // ARAM
-        1700, // Arena
-        1900, // URF (pick)
-        900,  // URF
-        1010, // Snow URF
-        1020, // One for All
-        2070, // Swarm
-        2000, // Tutorial
-        2010, // Tutorial
-        2020, // Tutorial
-        0,    // Custom / unknown
-    ];
+    private const int RankedSoloQueueId = 420;
 
     public GameMonitorService(
         ILcuCredentialDiscovery credentialDiscovery,
@@ -646,7 +628,7 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
         }
     }
 
-    private static bool IsCasualQueue(int queueId) => CasualQueueIds.Contains(queueId);
+    private static bool IsCasualQueue(int queueId) => queueId >= 0 && queueId != RankedSoloQueueId;
 
     private async Task UpdateRecordingContextAsync(GamePhase phase, CancellationToken ct)
     {
