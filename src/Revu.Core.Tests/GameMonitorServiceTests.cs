@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Revu.Core.Tests;
 
-public sealed class GameMonitorServiceTests
+public sealed partial class GameMonitorServiceTests
 {
     [Fact]
     public async Task TickOnceAsync_BacksOffAfterMissingCredentials()
@@ -767,6 +767,7 @@ public sealed class GameMonitorServiceTests
             messenger.Register<GameEndedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).GameEnded.Add(message));
             messenger.Register<MissedReviewsDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).MissedGamesDetected.Add(message));
             messenger.Register<QueueDetectedMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).QueueDetected.Add(message));
+            messenger.Register<GameCaptureDeferredMessage>(this, static (recipient, message) => ((MonitorMessageCollector)recipient).CaptureDeferred.Add(message));
         }
 
         public List<LcuConnectionChangedMessage> ConnectionChanges { get; } = [];
@@ -784,6 +785,8 @@ public sealed class GameMonitorServiceTests
         public List<MissedReviewsDetectedMessage> MissedGamesDetected { get; } = [];
 
         public List<QueueDetectedMessage> QueueDetected { get; } = [];
+
+        public List<GameCaptureDeferredMessage> CaptureDeferred { get; } = [];
     }
 
     private sealed class FakeCredentialDiscovery : ILcuCredentialDiscovery
@@ -891,6 +894,10 @@ public sealed class GameMonitorServiceTests
 
     private sealed class FakeLiveEventApi : ILiveEventApi
     {
+        /// <summary>The kill feed the game serves (/eventdata); ThrowEvents simulates a closed game.</summary>
+        public List<System.Text.Json.JsonElement> Events { get; set; } = [];
+        public bool ThrowEvents { get; set; }
+        public int EventFetches;
         public double? GameSeconds { get; set; }
         public bool ThrowGameStats { get; set; }
         public int GameStatsCalls { get; private set; }
@@ -909,24 +916,53 @@ public sealed class GameMonitorServiceTests
 
         public Task<bool> IsAvailableAsync(CancellationToken ct = default) => Task.FromResult(Available);
 
-        public Task<List<System.Text.Json.JsonElement>?> FetchEventsAsync(CancellationToken ct = default) =>
-            Task.FromResult<List<System.Text.Json.JsonElement>?>([]);
+        public Task<List<System.Text.Json.JsonElement>?> FetchEventsAsync(CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref EventFetches);
+            return ThrowEvents
+                ? Task.FromException<List<System.Text.Json.JsonElement>?>(new HttpRequestException("Game closed"))
+                : Task.FromResult<List<System.Text.Json.JsonElement>?>([.. Events]);
+        }
     }
 
     private sealed class FakeGameEndCaptureService : IGameEndCaptureService
     {
         public GameStats? Result { get; set; }
 
-        public Task<GameStats?> CaptureAsync(IReadOnlyList<GameEvent> liveEvents, LiveRoster? roster, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result);
+        /// <summary>When set, the capture answers only once this completes (a slow EOG endpoint).</summary>
+        public Task? Gate { get; set; }
+
+        /// <summary>When set, the capture fails with this (e.g. a 5xx from the EOG endpoint).</summary>
+        public Exception? Throw { get; set; }
+
+        public int Calls { get; private set; }
+
+        public IReadOnlyList<GameEvent> LastEvents { get; private set; } = [];
+
+        public async Task<GameStats?> CaptureAsync(IReadOnlyList<GameEvent> liveEvents, LiveRoster? roster, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            LastEvents = liveEvents;
+            if (Gate is not null) await Gate.WaitAsync(cancellationToken);
+            if (Throw is not null) throw Throw;
+            // As the real capture does: the stats carry the live timeline it was handed.
+            if (Result is not null) Result.LiveEvents = [.. liveEvents];
+            return Result;
+        }
     }
 
     private sealed class FakeMatchHistoryReconciliationService : IMatchHistoryReconciliationService
     {
         public IReadOnlyList<MissedGameCandidate> Result { get; set; } = [];
 
+        public int Calls { get; private set; }
+
         public Task<IReadOnlyList<MissedGameCandidate>> FindMissedGamesAsync(
             Func<long, bool>? checkGameSaved,
-            CancellationToken cancellationToken = default) => Task.FromResult(Result);
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(Result);
+        }
     }
 }

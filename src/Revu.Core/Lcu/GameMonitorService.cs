@@ -12,7 +12,7 @@ namespace Revu.Core.Lcu;
 /// <summary>
 /// Background service that monitors the League client for game phase transitions.
 /// </summary>
-public sealed class GameMonitorService : BackgroundService, IGameMonitorService
+public sealed partial class GameMonitorService : BackgroundService, IGameMonitorService
 {
     private readonly ILcuCredentialDiscovery _credentialDiscovery;
     private readonly ILcuClient _lcuClient;
@@ -30,13 +30,6 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
     private readonly Data.Repositories.IObjectivesRepository? _processingObjectives;
     private Services.EventProcessing.ProcessingReport? _processingReport;
     private long _captureGameId;
-    private readonly Dictionary<long, (List<GameEvent> Events, Services.EventProcessing.ProcessingReport? Report)> _pendingEvidence = [];
-
-    // v3.10.1: the lobby as the live client reported it survives a transient LCU drop
-    // that tears the collector down mid-game (it is not restarted on reconnect), so
-    // game end still gets the matchmaker's lanes. Cleared when a game's collector
-    // starts and when a game end consumes it.
-    private LiveRoster? _lastRoster;
 
     private const int MaxCredentialBackoffTicks = 6;
 
@@ -141,9 +134,14 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         CoreDiagnostics.WriteVerbose(
             $"LCU: Tick start connected={_state.IsConnected} credBackoff={_state.CredentialBackoffTicks}");
 
+        // A capture that finished since the last tick publishes its game (or hands it to
+        // reconciliation) first, whether or not the client is reachable right now.
+        await SettleCaptureAsync(cancellationToken, waitForCompletion: false).ConfigureAwait(false);
+
         if (!await EnsureConnectedAsync(cancellationToken).ConfigureAwait(false))
         {
             ClearRecordingContext();
+            await FinishOrphanedCollectorAsync(cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -156,7 +154,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         {
             _logger.LogWarning(ex, "League client connection lost");
             CoreDiagnostics.WriteVerbose($"LCU: Tick gameflow exception={ex.GetType().Name}:{ex.Message}");
-            await HandleDisconnectedAsync().ConfigureAwait(false);
+            HandleDisconnected();
             return;
         }
 
@@ -172,6 +170,13 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             CoreDiagnostics.WriteVerbose($"LCU: Phase changed {_state.LastPhase} -> {phase}");
         }
 
+        // The client is back outside a game while the collector still runs: the game
+        // ended while the client was away, so its timeline is kept for reconciliation.
+        if (_eventCollector is not null && IsOutOfGamePhase(phase))
+        {
+            await FinishUnobservedGameAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         var plan = _transitionEvaluator.Evaluate(_state, phase);
 
         // v3.7 (hard stop): report the queue phases on every tick they hold. The
@@ -182,7 +187,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             _messenger.Send(new QueueDetectedMessage(phase));
         }
 
-        if (plan.ReconcileOnStartup)
+        if (plan.ReconcileOnStartup && _captureTask is null)
         {
             CoreDiagnostics.WriteVerbose($"LCU: Startup reconcile triggered at connectedTicks={_state.ConnectedTicks} phase={phase}");
             await PublishMissedGamesAsync(cancellationToken, "startup").ConfigureAwait(false);
@@ -223,6 +228,17 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 await StartEventCollectorAsync().ConfigureAwait(false);
             }
         }
+        else if (_collectorStoppedUnseen && phase == GamePhase.InProgress
+            && _eventCollector is null && !_state.CurrentGameIsCasual)
+        {
+            // A collector finished on the guess that its game was over, but the client
+            // reports a game in progress: collect again. A game end merges both timelines.
+            _logger.LogInformation("Game still in progress after the League client returned - restarting the live-event collector");
+            _collectorStoppedUnseen = false;
+            _state.GameStartedNotified = true;
+            _messenger.Send(new GameStartedMessage());
+            await StartEventCollectorAsync().ConfigureAwait(false);
+        }
 
         if (plan.GameInProgressCandidate)
         {
@@ -256,10 +272,12 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             }
             else
             {
+                // Reconciliation is armed only when the capture fails (SettleCaptureAsync):
+                // a captured game needs no match-history walk.
                 _logger.LogInformation("Game ended - fetching stats");
-                await PublishGameEndedAsync(cancellationToken).ConfigureAwait(false);
-                _state.ReconcilePending = true;
+                await BeginGameEndCaptureAsync(cancellationToken).ConfigureAwait(false);
             }
+            _collectorStoppedUnseen = false;
 
             if (plan.ResetCurrentGameCasual)
             {
@@ -271,7 +289,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
             _state.GameStartedNotified = false;
         }
 
-        if (plan.ReconcileMatchHistory)
+        if (plan.ReconcileMatchHistory && _captureTask is null)
         {
             // Exponential-ish backoff: only attempt the reconcile HTTP call when
             // the next-eligible time has passed. This covers the same ~3-min window
@@ -315,6 +333,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                             // Gave up — stop retrying
                             _state.ReconcilePending = false;
                             _state.PostGameReconcileNextAttemptUtc = DateTime.MinValue;
+                            _reconcileTargetGameId = 0;
                             CoreDiagnostics.WriteVerbose("LCU: PostGameReconcile gave up after retries");
                         }
                         else
@@ -382,6 +401,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         // phase jumps).
         _state.GameInProgressNotified = false;
         _state.GameStartedNotified = false;
+        _collectorStoppedUnseen = false;
 
         var modeLabel = _state.CurrentGameIsCasual ? "casual" : "ranked/normal";
         _logger.LogInformation("Champ select started (queue {QueueId} - {Mode})", queueId, modeLabel);
@@ -462,8 +482,8 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         // read the fields instead, it would cancel/dispose the NEW CancellationTokenSource
         // (assigned below) the moment a second StartEventCollector races it,
         // producing an ObjectDisposedException.
-        _lastRoster = null;
         _processingReport = null;
+        _collectorSilentSinceUtc = null;
         try { _captureGameId = await _lcuClient.GetCurrentGameIdAsync().WaitAsync(TimeSpan.FromSeconds(1)); }
         catch { _captureGameId = 0; }
         IReadOnlyList<(string Token, long ObjectiveId, string Title)> ties = [];
@@ -525,7 +545,9 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 await task.WaitAsync(
                     TimeSpan.FromSeconds(GameConstants.MonitorStopTimeoutS)).ConfigureAwait(false);
             }
-            catch (TimeoutException) { }
+            // A poll loop that has not stopped still owns the collector's lists; finalizing
+            // it now would race that loop, and this collector's events are discarded anyway.
+            catch (TimeoutException) { return; }
             catch (OperationCanceledException) { }
         }
 
@@ -545,6 +567,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 await _collectorCts.CancelAsync().ConfigureAwait(false);
             }
 
+            var loopStopped = true;
             if (_collectorTask is not null)
             {
                 try
@@ -554,15 +577,33 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
                 }
                 catch (TimeoutException)
                 {
-                    _logger.LogWarning("Event collector did not stop within timeout");
+                    loopStopped = false;
                 }
-                catch (OperationCanceledException)
+                catch (Exception)
                 {
+                    // Cancelled or faulted: either way the loop is no longer running.
                 }
             }
 
-            events = await _eventCollector.StopAsync().ConfigureAwait(false);
-            _processingReport = _eventCollector.ProcessingReport;
+            if (loopStopped)
+            {
+                try
+                {
+                    events = await _eventCollector.StopAsync().ConfigureAwait(false);
+                    _processingReport = _eventCollector.ProcessingReport;
+                }
+                catch (Exception ex)
+                {
+                    // A failed final parse must not abort the game end; the capture still runs.
+                    _logger.LogWarning(ex, "Live event collector could not finish its timeline");
+                }
+            }
+            else
+            {
+                // The poll loop still owns the collector's lists: finalizing them now would
+                // race it ("Collection was modified"). Give up this timeline, not the game end.
+                _logger.LogWarning("Event collector did not stop within timeout; its live events are skipped");
+            }
             roster = _eventCollector.Roster;
             _eventCollector = null;
         }
@@ -574,107 +615,7 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         return (events, roster);
     }
 
-    private async Task PublishGameEndedAsync(CancellationToken cancellationToken)
-    {
-        var (liveEvents, roster) = await StopEventCollectorAsync().ConfigureAwait(false);
-        if (_lastRoster is not null && (roster is null || roster.Players.Count < _lastRoster.Players.Count))
-        {
-            roster = _lastRoster;
-        }
-        _lastRoster = null;
-        if (liveEvents.Count > 0)
-        {
-            _logger.LogInformation("Collected {Count} live events during game", liveEvents.Count);
-        }
-
-        // v3.10.1: hand the live roster to the capture so the lanes the game itself
-        // assigned fill the matchup when the EOG payload carries none.
-        GameStats? stats;
-        if (_captureGameId > 0)
-        {
-            if (_pendingEvidence.Count >= 4) _pendingEvidence.Remove(_pendingEvidence.Keys.First());
-            _pendingEvidence[_captureGameId] = (liveEvents, _processingReport);
-        }
-        using var captureDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        captureDeadline.CancelAfter(TimeSpan.FromSeconds(5));
-        try
-        {
-            stats = await _gameEndCaptureService.CaptureAsync(liveEvents, roster, captureDeadline.Token)
-                .WaitAsync(captureDeadline.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning("Immediate review capture deadline exceeded; result data unavailable, reconciliation required");
-            _state.ReconcilePending = true;
-            return;
-        }
-        if (stats is null)
-        {
-            _state.ReconcilePending = true;
-            return;
-        }
-
-        stats.EventProcessingReport = _processingReport;
-        _pendingEvidence.Remove(stats.GameId);
-        _processingReport = null;
-        if (stats.GameId > 0)
-        {
-            SetRecordingGameEnded(stats.GameId);
-            ClearRecordingContext();
-        }
-        _messenger.Send(new GameEndedMessage(stats));
-    }
-
-    /// <summary>
-    /// Attempt to find the just-finished game from match history and publish it as a post-game reconcile.
-    /// Returns true if at least one candidate was found and published, false if match history is empty.
-    /// </summary>
-    private async Task<bool> TryPublishPostGameReconcileAsync(CancellationToken cancellationToken)
-    {
-        CoreDiagnostics.WriteVerbose("LCU: TryPublishPostGameReconcile start");
-        var candidates = await _matchHistoryReconciliationService
-            .FindMissedGamesAsync(CheckGameSaved, cancellationToken)
-            .ConfigureAwait(false);
-
-        CoreDiagnostics.WriteVerbose($"LCU: TryPublishPostGameReconcile count={candidates.Count}");
-
-        if (candidates.Count == 0)
-            return false;
-
-        foreach (var candidate in candidates) AttachPendingEvidence(candidate.Stats);
-
-        _messenger.Send(new MissedReviewsDetectedMessage(candidates, IsPostGameReconcile: true));
-        return true;
-    }
-
-    private async Task PublishMissedGamesAsync(CancellationToken cancellationToken, string reason)
-    {
-        // "postgame" reconcile fires right after InProgress → idle, meaning the user just finished
-        // a game. Flag it so the shell can skip the selection dialog and go straight to post-game.
-        var isPostGameReconcile = string.Equals(reason, "postgame", StringComparison.Ordinal);
-
-        CoreDiagnostics.WriteVerbose($"LCU: PublishMissedGames start reason={reason} isPostGame={isPostGameReconcile}");
-        var candidates = await _matchHistoryReconciliationService
-            .FindMissedGamesAsync(CheckGameSaved, cancellationToken)
-            .ConfigureAwait(false);
-
-        CoreDiagnostics.WriteVerbose($"LCU: PublishMissedGames result reason={reason} count={candidates.Count}");
-
-        if (candidates.Count > 0)
-        {
-            foreach (var candidate in candidates) AttachPendingEvidence(candidate.Stats);
-            _messenger.Send(new MissedReviewsDetectedMessage(candidates, isPostGameReconcile));
-        }
-    }
-
-    private void AttachPendingEvidence(GameStats stats)
-    {
-        if (!_pendingEvidence.Remove(stats.GameId, out var captured)) return;
-        stats.LiveEvents = captured.Events;
-        stats.EventProcessingReport = captured.Report;
-    }
-
-    private async Task HandleDisconnectedAsync()
+    private void HandleDisconnected()
     {
         ClearRecordingContext();
         var wasConnected = _state.IsConnected;
@@ -686,15 +627,17 @@ public sealed class GameMonitorService : BackgroundService, IGameMonitorService
         _state.IsConnected = false;
         _state.ConnectedTicks = 0;
 
-        // (Previously the collected events here were discarded silently.)
-        var (_, roster) = await StopEventCollectorAsync().ConfigureAwait(false);
-        if (roster is not null) _lastRoster = roster;
-
+        // Any failed phase poll lands here, but the live-event collector reads the game
+        // itself (127.0.0.1:2999), not the client: it keeps running, so the timeline keeps
+        // filling and a post-game phase after the reconnect captures it as usual. A game
+        // that ends while the client is away is finished by FinishOrphanedCollectorAsync or
+        // FinishUnobservedGameAsync, which keep its events for reconciliation.
         if (wasInGame && !_state.CurrentGameIsCasual)
         {
             _logger.LogInformation(
-                "LCU disconnected mid-game — marking reconcile pending so post-game review fires on reconnect");
+                "LCU disconnected mid-game; live events keep recording and reconcile is pending in case the game end is missed");
             _state.ReconcilePending = true;
+            if (_captureGameId > 0) _reconcileTargetGameId = _captureGameId;
         }
 
         if (wasConnected)
