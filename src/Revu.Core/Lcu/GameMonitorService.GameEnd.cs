@@ -349,14 +349,16 @@ public sealed partial class GameMonitorService
     }
 
     /// <summary>
-    /// The tracked game was saved another way (Settings recovery, Home's Save): its search is
-    /// over. True when this ended it.
+    /// A save the player started (Settings recovery, Home's Save) took the tracked game: its
+    /// search is over. True when this ended it. Only that hand-off ends it, never
+    /// <see cref="CheckGameSaved"/>: the sidecar's check reads a database error as saved, so a
+    /// game it could not check would lose its search, its timeline and its pre-game choices.
     /// </summary>
     private bool EndSearchIfTrackedGameSaved()
     {
         var gameId = _reconcileTargetGameId;
-        if (gameId <= 0 || !(IsHandedOff(gameId) || CheckGameSaved?.Invoke(gameId) == true)) return false;
-        _logger.LogInformation("Game {GameId} was saved another way; the post-game search for it ends", gameId);
+        if (gameId <= 0 || !IsHandedOff(gameId)) return false;
+        _logger.LogInformation("Game {GameId} was taken by a save the player started; the post-game search for it ends", gameId);
         _reconcileTargetGameId = 0;
         return true;
     }
@@ -365,9 +367,9 @@ public sealed partial class GameMonitorService
     /// Look for the just-finished game in match history. The tracked game (its capture
     /// failed or its end was missed) is saved at once as a recovered game end, carrying its
     /// live timeline, lobby and pre-game choices; any other unsaved game the pass finds
-    /// waits for the player. With a tracked game, only finding it (or its save by another
-    /// path, such as Settings recovery) ends the retries, so an older unsaved game never
-    /// stands in for the one just played.
+    /// waits for the player. With a tracked game, only finding it (or a save the player
+    /// started taking it, such as Settings recovery) ends the retries, so an older unsaved
+    /// game never stands in for the one just played.
     /// </summary>
     private async Task<bool> TryPublishPostGameReconcileAsync(CancellationToken cancellationToken)
     {
@@ -380,7 +382,7 @@ public sealed partial class GameMonitorService
 
         var targetGameId = _reconcileTargetGameId;
         var tracked = targetGameId > 0 ? candidates.FirstOrDefault(c => c.GameId == targetGameId) : null;
-        // Not listed as unsaved: it may have been saved another way meanwhile.
+        // Not listed as unsaved: a save the player started may have taken it meanwhile.
         var savedElsewhere = tracked is null && EndSearchIfTrackedGameSaved();
         if (savedElsewhere) targetGameId = 0;
         if (candidates.Count == 0)

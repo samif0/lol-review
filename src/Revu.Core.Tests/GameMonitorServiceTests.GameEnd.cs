@@ -503,41 +503,49 @@ public sealed partial class GameMonitorServiceTests
     }
 
     [Fact]
-    public async Task ATrackedGameSavedAnotherWay_EndsTheSearch()
+    public async Task ATrackedGameTheSavedCheckCouldNotRead_KeepsItsSearch_AndIsSavedWithItsTimeline()
     {
         var messenger = new StrongReferenceMessenger();
         var collector = new MonitorMessageCollector(messenger);
+        var live = new FakeLiveEventApi { Available = true, Events = [Kill(100)] };
         var lcu = new FakeLcuClient
         {
             IsConnected = true, QueueId = 420, CurrentGameId = 8160,
-            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress, GamePhase.EndOfGame, GamePhase.Lobby]),
+            Phases = new([GamePhase.ChampSelect, GamePhase.InProgress]),
         };
         var history = new FakeMatchHistoryReconciliationService();
         using var service = CreateService(new FakeCredentialDiscovery(Credentials), lcu, messenger,
-            new FakeGameEndCaptureService(), history);
-        var saved = new HashSet<long>();
-        service.CheckGameSaved = saved.Contains;
+            new FakeGameEndCaptureService(), history, live);
+        // The sidecar's check fails closed: a database error reads as saved.
+        var databaseFails = false;
+        service.CheckGameSaved = _ => databaseFails;
         var clock = DateTime.UtcNow;
         service.UtcNow = () => clock;
 
         await service.TickOnceAsync();
         await service.TickOnceAsync();
+        await WaitUntilAsync(() => live.EventFetches > 0, "the collector read the kill feed");
+        lcu.Phases = new([GamePhase.EndOfGame, GamePhase.Lobby]);
         await service.TickOnceAsync(); // the capture fails: the game goes to reconciliation
         Assert.Equal(8160, Assert.Single(collector.CaptureDeferred).GameId);
         await service.TickOnceAsync(); // Lobby: not listed yet
         Assert.Equal(1, history.Calls);
 
-        saved.Add(8160); // saved by a path the monitor did not see (match history now skips it)
+        // One pass cannot read the database: the game is neither listed nor known to be saved.
+        databaseFails = true;
         clock = clock.AddMinutes(1);
         await service.TickOnceAsync();
         Assert.Equal(2, history.Calls);
-        clock = clock.AddMinutes(10);
-        await service.TickOnceAsync(); // the one startup check the search held back
-        var calls = history.Calls;
+        databaseFails = false;
+
+        // The search goes on, so the game is still saved at once with its timeline once listed.
+        history.Result = [new MissedGameCandidate(8160, 1_710_000_000, TestGameStatsFactory.Create(8160))];
         clock = clock.AddMinutes(10);
         await service.TickOnceAsync();
-        Assert.Equal(calls, history.Calls);
-        Assert.Empty(collector.GameEnded);
+        var recovered = Assert.Single(collector.GameEnded);
+        Assert.True(recovered.IsRecovered);
+        Assert.Contains(100, KillTimes(recovered.Stats));
+        Assert.Empty(collector.MissedGamesDetected);
     }
 
     [Fact]
