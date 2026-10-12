@@ -92,6 +92,8 @@ const definitions = {
   save_pattern_moment_note: post("/api/pattern/moment/note"),
   get_active_objectives: get("/api/objectives/active"),
   save_manual_game: post("/api/game/manual"),
+  get_missed_games: get("/api/missed-games"),
+  resolve_missed_game: post("/api/missed-games/resolve"),
   auth_login: post("/api/auth/login"),
   auth_signup: post("/api/auth/signup"),
   auth_verify: post("/api/auth/verify"),
