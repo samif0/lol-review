@@ -484,7 +484,10 @@ async function wireLiveAutoShow() {
   // gameInProgress once per game, after the loading screen, so this never fights
   // a player who restores the window mid-game. Read at that moment, so a saved
   // change applies to the next game. A hard stop brings the window back itself.
+  // A window closed to the tray or started hidden stays hidden: minimizing a
+  // hidden window would put Revu back on the taskbar.
   const minimizeForGame = async () => {
+    if (document.visibilityState === 'hidden') return;
     try {
       const cfg = await invoke('get_config');
       if (cfg?.minimizeDuringGame !== true) return;

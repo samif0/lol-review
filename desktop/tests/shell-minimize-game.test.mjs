@@ -7,12 +7,13 @@ import vm from 'node:vm';
 // live-event handler and the shared native window command.
 const outer = await readFile(new URL('../ui/shell-outer.js', import.meta.url), 'utf8');
 
-async function shellFor(config, { windowApi = true, page = 'dashboard.html' } = {}) {
+async function shellFor(config, { windowApi = true, page = 'dashboard.html', visibility = 'visible' } = {}) {
   const code = outer.slice(outer.indexOf('async function wireLiveAutoShow()'), outer.indexOf('\nwireLiveAutoShow();'));
   const calls = [], navigations = [];
   let callback;
   const win = { minimize: async () => { calls.push('minimize'); } };
   const context = vm.createContext({
+    document: { visibilityState: visibility },
     frame: { contentWindow: {} }, frameHas: name => name === page, frameGoto: target => navigations.push(target),
     getInvoke: async () => async command => { calls.push(command); if (config instanceof Error) throw config; return config; },
     getListen: async () => async (_name, listener) => { callback = listener; },
@@ -49,4 +50,16 @@ test('only the game-start transition minimizes: champ select and the reconnect r
   await shell.emit('liveState', { isGameInProgress: true });
   assert.ok(!shell.calls.includes('minimize'));
   assert.ok(!shell.calls.includes('get_config'));
+});
+
+test('a window closed to the tray or started hidden is never minimized, which would show it on the taskbar', async () => {
+  const shell = await shellFor({ minimizeDuringGame: true }, { visibility: 'hidden' });
+  await shell.emit('gameInProgress');
+  assert.ok(!shell.calls.includes('minimize'));
+  assert.deepEqual(shell.navigations, ['ingame.html'], 'the in-game page still opens for when the player brings Revu back');
+});
+
+test('the host minimizes only a visible window', async () => {
+  const main = await readFile(new URL('../electron/main.mjs', import.meta.url), 'utf8');
+  assert.match(main, /case 'minimize': if \(window\.isVisible\(\)\) window\.minimize\(\);/);
 });
