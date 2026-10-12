@@ -35,18 +35,18 @@
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
     <!-- ════ THE ONE LOUD ELEMENT — the reset ritual card ════
-         Rests as a single "Run a reset" CTA; clicking it expands the guided
+         Rests as a single "Start a reset" CTA; clicking it expands the guided
          ritual inline (emotion → before → reframe → if-then → after). Confirm
          writes via invoke('run_reset', {…}) then re-fetches the page. -->
     <div class="glass tc-primary" id="tc-primary">
       <div class="tc-primary-head">
         <div class="tc-primary-lead">
           <div class="k">Reset ritual</div>
-          <h2 id="tc-primary-h">Feeling the tilt? Run a reset.</h2>
-          <p id="tc-primary-p">Name the emotion, breathe, reframe the thought, and lock one if-then plan. A 90-second loop that measurably lowers arousal.</p>
+          <h2 id="tc-primary-h">Feeling tilted? Start a reset.</h2>
+          <p id="tc-primary-p">Name the emotion, breathe, reframe the thought, and lock one if-then plan. It takes about 3 minutes, including 80 seconds of breathing.</p>
         </div>
       </div>
-      <button class="cta tc-runbtn" id="tc-runbtn" data-action="open_ritual">Run a reset →</button>
+      <button class="cta tc-runbtn" id="tc-runbtn" data-action="open_ritual" type="button">Start a reset</button>
     </div>
 
     <!-- STAT STRIP — total resets / before→after / avg drop / top emotion. -->
@@ -71,7 +71,7 @@
     <!-- EMPTY STATE — no resets logged yet. -->
     <div class="tc-empty" id="tc-empty" hidden>
       <div class="tc-empty-h">No resets logged yet.</div>
-      <div class="tc-empty-p">Next time a game leaves you tilted, run a reset: naming the feeling and lowering it lands here so you can see the pattern over time.</div>
+      <div class="tc-empty-p">Next time a game leaves you tilted, start a reset. Each one you finish lands here so you can see the pattern over time.</div>
     </div>
 
     <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
@@ -126,7 +126,7 @@
 
   <!-- The guided reset ritual — a 5-step linear wizard (Name It / Breathe /
        Reframe / Plan / Done) built inline (in place of the primary CTA) when the
-       user clicks RUN A RESET. Exactly one step is visible at a time. JS clones
+       user clicks Start a reset. Exactly one step is visible at a time. JS clones
        this, rotates the content pools each run, runs the breathing timer, and on
        SAVE invokes run_reset; SAVE → SET INTENT also navigates to the dashboard
        Start Block. -->
@@ -155,7 +155,7 @@
       <!-- STEP 1 · BREATHE -->
       <div class="tc-step" data-step="1" hidden>
         <div class="tc-step-k">Step 2 · Breathe</div>
-        <p class="tc-step-intro">Cyclic sighing: exhale longer than you inhale. 80 seconds.</p>
+        <p class="tc-step-intro">Cyclic sighing: exhale longer than you inhale, for 80 seconds.</p>
         <div class="tc-breathe">
           <div class="tc-ring" id="tc-ring">
             <div class="tc-ring-count" id="tc-breathe-count">80</div>
@@ -211,12 +211,12 @@
           <span class="tc-slval win" id="tc-after-val">4</span>
         </div>
         <div class="tc-result" id="tc-result" hidden></div>
-        <p class="tc-why">A ~4-minute ritual can't clear cortisol; it catches you on the slope, before the next queue.</p>
+        <p class="tc-why">Slowing your breathing can help you reset before the next queue.</p>
         <div class="tc-ritual-bar">
           <button type="button" class="tc-cancelbtn" id="tc-startover" data-action="start_over">Start over</button>
           <button type="button" class="tc-savebtn-sec" id="tc-savebtn" data-action="confirm_reset">Save and close</button>
           <button type="button" class="cta cta-sm tc-saveintent" id="tc-saveintent" data-action="save_set_intent"
-                  title="Save this reset, then lock in a fresh intent before you queue again.">Save → Set intent</button>
+                  title="Save this reset, then lock in a fresh intent before you queue again.">Save and set intent</button>
         </div>
         <span class="tc-ritual-msg" id="tc-ritual-msg" hidden></span>
       </div>
