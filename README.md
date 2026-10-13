@@ -4,7 +4,7 @@ A Windows desktop app that helps you review your League of Legends games.
 
 [![Download latest release](https://img.shields.io/github/v/release/samif0/lol-review?label=Download&style=for-the-badge)](https://github.com/samif0/lol-review/releases/latest)
 
-Revu sits alongside the League client and turns each game into a short, structured review. It detects champ select and prompts you for a pre-game intention, captures your post-game stats, and walks you through a reflection: what went well, what went wrong, and what to focus on next. Objectives you set are journaled across the games where you practiced them, and linked local VODs keep your notes timestamped to the moment. Native match recording is integrated through Overwolf Electron, with live validation and recording-enabled distribution pending developer access and signing.
+Revu sits alongside the League client and turns each game into a short, structured review. It detects champ select and prompts you for a pre-game intention, captures your post-game stats, and walks you through a reflection: what went well, what went wrong, and what to focus on next. Objectives you set are journaled across the games where you practiced them, and linked local VODs keep your notes timestamped to the moment. Built-in recording uses a bundled OBS engine to capture the League window and game audio, with automatic NVIDIA, AMD or Intel hardware encoder selection. Recording is a beta feature and stays off until you enable it in Settings. Existing Ascent folder imports remain available.
 
 Rules you set (a daily game cap, a loss-streak cool-off, a curfew) can be flagged as **hard stops**: while one is tripped, Revu cancels the League client's own queue instead of just showing you a warning, and shows you the plan you wrote for that moment. An override is one click, but only after a 60-second hold, and it's counted.
 
@@ -21,6 +21,7 @@ Download the latest **`Revu-Setup.exe`** from [Releases](https://github.com/sami
 - Windows 10/11 (x64)
 - .NET 8 SDK
 - Node 22.12 or newer
+- Visual Studio C++ x64 Build Tools and the Windows SDK (for building the bundled recorder)
 - League of Legends client (for the live monitoring features)
 - Optional: `ffmpeg.exe` placed at `deps\ffmpeg.exe` to enable clip extraction
   (the release workflow downloads this automatically; for local dev, drop your
@@ -42,6 +43,12 @@ npm start
 `setup` installs and verifies the pinned Overwolf Electron runtime and builds
 the sidecar into `artifacts/desktop-build/`. **`npm start` opens your existing
 Revu database and enables normal application behavior.**
+
+Run `npm run recorder:setup` to build the pinned OBS helper and runtime under
+`artifacts/desktop-recorder/`. `npm run package:dir` includes it automatically.
+The installed GPU driver must support hardware H.264 encoding on the recording
+graphics adapter. See [recording setup and diagnostics](desktop/electron/RECORDING.md)
+for presets, recovery and the separate Practice Tool test launch.
 
 Use `npm run start:isolated` for a separate diagnostic profile and database under
 `artifacts/desktop-preview/`. It restricts operations with external effects and
@@ -93,6 +100,7 @@ desktop/
   electron/          Overwolf Electron main process and sandboxed preload
   ui/                Vanilla JavaScript pages and desktop platform adapter
   runtime/           Shared pinned runtime installation and verification
+  recorder/          Pinned OBS helper, hardware encoder policy and source bundle
   overwolf-probes/   Separate GEP, Recorder, and readiness diagnostics
 site/                 Static landing site at revu.lol
 proxy/                Cloudflare Worker that proxies Riot Match-V5
@@ -142,7 +150,12 @@ For reference, Revu keeps user data and logs under `%LOCALAPPDATA%`:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Revu's application source is MIT — see [LICENSE](LICENSE).
+
+The separate recorder helper, OBS engine and codec dependencies carry their
+own GPL and other licenses. Every recorder package includes their notices,
+original license texts and matching source. See the
+[recorder notices](desktop/recorder/THIRD-PARTY-NOTICES.txt).
 
 > *Revu isn't endorsed by Riot Games and doesn't reflect the views or opinions
 > of anyone officially involved in producing or managing League of Legends.

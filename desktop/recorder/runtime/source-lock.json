@@ -1,0 +1,205 @@
+[
+  {
+    "sha256": "d9e270d46252734aa49770fbc544125391617956266f220bd63216c834f3a522",
+    "archive": "zlib-51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf.tar.gz",
+    "name": "zlib",
+    "revision": "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf",
+    "url": "https://codeload.github.com/madler/zlib/tar.gz/51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf"
+  },
+  {
+    "sha256": "18e9d9e26565e279753aafb6823a482ef85ea9fddbfdcdbff8fd095b12dd96b6",
+    "archive": "opus-ddbe48383984d56acd9e1ab6a090c54ca6b735a6.tar.gz",
+    "name": "opus",
+    "revision": "ddbe48383984d56acd9e1ab6a090c54ca6b735a6",
+    "url": "https://codeload.github.com/xiph/opus/tar.gz/ddbe48383984d56acd9e1ab6a090c54ca6b735a6"
+  },
+  {
+    "sha256": "e6a3581e2e09679ae3bce702dcc1f310207bad69600abce3e741214bb749e370",
+    "archive": "libogg-fa80aae9d50096160f2b56ada35527d7aee3f746.tar.gz",
+    "name": "libogg",
+    "revision": "fa80aae9d50096160f2b56ada35527d7aee3f746",
+    "url": "https://codeload.github.com/xiph/ogg/tar.gz/fa80aae9d50096160f2b56ada35527d7aee3f746"
+  },
+  {
+    "sha256": "a9323a23ef91e087504152764e3e50a845daf2b469713455689ff6bdc60d3514",
+    "archive": "libvorbis-2eac96b03ff67953354cb0a649c08aa3a23267ef.tar.gz",
+    "name": "libvorbis",
+    "revision": "2eac96b03ff67953354cb0a649c08aa3a23267ef",
+    "url": "https://codeload.github.com/xiph/vorbis/tar.gz/2eac96b03ff67953354cb0a649c08aa3a23267ef"
+  },
+  {
+    "sha256": "f40e4c7e7b4025d18be17a8225f8be2f26b349715399cd36c2de573fe976dfd7",
+    "archive": "libvpx.source.zip",
+    "name": "libvpx",
+    "revision": "${PSScriptRoot}/checksums/v1.14.1.zip.sha256",
+    "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.zip"
+  },
+  {
+    "sha256": "8c7921e9f44f1dc18d51351fe353e6c86de306cc9e7e159a4d479dfc01456d6d",
+    "archive": "svt-av1-6e69def4ec283fe0b71195671245c3b768bebdef.tar.gz",
+    "name": "svt-av1",
+    "revision": "6e69def4ec283fe0b71195671245c3b768bebdef",
+    "url": "https://codeload.github.com/AOMediaCodec/SVT-AV1/tar.gz/6e69def4ec283fe0b71195671245c3b768bebdef"
+  },
+  {
+    "sha256": "19e45a5a7192d690565229983dad900e76b513a02306c12053fb9a262cbeca7d",
+    "archive": "aom-d772e334cc724105040382a977ebb10dfd393293.tar.gz",
+    "name": "aom",
+    "revision": "d772e334cc724105040382a977ebb10dfd393293",
+    "url": "https://storage.googleapis.com/aom-releases/libaom-3.13.1.tar.gz",
+    "originalArchive": {
+      "url": "https://aomedia.googlesource.com/aom/+archive/d772e334cc724105040382a977ebb10dfd393293.tar.gz",
+      "sha256": "9c53a26de9e820fe21528b370767c0179919a6106fa99e6c56993204953fb763",
+      "reason": "Gitiles generates tar/PAX timestamps at download time; the official release archive has stable bytes."
+    },
+    "sourceEquivalence": {
+      "tag": "v3.13.1",
+      "tagUrl": "https://aomedia.googlesource.com/aom/+/refs/tags/v3.13.1",
+      "gitTree": "3a742c6fb952d1ea921b282b1cab4b62ff5db863",
+      "normalizedTreeSha256": "583a94d42a23f0f9db36f52663befa2139845ad84c4cecef26f820c53df49d77",
+      "normalization": "Strip libaom-3.13.1/, leading ./ and directory trailing slash; reject duplicate paths. Sort by path; hash a compact UTF-8 JSON array of objects with keys path,type,execBits,sha256,linkTarget. execBits is mode & 0111; sha256 is file content hash or null; linkTarget is link target or null. Exclude timestamps, owner/group and non-executable permission bits.",
+      "files": 1425,
+      "directories": 80,
+      "executableFiles": 30,
+      "links": 0
+    }
+  },
+  {
+    "sha256": "580f07f08af23768074e5346bdf32c77b68b4d4e614f4998ea869b02fc29714d",
+    "archive": "x264-eaa68fad9e5d201d42fde51665f2d137ae96baf0.tar.gz",
+    "name": "x264",
+    "revision": "eaa68fad9e5d201d42fde51665f2d137ae96baf0",
+    "url": "https://codeload.github.com/mirror/x264/tar.gz/eaa68fad9e5d201d42fde51665f2d137ae96baf0"
+  },
+  {
+    "sha256": "f644fef154f7a80e7258c8baec5c510f594d720835855cddce322b924934ba36",
+    "archive": "libtheora.source.zip",
+    "name": "libtheora",
+    "revision": "${PSScriptRoot}/checksums/libtheora-1.1.1.zip.sha256",
+    "url": "https://ftp.osuosl.org/pub/xiph/releases/theora/libtheora-1.1.1.zip"
+  },
+  {
+    "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+    "archive": "lame.source.tar.gz",
+    "name": "lame",
+    "revision": "${PSScriptRoot}/checksums/lame-3.100.tar.gz.win.sha256",
+    "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz"
+  },
+  {
+    "sha256": "2686f75533bd53ec917dab6129186b124b4d105eadaa6a84e83719ac3b5ae6bd",
+    "archive": "srt.source.zip",
+    "name": "srt",
+    "revision": "${PSScriptRoot}/checksums/v1.5.2.zip.sha256",
+    "url": "https://github.com/Haivision/srt/archive/refs/tags/v1.5.2.zip"
+  },
+  {
+    "sha256": "fd725c491e4a72d7d2620adc1127355536bf01e1c8ffc874d32be42a822f8117",
+    "archive": "librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz",
+    "name": "librist",
+    "revision": "809390b3b75a259a704079d0fb4d8f1b5f7fa956",
+    "url": "https://code.videolan.org/rist/librist/-/archive/809390b3b75a259a704079d0fb4d8f1b5f7fa956/librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz",
+    "transport": "windows-curl",
+    "transportReason": "The official host rejects Node fetch with HTTP 406. Windows curl retrieves the unchanged, checksum-pinned archive."
+  },
+  {
+    "sha256": "42d72fbcca46e05a1c05a79f1cda1fedd68ba686b21adf917e05d908153645d9",
+    "archive": "nv-codec-headers-e844e5b26f46bb77479f063029595293aa8f812d.tar.gz",
+    "name": "nv-codec-headers",
+    "revision": "e844e5b26f46bb77479f063029595293aa8f812d",
+    "url": "https://codeload.github.com/FFmpeg/nv-codec-headers/tar.gz/e844e5b26f46bb77479f063029595293aa8f812d"
+  },
+  {
+    "sha256": "79ca6faacc982a49a23be0b3a58c4e57e8dc5c8f87b59605831ee77412e8a5b4",
+    "archive": "amf-afed28d37aca1938da2eedc50599bb3535a987ec.tar.gz",
+    "name": "amf",
+    "revision": "afed28d37aca1938da2eedc50599bb3535a987ec",
+    "url": "https://codeload.github.com/GPUOpen-LibrariesAndSDKs/AMF/tar.gz/afed28d37aca1938da2eedc50599bb3535a987ec",
+    "bundleArchive": "amf-headers-afed28d37aca1938da2eedc50599bb3535a987ec.zip",
+    "bundleSha256": "5b440b63c1bf55d7e12855c20709c9d826b6d0d62a8a866e94f53c60fb1dd7b3",
+    "bundlePaths": [
+      "AMF-afed28d37aca1938da2eedc50599bb3535a987ec/amf/public/include",
+      "AMF-afed28d37aca1938da2eedc50599bb3535a987ec/LICENSE.txt"
+    ]
+  },
+  {
+    "sha256": "2ae7e42343cfffb811d15cfe98b6d005f082595fcdf034d30a4ff90cfed9f9c6",
+    "archive": "FFmpeg-38b88335f99e76ed89ff3c93f877fdefce736c13.tar.gz",
+    "name": "FFmpeg",
+    "revision": "38b88335f99e76ed89ff3c93f877fdefce736c13",
+    "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/38b88335f99e76ed89ff3c93f877fdefce736c13"
+  },
+  {
+    "revision": "57495c64871d18905a0941db9196ef90bafe9a29",
+    "url": "https://codeload.github.com/curl/curl/tar.gz/57495c64871d18905a0941db9196ef90bafe9a29",
+    "archive": "curl-57495c64871d18905a0941db9196ef90bafe9a29.tar.gz",
+    "sha256": "0c7df3d2730de54d3e8eaa557c04ba60c5b68dab7a3904afd45b8de2bb72dc47",
+    "name": "curl"
+  },
+  {
+    "name": "jansson",
+    "url": "https://codeload.github.com/akheron/jansson/tar.gz/96d160df90016066d04d493d1d69639474ba4f20",
+    "revision": "96d160df90016066d04d493d1d69639474ba4f20",
+    "sha256": "71efbc7a252f538f0910df551ed87ab5c25f1246d556c38e20feac6a9a20e1d5",
+    "archive": "jansson-96d160df90016066d04d493d1d69639474ba4f20.tar.gz"
+  },
+  {
+    "name": "detours",
+    "url": "https://codeload.github.com/microsoft/detours/tar.gz/e4bfd6b03e50de46b47abfbd1e46b384f0c5f833",
+    "revision": "e4bfd6b03e50de46b47abfbd1e46b384f0c5f833",
+    "sha256": "d24f5dd1f977c33301ebd9f3be064e938a7908954df15b31235c9ca6691cb356",
+    "archive": "detours-e4bfd6b03e50de46b47abfbd1e46b384f0c5f833.tar.gz"
+  },
+  {
+    "name": "simde",
+    "url": "https://codeload.github.com/simd-everywhere/simde/tar.gz/71fd833d9666141edcd1d3c109a80e228303d8d7",
+    "revision": "71fd833d9666141edcd1d3c109a80e228303d8d7",
+    "sha256": "72b2c14a487560b7eb203795f2c2fead5c7499662e639944cca2a9bb19f09029",
+    "archive": "simde-71fd833d9666141edcd1d3c109a80e228303d8d7.tar.gz"
+  },
+  {
+    "name": "uthash",
+    "url": "https://codeload.github.com/troydhanson/uthash/tar.gz/e493aa90a2833b4655927598f169c31cfcdf7861",
+    "revision": "e493aa90a2833b4655927598f169c31cfcdf7861",
+    "sha256": "2ddb6665e82ffd7e87a27b97081bddf8f09520b7a2cfd6ab011541e7cde991fa",
+    "archive": "uthash-e493aa90a2833b4655927598f169c31cfcdf7861.tar.gz"
+  },
+  {
+    "name": "wil",
+    "url": "https://codeload.github.com/microsoft/wil/tar.gz/f0c6a81c0c9a4b23b6801f40554b8bec425a83b4",
+    "revision": "f0c6a81c0c9a4b23b6801f40554b8bec425a83b4",
+    "sha256": "07b1bbfddb508b9aa732b37636fb187c8dcd31f5e4d185844f46887c94e8b2e0",
+    "archive": "wil-f0c6a81c0c9a4b23b6801f40554b8bec425a83b4.tar.gz"
+  },
+  {
+    "name": "nlohmann-json",
+    "url": "https://codeload.github.com/nlohmann/json/tar.gz/9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03",
+    "revision": "9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03",
+    "sha256": "0dbc5e40a01ff142e7e68c03e85247a4dcede2f592d12d3677dee3664d17975a",
+    "archive": "nlohmann-json-9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03.tar.gz"
+  },
+  {
+    "name": "mbedtls",
+    "url": "https://codeload.github.com/Mbed-TLS/mbedtls/tar.gz/c765c831e5c2a0971410692f92f7a81d6ec65ec2",
+    "revision": "c765c831e5c2a0971410692f92f7a81d6ec65ec2",
+    "sha256": "0f050462eabf814c7e3b37825efc4d8dd1caf6a3b3eeb350705ad818d6ca770a",
+    "archive": "mbedtls-c765c831e5c2a0971410692f92f7a81d6ec65ec2.tar.gz"
+  },
+  {
+    "archive": "mbedtls-framework-2a3e2c5ea053c14b745dbdf41f609b1edc6a72fa.tar.gz",
+    "name": "mbedtls-framework",
+    "url": "https://codeload.github.com/Mbed-TLS/mbedtls-framework/tar.gz/2a3e2c5ea053c14b745dbdf41f609b1edc6a72fa",
+    "sha256": "f5934ffcad4c32a95f9281f0f95908eb471ee34df721fb9d6ad4adb9567f6b61",
+    "revision": "2a3e2c5ea053c14b745dbdf41f609b1edc6a72fa",
+    "licenseDirectory": "mbedtls"
+  },
+  {
+    "url": "https://codeload.github.com/intel/libvpl/tar.gz/025d43d086a3e663184cb49febe86152bf05409f",
+    "linkage": "static dispatcher, Windows Intel GPU driver supplies encoding runtime",
+    "revision": "025d43d086a3e663184cb49febe86152bf05409f",
+    "sha256": "5314d04c5894fe0b464d1afe1c356d34a4685e9e8e08fa30ddff3392d0e7de41",
+    "version": "v2.14.0",
+    "name": "vpl",
+    "archive": "vpl-025d43d086a3e663184cb49febe86152bf05409f.tar.gz",
+    "recipe": "deps.windows/70-vpl.ps1"
+  }
+]

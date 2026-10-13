@@ -6,7 +6,7 @@ namespace Revu.Core.Lcu;
 public sealed record RecordingGameContext(long? GameId, bool IsGameInProgress, double? GameTimeSeconds,
     long? LastEndedGameId = null, DateTimeOffset? ObservedAt = null,
     double? LastEndedGameTimeSeconds = null, DateTimeOffset? LastEndedObservedAt = null,
-    DateTimeOffset? LastEndedConfirmedAt = null)
+    DateTimeOffset? LastEndedConfirmedAt = null, int? QueueId = null, string? Phase = null)
 {
     public static RecordingGameContext Idle { get; } = new(null, false, null);
 }

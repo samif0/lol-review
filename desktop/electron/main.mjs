@@ -10,6 +10,7 @@ import { registerProtocols } from './protocols.mjs';
 import { createCommandGate, createQuitHandler, shutdownOwnedApp } from './shutdown.mjs';
 import { RecordingService } from './recording-service.mjs';
 import { createOverwolfRecorder } from './recorder-adapter.mjs';
+import { createLibobsRecorder } from './libobs-recorder.mjs';
 import { createBackgroundController } from './background.mjs';
 import { createAppearanceController, readWindowAppearance, windowPalette } from './appearance.mjs';
 import { saveNarration } from './narration.mjs';
@@ -87,13 +88,35 @@ async function shutdown() {
     }, afterShutdown: () => afterShutdown?.() });
 }
 async function attachRecorder() {
-  if (!recordingPrepared || !recording || !recorderReady || recorderAttached || configuration?.isolated || quitting) return;
+  if (!recordingPrepared || !recording || recorderAttached || configuration?.isolated || quitting) return;
+  const overwolfRecorder = declaredPackages(app.getAppPath()).includes('recorder');
+  if (overwolfRecorder && !recorderReady) return;
   recorderAttached = true;
   try {
-    const driver = createOverwolfRecorder({ recorder: app.overwolf.packages.recorder,
+    if (!overwolfRecorder) await recording.prepareProvider('libobs');
+    const callbacks = {
       shouldDiscover: () => recording.settings.enabled || !!recording.current,
-      onGame: game => recording.onGame(game), onUnavailable: () => recording.unavailable() });
+      onGame: game => recording.onGame(game), onUnavailable: () => recording.unavailable(),
+      onDetectionIssue: code => hostLog.warn(`Recording detection: ${code}`),
+    };
+    const directory = configuration.recorderDirectory;
+    const driver = overwolfRecorder
+      ? createOverwolfRecorder({ ...callbacks, recorder: app.overwolf.packages.recorder })
+      : createLibobsRecorder({ ...callbacks, helperPath: path.join(directory, 'revu-recorder.exe'),
+        recordingTest: configuration.recordingTest,
+        ffmpegPath: path.join(directory, 'revu-media-ffmpeg.exe'), ffprobePath: path.join(directory, 'revu-media-ffprobe.exe'),
+        onUnavailable: code => {
+          hostLog.warn(`Built-in recording stopped after a helper failure: ${code}`);
+          recording.unavailable(code);
+          // Persist opt-out so restarting Revu during the same game cannot
+          // automatically repeat a fault. Enabling again is a deliberate act.
+          if (!quitting) void recording.saveSettings({ ...recording.settings, enabled: false })
+            .catch(error => hostLog.error('Recording failure opt-out could not be saved', error));
+        },
+        getContext: () => backend.request('/api/recording/context', { timeoutMs: 2500 }),
+        log: line => hostLog.info(`Recorder: ${line.trim()}`) });
     await recording.attachDriver(driver);
+    if (!recording.available) hostLog.warn('The bundled recorder is unavailable; recording remains off.');
   } catch { recording.unavailable(); }
 }
 const relaunch = () => app.relaunch({ args: relaunchArgs(process.argv) });
@@ -274,22 +297,24 @@ async function start() {
   progress.finish();
   if (quitting) return;
   recording = new RecordingService({ root: path.join(dataRoot, 'Revu', 'Recordings'), profile, backend, isolated,
+    recordingTest: configuration.recordingTest,
     onChange: value => {
       if (window && !window.isDestroyed()) window.webContents.send('revu:lcu-event', { type: 'recordingStatus', payload: value });
     } });
-  // The ordinary build declares no gaming packages: the dormant recorder does no
-  // filesystem work and get_recording_status keeps answering unavailable.
-  if (declaredPackages(app.getAppPath()).includes('recorder')) {
+  // Native capture is owned by a separate libobs helper. Isolated previews
+  // never probe or launch it; the explicit Overwolf launcher stays diagnostic.
+  if (!isolated) {
     try { await recording.initialize(); recordingPrepared = true; }
     catch { recording.publish('failed', 'The recordings folder is unavailable. Your other Revu features are still available.'); }
-    void attachRecorder();
-  } else recording.publish('unavailable', 'Recording is not available in this build yet.');
+    await attachRecorder();
+  } else recording.publish('unavailable', 'Recording is unavailable in this isolated preview.');
   // Revu's network policy belongs to its own session; it must not intercept
   // runtime-owned consent or package-manager windows in the default session.
   const appSession = session.fromPartition('persist:revu-ui');
   registerProtocols({ protocol: appSession.protocol, session: appSession, uiDirectory, media });
   window = new BrowserWindow({ width: 1600, height: 1000, minWidth: 980, minHeight: 640,
-    frame: false, show: false, title: isolated ? 'Revu (isolated preview)' : 'Revu', icon: iconPath,
+    frame: false, show: false, title: configuration.recordingTest ? 'Revu recording test'
+      : isolated ? 'Revu (isolated preview)' : 'Revu', icon: iconPath,
     backgroundColor: windowPalette(savedAppearance, { dark: nativeTheme.shouldUseDarkColors }).background,
     webPreferences: { session: appSession, preload: path.join(app.getAppPath(), 'electron/preload.cjs'), contextIsolation: true,
       additionalArguments: isolated ? ['--revu-isolated'] : [], sandbox: true, devTools: !app.isPackaged,
@@ -326,7 +351,7 @@ async function start() {
   const config = await readLaunchConfig(route => backend.request(route), { log: hostLog });
   if (quitting || recovering) return; // A backend that stopped meanwhile already asked how to recover.
   await native('set_window_resolution', { resolution: config.windowResolution || 'default' });
-  await window.loadURL(`${APP_ORIGIN}/index.html`);
+  await window.loadURL(configuration.recordingTest ? shellUrl(APP_ORIGIN, 'settings.html') : `${APP_ORIGIN}/index.html`);
   if (quitting) return;
   if (smoke) {
     window.showInactive(); // Exercise actual painting without stealing focus.

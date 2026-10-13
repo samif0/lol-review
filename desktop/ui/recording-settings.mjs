@@ -1,9 +1,7 @@
 import { getInvoke } from './platform/index.mjs';
 
-// Product release is independent of whether this machine has Recorder access.
-// Developer recorder diagnostics keep their existing native API path.
-export const BUILT_IN_RECORDING_AVAILABLE = false;
-const COMING_SOON_MESSAGE = 'Automatic match recording is coming in a future update. Use Ascent recordings above for now.';
+const UNAVAILABLE_MESSAGE = 'Built-in recording is unavailable here. You can still connect an external recordings folder above.';
+const ENCODERS = Object.freeze({ obs_nvenc_h264_tex: 'NVIDIA NVENC', h264_texture_amf: 'AMD AMF', obs_qsv11_v2: 'Intel Quick Sync' });
 
 const STATES = Object.freeze({ disabled: 'Recording off', unavailable: 'Recording unavailable', idle: 'Ready for your next match',
   starting: 'Starting recording', recording: 'Recording your match', stopping: 'Stopping recording', finalizing: 'Saving your match',
@@ -13,6 +11,12 @@ export function recordingStatusText(status) {
   const heading = STATES[status?.state] || 'Recording status unavailable';
   const message = typeof status?.message === 'string' ? status.message.trim() : '';
   return message ? `${heading}. ${message}` : heading;
+}
+export function recordingEncoderText(status) {
+  const name = id => Object.hasOwn(ENCODERS, id) ? ENCODERS[id] : null;
+  const selected = name(status?.selectedEncoder), last = name(status?.lastEncoder);
+  if (!status?.available || !selected) return 'A supported NVIDIA, AMD or Intel hardware encoder is required.';
+  return `Automatically selected: ${selected}.${last && last !== selected ? ` Last recording used: ${last}.` : ''}`;
 }
 
 // The view owns unsaved edits. Polling updates status only, so an in-flight read
@@ -55,8 +59,8 @@ export function createRecordingSettingsModel({ invoke, renderStatus, renderRecor
 export async function initializeRecordingSettings({ document = globalThis.document, scope = globalThis.window } = {}) {
   const el = id => document.getElementById(id);
   if (!el('recording-settings')) return;
-  if (el('recording-coming-soon')) el('recording-coming-soon').hidden = BUILT_IN_RECORDING_AVAILABLE;
-  if (el('recording-controls')) el('recording-controls').hidden = !BUILT_IN_RECORDING_AVAILABLE;
+  let available = false;
+  if (el('recording-controls')) el('recording-controls').hidden = true;
   let disposed = false, polling = false, savingRecording = false, model = null, timer = null, onVisibility = null;
   let backgroundValue = null;
   scope.addEventListener('pagehide', () => {
@@ -76,23 +80,37 @@ export async function initializeRecordingSettings({ document = globalThis.docume
     ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']
       .forEach(id => { el(id).disabled = true; });
     setToggle('recordingEnabled', false);
-    text('recording-status', COMING_SOON_MESSAGE);
+    text('recording-status', UNAVAILABLE_MESSAGE);
   };
-  if (!BUILT_IN_RECORDING_AVAILABLE) lockRecording();
+  lockRecording();
   let invoke;
   try { invoke = await getInvoke(); } catch { /* A broken host must leave editing unavailable. */ }
   if (disposed) return;
   if (!invoke) {
     controls.forEach(id => { el(id).disabled = true; });
-    text('recording-status', BUILT_IN_RECORDING_AVAILABLE
-      ? 'Open the Revu desktop app to manage automatic recording.' : COMING_SOON_MESSAGE);
+    text('recording-status', 'Open the Revu desktop app to manage automatic recording.');
     text('background-settings-status', 'Background settings are available in the Revu desktop app.');
     return;
   }
   model = createRecordingSettingsModel({ invoke,
-    renderStatus: value => BUILT_IN_RECORDING_AVAILABLE ? text('recording-status', recordingStatusText(value)) : lockRecording(),
+    renderStatus: value => {
+      available = value?.available === true;
+      if (el('recording-controls')) el('recording-controls').hidden = !available;
+      if (el('recording-coming-soon')) el('recording-coming-soon').textContent = available
+        ? value?.recordingTest ? 'Recording test' : 'Beta' : 'Unavailable';
+      if (el('recordingEnabled-label')) el('recordingEnabled-label').textContent = value?.recordingTest
+        ? 'Record my test game' : 'Record my ranked Solo/Duo matches';
+      if (el('recording-scope-help')) el('recording-scope-help').textContent = value?.recordingTest
+        ? 'Start a Practice Tool game in Borderless mode. This launch saves a test video separately from your normal match history.'
+        : 'Capture the League window and game audio. Use Borderless mode. Your desktop and microphone are excluded.';
+      if (el('recording-encoder')) el('recording-encoder').textContent = recordingEncoderText(value);
+      if (!available) lockRecording();
+      else ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']
+        .forEach(id => { el(id).disabled = false; });
+      text('recording-status', value?.message ? recordingStatusText(value) : UNAVAILABLE_MESSAGE);
+    },
     renderRecording: value => {
-      if (!BUILT_IN_RECORDING_AVAILABLE) { lockRecording(); return; }
+      if (!available) return;
       if (!value) return;
       setToggle('recordingEnabled', value.enabled);
       el('recordingPreset').value = value.preset;
@@ -112,7 +130,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   });
   const save = async (kind, operation) => {
     const button = el(`save-${kind}-settings`), status = `${kind}-settings-status`;
-    if (button.disabled || (kind === 'recording' && !BUILT_IN_RECORDING_AVAILABLE)) return;
+    if (button.disabled || (kind === 'recording' && !available)) return;
     const fields = kind === 'recording' ? ['recordingEnabled', 'recordingPreset'] : ['closeToTray', 'startWithWindows'];
     fields.forEach(id => { el(id).disabled = true; });
     button.disabled = true; text(status, 'Saving…');
@@ -120,8 +138,8 @@ export async function initializeRecordingSettings({ document = globalThis.docume
     catch (error) { if (!disposed) text(status, error?.message || 'Settings could not be saved. Try again.'); }
     finally {
       if (!disposed) {
-        button.disabled = false;
-        fields.forEach(id => { el(id).disabled = false; });
+        button.disabled = kind === 'recording' && !available;
+        fields.forEach(id => { el(id).disabled = kind === 'recording' && !available; });
         if (kind === 'background') {
           el('closeToTray').disabled = backgroundValue?.trayAvailable === false;
           el('startWithWindows').disabled = backgroundValue?.startupAvailable === false;
@@ -138,12 +156,12 @@ export async function initializeRecordingSettings({ document = globalThis.docume
     closeToTray: toggleValue('closeToTray'), startWithWindows: toggleValue('startWithWindows'),
   })));
   el('open-recordings-folder').addEventListener('click', async () => {
-    if (!BUILT_IN_RECORDING_AVAILABLE || el('open-recordings-folder').disabled) return;
+    if (!available || el('open-recordings-folder').disabled) return;
     try { await invoke('open_recordings_folder'); }
     catch (error) { text('recording-settings-status', error?.message || 'The recordings folder could not be opened.'); }
   });
   await model.load();
-  if (disposed || !BUILT_IN_RECORDING_AVAILABLE) return;
+  if (disposed || !available) return;
   const poll = async () => {
     if (disposed || document.hidden || polling || savingRecording) return;
     polling = true;

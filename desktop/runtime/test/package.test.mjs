@@ -6,6 +6,15 @@ import path from 'node:path';
 import asar from '@electron/asar';
 import builderConfig from '../../electron-builder.config.mjs';
 import { activatePackage, bundledFonts, isAppFile, readFuseWire, requiredFuses, stageApp, verifyFuses, verifyPackage } from '../../scripts/package.mjs';
+import { encoderBinaryPins, encoderDependencyProvenance, isRecorderFile, obsPin, recorderFiles, recorderManifest,
+  recorderModules, recorderSourceLock, requiredRecorderFiles, verifyEncoderBinaryPins, verifyEncoderSourceProvenance,
+  verifyRecorderRuntime } from '../../recorder/runtime/libobs.mjs';
+import { writeSourceZip } from '../../recorder/scripts/source-zip.mjs';
+import { downloadPinned, locateRecorderCrt } from '../../recorder/scripts/setup.mjs';
+import { recorderCrtBinaries } from '../../recorder/runtime/libobs.mjs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 
 async function scratch(t) {
   const base = path.resolve(os.tmpdir());
@@ -29,7 +38,7 @@ function fusedExecutable(states = '00001100') {
 }
 const FONT_FILES = [...bundledFonts, 'ui/fonts/OFL-SourceSerif4.txt', 'ui/fonts/OFL-Geist.txt'];
 async function fixture(root) {
-  for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/branding/revu.ico',
+  for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/libobs-recorder.mjs', 'electron/branding/revu.ico',
     'runtime/overwolf.mjs', 'ui/index.html', 'ui/app.js', 'ui/appearance.css', 'ui/platform/index.mjs',
     'ui/sample-dashboard.json', ...FONT_FILES]) await file(root, name);
   await file(root, 'package.json', JSON.stringify({ name: 'revu-desktop', version: '3.10.1',
@@ -51,7 +60,7 @@ test('staging copies the canonical app and rejects tests, output, private files 
   assert.ok(copied.includes('ui/appearance.css'));
   assert.ok(copied.includes('ui/sample-dashboard.json'));
   assert.equal(copied.some(name => /test|private|credentials|node_modules|dist|overwolf-probes/.test(name)), false);
-  assert.deepEqual((await readdir(path.join(stage, 'electron'))).sort(), ['branding', 'main.mjs', 'preload.cjs']);
+  assert.deepEqual((await readdir(path.join(stage, 'electron'))).sort(), ['branding', 'libobs-recorder.mjs', 'main.mjs', 'preload.cjs']);
   assert.equal(await readFile(path.join(stage, 'ui/app.js'), 'utf8'), 'fixture');
 });
 
@@ -111,7 +120,10 @@ test('layout verification requires self-contained sidecar next to the executable
   await file(packaged, 'revu-desktop.exe', fusedExecutable());
   const archive = path.join(packaged, 'resources/app.asar');
   await asar.createPackage(source, archive);
-  await verifyPackage(packaged);
+  await assert.rejects(verifyPackage(packaged), /ENOENT/); // An app without its recorder cannot ship.
+  let recorderVerified;
+  await verifyPackage(packaged, { verifyRecorder: async directory => { recorderVerified = directory; } });
+  assert.equal(recorderVerified, path.join(packaged, 'recorder'));
   await file(source, 'ui/private.json');
   await asar.createPackage(source, archive);
   await assert.rejects(verifyPackage(packaged), /Unexpected packaged app file/);
@@ -155,4 +167,219 @@ test('file policy excludes traversal and alternate separators', () => {
     'ui/platform/OFL-Geist.txt']) assert.equal(isAppFile(name), false, name);
   for (const name of ['ui/fonts/geist-mono.woff2', 'ui/fonts/OFL-GeistMono.txt', 'ui/appearance.css'])
     assert.equal(isAppFile(name), true, name);
+});
+
+async function recorderFixture(root) {
+  for (const name of requiredRecorderFiles) await file(root, name, name.endsWith('.exe') ? 'MZ fixture' : 'fixture');
+  const manifest = await recorderManifest(root, { sources: recorderSourceLock });
+  await file(root, 'runtime-manifest.json', JSON.stringify(manifest));
+  return manifest;
+}
+
+test('recorder policy allows only bundled modules and rejects injection, UI and third-party plugin assets', () => {
+  assert.deepEqual(recorderModules, ['win-wasapi', 'obs-ffmpeg', 'obs-nvenc', 'obs-qsv11']);
+  for (const name of ['data/obs-plugins/win-capture/graphics-hook64.dll',
+    'data/obs-plugins/win-capture/inject-helper64.exe', 'data/obs-plugins/win-capture/get-graphics-offsets64.exe',
+    'data/obs-plugins/win-capture/obs-vulkan64.json', 'obs64.exe', 'Qt6Core.dll',
+    'obs-plugins/64bit/win-capture.dll', 'data/obs-plugins/win-capture/compatibility.json',
+    'data/obs-plugins/win-capture/locale/en-US.ini', 'libcurl.dll', 'vpl.dll', 'libmfxhw64.dll', 'amfrt64.dll',
+    'obs-plugins/64bit/obs-browser.dll', 'obs-plugins/64bit/obs-websocket.dll', 'obs-plugins/64bit/private.dll',
+    'data/obs-plugins/win-capture/update.exe', '../obs.dll', 'obs-plugins\\64bit\\win-capture.dll',
+    'obs-plugins//64bit/win-capture.dll', 'data/libobs/.private.effect']) assert.equal(isRecorderFile(name), false, name);
+  for (const name of ['revu-recorder.exe', 'obs.dll', 'revu-media-ffprobe.exe', 'data/libobs/default.effect',
+    'obs-plugins/64bit/win-wasapi.dll', 'data/obs-plugins/win-wasapi/locale/en-US.ini',
+    'obs-plugins/64bit/obs-qsv11.dll', 'obs-qsv-test.exe', 'obs-amf-test.exe', 'data/obs-plugins/obs-qsv11/locale/en-US.ini'])
+    assert.equal(isRecorderFile(name), true, name);
+});
+
+test('recorder verification requires the helper, matching source archives and an exact file inventory', async t => {
+  const root = await scratch(t), runtime = path.join(root, 'recorder');
+  await recorderFixture(runtime);
+  assert.ok((await recorderFiles(runtime)).includes('revu-recorder.exe'));
+  // A manifest cannot manufacture trust for a fake upstream source archive.
+  await assert.rejects(verifyRecorderRuntime(runtime), /Recorder source checksum mismatch/);
+  await rm(path.join(runtime, 'revu-recorder.exe'));
+  await assert.rejects(verifyRecorderRuntime(runtime), /Missing recorder runtime file: revu-recorder.exe/);
+  await file(runtime, 'revu-recorder.exe', 'MZ fixture');
+  await rm(path.join(runtime, `sources/${recorderSourceLock[0].archive}`));
+  await assert.rejects(verifyRecorderRuntime(runtime), /Missing recorder runtime file: sources/);
+});
+
+test('recorder manifests reject edited binaries, stale OBS versions and forbidden hooks', async t => {
+  const root = await scratch(t), runtime = path.join(root, 'recorder');
+  const manifest = await recorderFixture(runtime);
+  assert.equal(manifest.obsVersion, obsPin.version);
+  await file(runtime, 'obs.dll', 'altered');
+  await assert.rejects(verifyRecorderRuntime(runtime), /integrity mismatch: obs.dll/);
+  await file(runtime, 'obs.dll', 'fixture');
+  manifest.obsVersion = '31.0.0';
+  await file(runtime, 'runtime-manifest.json', JSON.stringify(manifest));
+  await assert.rejects(verifyRecorderRuntime(runtime), /does not match the pinned OBS/);
+  await file(runtime, 'data/obs-plugins/win-capture/graphics-hook64.dll');
+  await assert.rejects(verifyRecorderRuntime(runtime), /Unexpected recorder runtime file/);
+});
+
+test('recorder runtime junctions cannot escape the package', async t => {
+  const root = await scratch(t), runtime = path.join(root, 'recorder'), external = path.join(root, 'external');
+  await recorderFixture(runtime); await file(external, 'private.dll', 'private');
+  await symlink(external, path.join(runtime, 'private'), process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(recorderFiles(runtime), /must use real directories|rejects aliases/);
+});
+
+test('Intel and AMD packaging requires their adapter helpers, QSV plugin and matching oneVPL source/license', async t => {
+  const root = await scratch(t), runtime = path.join(root, 'recorder');
+  await recorderFixture(runtime);
+  const source = recorderSourceLock.find(item => item.name === 'vpl');
+  assert.equal(source.version, encoderDependencyProvenance.oneVpl.version);
+  assert.equal(source.revision, encoderDependencyProvenance.oneVpl.revision);
+  assert.equal(source.sha256, encoderDependencyProvenance.oneVpl.sourceSha256);
+  assert.equal(source.recipe, encoderDependencyProvenance.oneVpl.recipe);
+  assert.equal(source.archive, encoderDependencyProvenance.oneVpl.sourceArchive);
+  for (const relative of ['obs-plugins/64bit/obs-qsv11.dll', 'obs-qsv-test.exe', 'obs-amf-test.exe',
+    'data/obs-plugins/obs-qsv11/locale/en-US.ini', 'licenses/dependencies/vpl/LICENSE.txt', `sources/${source.archive}`]) {
+    const original = await readFile(path.join(runtime, relative));
+    await rm(path.join(runtime, relative));
+    await assert.rejects(verifyRecorderRuntime(runtime), error => error.message === `Missing recorder runtime file: ${relative}`);
+    await file(runtime, relative, original);
+  }
+});
+
+test('encoder binary pins reject a rewritten helper or QSV plugin even when a manifest claims its new hash', () => {
+  const files = Object.fromEntries(Object.entries(encoderBinaryPins).map(([relative, sha256]) => [relative, { sha256 }]));
+  verifyEncoderBinaryPins(files);
+  for (const relative of Object.keys(encoderBinaryPins)) {
+    const altered = structuredClone(files);
+    altered[relative].sha256 = '0'.repeat(64);
+    assert.throws(() => verifyEncoderBinaryPins(altered), error => error.message === `Pinned encoder binary checksum mismatch: ${relative}`);
+    delete altered[relative];
+    assert.throws(() => verifyEncoderBinaryPins(altered), /Pinned encoder binary checksum mismatch/);
+  }
+});
+
+test('oneVPL source provenance cannot drift independently from the pinned QSV binary dependency', () => {
+  verifyEncoderSourceProvenance();
+  assert.throws(() => verifyEncoderSourceProvenance(recorderSourceLock.filter(item => item.name !== 'vpl')), /does not match the pinned encoder binaries/);
+  for (const field of ['version', 'revision', 'archive', 'sha256', 'recipe']) {
+    const changed = structuredClone(recorderSourceLock);
+    changed.find(item => item.name === 'vpl')[field] = 'incorrect';
+    assert.throws(() => verifyEncoderSourceProvenance(changed), /does not match the pinned encoder binaries/);
+  }
+});
+
+test('source subsets preserve exact bytes and produce reproducible ZIPs readable by an independent decoder',
+  { skip: process.platform !== 'win32' }, async t => {
+    const root = await scratch(t), first = path.join(root, 'first'), second = path.join(root, 'second');
+    await file(first, 'include/example.h', '/* header */\n'); await file(first, 'LICENSE.txt', 'Original license\n');
+    await file(second, 'LICENSE.txt', 'Original license\n'); await file(second, 'include/example.h', '/* header */\n');
+    const archive = path.join(root, 'first.zip'), repeated = path.join(root, 'second.zip');
+    await writeSourceZip(first, archive); await writeSourceZip(second, repeated);
+    assert.deepEqual(await readFile(archive), await readFile(repeated));
+    assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'include/example.h'], { encoding: 'utf8', windowsHide: true }), '/* header */\n');
+    assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'LICENSE.txt'], { encoding: 'utf8', windowsHide: true }), 'Original license\n');
+  });
+
+test('pinned source downloads verify incoming bytes and stale caches without changing the expected checksum', async t => {
+  const root = await scratch(t), archive = path.join(root, 'source.tar.gz');
+  const original = Buffer.from('Immutable source archive fixture\n');
+  const sha256 = createHash('sha256').update(original).digest('hex');
+  let body = original, requests = 0;
+  const server = createServer((request, response) => { requests++; response.end(body); });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}/source.tar.gz`;
+  await downloadPinned(url, archive, sha256);
+  assert.deepEqual(await readFile(archive), original);
+  await downloadPinned(url, archive, sha256);
+  assert.equal(requests, 1, 'a valid cache is accepted only after verifying its bytes');
+  await writeFile(archive, 'modified cache');
+  await downloadPinned(url, archive, sha256);
+  assert.equal(requests, 2);
+  assert.deepEqual(await readFile(archive), original);
+  await rm(archive);
+  body = Buffer.from('altered upstream archive');
+  await assert.rejects(downloadPinned(url, archive, sha256), /Recorder dependency checksum mismatch/);
+  await assert.rejects(readFile(archive), { code: 'ENOENT' });
+  assert.equal(requests, 3, 'a checksum mismatch must not retry with another source or hash');
+  await assert.rejects(downloadPinned(url, archive, sha256, { transport: 'unsupported' }), /Unsupported recorder download transport/);
+});
+
+test('Windows source transport preserves verified caches and rejects HTTP delivery',
+  { skip: process.platform !== 'win32' }, async t => {
+    const root = await scratch(t), archive = path.join(root, 'source.tar.gz');
+    const original = Buffer.from('Verified Windows source archive fixture\n');
+    const sha256 = createHash('sha256').update(original).digest('hex');
+    await writeFile(archive, original);
+    const options = { transport: 'windows-curl' };
+    const url = 'http://127.0.0.1:1/source.tar.gz';
+    await downloadPinned(url, archive, sha256, options);
+    assert.deepEqual(await readFile(archive), original);
+    await writeFile(archive, 'modified cache');
+    await assert.rejects(downloadPinned(url, archive, sha256, options), /curl.exe failed.*Protocol.*disabled/s);
+    assert.equal(await readFile(archive, 'utf8'), 'modified cache');
+    await rm(archive);
+    await assert.rejects(downloadPinned(url, archive, sha256, options), /curl.exe failed.*Protocol.*disabled/s);
+    await assert.rejects(readFile(archive), { code: 'ENOENT' });
+  });
+
+async function crtFixture(redist, version, family, marker, { architecture = 'x64', missing = [] } = {}) {
+  const directory = path.join(redist, version, architecture, family);
+  for (const name of recorderCrtBinaries) {
+    if (!missing.includes(name)) await file(directory, name, marker);
+  }
+  return directory;
+}
+
+test('CRT discovery supports legacy and newer Visual Studio families and chooses the newest complete x64 directory', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  const legacy = await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'legacy');
+  assert.equal(await locateRecorderCrt(redist), legacy);
+  const latest = await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'latest');
+  await crtFixture(redist, '14.9.99999', 'Microsoft.VC199.CRT', 'numerically older');
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC143.CRT', 'older family');
+  await crtFixture(redist, '99.0.0', 'Microsoft.VC199.CRT', 'wrong architecture', { architecture: 'arm64' });
+  assert.equal(await locateRecorderCrt(redist), latest);
+  assert.equal(await readFile(path.join(latest, recorderCrtBinaries[0]), 'utf8'), 'latest');
+});
+
+test('CRT discovery falls back to one complete version without mixing missing or non-file DLLs', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  const fallback = await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'complete old');
+  const missing = recorderCrtBinaries[0];
+  const incomplete = await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'incomplete new', { missing: [missing] });
+  assert.equal(await locateRecorderCrt(redist), fallback);
+  await mkdir(path.join(incomplete, missing));
+  assert.equal(await locateRecorderCrt(redist), fallback);
+  for (const name of recorderCrtBinaries)
+    assert.equal(await readFile(path.join(await locateRecorderCrt(redist), name), 'utf8'), 'complete old');
+});
+
+test('compiled helpers cannot fall back to an older CRT minor while same-minor servicing builds remain valid', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'old compiler family');
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'incomplete new', { missing: [recorderCrtBinaries[0]] });
+  await assert.rejects(locateRecorderCrt(redist, { minimumToolVersion: '14.51.36260' }), /compatible with MSVC 14\.51\.36260/);
+  const sameMinor = await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'complete same minor');
+  assert.equal(await locateRecorderCrt(redist, { minimumToolVersion: '14.51.36260' }), sameMinor);
+  await assert.rejects(locateRecorderCrt(redist, { minimumToolVersion: 'invalid' }), /Invalid MSVC tool version/);
+});
+
+test('CRT discovery refuses incomplete sets even when other versions and x86 collectively contain all DLLs', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'partial first', { missing: [recorderCrtBinaries[0]] });
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'partial second', { missing: [recorderCrtBinaries[1]] });
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'wrong architecture', { architecture: 'x86' });
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.DebugCRT', 'wrong family');
+  await assert.rejects(locateRecorderCrt(redist), /No complete x64 Visual Studio CRT redistributable/);
+  const empty = path.join(root, 'empty'); await mkdir(empty);
+  await assert.rejects(locateRecorderCrt(empty), /No complete x64 Visual Studio CRT redistributable/);
+});
+
+test('CRT discovery rejects a designated family junction instead of reading outside its redist tree', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'complete old');
+  const external = await crtFixture(path.join(root, 'external'), '14.51.36231', 'Microsoft.VC145.CRT', 'external');
+  const x64 = path.join(redist, '14.51.36231/x64'); await mkdir(x64, { recursive: true });
+  await symlink(external, path.join(x64, 'Microsoft.VC145.CRT'), process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(locateRecorderCrt(redist), /rejects directory aliases/);
+  assert.equal(await readFile(path.join(external, recorderCrtBinaries[0]), 'utf8'), 'external');
 });

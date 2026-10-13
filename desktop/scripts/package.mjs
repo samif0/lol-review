@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 import asar from '@electron/asar';
 import config from '../electron-builder.config.mjs';
 import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime/overwolf.mjs';
+import { verifyRecorderRuntime } from '../recorder/runtime/libobs.mjs';
+import { setupRecorder } from '../recorder/scripts/setup.mjs';
 
 const uiExtensions = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.webp', '.ico', '.woff', '.woff2', '.ttf']);
 // The bundled faces and the stylesheet that declares them ship in every build.
 export const bundledFonts = Object.freeze(['source-serif-4-roman', 'source-serif-4-italic', 'instrument-sans',
   'geist', 'geist-mono'].map(name => `ui/fonts/${name}.woff2`));
-const requiredAppFiles = ['package.json', 'electron/main.mjs', 'electron/preload.cjs',
+const requiredAppFiles = ['package.json', 'electron/main.mjs', 'electron/preload.cjs', 'electron/libobs-recorder.mjs',
   'electron/branding/revu.ico', 'ui/index.html', 'ui/platform/index.mjs', 'runtime/overwolf.mjs',
   'ui/appearance.css', ...bundledFonts];
 // Electron fuse wire v1 (@electron/fuses): sentinel, version byte, length byte, then one
@@ -90,7 +92,7 @@ export async function verifyFuses(executable) {
   }
 }
 
-export async function verifyPackage(directory) {
+export async function verifyPackage(directory, { verifyRecorder = verifyRecorderRuntime } = {}) {
   for (const relative of ['revu-desktop.exe', 'Revu.Sidecar.exe', 'Revu.Sidecar.dll',
     'Revu.Sidecar.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'resources/app.asar', 'resources/branding/revu.ico']) {
     if (!(await lstat(path.join(directory, relative))).isFile()) throw new Error(`Missing packaged file: ${relative}`);
@@ -115,6 +117,7 @@ export async function verifyPackage(directory) {
   if (manifest.main !== 'electron/main.mjs' || manifest.overwolf?.packages?.length !== 0)
     throw new Error('Packaged manifest changed its entry or enabled gaming packages');
   await verifyFuses(path.join(directory, 'revu-desktop.exe'));
+  await verifyRecorder(path.join(directory, 'recorder'));
 }
 
 function run(executable, args, cwd, env) {
@@ -156,6 +159,9 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
   if (installedBuilder.version !== manifest.devDependencies?.['@overwolf/ow-electron-builder'])
     throw new Error('Installed Overwolf builder does not match the desktop pin.');
   const repository = path.resolve(root, '..');
+  // Release builds use the same pinned, source-accompanied recorder setup as local builds.
+  // Missing C++ tools, failed downloads, unexpected modules or bad hashes fail packaging.
+  const recorder = await setupRecorder({ root });
   const outputRoot = path.join(repository, 'artifacts/desktop-package');
   await mkdir(outputRoot, { recursive: true });
   if (await realpath(outputRoot) !== outputRoot) throw new Error('Package output aliases are not supported');
@@ -192,13 +198,15 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
     'requested-execution-level': 'asInvoker',
   });
   await copyTree(sidecar, built);
+  await copyTree(recorder, path.join(built, 'recorder'));
   const ffmpeg = path.join(repository, 'deps/ffmpeg.exe');
   try { await copyRegular(ffmpeg, path.join(built, 'ffmpeg.exe')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   await verifyPackage(built);
   const directory = await activatePackage(outputRoot, built);
   await writeFile(path.join(outputRoot, 'package-manifest.json'), JSON.stringify({ version: manifest.version,
-    runtimeVersion: runtime.pinnedVersion, builderVersion: installedBuilder.version, directory, appFiles: files }, null, 2));
+    runtimeVersion: runtime.pinnedVersion, recorderVersion: (await verifyRecorderRuntime(recorder)).obsVersion,
+    builderVersion: installedBuilder.version, directory, appFiles: files }, null, 2));
   console.log(`Packaged Revu ${manifest.version}: ${directory}`);
   return directory;
 }

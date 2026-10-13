@@ -500,6 +500,7 @@ function renderContextDetails() {
     if (tone) result.dataset.result = tone;
   }
   if (_vod.gameMode) add(_vod.gameMode);
+  if (_vod.isPartial) add('Partial recording').title = 'This recording covers only part of the match.';
   if (Number(_vod.gameDurationSeconds) > 0) add(clock(_vod.gameDurationSeconds), 'vp-ctx-num');
   const kda = _reviewSummary && _reviewSummary.gameId === Number(_vod.gameId) ? _reviewSummary.kdaText : '';
   if (kda) add(kda, 'vp-ctx-num');

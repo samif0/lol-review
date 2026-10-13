@@ -1,0 +1,49 @@
+Revu bundled recorder
+
+The separate revu-recorder.exe helper links libobs from OBS Studio 32.2.2.
+The helper and OBS are available under GPL version 2 or (at your option) any later
+version. The shipped OBS FFmpeg configuration enables GPL and version 3 code;
+the combined recorder may therefore be distributed under GPL version 3 or later.
+This notice does not relicense other independently distributed Revu components.
+
+The unmodified OBS Windows x64 release and matching complete source are pinned by
+SHA-256. The complete OBS source archive includes OBS modules and its embedded
+dependencies. The sources directory also carries the exact obs-deps build scripts,
+patches, upstream dependency source archives, this helper's source and build scripts,
+and BUILD-INFO.json identifying versions, immutable revisions and archive hashes.
+The source lock records verified delivery provenance. AOM's official release
+archive contains the same source file bytes, types and executable bits as its
+exact pinned Git commit; only archive metadata differs. librist uses Windows
+curl to retrieve the original official archive, with the original SHA-256 check.
+For AMF, only the unmodified public interface headers used by the upstream FFmpeg
+build and the original LICENSE.txt are included. These are taken from the verified
+upstream source archive and stored in a reproducible, checksum-pinned ZIP. The
+unused SDK binaries and samples are omitted. BUILD-INFO.json records the original
+archive pin, selected paths and generated subset checksum.
+Build source: https://github.com/obsproject/obs-studio/releases/tag/32.2.2
+Dependency source: https://github.com/obsproject/obs-deps/tree/8683107a02300923abe4f293920f4b5edc8cb624
+See licenses/OBS-GPL-2.0.txt and licenses/dependencies for original notices.
+
+FFmpeg and x264 carry GPL terms. LAME carries LGPL terms. SRT carries MPL terms.
+Opus, Ogg, Vorbis, Theora, libvpx, SVT-AV1, AOM, zlib, curl, librist and the codec
+headers retain their respective original licenses and copyright notices. Optional
+OBS browser, UI, scripting, win-capture, game-hook, VST and third-party plugins are
+not shipped. Revu's small source adapter binds an exact League window to the
+unmodified pinned libobs-winrt WGC backend, without loading OBS's win-capture
+plugin or its game-hook setup and compatibility updater.
+NVIDIA encoding uses the system's installed GPU driver; the driver is not bundled.
+AMD encoding uses the AMF interface in the pinned obs-ffmpeg module. Intel Quick
+Sync uses the pinned obs-qsv11 module and OBS adapter test helper, statically
+linked to the MIT-licensed oneVPL v2.14.0 dispatcher at revision
+025d43d086a3e663184cb49febe86152bf05409f. Its exact source and MIT license are
+included, together with the upstream dependency recipe that sets ForceStatic.
+The actual AMD and Intel encoding implementations are supplied by installed
+Windows GPU drivers and are not bundled. No separate oneVPL or driver DLL is
+needed in the bundle. BUILD-INFO.json records the binary/source relationship.
+
+Microsoft Visual C++ runtime DLLs are copied only from Visual Studio's designated
+redistributable directory. They are Microsoft redistributable system libraries,
+not covered by the OBS GPL license. Their redistribution is governed by the
+Microsoft Visual Studio license supplied with the installed build tools.
+
+No warranty is provided; the original license texts govern each component.

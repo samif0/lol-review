@@ -55,8 +55,93 @@ test('no access leaves app usable and preserves the opt-in without starting capt
   assert.equal(f.service.getStatus().settings.enabled, true);
   assert.deepEqual(f.calls, []);
 });
+
+test('hardware detection, actual active encoder and last encoder are visible while durable settings retain the actual ID', async t => {
+  for (const encoder of ['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs_qsv11_v2']) {
+    const f = await fixture(t, { recordingTest: true });
+    f.driver.initialize = async () => ({ encoders: [encoder], selectedEncoder: encoder });
+    const original = f.driver.start;
+    f.driver.start = async args => ({ ...await original(args), encoder });
+    await start(f);
+    assert.deepEqual(f.service.getStatus().encoders, [encoder]);
+    assert.equal(f.service.getStatus().selectedEncoder, encoder);
+    assert.equal(f.service.getStatus().activeEncoder, encoder);
+    assert.equal(f.service.getStatus().lastEncoder, encoder);
+    f.service.getStatus().encoders.push('obs_x264');
+    assert.deepEqual(f.service.getStatus().encoders, [encoder]);
+    const directory = f.service.current.directory;
+    f.service.onGame({ pid: 100, running: false }); await settle(f.service);
+    assert.equal(f.service.getStatus().activeEncoder, null);
+    assert.equal(f.service.getStatus().selectedEncoder, encoder);
+    assert.equal(f.service.getStatus().lastEncoder, encoder);
+    const disk = JSON.parse(await readFile(path.join(directory, 'session.json'), 'utf8'));
+    assert.equal(disk.resolvedSettings.encoder, encoder);
+    assert.deepEqual(f.registrations, []);
+  }
+});
+
+test('missing hardware explains NVIDIA, AMD and Intel support even when recording remains off', async t => {
+  const f = await fixture(t);
+  f.driver.initialize = async () => { throw Object.assign(new Error('unsupported'), { code: 'hardware-encoder-unavailable' }); };
+  await f.service.attachDriver(f.driver);
+  assert.equal(f.service.getStatus().available, false);
+  assert.equal(f.service.getStatus().state, 'unavailable');
+  assert.equal(f.service.getStatus().settings.enabled, false);
+  assert.equal(f.service.getStatus().selectedEncoder, null);
+  assert.deepEqual(f.service.getStatus().encoders, []);
+  assert.match(f.service.message, /No supported hardware encoder.*NVIDIA NVENC, AMD AMF and Intel Quick Sync/);
+  assert.deepEqual(f.calls, []);
+});
+
+test('unavailable Windows capture or game audio does not falsely blame the hardware encoder', async t => {
+  for (const code of ['capture-unavailable', 'wgc-unavailable']) {
+    const f = await fixture(t);
+    f.driver.initialize = async () => { throw Object.assign(new Error('unsupported'), { code }); };
+    await f.service.attachDriver(f.driver);
+    assert.equal(f.service.getStatus().available, false);
+    assert.equal(f.service.getStatus().state, 'unavailable');
+    assert.match(f.service.message, /League window capture or game audio.*Windows PC.*Folder import/);
+    assert.doesNotMatch(f.service.message, /hardware encoder|graphics driver/);
+    assert.deepEqual(f.calls, []);
+  }
+});
+
+test('changing to libobs clears the old provider opt-in once and preserves a later deliberate choice', async t => {
+  const f = await fixture(t);
+  await f.service.saveSettings({ enabled: true, preset: '1080p30' });
+  await f.service.prepareProvider('libobs');
+  assert.equal(f.service.settings.enabled, false); assert.equal(f.service.settings.preset, '1080p30');
+  assert.equal(JSON.parse(await readFile(path.join(f.service.profile, 'recording-settings.json'))).enabled, false);
+  await f.service.saveSettings({ enabled: true, preset: '1080p30' });
+  await f.service.prepareProvider('libobs');
+  assert.equal(f.service.settings.enabled, true);
+});
+
+test('loading window preflight retries without empty session directories', async t => {
+  const f = await fixture(t);
+  let ready = false;
+  f.driver.prepareStart = async () => { if (!ready) throw Object.assign(new Error('not ready'), { code: 'source-window-not-ready' }); };
+  await start(f);
+  assert.deepEqual(await readdir(f.service.root), []);
+  assert.equal(f.service.current, null); assert.equal(f.service.suppressedPid, null);
+  ready = true; await f.service.tick(); await settle(f.service);
+  assert.equal(f.service.state, 'recording'); assert.equal(f.calls.filter(value => value === 'start').length, 1);
+});
+
+test('a transient missing match context during preflight can recover for the same PID', async t => {
+  const f = await fixture(t);
+  let ready = false;
+  f.driver.prepareStart = async () => { if (!ready) throw Object.assign(new Error('unknown'), { code: 'recording-context-unavailable' }); };
+  await start(f);
+  assert.deepEqual(await readdir(f.service.root), []);
+  assert.equal(f.service.suppressedPid, null);
+  ready = true; await f.service.tick(); await settle(f.service);
+  assert.equal(f.service.state, 'recording');
+});
 test('native game launch starts once; confirmed match end validates and attaches exact game', async t => {
   const f = await fixture(t); await start(f);
+  assert.equal(f.service.getStatus().recordingTest, false);
+  assert.equal(Object.hasOwn(f.service.current, 'testCapture'), false);
   f.service.onGame({ pid: 100, running: true }); await settle(f.service);
   assert.equal(f.calls.filter(x => x === 'start').length, 1);
   assert.equal(f.service.state, 'recording');
@@ -65,6 +150,69 @@ test('native game launch starts once; confirmed match end validates and attaches
   assert.equal(f.service.state, 'saved'); assert.equal(f.registrations.length, 1);
   assert.equal(f.registrations[0].gameId, 501); assert.equal(f.registrations[0].complete, true);
   f.callback(); await settle(f.service); assert.equal(f.registrations.length, 1);
+});
+
+test('test capture intent is durable and validated footage saves without match registration or a game clock', async t => {
+  const f = await fixture(t, { recordingTest: true });
+  f.context.gameTimeSeconds = null; f.context.observedAt = null;
+  const original = f.driver.start;
+  f.driver.start = async args => {
+    const intent = JSON.parse(await readFile(path.join(args.outputDirectory, 'session.json'), 'utf8'));
+    assert.equal(intent.testCapture, true); assert.equal(intent.state, 'starting'); assert.equal(intent.complete, false);
+    return original(args);
+  };
+  await start(f);
+  assert.equal(f.service.getStatus().recordingTest, true);
+  const directory = f.service.current.directory;
+  f.service.onGame({ pid: 100, running: false }); await settle(f.service);
+  assert.equal(f.service.state, 'saved'); assert.equal(f.service.pending.size, 0);
+  assert.equal(f.service.message, 'Test recording saved. Open recordings folder to play it.');
+  assert.deepEqual(f.registrations, []);
+  const disk = JSON.parse(await readFile(path.join(directory, 'session.json'), 'utf8'));
+  assert.equal(disk.testCapture, true); assert.equal(disk.complete, false); assert.equal(disk.gameClockAnchor, null);
+  assert.equal(Object.hasOwn(disk, 'registration'), false);
+  f.advance(181_000); await f.service.tick();
+  assert.deepEqual(f.registrations, []);
+});
+
+test('marked pending test footage is terminal after ordinary-launch recovery and cannot register from a stale queue', async t => {
+  const f = await fixture(t, { recordingTest: true }); await start(f);
+  const directory = f.service.current.directory;
+  f.service.onGame({ pid: 100, running: false }); await settle(f.service);
+  const file = path.join(directory, 'session.json');
+  const legacy = { ...JSON.parse(await readFile(file, 'utf8')), state: 'awaiting-match', complete: true,
+    registration: { sessionId: path.basename(directory), gameId: 501, complete: true },
+    registrationStatus: 'pending', retryAttempts: 10, nextRetryAt: Date.now() + 60_000 };
+  await writeFile(file, JSON.stringify(legacy));
+  const next = new RecordingService({ root: f.service.root, profile: f.service.profile, backend: f.service.backend });
+  t.after(async () => { await next.shutdown(); });
+  await next.initialize();
+  assert.equal(next.getStatus().recordingTest, false); assert.equal(next.state, 'saved'); assert.equal(next.pending.size, 0);
+  let disk = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(disk.state, 'saved'); assert.equal(disk.complete, false);
+  assert.equal(Object.hasOwn(disk, 'registration'), false); assert.equal(Object.hasOwn(disk, 'nextRetryAt'), false);
+  const stale = { ...legacy, directory };
+  next.pending.set(stale.sessionId, stale);
+  await next.reconcile(stale); await next.tick();
+  assert.equal(next.pending.size, 0); assert.deepEqual(f.registrations, []);
+  disk = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(disk.complete, false); assert.equal(Object.hasOwn(disk, 'registration'), false);
+});
+
+test('test recordings retain validation failures and interrupted captures as partial without registration', async t => {
+  const invalid = await fixture(t, { recordingTest: true });
+  invalid.driver.validate = async () => { throw new Error('invalid media'); };
+  await start(invalid);
+  invalid.service.onGame({ pid: 100, running: false }); await settle(invalid.service);
+  assert.equal(invalid.service.state, 'partial'); assert.equal(invalid.service.pending.size, 0);
+  assert.deepEqual(invalid.registrations, []);
+  const interrupted = await fixture(t, { recordingTest: true }); await start(interrupted);
+  const directory = interrupted.service.current.directory;
+  await interrupted.service.saveSettings({ enabled: false, preset: '720p30' }); await settle(interrupted.service);
+  const disk = JSON.parse(await readFile(path.join(directory, 'session.json'), 'utf8'));
+  assert.equal(disk.state, 'partial'); assert.equal(disk.reason, 'recording-disabled'); assert.equal(disk.complete, false);
+  assert.equal(interrupted.service.pending.size, 0);
+  assert.deepEqual(interrupted.registrations, []);
 });
 test('game process exit alone never claims full-match completion', async t => {
   const f = await fixture(t); await start(f);

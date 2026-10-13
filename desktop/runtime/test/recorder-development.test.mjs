@@ -22,7 +22,7 @@ async function file(root, name, value = 'fixture') {
   await writeFile(target, value);
 }
 async function fixture(root) {
-  for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/recording-service.mjs',
+  for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/recording-service.mjs', 'electron/libobs-recorder.mjs',
     'electron/branding/revu.ico', 'runtime/overwolf.mjs', 'ui/index.html', 'ui/settings.html',
     'ui/recording-settings.mjs', 'ui/platform/index.mjs', 'ui/appearance.css', ...bundledFonts]) await file(root, name);
   const manifest = JSON.stringify({ name: 'revu-desktop', productName: 'Revu', version: '3.10.1',
