@@ -150,7 +150,12 @@ For reference, Revu keeps user data and logs under `%LOCALAPPDATA%`:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Revu's application source is MIT — see [LICENSE](LICENSE).
+
+The separate recorder helper, OBS engine and codec dependencies carry their
+own GPL and other licenses. Every recorder package includes their notices,
+original license texts and matching source. See the
+[recorder notices](desktop/recorder/THIRD-PARTY-NOTICES.txt).
 
 > *Revu isn't endorsed by Riot Games and doesn't reflect the views or opinions
 > of anyone officially involved in producing or managing League of Legends.
