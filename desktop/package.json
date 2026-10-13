@@ -41,7 +41,7 @@
     "@electron/asar": "3.4.1",
     "@overwolf/ow-electron": "42.7.1",
     "@overwolf/ow-electron-builder": "26.9.3",
-    "@overwolf/ow-electron-packages-types": "1.1.11",
+    "@overwolf/ow-electron-packages-types": "1.1.12",
     "@types/node": "22.19.15",
     "rcedit": "5.0.2",
     "tsx": "4.23.13",
