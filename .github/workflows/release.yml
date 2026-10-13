@@ -51,7 +51,7 @@ jobs:
       dotnet_sdk: ${{ steps.sdk.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -108,7 +108,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Match CI's canonical fixture root without relaxing app path safeguards.
       - name: Configure canonical temporary directory
@@ -136,7 +136,7 @@ jobs:
       VERSION: ${{ needs.guard.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Configure canonical temporary directory
         run: |
@@ -216,7 +216,7 @@ jobs:
     steps:
       # Source is needed only for the installer icon; nothing from it is executed.
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Download the packaged app directory
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -234,7 +234,7 @@ jobs:
       # ── Code signing (Azure Artifact Signing) — unchanged identity. OIDC login
       #    also authenticates Velopack's bundled SignTool via AzureCliCredential. ──
       - name: Azure login (OIDC)
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
