@@ -23,8 +23,9 @@ Download the latest **`Revu-Setup.exe`** from [Releases](https://github.com/sami
 - Node 22.12 or newer
 - League of Legends client (for the live monitoring features)
 - Optional: `ffmpeg.exe` placed at `deps\ffmpeg.exe` to enable clip extraction
-  (the release workflow downloads this automatically; for local dev, drop your
-  own copy there)
+  (`scripts\Get-PinnedFfmpeg.ps1` downloads the pinned build the release
+  workflow ships; packaging copies `licenses\ffmpeg`, which describes that
+  build, next to it)
 
 ### Build and run
 
@@ -143,6 +144,11 @@ For reference, Revu keeps user data and logs under `%LOCALAPPDATA%`:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Releases also bundle `ffmpeg.exe`, a separate GPLv3 program that Revu runs for
+clip extraction. Its license, build identity, the libraries it contains and how
+to get its source code are in [licenses/ffmpeg](licenses/ffmpeg/README.txt),
+which ships next to it in the installed app.
 
 > *Revu isn't endorsed by Riot Games and doesn't reflect the views or opinions
 > of anyone officially involved in producing or managing League of Legends.

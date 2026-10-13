@@ -19,6 +19,8 @@ const requiredAppFiles = ['package.json', 'electron/main.mjs', 'electron/preload
 const fuseSentinel = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX', 'latin1');
 export const requiredFuses = Object.freeze([['RunAsNode', 0, false], ['EnableNodeOptionsEnvironmentVariable', 2, false],
   ['EnableNodeCliInspectArguments', 3, false], ['EnableEmbeddedAsarIntegrityValidation', 4, true], ['OnlyLoadAppFromAsar', 5, true]]);
+// The bundled ffmpeg.exe is a GPLv3 build: its license, library list and source offer ship beside it.
+export const ffmpegNotices = Object.freeze(['README.txt', 'COPYING.GPLv3.txt', 'LIBRARIES.txt'].map(name => `licenses/ffmpeg/${name}`));
 
 /** Explicit source areas; adding a new asset directory requires a deliberate change. */
 export function isAppFile(relative) {
@@ -115,6 +117,24 @@ export async function verifyPackage(directory) {
   if (manifest.main !== 'electron/main.mjs' || manifest.overwolf?.packages?.length !== 0)
     throw new Error('Packaged manifest changed its entry or enabled gaming packages');
   await verifyFuses(path.join(directory, 'revu-desktop.exe'));
+  if (await isRegularFile(path.join(directory, 'ffmpeg.exe'))) {
+    for (const relative of ffmpegNotices) {
+      if (!(await isRegularFile(path.join(directory, relative)))) throw new Error(`ffmpeg.exe is packaged without ${relative}`);
+    }
+  }
+}
+
+async function isRegularFile(target) {
+  try { return (await lstat(target)).isFile(); }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+
+/** Local builds may omit ffmpeg.exe; when it is bundled, licenses/ffmpeg is copied beside it. */
+export async function stageFfmpeg(repository, directory) {
+  try { await copyRegular(path.join(repository, 'deps/ffmpeg.exe'), path.join(directory, 'ffmpeg.exe')); }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  await copyTree(path.join(repository, 'licenses/ffmpeg'), path.join(directory, 'licenses/ffmpeg'));
+  return true;
 }
 
 function run(executable, args, cwd, env) {
@@ -192,9 +212,7 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
     'requested-execution-level': 'asInvoker',
   });
   await copyTree(sidecar, built);
-  const ffmpeg = path.join(repository, 'deps/ffmpeg.exe');
-  try { await copyRegular(ffmpeg, path.join(built, 'ffmpeg.exe')); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  await stageFfmpeg(repository, built);
   await verifyPackage(built);
   const directory = await activatePackage(outputRoot, built);
   await writeFile(path.join(outputRoot, 'package-manifest.json'), JSON.stringify({ version: manifest.version,
