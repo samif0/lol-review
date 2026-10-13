@@ -234,6 +234,20 @@ test('focus stays visible under forced colors: fields draw a transparent outline
   }
 });
 
+test('the note card in the save dock draws no ring of its own while its field is focused', () => {
+  // vod-review.css rings the review-column card through :has(#vp-bm-note:focus) with
+  // !important; in the dock the field has its own ring, so the flattened card must
+  // cancel the halo with a selector that outranks the :has() id.
+  const ring = rules(read('vod-review.css'))
+    .find(r => r.selector === '.vod-review-page .vp-review-note.ui-raised:has(#vp-bm-note:focus)');
+  assert.ok(ring, 'review-column card ring');
+  const dock = rules(read('vod-composer.css'))
+    .find(r => r.selector === '.vod-review-page .vp-composer #vp-bookmark-tools:has(#vp-bm-note:focus)');
+  assert.ok(dock, 'vod-composer.css cancels the card ring in the dock');
+  assert.match(dock.body, /box-shadow:\s*none\s*!important/);
+  assert.match(dock.body, /border-color:\s*transparent/);
+});
+
 const channels = color => [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16));
 const luminance = color => {
   const [r, g, b] = channels(color).map(c => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });

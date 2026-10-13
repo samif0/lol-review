@@ -80,6 +80,12 @@
 .vod-review-page .vp-composer #vp-bookmark-tools .vp-note-input:focus {
   border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent) !important;
 }
+/* The review-column card rings itself while its field is focused
+   (vod-review.css, :has(#vp-bm-note:focus)). In the dock the field carries the
+   ring, so the flattened card must not draw a second, square one around it. */
+.vod-review-page .vp-composer #vp-bookmark-tools:has(#vp-bm-note:focus) {
+  border-color: transparent; box-shadow: none !important;
+}
 .vod-review-page .vp-composer #vp-bookmark-tools .vp-note-help { visibility: visible; }
 .vod-review-page .vp-composer :is(.inp, .savebtn) { width: 100%; min-width: 0; }
 .vod-review-page .vp-composer #vp-clip-save {
