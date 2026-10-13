@@ -11,6 +11,10 @@ SHA-256. The complete OBS source archive includes OBS modules and its embedded
 dependencies. The sources directory also carries the exact obs-deps build scripts,
 patches, upstream dependency source archives, this helper's source and build scripts,
 and BUILD-INFO.json identifying versions, immutable revisions and archive hashes.
+The source lock records verified delivery provenance. AOM's official release
+archive contains the same source file bytes, types and executable bits as its
+exact pinned Git commit; only archive metadata differs. librist uses Windows
+curl to retrieve the original official archive, with the original SHA-256 check.
 For AMF, only the unmodified public interface headers used by the upstream FFmpeg
 build and the original LICENSE.txt are included. These are taken from the verified
 upstream source archive and stored in a reproducible, checksum-pinned ZIP. The

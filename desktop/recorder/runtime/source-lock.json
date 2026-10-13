@@ -25,7 +25,7 @@
     "archive": "libvorbis-2eac96b03ff67953354cb0a649c08aa3a23267ef.tar.gz",
     "name": "libvorbis",
     "revision": "2eac96b03ff67953354cb0a649c08aa3a23267ef",
-    "url": "https://gitlab.xiph.org/xiph/vorbis/-/archive/2eac96b03ff67953354cb0a649c08aa3a23267ef/vorbis-2eac96b03ff67953354cb0a649c08aa3a23267ef.tar.gz"
+    "url": "https://codeload.github.com/xiph/vorbis/tar.gz/2eac96b03ff67953354cb0a649c08aa3a23267ef"
   },
   {
     "sha256": "f40e4c7e7b4025d18be17a8225f8be2f26b349715399cd36c2de573fe976dfd7",
@@ -42,11 +42,27 @@
     "url": "https://codeload.github.com/AOMediaCodec/SVT-AV1/tar.gz/6e69def4ec283fe0b71195671245c3b768bebdef"
   },
   {
-    "sha256": "9c53a26de9e820fe21528b370767c0179919a6106fa99e6c56993204953fb763",
+    "sha256": "19e45a5a7192d690565229983dad900e76b513a02306c12053fb9a262cbeca7d",
     "archive": "aom-d772e334cc724105040382a977ebb10dfd393293.tar.gz",
     "name": "aom",
     "revision": "d772e334cc724105040382a977ebb10dfd393293",
-    "url": "https://aomedia.googlesource.com/aom/+archive/d772e334cc724105040382a977ebb10dfd393293.tar.gz"
+    "url": "https://storage.googleapis.com/aom-releases/libaom-3.13.1.tar.gz",
+    "originalArchive": {
+      "url": "https://aomedia.googlesource.com/aom/+archive/d772e334cc724105040382a977ebb10dfd393293.tar.gz",
+      "sha256": "9c53a26de9e820fe21528b370767c0179919a6106fa99e6c56993204953fb763",
+      "reason": "Gitiles generates tar/PAX timestamps at download time; the official release archive has stable bytes."
+    },
+    "sourceEquivalence": {
+      "tag": "v3.13.1",
+      "tagUrl": "https://aomedia.googlesource.com/aom/+/refs/tags/v3.13.1",
+      "gitTree": "3a742c6fb952d1ea921b282b1cab4b62ff5db863",
+      "normalizedTreeSha256": "583a94d42a23f0f9db36f52663befa2139845ad84c4cecef26f820c53df49d77",
+      "normalization": "Strip libaom-3.13.1/, leading ./ and directory trailing slash; reject duplicate paths. Sort by path; hash a compact UTF-8 JSON array of objects with keys path,type,execBits,sha256,linkTarget. execBits is mode & 0111; sha256 is file content hash or null; linkTarget is link target or null. Exclude timestamps, owner/group and non-executable permission bits.",
+      "files": 1425,
+      "directories": 80,
+      "executableFiles": 30,
+      "links": 0
+    }
   },
   {
     "sha256": "580f07f08af23768074e5346bdf32c77b68b4d4e614f4998ea869b02fc29714d",
@@ -81,7 +97,9 @@
     "archive": "librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz",
     "name": "librist",
     "revision": "809390b3b75a259a704079d0fb4d8f1b5f7fa956",
-    "url": "https://code.videolan.org/rist/librist/-/archive/809390b3b75a259a704079d0fb4d8f1b5f7fa956/librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz"
+    "url": "https://code.videolan.org/rist/librist/-/archive/809390b3b75a259a704079d0fb4d8f1b5f7fa956/librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz",
+    "transport": "windows-curl",
+    "transportReason": "The official host rejects Node fetch with HTTP 406. Windows curl retrieves the unchanged, checksum-pinned archive."
   },
   {
     "sha256": "42d72fbcca46e05a1c05a79f1cda1fedd68ba686b21adf917e05d908153645d9",

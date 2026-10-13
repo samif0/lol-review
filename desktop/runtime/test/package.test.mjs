@@ -10,9 +10,11 @@ import { encoderBinaryPins, encoderDependencyProvenance, isRecorderFile, obsPin,
   recorderModules, recorderSourceLock, requiredRecorderFiles, verifyEncoderBinaryPins, verifyEncoderSourceProvenance,
   verifyRecorderRuntime } from '../../recorder/runtime/libobs.mjs';
 import { writeSourceZip } from '../../recorder/scripts/source-zip.mjs';
-import { locateRecorderCrt } from '../../recorder/scripts/setup.mjs';
+import { downloadPinned, locateRecorderCrt } from '../../recorder/scripts/setup.mjs';
 import { recorderCrtBinaries } from '../../recorder/runtime/libobs.mjs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 
 async function scratch(t) {
   const base = path.resolve(os.tmpdir());
@@ -274,6 +276,49 @@ test('source subsets preserve exact bytes and produce reproducible ZIPs readable
     assert.deepEqual(await readFile(archive), await readFile(repeated));
     assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'include/example.h'], { encoding: 'utf8', windowsHide: true }), '/* header */\n');
     assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'LICENSE.txt'], { encoding: 'utf8', windowsHide: true }), 'Original license\n');
+  });
+
+test('pinned source downloads verify incoming bytes and stale caches without changing the expected checksum', async t => {
+  const root = await scratch(t), archive = path.join(root, 'source.tar.gz');
+  const original = Buffer.from('Immutable source archive fixture\n');
+  const sha256 = createHash('sha256').update(original).digest('hex');
+  let body = original, requests = 0;
+  const server = createServer((request, response) => { requests++; response.end(body); });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}/source.tar.gz`;
+  await downloadPinned(url, archive, sha256);
+  assert.deepEqual(await readFile(archive), original);
+  await downloadPinned(url, archive, sha256);
+  assert.equal(requests, 1, 'a valid cache is accepted only after verifying its bytes');
+  await writeFile(archive, 'modified cache');
+  await downloadPinned(url, archive, sha256);
+  assert.equal(requests, 2);
+  assert.deepEqual(await readFile(archive), original);
+  await rm(archive);
+  body = Buffer.from('altered upstream archive');
+  await assert.rejects(downloadPinned(url, archive, sha256), /Recorder dependency checksum mismatch/);
+  await assert.rejects(readFile(archive), { code: 'ENOENT' });
+  assert.equal(requests, 3, 'a checksum mismatch must not retry with another source or hash');
+  await assert.rejects(downloadPinned(url, archive, sha256, { transport: 'unsupported' }), /Unsupported recorder download transport/);
+});
+
+test('Windows source transport preserves verified caches and rejects HTTP delivery',
+  { skip: process.platform !== 'win32' }, async t => {
+    const root = await scratch(t), archive = path.join(root, 'source.tar.gz');
+    const original = Buffer.from('Verified Windows source archive fixture\n');
+    const sha256 = createHash('sha256').update(original).digest('hex');
+    await writeFile(archive, original);
+    const options = { transport: 'windows-curl' };
+    const url = 'http://127.0.0.1:1/source.tar.gz';
+    await downloadPinned(url, archive, sha256, options);
+    assert.deepEqual(await readFile(archive), original);
+    await writeFile(archive, 'modified cache');
+    await assert.rejects(downloadPinned(url, archive, sha256, options), /curl.exe failed.*Protocol.*disabled/s);
+    assert.equal(await readFile(archive, 'utf8'), 'modified cache');
+    await rm(archive);
+    await assert.rejects(downloadPinned(url, archive, sha256, options), /curl.exe failed.*Protocol.*disabled/s);
+    await assert.rejects(readFile(archive), { code: 'ENOENT' });
   });
 
 async function crtFixture(redist, version, family, marker, { architecture = 'x64', missing = [] } = {}) {

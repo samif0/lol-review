@@ -29,7 +29,10 @@ function run(executable, args, { cwd, capture = false, env = process.env } = {})
   });
 }
 
-export async function downloadPinned(url, destination, expectedSha256) {
+export async function downloadPinned(url, destination, expectedSha256, { transport = 'fetch' } = {}) {
+  if (!['fetch', 'windows-curl'].includes(transport)) throw new Error(`Unsupported recorder download transport: ${transport}`);
+  if (transport === 'windows-curl' && process.platform !== 'win32')
+    throw new Error('The windows-curl recorder download transport requires Windows.');
   async function matches(target) {
     try { return createHash('sha256').update(await readFile(target)).digest('hex') === expectedSha256.toLowerCase(); }
     catch (error) { if (error.code === 'ENOENT') return false; throw error; }
@@ -37,9 +40,18 @@ export async function downloadPinned(url, destination, expectedSha256) {
   if (await matches(destination)) return destination;
   await mkdir(path.dirname(destination), { recursive: true });
   const temporary = `${destination}.download`;
-  const response = await fetch(url, { signal: AbortSignal.timeout(300_000) });
-  if (!response.ok || !response.body) throw new Error(`Recorder dependency download failed (${response.status}): ${url}`);
-  await pipeline(response.body, createWriteStream(temporary, { flags: 'w' }));
+  if (transport === 'windows-curl') {
+    // Disable user curl configuration; this changes transport, never the URL or integrity check.
+    const windowsRoot = process.env.SystemRoot;
+    if (!windowsRoot || !path.isAbsolute(windowsRoot)) throw new Error('Windows SystemRoot is required for the recorder source downloader.');
+    await run(path.join(windowsRoot, 'System32/curl.exe'), ['--disable', '--fail', '--location', '--silent', '--show-error',
+      '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '30', '--max-time', '300',
+      '--output', temporary, '--url', url], { capture: true });
+  } else {
+    const response = await fetch(url, { signal: AbortSignal.timeout(300_000) });
+    if (!response.ok || !response.body) throw new Error(`Recorder dependency download failed (${response.status}): ${url}`);
+    await pipeline(response.body, createWriteStream(temporary, { flags: 'w' }));
+  }
   if (!await matches(temporary)) throw new Error(`Recorder dependency checksum mismatch: ${path.basename(destination)}`);
   await rename(temporary, destination);
   return destination;
@@ -195,7 +207,8 @@ export async function setupRecorder({ root = desktopRoot } = {}) {
   await copyRegular(sourceArchive, path.join(staged, `sources/${obsPin.sourceArchive}`));
   await copyRegular(depsSource, path.join(staged, 'sources/obs-deps-sources.tar.gz'));
   for (const item of sourceLock) {
-    const archive = await downloadPinned(item.url, path.join(dependencyRoot, 'corresponding-source', item.archive), item.sha256);
+    const archive = await downloadPinned(item.url, path.join(dependencyRoot, 'corresponding-source', item.archive), item.sha256,
+      { transport: item.transport });
     if (item.bundleArchive) {
       const subset = await mkdtemp(path.join(outputRoot, '.recorder-source-subset-'));
       await run('tar.exe', ['-xzf', archive, '-C', subset, ...item.bundlePaths]);
