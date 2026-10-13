@@ -29,6 +29,12 @@ test('normal launch retains the data root and installed layout; isolated smoke c
   assert.equal(isolated.isolated, true);
   assert.notEqual(isolated.profile, normal.profile);
   assert.notEqual(isolated.windowsAppId, normal.windowsAppId);
+  assert.throws(() => launchOptions(['--recording-test', '--isolated']), /cannot be combined/);
+  assert.throws(() => prepareConfiguration({ ...base, options: launchOptions(['--recording-test']) }), /scratch/);
+  assert.throws(() => prepareConfiguration({ ...base, options: launchOptions(['--recording-test', '--data-root', localAppData]) }), /outside LocalAppData/);
+  const practice = prepareConfiguration({ ...base, options: launchOptions(['--recording-test', '--data-root', path.join(root, 'practice-test')]) });
+  assert.equal(practice.recordingTest, true); assert.equal(practice.isolated, false);
+  assert.notEqual(practice.profile, normal.profile); assert.notEqual(practice.windowsAppId, normal.windowsAppId);
 });
 
 test('Velopack maintenance hooks skip startup, first-run opens normally, updater is install-local only', () => {

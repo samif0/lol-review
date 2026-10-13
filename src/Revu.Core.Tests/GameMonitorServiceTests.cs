@@ -605,11 +605,15 @@ public sealed partial class GameMonitorServiceTests
         service.ObserveRecordingContext();
         await service.TickOnceAsync();
         Assert.Null(service.CurrentRecordingContext.GameId);
+        Assert.Equal("ChampSelect", service.CurrentRecordingContext.Phase);
+        Assert.Null(service.CurrentRecordingContext.QueueId);
         await service.TickOnceAsync();
         Assert.Equal(9876, service.CurrentRecordingContext.GameId);
         Assert.True(service.CurrentRecordingContext.IsGameInProgress);
         Assert.Equal(123.5, service.CurrentRecordingContext.GameTimeSeconds);
         Assert.NotNull(service.CurrentRecordingContext.ObservedAt);
+        Assert.Equal("GameStart", service.CurrentRecordingContext.Phase);
+        Assert.Equal(0, service.CurrentRecordingContext.QueueId);
         await service.TickOnceAsync();
         await service.TickOnceAsync();
         Assert.Equal(9876, service.CurrentRecordingContext.GameId);
@@ -619,6 +623,8 @@ public sealed partial class GameMonitorServiceTests
         Assert.False(service.CurrentRecordingContext.IsGameInProgress);
         Assert.Null(service.CurrentRecordingContext.GameId);
         Assert.Equal(9876, service.CurrentRecordingContext.LastEndedGameId);
+        Assert.Equal("WaitingForStats", service.CurrentRecordingContext.Phase);
+        Assert.Null(service.CurrentRecordingContext.QueueId);
         Assert.Equal(123.5, service.CurrentRecordingContext.LastEndedGameTimeSeconds);
         Assert.Equal(finalClockReceipt, service.CurrentRecordingContext.LastEndedObservedAt);
         var confirmedAt = service.CurrentRecordingContext.LastEndedConfirmedAt;
@@ -649,9 +655,36 @@ public sealed partial class GameMonitorServiceTests
         await service.TickOnceAsync();
         Assert.Null(service.CurrentRecordingContext.GameId);
         Assert.False(service.CurrentRecordingContext.IsGameInProgress);
+        Assert.Null(service.CurrentRecordingContext.Phase);
+        Assert.Null(service.CurrentRecordingContext.QueueId);
         Assert.Null(service.CurrentRecordingContext.LastEndedGameId);
         Assert.Null(service.CurrentRecordingContext.LastEndedGameTimeSeconds);
         Assert.Null(service.CurrentRecordingContext.LastEndedObservedAt);
+    }
+
+    [Theory]
+    [InlineData(420, 420)]
+    [InlineData(440, 440)]
+    [InlineData(-1, null)]
+    public async Task RecordingContextReportsCurrentSessionQueueAndNeverKeepsAPriorQueue(int queueId, int? expected)
+    {
+        var lcu = new FakeLcuClient { IsConnected = true, QueueId = 420, CurrentGameId = 4321,
+            Phases = new([GamePhase.ChampSelect, GamePhase.GameStart, GamePhase.InProgress, GamePhase.Reconnect]) };
+        using var service = CreateService(new(new LcuCredentials { Port = 2999, Password = "pw" }),
+            lcu, new StrongReferenceMessenger(), new(), new(), new() { GameSeconds = 12 });
+        service.ObserveRecordingContext();
+        await service.TickOnceAsync();
+        await service.TickOnceAsync();
+        Assert.Equal(420, service.CurrentRecordingContext.QueueId);
+        lcu.QueueId = queueId;
+        await service.TickOnceAsync();
+        Assert.Equal(expected, service.CurrentRecordingContext.QueueId);
+        Assert.Equal("InProgress", service.CurrentRecordingContext.Phase);
+        lcu.CurrentGameId = 0;
+        await service.TickOnceAsync();
+        Assert.Null(service.CurrentRecordingContext.GameId);
+        Assert.Null(service.CurrentRecordingContext.QueueId);
+        Assert.Equal("Reconnect", service.CurrentRecordingContext.Phase);
     }
 
     [Fact]
@@ -820,6 +853,8 @@ public sealed partial class GameMonitorServiceTests
         public int CurrentGameIdCalls { get; private set; }
         public Task<long> GetCurrentGameIdAsync(CancellationToken ct = default)
         { CurrentGameIdCalls++; return Task.FromResult(CurrentGameId); }
+        public Task<LcuGameSession> GetCurrentGameSessionAsync(CancellationToken ct = default)
+        { CurrentGameIdCalls++; return Task.FromResult(new LcuGameSession(CurrentGameId, QueueId)); }
         public Queue<GamePhase> Phases { get; set; } = new();
 
         public bool IsConnected { get; set; }

@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-import { createRecordingSettingsModel, recordingStatusText } from '../ui/recording-settings.mjs';
+import { createRecordingSettingsModel, recordingStatusText, recordingEncoderText } from '../ui/recording-settings.mjs';
 import { validateCommand } from '../ui/platform/commands.mjs';
 
 const status = { state: 'unavailable', available: false, message: 'Recording is not available in this build yet.',
   settings: { enabled: true, preset: '720p30' } };
 
-test('native recorder model retains developer opt-in independently of the product UI release gate', async () => {
+test('native recorder model persists explicit opt-in independently of provider availability', async () => {
   const views = [], calls = [];
   const model = createRecordingSettingsModel({ invoke: async (command, args) => {
     calls.push([command, args]); return status;
@@ -48,45 +48,86 @@ async function uiFixture(invoke) {
   return { $, calls, intervals, async visible() { await documentListeners.get('visibilitychange')?.(); } };
 }
 
-test('unreleased built-in controls stay disabled despite native access while startup preferences remain usable', async () => {
+test('a bundled recorder enables beta controls while startup preferences remain independent', async () => {
   const background = { closeToTray: false, startWithWindows: false, trayAvailable: true, startupAvailable: true };
+  const native = { state: 'idle', available: true, message: 'Ready to record your next League match.',
+    settings: { enabled: true, preset: '1080p60' } };
   const f = await uiFixture(async (command, args) => {
-    if (command === 'get_recording_status') return { state: 'idle', available: true,
-      message: 'Developer access is approved.', settings: { enabled: true, preset: '1080p60' } };
+    if (command === 'get_recording_status') return native;
+    if (command === 'save_recording_settings') return { ...native, settings: args.payload };
     if (command === 'save_background_settings') return { ...background, ...args.payload };
     return background;
   });
-  for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, true, id);
-  assert.equal(f.$('recordingEnabled').getAttribute('aria-checked'), 'false');
-  assert.match(f.$('recording-status').textContent, /coming in a future update.*Use Ascent recordings above/);
-  assert.doesNotMatch(f.$('recording-status').textContent, /Developer|approved|key/);
-  assert.equal(f.$('recording-coming-soon').hidden, false);
-  assert.equal(f.$('recording-controls').hidden, true, 'the dormant card shows only its Coming soon line');
+  for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, false, id);
+  assert.equal(f.$('recordingEnabled').getAttribute('aria-checked'), 'true');
+  assert.match(f.$('recording-status').textContent, /Ready to record/);
+  assert.equal(f.$('recording-coming-soon').textContent, 'Beta');
+  assert.equal(f.$('recording-controls').hidden, false);
   await f.$('save-recording-settings').emit('click');
   await f.$('open-recordings-folder').emit('click');
   await f.visible();
-  assert.equal(f.intervals.length, 0, 'unreleased recorder status does not poll');
-  assert.ok(f.calls.every(call => !['save_recording_settings', 'open_recordings_folder'].includes(call.command)));
+  assert.equal(f.intervals.length, 1);
+  assert.ok(f.calls.some(call => call.command === 'save_recording_settings'));
+  assert.ok(f.calls.some(call => call.command === 'open_recordings_folder'));
   assert.equal(f.$('closeToTray').disabled, false); assert.equal(f.$('startWithWindows').disabled, false);
   f.$('closeToTray').setAttribute('aria-checked', 'true');
   await f.$('save-background-settings').emit('click');
   assert.deepEqual(f.calls.find(call => call.command === 'save_background_settings').args,
     { payload: { closeToTray: true, startWithWindows: false } });
   assert.equal(f.$('background-settings-status').textContent, 'Saved.');
-  assert.equal(f.$('recordingEnabled').disabled, true);
+  assert.equal(f.$('recordingEnabled').disabled, false);
 });
 
-test('browser preview and failed native initialization retain the same coming-soon message', async () => {
+test('browser preview and failed native initialization leave recording controls unavailable', async () => {
   for (const invoke of [null, async command => {
     if (command === 'get_recording_status') throw new Error('Missing developer credentials');
     return { closeToTray: false, startWithWindows: false };
   }]) {
     const f = await uiFixture(invoke);
     for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, true, id);
-    assert.equal(f.$('recording-status').textContent,
-      'Automatic match recording is coming in a future update. Use Ascent recordings above for now.');
+    assert.match(f.$('recording-status').textContent, /desktop app|could not be loaded/);
     assert.equal(f.intervals.length, 0);
   }
+});
+
+test('provider unavailable keeps its explanation and prevents enabling recording', async () => {
+  const f = await uiFixture(async command => command === 'get_recording_status'
+    ? { ...status, message: 'Recording is unavailable in this isolated preview.' }
+    : { closeToTray: false, startWithWindows: false });
+  assert.equal(f.$('recordingEnabled').disabled, true);
+  assert.equal(f.$('recording-controls').hidden, true);
+  assert.equal(f.$('recording-coming-soon').textContent, 'Unavailable');
+  assert.match(f.$('recording-status').textContent, /isolated preview/);
+  await f.$('save-recording-settings').emit('click');
+  assert.equal(f.calls.some(call => call.command === 'save_recording_settings'), false);
+});
+
+test('detected hardware encoder is shown automatically without a manual vendor choice', async () => {
+  for (const [selectedEncoder, label] of [
+    ['obs_nvenc_h264_tex', 'NVIDIA NVENC'], ['h264_texture_amf', 'AMD AMF'], ['obs_qsv11_v2', 'Intel Quick Sync'],
+  ]) {
+    const f = await uiFixture(async command => command === 'get_recording_status'
+      ? { ...status, state: 'idle', available: true, selectedEncoder }
+      : { closeToTray: false, startWithWindows: false });
+    assert.equal(f.$('recording-encoder').textContent, `Automatically selected: ${label}.`);
+    assert.equal(f.$('recordingEnabled').disabled, false);
+  }
+  assert.equal(recordingEncoderText({ available: true, selectedEncoder: 'obs_nvenc_h264_tex', lastEncoder: 'h264_texture_amf' }),
+    'Automatically selected: NVIDIA NVENC. Last recording used: AMD AMF.');
+  for (const value of [null, { available: false }, { available: true, selectedEncoder: 'obs_x264' },
+    { available: true, selectedEncoder: '<script>fake</script>' }, { available: true, selectedEncoder: 'constructor' }]) {
+    assert.equal(recordingEncoderText(value), 'A supported NVIDIA, AMD or Intel hardware encoder is required.');
+  }
+});
+
+test('an explicit recording test launch explains its separate video-only workflow', async () => {
+  const f = await uiFixture(async command => command === 'get_recording_status'
+    ? { ...status, available: true, recordingTest: true, state: 'idle', message: 'Ready to record your test game.' }
+    : { closeToTray: false, startWithWindows: false });
+  assert.equal(f.$('recording-coming-soon').textContent, 'Recording test');
+  assert.equal(f.$('recordingEnabled-label').textContent, 'Record my test game');
+  assert.match(f.$('recording-scope-help').textContent, /Practice Tool.*separately from your normal match history/);
+  assert.equal(f.$('recordingEnabled').disabled, false);
 });
 
 test('poll reads status without overwriting a preset the user is editing', async () => {

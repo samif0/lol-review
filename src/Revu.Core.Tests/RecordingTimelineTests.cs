@@ -17,6 +17,18 @@ public sealed class RecordingTimelineTests : IDisposable
         Assert.Empty(Directory.GetFiles(_root));
     }
 
+    [Fact]
+    public void PartialCompanionKeepsItsVerifiedOffsetAndOldCompanionsDefaultToComplete()
+    {
+        Write(new(1, 42, "match.mp4", 120, IsPartial: true));
+        Assert.True(RecordingTimeline.ReadTiming(Video, 42)!.IsPartial);
+        Assert.Equal((480d, 495d), RecordingTimeline.ToMediaRange(Video, 600, 615));
+        File.WriteAllText(Video + RecordingTimeline.Suffix,
+            "{\"schema\":1,\"gameId\":42,\"fileName\":\"match.mp4\",\"gameTimeAtVideoStart\":120}");
+        Assert.False(RecordingTimeline.ReadTiming(Video, 42)!.IsPartial);
+        Assert.Equal(120, RecordingTimeline.ReadGameTimeAtVideoStart(Video, 42));
+    }
+
     [Theory]
     [InlineData(-40.125, 640.125, 655.125)]
     [InlineData(15.5, 584.5, 599.5)]

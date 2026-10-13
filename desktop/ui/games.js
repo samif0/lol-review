@@ -615,7 +615,7 @@ function emptyHint(view) {
   switch (view) {
     case 'queue':   return 'New Ranked Solo/Duo games appear here while Revu is open. Find older games under All, or add one.';
     case 'today':   return 'Games you play today show up here for a same-day review.';
-    case 'vod':     return 'Games with an available recording appear here. Connect your Ascent recordings folder in Settings → Recording, then scan to link existing videos.';
+    case 'vod':     return 'Games with an available recording appear here. Enable built-in recording in Settings → Recording, or connect your Ascent folder and scan to link existing videos.';
     case 'removed': return 'Games you remove from history are listed here, so you can restore them.';
     case 'history':
     default:        return 'Keep Revu open during a Ranked Solo/Duo game, or use Add a game.';

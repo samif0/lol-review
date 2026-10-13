@@ -36,6 +36,7 @@ public sealed class RecordingRegistrationTests
             db.Evidence, db.Objectives, db.Config, NullLogger<VodSnapshotBuilder>.Instance);
         var snapshot = await builder.BuildAsync(1001);
         Assert.True(snapshot.HasVod);
+        Assert.False(snapshot.IsPartial);
         Assert.Equal(-30.25, snapshot.GameTimeAtVideoStart);
         Assert.Equal(600, Assert.Single(snapshot.Bookmarks).GameTimeSeconds);
         File.WriteAllText(request.FilePath + RecordingTimeline.Suffix, "broken");
@@ -72,12 +73,12 @@ public sealed class RecordingRegistrationTests
     }
 
     [Fact]
-    public async Task InterruptedSegmentsStaySeparateAndNeverBecomePrimaryVideos()
+    public async Task InterruptedSegmentsWithUnknownClockStaySeparateAndNeverBecomePrimaryVideos()
     {
         using var fixture = await Fixture.CreateAsync();
         await fixture.Database.SeedGameAsync(1001);
-        var first = fixture.CreateRecording(1001) with { Complete = false };
-        var second = fixture.CreateRecording(1001) with { Complete = false };
+        var first = fixture.CreateRecording(1001) with { Complete = false, GameTimeAtVideoStart = null };
+        var second = fixture.CreateRecording(1001) with { Complete = false, GameTimeAtVideoStart = null };
         Assert.Equal("retained-partial", (await fixture.Service.RegisterAsync(first)).Status);
         Assert.Equal("retained-partial", (await fixture.Service.RegisterAsync(second)).Status);
         await fixture.NewService().ReconcileAsync();
@@ -85,16 +86,62 @@ public sealed class RecordingRegistrationTests
         Assert.True(File.Exists(first.FilePath));
         Assert.False(File.Exists(first.FilePath + RecordingTimeline.Suffix));
         Assert.True(File.Exists(second.FilePath));
-        await Assert.ThrowsAsync<RecordingConflictException>(() => fixture.Service.RegisterAsync(first with { Complete = true }));
+        await Assert.ThrowsAsync<RecordingConflictException>(() => fixture.Service.RegisterAsync(first with { Complete = true, GameTimeAtVideoStart = -30.25 }));
+    }
+
+    [Fact]
+    public async Task AnchoredPartialLinksOnlyAnEmptyMatchAndLabelsPlaybackWithoutChangingTheSchema()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await fixture.Database.SeedGameAsync(1001);
+        var request = fixture.CreateRecording(1001) with { Complete = false, GameTimeAtVideoStart = 120 };
+        var linked = new List<long>();
+        var service = new RecordingRegistrationService(fixture.Root, new(fixture.Database.ConnectionFactory),
+            () => Task.CompletedTask, NullLogger<RecordingRegistrationService>.Instance, linked.Add);
+        Assert.Equal("linked-partial", (await service.RegisterAsync(request)).Status);
+        Assert.Equal("linked-partial", (await fixture.NewService().RegisterAsync(request)).Status);
+        Assert.Equal(1001L, Assert.Single(linked));
+        Assert.Equal(request.FilePath, (await fixture.Database.Vod.GetVodAsync(1001))!.FilePath);
+        Assert.True(RecordingTimeline.ReadTiming(request.FilePath, 1001)!.IsPartial);
+
+        var db = fixture.Database;
+        var builder = new VodSnapshotBuilder(db.Games, db.Vod, new GameEventsRepository(db.ConnectionFactory),
+            db.Evidence, db.Objectives, db.Config, NullLogger<VodSnapshotBuilder>.Instance);
+        var snapshot = await builder.BuildAsync(1001);
+        Assert.True(snapshot.HasVod);
+        Assert.True(snapshot.IsPartial);
+        Assert.Equal(120, snapshot.GameTimeAtVideoStart);
+        var later = fixture.CreateRecording(1001);
+        Assert.Equal("retained-existing", (await service.RegisterAsync(later)).Status);
+        Assert.Equal(request.FilePath, (await fixture.Database.Vod.GetVodAsync(1001))!.FilePath);
+        Assert.False(File.Exists(later.FilePath + RecordingTimeline.Suffix));
+    }
+
+    [Fact]
+    public async Task AnchoredPartialPendingReceiptReconcilesExactMatchAfterRestart()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var request = fixture.CreateRecording(2002) with { Complete = false };
+        Assert.Equal("pending-match", (await fixture.Service.RegisterAsync(request)).Status);
+        await fixture.Database.SeedGameAsync(1001);
+        await fixture.NewService().ReconcileAsync(1001);
+        Assert.Empty(await fixture.Database.Vod.GetAllVodsAsync());
+        await fixture.Database.SeedGameAsync(2002);
+        await fixture.NewService().ReconcileAsync(2002);
+        Assert.Equal("linked-partial", (await fixture.Service.GetAsync(request.SessionId))!.Status);
+        Assert.Equal(request.FilePath, (await fixture.Database.Vod.GetVodAsync(2002))!.FilePath);
+        Assert.True(RecordingTimeline.ReadTiming(request.FilePath, 2002)!.IsPartial);
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ExternalScanRespectsPersistedNativeReceiptEvenWhenNativeMediaIsTemporarilyUnavailable(bool mediaUnavailable)
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public async Task ExternalScanRespectsPersistedNativeReceiptEvenWhenNativeMediaIsTemporarilyUnavailable(bool mediaUnavailable, bool complete)
     {
         using var fixture = await Fixture.CreateAsync();
-        var request = fixture.CreateRecording(2002);
+        var request = fixture.CreateRecording(2002) with { Complete = complete };
         Assert.Equal("pending-match", (await fixture.Service.RegisterAsync(request)).Status);
         var start = new DateTime(2026, 9, 11, 17, 25, 0, DateTimeKind.Local);
         await fixture.Database.SeedGameAsync(2002, timestamp: new DateTimeOffset(start).ToUnixTimeSeconds());
@@ -149,6 +196,18 @@ public sealed class RecordingRegistrationTests
     }
 
     [Fact]
+    public async Task PartialNeverReplacesExistingVodOrPublishesTimingForIt()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await fixture.Database.SeedGameAsync(1001);
+        await fixture.Database.Vod.LinkVodAsync(1001, "existing-user-video.mp4");
+        var request = fixture.CreateRecording(1001) with { Complete = false };
+        Assert.Equal("retained-existing", (await fixture.Service.RegisterAsync(request)).Status);
+        Assert.Equal("existing-user-video.mp4", (await fixture.Database.Vod.GetVodAsync(1001))!.FilePath);
+        Assert.False(File.Exists(request.FilePath + RecordingTimeline.Suffix));
+    }
+
+    [Fact]
     public async Task ConflictingSessionAndFileOwnershipAreRejected()
     {
         using var fixture = await Fixture.CreateAsync();
@@ -186,11 +245,13 @@ public sealed class RecordingRegistrationTests
         Assert.Equal(first.FilePath, (await fixture.Database.Vod.GetVodAsync(1001))!.FilePath);
     }
 
-    [Fact]
-    public async Task ReconciliationChecksFileAgainBeforeLinking()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ReconciliationChecksFileAgainBeforeLinking(bool complete)
     {
         using var fixture = await Fixture.CreateAsync();
-        var request = fixture.CreateRecording(1001);
+        var request = fixture.CreateRecording(1001) with { Complete = complete };
         await fixture.Service.RegisterAsync(request);
         await fixture.Database.SeedGameAsync(1001);
         File.WriteAllBytes(request.FilePath, []);

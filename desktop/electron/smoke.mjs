@@ -144,7 +144,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
     const deadline=Date.now()+10000;
     while(Date.now()<deadline) {
       const status=document.querySelector('#recording-status')?.textContent;
-      if(status?.includes('coming in a future update') && document.querySelector('#ascentFolder')?.disabled===false)
+      if(status?.includes('isolated preview') && document.querySelector('#ascentFolder')?.disabled===false)
         return {status, presets:document.querySelector('#recordingPreset').options.length,
         startupDisabled:document.querySelector('#startWithWindows').disabled,
         ascentFolderVisible:!!document.querySelector('#ascentFolder'),
