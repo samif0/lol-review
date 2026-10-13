@@ -38,7 +38,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@electron/asar": "3.4.1",
+    "@electron/asar": "4.3.1",
     "@overwolf/ow-electron": "42.7.1",
     "@overwolf/ow-electron-builder": "26.9.3",
     "@overwolf/ow-electron-packages-types": "1.1.11",
