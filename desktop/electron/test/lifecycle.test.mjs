@@ -281,10 +281,14 @@ test('a backend that never answers the launch settings read is not asked again',
   const hs = { port: server.address().port, token: 'A'.repeat(64) };
   try {
     const warnings = [];
-    const config = await readLaunchConfig(route => backendRequest(hs, route, { timeoutMs: 50 }),
+    let attempts = 0;
+    const config = await readLaunchConfig(route => { attempts++; return backendRequest(hs, route, { timeoutMs: 50 }); },
       { wait: async ms => assert.fail(`waited ${ms} ms to retry a timed-out read`), log: { warn: (_, error) => warnings.push(error.name) } });
     assert.deepEqual(config, {});
-    assert.deepEqual(requests, ['/api/config']);
+    assert.equal(attempts, 1);
+    // On a slow runner the client can give up before the server registers the request,
+    // so the server sees the one read or none, never a second.
+    assert.ok(requests.length <= 1 && requests.every(url => url === '/api/config'), String(requests));
     assert.deepEqual(warnings, ['TimeoutError']);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
