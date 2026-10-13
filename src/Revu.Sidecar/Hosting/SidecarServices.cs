@@ -16,8 +16,11 @@ public static class SidecarServices
     {
         // Read queries use the physically read-only database graph.
         services.AddSingleton<IDbConnectionFactory, ReadOnlySqliteConnectionFactory>();
+        services.AddSingleton<StorageStartupHealth>();
 
         services.AddSingleton<IProtectedSecretStore, ProtectedSecretStore>();
+        // The sidecar's only ConfigService: WriteServices receives this same instance, so
+        // a save is visible to every read-side builder at once.
         services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<IBackupService, BackupService>();
 
@@ -46,7 +49,6 @@ public static class SidecarServices
         services.AddSingleton<IGameAnalyticsQuery>(sp => sp.GetRequiredService<GameRepository>());
 
         services.AddSingleton<IConceptTagRepository, ConceptTagRepository>();
-        services.AddSingleton<IAnalysisService, AnalysisService>();
 
         // Page snapshots share the read graph.
         services.AddSingleton<DashboardSnapshotBuilder>();
@@ -122,6 +124,7 @@ public static class SidecarServices
         // Hosted services stop in reverse order: coordinator, monitor, then accepted work.
         services.AddSingleton<SidecarBackgroundWork>();
         services.AddHostedService(sp => sp.GetRequiredService<SidecarBackgroundWork>());
+        services.AddSingleton<SidecarJobs>();
         services.AddSingleton<GameMonitorService>();
         services.AddSingleton<PracticeCaptureService>();
         services.AddSingleton<IGameMonitorService>(sp => sp.GetRequiredService<GameMonitorService>());
@@ -141,6 +144,18 @@ public static class SidecarServices
         });
         services.AddSingleton<SidecarGameFlowCoordinator>();
         if (!isolatedHostTest) services.AddHostedService(sp => sp.GetRequiredService<SidecarGameFlowCoordinator>());
+
+        services.AddSingleton(sp =>
+        {
+            var write = sp.GetRequiredService<WriteServices>();
+            return new RecentGameRecovery(
+                sp.GetRequiredService<ILcuClient>(), sp.GetRequiredService<IMatchHistoryReconciliationService>(),
+                sp.GetRequiredService<SidecarGameFlowCoordinator>().SaveRecoveredGameAsync, write.Games, write.Config, write.VodScan,
+                sp.GetRequiredService<RecordingRegistrationService>(), sp.GetRequiredService<SidecarBackgroundWork>(),
+                write.BackupGuard.EnsureBackedUpAsync,
+                (type, payload) => sp.GetRequiredService<SidecarEventHub>().Publish(type, payload),
+                sp.GetRequiredService<ILogger<RecentGameRecovery>>());
+        });
 
         services.AddHttpClient<IRiotChampionDataClient, RiotChampionDataClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton<PreGameIntelService>();

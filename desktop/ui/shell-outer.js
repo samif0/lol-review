@@ -10,21 +10,20 @@ window.__revuMatchViewsV1 = createMatchViewStore();
 // iframe, so the rail can never move on navigation. This module also runs the two
 // app-wide live-state concerns ONCE here, retargeting auto-show at the iframe.
 //
-// Content pages still ship their own static rail + shell.js as a standalone
-// fallback, but framed.js hides that rail inside the iframe (html.framed), and
-// shell.js skips its own LCU wiring when framed (the shell owns it).
+// This is the only navigation definition: content pages ship no rail of their
+// own, and framed.js reopens a content page loaded on its own inside this shell.
 
 const frame = document.getElementById('app-frame');
 const nav = document.querySelector('.nav');
 const pageLabels = { dashboard: 'Home', games: 'Match library', objectives: 'Learning objectives',
-  patterns: 'Patterns', matchups: 'Matchup notes', tiltcheck: 'Mental check', rules: 'Rules',
-  settings: 'Settings', onboarding: 'Account', review: 'Match review', vodplayer: 'Recording',
-  pregame: 'Before the match', ingame: 'Current match', manualentry: 'Add a match' };
+  patterns: 'Patterns', matchups: 'Matchup notes', tiltcheck: 'Tilt check', rules: 'Rules',
+  settings: 'Settings', onboarding: 'Account', review: 'Match review', vodplayer: 'VOD review',
+  pregame: 'Before the match', ingame: 'Current match', manualentry: 'Add a game manually' };
 
-// Map an iframe URL → the nav item id to light up. Pages share data-page with the
-// rail's data-nav; the three objective sub-pages map to 'objectives'; manual entry
-// is reached from Games (and is no longer a rail item) so it keeps Games lit;
-// live/drill-in surfaces (pregame/ingame/review/vodplayer) map to nothing.
+// Map an iframe URL → the nav item id to light up. A page's file name matches the
+// rail's data-nav; the three objective sub-pages map to 'objectives'; manual entry,
+// review and the VOD player are reached from the Match library so they keep it lit;
+// the live surfaces (pregame/ingame) keep Home lit.
 function fileToNav(pathname) {
   const file = (pathname || '').split('/').pop().toLowerCase() || 'dashboard.html';
   if (file === '' || file === 'index.html' || file === 'dashboard.html') return 'dashboard';
@@ -63,9 +62,11 @@ async function frameGoto(target) {
     console.warn('[shell] could not save the current page before navigation:', err);
     return false;
   }
-  // A later click or an in-page navigation wins while a save is in flight.
+  // A later click or an in-page navigation wins while a save is in flight. A fragment
+  // change is not one: Settings opens the category of a card that failed to save.
+  const page = href => String(href ?? '').replace(/#.*$/, '');
   if (navigation !== _frameNavigation || frame.contentWindow !== source ||
-      source?.document !== sourceDocument || source?.location.href !== sourceUrl) return false;
+      source?.document !== sourceDocument || page(source?.location.href) !== page(sourceUrl)) return false;
   frame.src = url.pathname.split('/').pop() + url.search + url.hash;
   markActive(fileToNav(url.pathname));
   return true;
@@ -169,7 +170,18 @@ async function runUpdateAndRestart() {
   if (btn) btn.disabled = true;
   try {
     if (txt) txt.textContent = 'Downloading update…';
-    const d = await invoke('download_update');
+    _bannerDownloading = true;
+    // The download runs in the sidecar past any request deadline and asking again joins
+    // it, so a timeout means "still downloading", never "failed".
+    let d;
+    for (let attempt = 1; ; attempt++) {
+      try { d = await invoke('download_update'); break; }
+      catch (err) {
+        if (attempt >= 6 || !/timeout|timed out|aborted/i.test(String(err?.message || err))) throw err;
+        if (txt) txt.textContent = 'Still downloading the update…';
+      }
+    }
+    _bannerDownloading = false;
     if (!d || d.ok === false) {
       if (txt) txt.textContent = (d && d.message) ? d.message : 'Download failed.';
       if (btn) btn.disabled = false;
@@ -179,10 +191,21 @@ async function runUpdateAndRestart() {
     // apply_update relaunches the app — this call won't return on success.
     await invoke('apply_update');
   } catch (err) {
+    _bannerDownloading = false;
     if (txt) txt.textContent = 'Update failed. Try again later.';
     if (btn) btn.disabled = false;
     console.error('[shell] update failed:', err);
   }
+}
+
+// The sidecar reports the download as updateDownloadProgress events, one per whole
+// percent. The banner shows them only while its own download is running.
+let _bannerDownloading = false;
+function showUpdateDownloadProgress(p) {
+  const txt = document.getElementById('updbar-txt');
+  const percent = Number(p?.percent);
+  if (!_bannerDownloading || !txt || p?.finished || !Number.isFinite(percent)) return;
+  txt.textContent = `Downloading update… ${Math.min(100, Math.max(0, Math.round(percent)))}%`;
 }
 
 async function checkForUpdateOnLaunch() {
@@ -232,8 +255,7 @@ async function wireWindowControls() {
 wireWindowControls();
 
 // ── LCU live auto-show (retargeted at the iframe) ────────────────────────────
-// Same contract as the old per-page shell.js, but it navigates the CONTENT IFRAME
-// instead of the top document, and lives ONCE on the persistent shell (so there's
+// Navigates the CONTENT IFRAME and lives ONCE on the persistent shell (so there's
 // exactly one SSE listener for the app's lifetime — no per-navigation re-subscribe).
 // ── HARD STOP (v3.7) ─────────────────────────────────────────────────────────
 // The lock screen + slim lock bar for an ENFORCED rule the sidecar just acted on
@@ -457,8 +479,7 @@ async function wireLiveAutoShow() {
 
   // Pages where the user is actively ENTERING DATA — auto-show must NOT yank them
   // off these mid-task (an LCU champ-select/game tick reloading the iframe wipes the
-  // unsaved form, the P-035 regression). Mirrors shell.js:125-133; this is the path
-  // that actually runs in-app (shell.js's copy is gated !FRAMED, off for the iframe).
+  // unsaved form, the P-035 regression).
   // onboarding (email/OTP entry), rules (create/edit form) and patterns
   // (moment-note autosave) are form-bearing too — a champ-select tick reloading
   // the iframe from any of them wiped half-typed OTP codes / rule text. matchups
@@ -483,6 +504,24 @@ async function wireLiveAutoShow() {
     goto(file);
   };
 
+  // Settings "Minimize when a game starts" (on by default). The sidecar sends
+  // gameInProgress once per game, after the loading screen, so this never fights
+  // a player who restores the window mid-game. Read at that moment, so a saved
+  // change applies to the next game. A hard stop brings the window back itself.
+  // A window closed to the tray or started hidden stays hidden: minimizing a
+  // hidden window would put Revu back on the taskbar.
+  const minimizeForGame = async () => {
+    if (document.visibilityState === 'hidden') return;
+    try {
+      const cfg = await invoke('get_config');
+      if (cfg?.minimizeDuringGame !== true) return;
+      const win = await getWindow();
+      if (win) await win.minimize();
+    } catch (err) {
+      console.warn('[shell] could not minimize for the game:', err);
+    }
+  };
+
   let sawFirstLiveState = false;
   await listen('lcu-event', (event) => {
     const msg = event.payload || {};
@@ -490,13 +529,18 @@ async function wireLiveAutoShow() {
     const p = msg.payload || {};
     switch (t) {
       case 'champSelectStarted': liveGoto('pregame.html'); break;
-      case 'gameInProgress': liveGoto('ingame.html'); break;
+      case 'gameInProgress': liveGoto('ingame.html'); void minimizeForGame(); break;
       case 'gameEnded':
-        handleTutorialGameEnded(p).then((handled) => {
-          if (!handled) leaveLiveSurface();
-        });
+        // The tutorial handoff only updates optional help; the live surface always exits.
+        handleTutorialGameEnded(p).then(() => leaveLiveSurface());
         break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
+      case 'gamesRecovered':
+        // Recovery can finish after the user leaves Settings. Refresh listing
+        // pages, while preserving all editors and in-progress session forms.
+        if (!inActiveEdit() && (frameHas('games.html') || frameHas('dashboard.html')))
+          frame?.contentWindow?.location.reload();
+        break;
       case 'vodLinked':
         // Recording discovery never navigates or reloads a working page.
         try {
@@ -559,6 +603,25 @@ async function wireLiveAutoShow() {
             frame.contentWindow.dispatchEvent(new CustomEvent(name, { detail: p }));
           }
         } catch (_) { /* best-effort; the share wait also polls its status */ }
+        break;
+      case 'autoClipProgress':
+        // An auto-clip batch runs in the sidecar past any request deadline; the VOD player
+        // shows its progress and re-reads its clips when it finishes (it matches gameId).
+        try {
+          if (frameHas('vodplayer.html') && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:auto-clip-progress', { detail: p }));
+          }
+        } catch (_) { /* best-effort; the next load reads the saved clips */ }
+        break;
+      case 'updateDownloadProgress':
+        // An update download runs in the sidecar past any request deadline. The banner
+        // and the Settings update card each show its percent while they wait for it.
+        showUpdateDownloadProgress(p);
+        try {
+          if (frameHas('settings.html') && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:update-download-progress', { detail: p }));
+          }
+        } catch (_) { /* best-effort; the download's reply still finishes the install */ }
         break;
       case 'liveState':
         // The replayed snapshot carries the current client state — seed the LCU

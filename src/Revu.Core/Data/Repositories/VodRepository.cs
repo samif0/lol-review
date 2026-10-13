@@ -280,6 +280,16 @@ public sealed partial class VodRepository : IVodRepository
         return await ReadBookmarksAsync(cmd);
     }
 
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<VodBookmarkRecord>>> GetAllBookmarksByGameAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM vod_bookmarks ORDER BY game_id, game_time_s ASC, id ASC";
+        return (await ReadBookmarksAsync(cmd))
+            .GroupBy(static bookmark => bookmark.GameId)
+            .ToDictionary(static group => group.Key, static group => (IReadOnlyList<VodBookmarkRecord>)group.ToList());
+    }
+
     public async Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksForObjectiveAsync(long objectiveId)
     {
         using var conn = _factory.CreateConnection();

@@ -10,10 +10,46 @@ namespace Revu.Sidecar;
 
 public static partial class SidecarEndpoints
 {
+    /// <summary>GET /api/health's reply (status code and body); see the route.</summary>
+    internal static (int StatusCode, object Body) Health(IDbConnectionFactory factory, StorageStartupHealth storage, ILogger logger)
+    {
+        try
+        {
+            using var conn = factory.CreateConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT 1;";
+            cmd.ExecuteScalar();
+            return storage.SchemaUpgradeFailed
+                ? (200, new { status = "ready", storage = "degraded", reason = "schema_upgrade_failed" })
+                : (200, new { status = "ready", storage = "ok" });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Health probe: read-only DB open/select failed (degraded)");
+            return (503, new { status = "degraded" });
+        }
+    }
+
     private static void MapHost(WebApplication app, JsonSerializerOptions jsonOptions, SidecarHostSession hostSession)
     {
         // ── GET /api/health (anonymous): opens a read-only conn + SELECT 1 ───────────
-        app.MapGet("/api/health", (IDbConnectionFactory factory, ILogger<Program> logger) =>
+        // A failed startup schema pass keeps status "ready" (the desktop host gates launch
+        // on it, and the degraded-start policy keeps the app usable) but reports storage
+        // "degraded" so a half-migrated database is visible instead of looking current.
+        app.MapGet("/api/health", (IDbConnectionFactory factory, StorageStartupHealth storage, ILogger<Program> logger) =>
+        {
+            var (statusCode, body) = Health(factory, storage, logger);
+            return Results.Json(body, jsonOptions, statusCode: statusCode);
+        });
+
+        // Launch/data-root compatibility is authenticated; bearer credentials stay in
+        // the desktop main process and never enter a renderer.
+        app.MapGet("/api/host", () => Results.Json(hostSession.Identity, jsonOptions));
+
+        // The same probe for the desktop host, with the user-actionable reason when the
+        // database cannot be opened, so a degraded start shows why instead of timing out.
+        // Authenticated because the reason names local paths.
+        app.MapGet("/api/host/health", (IDbConnectionFactory factory, ILogger<Program> logger) =>
         {
             try
             {
@@ -25,14 +61,12 @@ public static partial class SidecarEndpoints
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Health probe: read-only DB open/select failed (degraded)");
-                return Results.Json(new { status = "degraded" }, jsonOptions, statusCode: 503);
+                logger.LogWarning(ex, "Host health probe: read-only DB open/select failed (degraded)");
+                var error = ex is DatabaseUnavailableException unavailable ? unavailable.Message
+                    : $"Revu couldn't open its database: {SqliteOpenHealth.Describe(factory.DatabasePath)}";
+                return Results.Json(new { status = "degraded", error }, jsonOptions);
             }
         });
-
-        // Launch/data-root compatibility is authenticated; bearer credentials stay in
-        // the desktop main process and never enter a renderer.
-        app.MapGet("/api/host", () => Results.Json(hostSession.Identity, jsonOptions));
 
         // Private host lifecycle operation; the renderer command map does not expose it.
         // Complete the response before Kestrel begins graceful shutdown.

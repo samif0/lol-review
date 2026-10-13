@@ -37,6 +37,7 @@
         <a href="/learn" aria-current="page">Desktop app</a>
         <a href="/discord">Discord</a>
       </nav>
+      <a class="header-account" href="/sign-in" data-header-account>Sign in</a>
       <a class="btn-primary header-cta" href="/learn">Download</a>
     </div>
   </header>
@@ -73,25 +74,25 @@
         <img src="/shot-dashboard.png"
              width="1600" height="1000"
              alt="Revu home: two matches ready to review, a prompt to pick today's practice focus, and an active learning objective"
-             loading="lazy" />
+             loading="eager" fetchpriority="high" />
         <figcaption>Home: what to review next and what to practice today</figcaption>
       </figure>
 
       <ul class="features">
         <li class="feature-card">
-          <h3>Review your VODs.</h3>
+          <h2>Review your VODs.</h2>
           <p>Watch local recordings of your matches with timestamped notes and clips.</p>
         </li>
         <li class="feature-card">
-          <h3>Practice one thing at a time.</h3>
+          <h2>Practice one thing at a time.</h2>
           <p>Track objectives and session rules across sessions and seasons.</p>
         </li>
         <li class="feature-card">
-          <h3>Narrate your clips.</h3>
+          <h2>Narrate your clips.</h2>
           <p>Talk over any clip in the desktop app and share it with captions and a transcript.</p>
         </li>
         <li class="feature-card">
-          <h3>Build a session habit.</h3>
+          <h2>Build a session habit.</h2>
           <p>Set an intent before you queue and see how each session went at a glance.</p>
         </li>
       </ul>
@@ -162,5 +163,6 @@
 
   <script src="/download.js" defer></script>
   <script src="/lightbox.js" defer></script>
+  <script src="/header-account.js" defer></script>
 </body>
 </html>

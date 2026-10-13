@@ -40,6 +40,7 @@ let _patIdx = 0;  // index into _data.patterns
 let _momIdx = 0;  // index into the active pattern's moments
 let _reviewSaving = false;
 let _qualitySaving = false;
+let _pendingMomentIndex = null;
 let _trendRefreshNeeded = false;
 let _view = 'trend';
 let _viewInitialized = false;
@@ -302,7 +303,7 @@ function renderRail() {
 
   moms.slice(batchStart, batchEnd).forEach((m, i) => host.appendChild(buildMomRow(m, batchStart + i)));
   show($('pat-batches'), moms.length > MOMENT_BATCH_SIZE);
-  $('pat-batch-label').textContent = `${batchStart + 1}–${batchEnd} of ${moms.length}`;
+  $('pat-batch-label').textContent = `${batchStart + 1}-${batchEnd} of ${moms.length}`;
   $('pat-batch-prev').disabled = batchStart === 0;
   $('pat-batch-next').disabled = batchEnd >= moms.length;
 }
@@ -469,9 +470,16 @@ function focusReview() {
 }
 
 function gotoMoment(idx) {
-  if (_reviewSaving || _qualitySaving) return;
+  if (_reviewSaving) return;
   const moms = activeMoments();
   if (idx < 0 || idx >= moms.length) return;
+  if (_qualitySaving) {
+    // A rating saves the current note first. Remember navigation until both
+    // writes finish instead of silently dropping a click on Next.
+    _pendingMomentIndex = idx;
+    setMomentStatus('Saving rating… Your selected moment will open when saved.');
+    return;
+  }
   // Flush the outgoing moment's note (background) before the index changes.
   flushOutgoingNote();
   // If a clip is already up, KEEP PLAYING through the playlist: switch to the new
@@ -604,6 +612,8 @@ async function setMomentQuality(quality) {
   if (!moment || _qualitySaving || _reviewSaving || !['good', 'bad', 'neutral'].includes(quality)
     || quality === (moment.polarity || 'neutral')) return;
   _qualitySaving = true;
+  _pendingMomentIndex = null;
+  let saved = false;
   renderQuality();
   const note = $('m-note');
   if (note) note.readOnly = true;
@@ -631,6 +641,7 @@ async function setMomentQuality(quality) {
     renderHeader(_data);
     renderRail();
     setMomentStatus('Rating saved. Update trends to apply it.');
+    saved = true;
   } catch (err) {
     setMomentStatus("Couldn't save the rating. Please try again.");
     console.error('[patterns] rating save failed:', err);
@@ -639,6 +650,9 @@ async function setMomentQuality(quality) {
     if (note) note.readOnly = false;
     renderQuality();
     renderClosure();
+    const pendingIndex = _pendingMomentIndex;
+    _pendingMomentIndex = null;
+    if (saved && pendingIndex !== null) gotoMoment(pendingIndex);
   }
 }
 
@@ -693,8 +707,8 @@ async function markReviewed() {
 // ── inline moment clip player ────────────────────────────────────────────────
 // Plays the active moment's VOD IN PLACE on the pattern surface (no navigation to
 // the VOD page). Streams the local file via the asset protocol and jumps straight
-// to the moment's start time. Switching moments resets the surface back to its
-// poster state; pressing play again loads the new moment's clip.
+// to the moment's start time. Once playback starts, switching moments loads and
+// plays the next saved clip or bookmark window in place.
 let _patVideoLoadedFor = null; // the moment object whose clip is loaded, or null
 // True once a clip has been started inline. Drives "keep playing through the
 // playlist": when the user steps to another moment WHILE a clip is up, the new
@@ -707,12 +721,13 @@ let _inlineWindow = null;
 // delegated to the transport core; this keeps the patterns-only chrome cleanup (hide
 // video + transport bar, drop the playing state, restore the enlarge layout).
 function resetInlineVideo() {
+  // Clear the window before unloading: load/pause can emit media events.
+  _inlineWindow = null;
   if (_T) { _T.unload(); if (_T.isExpanded()) _T.toggleEnlarge(); }
   show($('m-video'), false);
   show($('m-transport'), false);
   _patVideoLoadedFor = null;
   _inlineActive = false;
-  _inlineWindow = null;
   const surface = $('m-surface');
   if (surface) surface.classList.remove('pat-surface-playing');
 }
@@ -736,7 +751,11 @@ function playableSource(m) {
 function playMoment() {
   const m = activeMoment();
   const src = playableSource(m);
-  if (!m || !src) return;
+  if (!m || !src) {
+    resetInlineVideo();
+    if (m) setMomentStatus('The recording for this moment is unavailable.');
+    return;
+  }
   const vid = $('m-video');
   const surface = $('m-surface');
   if (!vid || !surface || !_T) return;
@@ -750,6 +769,7 @@ function playMoment() {
   const url = resolveAssetUrl(_core, src.path);
   if (!url) {
     // Browser preview (or asset protocol unavailable): can't stream a local file.
+    resetInlineVideo();
     setMomentStatus('Video preview is only available in the app.');
     return;
   }
@@ -759,25 +779,36 @@ function playMoment() {
   show($('m-transport'), true);
   _patVideoLoadedFor = m;
   _inlineActive = true;   // we're now in "playing" mode → stepping moments keeps playing
-  _inlineWindow = Number.isFinite(src.endSeconds) && src.endSeconds > src.startSeconds
-    ? { start: src.startSeconds, end: src.endSeconds } : null;
+  _inlineWindow = null;
   _T.load(url, {
     startSeconds: src.startSeconds,
     gameTimeAtVideoStart: src.gameTimeAtVideoStart || 0,
     autoplay: true,
     onError: () => { setMomentStatus('Could not load this clip.'); resetInlineVideo(); },
   });
+  _inlineWindow = Number.isFinite(src.endSeconds) && src.endSeconds > src.startSeconds
+    ? { start: Math.max(src.startSeconds, src.gameTimeAtVideoStart || 0), end: src.endSeconds } : null;
 }
 
 // A bookmark preview is a short window of its VOD, not the rest of the match.
 // Transport times already include the recording's game-time offset.
 function constrainPlayback(replay = false) {
-  if (!_T || !_inlineWindow) return;
-  const { start, end } = _inlineWindow;
-  if (_T.currentTime < start) _T.seekTo(start);
-  else if (_T.currentTime >= end) {
+  // Ignore source-reset events until the new recording has metadata. A seek can
+  // land a fraction before its requested game time after media-clock rounding;
+  // seeking again with an exact comparison would trap playback at that boundary.
+  if (!_T || !_inlineWindow || $('m-video').readyState < 1) return;
+  const tolerance = 0.05;
+  const start = _inlineWindow.start;
+  const end = Math.min(_inlineWindow.end, _T.duration || Infinity);
+  if (end <= start) {
+    resetInlineVideo();
+    setMomentStatus('This moment falls outside the available recording.');
+    return;
+  }
+  if (_T.currentTime < start - tolerance) _T.seekTo(start);
+  else if (_T.currentTime >= end - tolerance) {
     if (replay) _T.seekTo(start);
-    else { _T.pause(); if (_T.currentTime > end) _T.seekTo(end); }
+    else { _T.pause(); if (_T.currentTime > end + tolerance) _T.seekTo(end); }
   }
 }
 

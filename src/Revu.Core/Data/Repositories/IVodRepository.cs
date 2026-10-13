@@ -71,7 +71,16 @@ public interface IVodRepository
     /// </summary>
     Task<IReadOnlyList<string>> ListSharedClipPathsAsync();
 
+    /// <summary>
+    /// H5 eviction: every clip file Revu created (clip_path) and whether the user kept it.
+    /// </summary>
+    Task<IReadOnlyList<ClipFileRetention>> ListClipFilesAsync();
+
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksAsync(long gameId);
+
+    /// <summary>Every game's bookmarks in one read (the full review export), keyed by game id,
+    /// each list in game-time order like <see cref="GetBookmarksAsync"/>.</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<VodBookmarkRecord>>> GetAllBookmarksByGameAsync();
 
     Task<IReadOnlyList<VodBookmarkRecord>> GetBookmarksForObjectiveAsync(long objectiveId);
 

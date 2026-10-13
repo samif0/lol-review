@@ -415,6 +415,8 @@ public sealed class PatternsSnapshotContractTests
         public Task AttachClipToEvidenceAsync(long evidenceId, long bookmarkId, int clipStartS, int clipEndS) => throw Boom();
         public Task<IReadOnlyList<ObjectivePatternCard>> GetPatternCardsAsync(int limit = 6) => throw Boom();
         public Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern) => throw Boom();
+        public Task<IReadOnlyDictionary<string, IReadOnlyList<PatternMoment>>> GetPatternMomentsAsync(
+            IReadOnlyCollection<ObjectivePatternCard> patterns) => throw Boom();
         public Task MarkPatternReviewedAsync(string patternKey, string kind, int momentCount) => throw Boom();
         public Task<int> CountReviewedPatternsAsync() => throw Boom();
         public Task<IReadOnlyDictionary<string, long>> GetReviewedPatternsAsync() => throw Boom();

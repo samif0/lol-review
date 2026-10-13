@@ -16,6 +16,8 @@ internal sealed record EndBlockBody(int Rating, string? Note, string? Date = nul
 internal sealed record StartStintBody(string Name, string? PlannedEndDate = null);
 internal sealed record RestoreBackupBody(string BackupFilePath);
 internal sealed record GameIdBody(long GameId);
+// POST /api/game/hide (Match library "Remove from history" and its Undo).
+internal sealed record GameHiddenBody(long GameId, bool Hidden = true);
 // 3.14.1: POST /api/review/remake (the player's own remake verdict; sticky).
 internal sealed record RemakeToggleBody(long GameId, bool IsRemake);
 internal sealed record FromGameMatchupBody(long GameId);
@@ -146,7 +148,6 @@ internal sealed record SaveConfigBody(
     string? BackupFolder,
     bool? TiltFixMode,
     bool? RequireReviewNotes,
-    bool? SidebarAnimationEnabled,
     bool? MinimizeDuringGame,
     bool? AutoTimelineClippingEnabled,
     bool? AutoTimelineClippingHintDismissed,
@@ -268,8 +269,6 @@ internal sealed record PatternMomentNoteBody(
 // ── Riot auth / account bodies (Batch 4) ─────────────────────────────────────
 // Email-OTP login. The proxy sends the code; nothing persists until /verify.
 internal sealed record AuthLoginBody(string Email);
-// Sign-up = login + an invite code (upper-cased server-side).
-internal sealed record AuthSignupBody(string Email, string InviteCode);
 // Verify the OTP and persist the session. Email rides along so we stamp the right
 // RiotSessionEmail (the proxy's verify response carries only token + expiry).
 internal sealed record AuthVerifyBody(string Code, string? Email);
@@ -301,8 +300,6 @@ internal sealed record PreGameIntentBody(string? Intention, string? Source, bool
 internal sealed record PreGamePracticedBody(List<long>? ObjectiveIds);
 internal sealed record PreGameDraftBody(long PromptId, string? Text);
 internal sealed record PreGameIfThenBody(string? Plan);
-
-internal sealed record SaveEncounterBody(long GameId, int? EventId, string RequestId, int StartS, int EndS, string Classification, string? Note);
 
 // ── v3.11 Event corrections bodies ───────────────────────────────────────────
 // Subject = the event as the page saw it (event_key preferred, id as fallback, type +

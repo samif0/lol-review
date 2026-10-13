@@ -32,6 +32,7 @@ let _autoClipEnabled = false; // config.autoClipObjectivesEnabled — gates the 
 let _autoClipBusy = false;    // true while an auto-clip run is in flight
 let _autoClipHintMsg = '';    // last auto-clip result message (survives objbar re-render)
 let _autoClipHintErr = false; // whether _autoClipHintMsg is an error
+let _autoClipReportedBatch = ''; // batch id whose result this page's request already showed
 let _T = null;         // shared transport core (play/seek/step/rate/mute/enlarge)
 let _fx = null;        // timeline corrections module (selection, keys, form, ghosts, list)
 let _vodInitialLoading = true;
@@ -70,8 +71,28 @@ const _matchNav = createMatchNavigation({
     if (_viewWrites.pending) showStatus?.('Finishing save…');
     await _fx?.flushPending();
     await _viewWrites.flush();
+    if (confirmLeaveWithUnsavedNotes()) return true;
+    showStatus?.('');
+    return false;
   },
 });
+// The persistent sidebar and Update & restart consult this hook (the narration
+// studio chains in front of it during a take). Send a held nudge and finish moment
+// writes, including a note that still has focus, before the frame changes.
+window.revuBeforeNavigate = async () => {
+  const field = document.activeElement;
+  if (isMomentNote(field)) queueNoteSave(field);
+  await _fx?.flushPending();
+  await _viewWrites.flush();
+  return confirmLeaveWithUnsavedNotes();
+};
+
+// A moment note that still could not be saved asks before the page goes away, so
+// a failed write never drops typing silently. Staying keeps the note and its Retry.
+function confirmLeaveWithUnsavedNotes() {
+  const unsaved = [..._momentFailures.values()].some(failure => failure.message === NOTE_SAVE_FAILED);
+  return !unsaved || window.confirm('A moment note couldn’t be saved. Leave without saving it?');
+}
 
 function captureVodViewState() {
   if (!_vod || !(_vod.gameId > 0)) return null;
@@ -436,18 +457,21 @@ window.addEventListener('revu:map-state-updated', (ev) => {
 
 // v3.11: a timeline correction landed (this panel, the review page's death links,
 // or another window). Same gate as above; coalesced 300 ms so a burst of SSE
-// events (a nudge stream, a revert) costs one refetch, and skipped while one is
-// already in flight. Never touches playback.
+// events (a nudge stream, a revert) costs one refetch. An event that arrives while
+// a refetch is in flight runs one more refetch afterwards. Never touches playback.
 let _fxReloadTimer = null;
 let _fxReloadBusy = false;
+let _fxReloadAgain = false;
 window.addEventListener('revu:events-corrected', (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
   if (!(gid === 0 || (gid > 0 && gid === _gameId))) return;
   clearTimeout(_fxReloadTimer);
   _fxReloadTimer = setTimeout(async () => {
-    if (_fxReloadBusy) return;
+    if (_fxReloadBusy) { _fxReloadAgain = true; return; }
     _fxReloadBusy = true;
-    try { await reloadBookmarks(); } finally { _fxReloadBusy = false; }
+    try {
+      do { _fxReloadAgain = false; await reloadBookmarks(); } while (_fxReloadAgain);
+    } finally { _fxReloadBusy = false; }
   }, 300);
 });
 
@@ -502,6 +526,10 @@ async function reloadBookmarks() {
 }
 
 // ── render ──────────────────────────────────────────────────────────────────
+// Plain copy only: never show the internal media URL or host details. One message
+// covers both a path that cannot be resolved and a video that fails to load.
+const VIDEO_LOAD_ERROR = 'This local video could not be opened. It may have moved or be unavailable.';
+
 function render(data, core) {
   _vod = data;
   if (Number.isSafeInteger(Number(data.gameId)) && Number(data.gameId) > 0) _gameId = Number(data.gameId);
@@ -579,28 +607,23 @@ function render(data, core) {
   const v = video();
   const assetUrl = resolveAssetUrl(core, data.filePath);
   if (!assetUrl) {
-    renderError(new Error(
-      'This local video could not be opened. It may have moved or be unavailable.'));
+    renderError(new Error(VIDEO_LOAD_ERROR));
     restoreMatchView();
     return;
   }
-  v.src = assetUrl;
-
   // The transport core (_T) owns the per-video listeners that drive the play/pause
-  // + mute glyphs, click-to-toggle, and the time readout + seek-fill + playhead
-  // (via the refs handed to createTransport in boot()). We keep ONLY the
-  // page-specific listeners here: onMeta (timeline markers + the ?t= deep-link)
-  // and the error surface.
+  // + mute icons, click-to-toggle, and the time readout + seek-fill + playhead
+  // (via the refs handed to createTransport in boot()). Its load() replaces any
+  // earlier load's error listener, so a linked-recording refresh never stacks them.
+  // The page adds only onMeta (timeline markers + the ?t= deep-link); a repeated
+  // add of the same listener is ignored. No seek and no autoplay on metadata.
   v.addEventListener('loadedmetadata', onMeta, { once: true });
-  v.addEventListener('error', () => {
-    const me = v.error;
-    renderError(new Error(
-      `video failed to load (code ${me ? me.code : '?'}). ` +
-      `src=${v.src.slice(0, 80)}…; file moved, codec unsupported, or asset scope blocks it.`));
-    restoreMatchView();
-  });
-  // Kick off loading explicitly.
-  v.load();
+  _T.load(assetUrl, { startSeconds: null, gameTimeAtVideoStart: data.gameTimeAtVideoStart || 0, autoplay: false,
+    onError: () => {
+      console.warn('[vodplayer] recording failed to load, media error', v.error ? v.error.code : '?');
+      renderError(new Error(VIDEO_LOAD_ERROR));
+      restoreMatchView();
+    } });
 }
 
 // (resolveAssetUrl now lives in ./vodtransport.js — imported above — and is shared
@@ -887,7 +910,7 @@ function placeMarkers(dur) {
   // therefore collides in the major bucket; giving it its own bucket let a "3v2" and a
   // "DRG" a few pixels apart both draw, overprinting each other.
   const labelBucket = (tier) => (tier === 'fight' ? 'major' : tier);
-  const lastLabelPctByBucket = { objective: -99, major: -99, medium: -99, summoner: -99, recall: -99, minor: -99 };
+  const lastLabelPctByBucket = { objective: -99, major: -99, medium: -99, summoner: -99, trade: -99, recall: -99, minor: -99 };
   // The tier that wrote the last label in each bucket (decides the fight-vs-fight gap).
   const lastLabelTierByBucket = {};
   // Wider than a bare code's width so labels get real breathing room and the
@@ -1332,7 +1355,7 @@ function renderMoments() {
   const shown = _bmFilter === 'clips' ? clips : _bmFilter === 'bm' ? bm : auto;
 
   const host = $('vp-bookmarks');
-  clear(host);
+  const rows = [];
   const emptyEl = $('vp-moments-empty');
   if (emptyEl) {
     const kind = _bmFilter === 'clips' ? 'clips' : _bmFilter === 'bm' ? 'bookmarks' : 'suggested moments';
@@ -1341,7 +1364,14 @@ function renderMoments() {
   show($('vp-moments-empty'), shown.length === 0);
   for (const m of shown) {
     const el = tpl('tpl-bookmark');
+    el.dataset.momentKey = momentKey(m);
     el.dataset.seconds = String(m.seconds);
+    // The row is a plain container; its own Watch button carries the jump.
+    const jump = el.querySelector('.ricon');
+    if (jump) {
+      jump.dataset.seconds = String(m.seconds);
+      jump.setAttribute('aria-label', `Watch moment at ${m.timeLabel}`);
+    }
     el.querySelector('.vp-bm-src').textContent = m.srcLabel;
     el.querySelector('.vp-bm-time').textContent = m.timeLabel;
     el.querySelector('.vp-bm-note').textContent = m.noteDisplay;
@@ -1357,9 +1387,7 @@ function renderMoments() {
       const noteInput = edit.querySelector('.vp-bm-editnote');
       if (noteInput) {
         noteInput.value = m.note;
-        // Don't let typing/clicking in the field trigger the row's jump action.
-        noteInput.addEventListener('click', (e) => e.stopPropagation());
-        noteInput.addEventListener('keydown', (e) => e.stopPropagation());
+        noteInput.dataset.savedValue = m.note; // blur and Enter write only a real change
       }
       const del = edit.querySelector('.vp-bm-del');
       if (del) del.dataset.bmId = String(m.id);
@@ -1380,19 +1408,18 @@ function renderMoments() {
         // Objective + prompt picker (optgroup per objective, prompt rows beneath).
         // Pre-select the row's saved objective (and prompt, if the row carries one).
         fillObjectivePromptPicker(sel, m.objectiveId, m.promptId);
+        sel.dataset.savedValue = sel.value;
         sel.dataset.evId = String(m.evidenceId);
         sel.dataset.route = 'evidence';
-        sel.addEventListener('click', (e) => e.stopPropagation());
       }
       const note = evEdit.querySelector('.vp-ev-note');
       if (note) {
         note.value = m.note;
+        note.dataset.savedValue = m.note;
         note.dataset.evId = String(m.evidenceId);
         note.dataset.startS = m.startTimeSeconds != null ? String(m.startTimeSeconds) : '';
         note.dataset.endS = m.endTimeSeconds != null ? String(m.endTimeSeconds) : '';
         note.dataset.hasClip = m.isClip ? '1' : '0';
-        note.addEventListener('click', (e) => e.stopPropagation());
-        note.addEventListener('keydown', (e) => e.stopPropagation());
       }
     } else if (evEdit && m.bookmarkObjEditable && m.bookmarkId != null) {
       // Clip-bookmark rows (no evidence id, but a bookmark id) still get an
@@ -1402,9 +1429,9 @@ function renderMoments() {
       const sel = evEdit.querySelector('.vp-ev-obj');
       if (sel) {
         fillObjectivePromptPicker(sel, m.objectiveId, m.promptId);
+        sel.dataset.savedValue = sel.value;
         sel.dataset.bmId = String(m.bookmarkId);
         sel.dataset.route = 'bookmark';
-        sel.addEventListener('click', (e) => e.stopPropagation());
       }
       const note = evEdit.querySelector('.vp-ev-note');
       if (note) note.remove();
@@ -1486,8 +1513,169 @@ function renderMoments() {
         if (srcb) { srcb.style.color = m.polarityColorHex; srcb.style.borderColor = m.polarityColorHex; }
       }
     }
-    host.appendChild(el);
+    renderMomentStatus(el);
+    rows.push(el);
   }
+  placeMomentRows(host, rows);
+}
+
+// ── Moment rows: stable identity across refreshes ─────────────────────────────
+// A refresh after any write rebuilds the list. The row that holds focus stays in
+// the document (only its other parts are refreshed), so a note being typed keeps
+// its text, caret and focus, and keys never fall through to the page shortcuts.
+// Rebuilt rows keep any unsaved field text from the row they replace.
+function momentKey(m) {
+  if (m.evidenceId != null) return `ev:${m.evidenceId}`;
+  if (m.id != null) return `bm:${m.id}`;
+  return `at:${m.seconds}`;
+}
+
+const MOMENT_FIELDS = ['.vp-bm-editnote', '.vp-ev-note', '.vp-ev-obj'];
+
+function isMomentNote(el) {
+  return !!(el && el.classList && el.closest && el.closest('#vp-bookmarks')
+    && (el.classList.contains('vp-bm-editnote') || el.classList.contains('vp-ev-note')));
+}
+
+function placeMomentRows(host, rows) {
+  if (!host) return;
+  const previous = new Map();
+  for (const row of Array.from(host.children)) {
+    const key = row.dataset && row.dataset.momentKey;
+    if (key && !previous.has(key)) previous.set(key, row);
+  }
+  const active = document.activeElement;
+  const focusRow = active && active !== host && host.contains(active) && active.closest ? active.closest('.moment') : null;
+  let kept = null;
+  const placed = rows.map(row => {
+    const before = previous.get(row.dataset.momentKey);
+    if (!before) return row;
+    for (const selector of MOMENT_FIELDS) {
+      const old = before.querySelector(selector), field = row.querySelector(selector);
+      if (old && field && old.value !== (old.dataset.savedValue ?? '')) field.value = old.value;
+    }
+    if (before !== focusRow || kept) return row;
+    kept = before;
+    Object.assign(before.dataset, row.dataset);
+    for (const part of Array.from(row.children)) {
+      const match = Array.from(before.children).find(child => child.className === part.className);
+      if (!match) continue;
+      if (!match.contains(active)) { before.replaceChild(part, match); continue; }
+      // The part holding focus stays. Its other controls are swapped for fresh ones
+      // and the focused field takes the fresh saved state, so later writes read it.
+      for (const selector of MOMENT_FIELDS) {
+        const old = match.querySelector(selector), field = part.querySelector(selector);
+        if (!old || !field) continue;
+        if (old === active) Object.assign(old.dataset, field.dataset);
+        else if (old.parentNode) old.parentNode.replaceChild(field, old);
+      }
+    }
+    return before;
+  });
+  for (const child of Array.from(host.children)) if (child !== kept) host.removeChild(child);
+  const keptIndex = placed.indexOf(kept);
+  placed.forEach((row, index) => {
+    if (row === kept) return;
+    if (kept && index < keptIndex) host.insertBefore(row, kept);
+    else host.appendChild(row);
+  });
+}
+
+// ── Moment writes: visible failure and retry on the row ──────────────────────
+// Note, tag and delete writes report on their own row. A failure keeps the user's
+// draft, says what did not save and offers Retry; only a confirmed write refreshes
+// the list. Every write joins the view barrier so navigation waits for it.
+const _momentFailures = new Map(); // moment key -> { message, retry }
+let _momentWriteSeq = 0;
+
+function momentRow(key) {
+  return key ? document.querySelector(`#vp-bookmarks [data-moment-key="${key}"]`) : null;
+}
+
+function renderMomentStatus(row) {
+  const status = row && row.querySelector('.vp-moment-status');
+  if (!status) return;
+  const failure = _momentFailures.get(row.dataset.momentKey);
+  const text = status.querySelector('.vp-moment-status-txt');
+  if (text) text.textContent = failure ? failure.message : '';
+  const retry = status.querySelector('.vp-moment-retry');
+  if (retry) retry.dataset.momentKey = row.dataset.momentKey || '';
+  show(status, !!failure);
+  row.classList.toggle('has-save-error', !!failure);
+}
+
+function setMomentFailure(key, failure) {
+  if (!key) return;
+  if (failure) _momentFailures.set(key, failure); else _momentFailures.delete(key);
+  renderMomentStatus(momentRow(key));
+}
+
+function momentWrite(key, message, write, retry) {
+  return _viewWrites.run(`moment:${++_momentWriteSeq}`, async () => {
+    try {
+      const res = await write();
+      if (res && res.ok === false) throw new Error(res.error || message);
+      setMomentFailure(key, null);
+      await reloadBookmarks();
+      return true;
+    } catch (err) {
+      console.error(`[vodplayer] moment write failed (${key || 'no row'}):`, err);
+      setMomentFailure(key, { message, retry });
+      return false;
+    }
+  });
+}
+
+function retryMomentWrite(key) {
+  const failure = _momentFailures.get(key);
+  if (failure && typeof failure.retry === 'function') return failure.retry();
+  return undefined;
+}
+
+// Notes save on blur or Enter, one write at a time per row, and only when the text
+// differs from what is saved. A failed note stays in its field for Retry; putting
+// back the saved text clears that failure.
+const NOTE_SAVE_FAILED = 'Couldn’t save this note.';
+const _noteWrites = new Map(); // moment key -> { tail, saved, clipped }
+function clearNoteFailure(key) {
+  if (_momentFailures.get(key)?.message === NOTE_SAVE_FAILED) setMomentFailure(key, null);
+}
+function queueNoteSave(field) {
+  const row = field && field.closest ? field.closest('.moment') : null;
+  const key = row && row.dataset.momentKey;
+  if (!key || !_core) return Promise.resolve(false);
+  const text = field.value.trim();
+  let entry = _noteWrites.get(key);
+  if (!entry) {
+    const saved = (field.dataset.savedValue ?? '').trim();
+    if (text === saved) { clearNoteFailure(key); return Promise.resolve(true); }
+    entry = { tail: Promise.resolve(), saved, clipped: false };
+    _noteWrites.set(key, entry);
+  }
+  const evidence = field.classList.contains('vp-ev-note');
+  // The first note on an auto moment can extract its clip. A save queued behind it
+  // must say the moment is already clipped, or the sidecar extracts a second clip.
+  const write = evidence
+    ? async () => {
+      const res = await saveEvidenceNote(field, text, entry.clipped);
+      if (res && res.ok !== false && res.clipped === true) { entry.clipped = true; field.dataset.hasClip = '1'; }
+      return res;
+    }
+    : () => saveBookmarkNote(row.dataset.bmId, text);
+  const retry = () => {
+    const current = momentRow(key)?.querySelector(evidence ? '.vp-ev-note' : '.vp-bm-editnote');
+    return current ? queueNoteSave(current) : undefined;
+  };
+  const job = entry.tail.then(async () => {
+    if (text === entry.saved) { clearNoteFailure(key); return true; }
+    const saved = await momentWrite(key, NOTE_SAVE_FAILED, write, retry);
+    if (saved) { entry.saved = text; field.dataset.savedValue = text; }
+    return saved;
+  });
+  entry.tail = job;
+  const done = () => { if (_noteWrites.get(key) === entry && entry.tail === job) _noteWrites.delete(key); };
+  job.then(done, done);
+  return _viewWrites.run(`note:${++_momentWriteSeq}`, () => job);
 }
 
 // Narrate / Edit narration, the Narrated chip and the transcript for a clip row.
@@ -1622,7 +1810,7 @@ document.addEventListener('click', (ev) => {
     _selectedReviewEvent = '';
     highlightReviewEvent();
     seekTo(Number(t.dataset.seconds || 0));
-    if (v.paused) v.play();
+    if (v.paused) v.play()?.catch?.(() => {});
   }
 });
 
@@ -1671,8 +1859,8 @@ function resolveSaveTag(pickerId) {
 
 // ── Objective + prompt picker (P-027) ────────────────────────────────────────
 // One <select> presents BOTH objectives and their custom prompts. An objective
-// with prompts becomes an <optgroup> holding an objective-level row ('— whole
-// objective —') plus one row per prompt; a promptless objective stays a plain
+// with prompts becomes an <optgroup> holding an objective-level row ('Whole
+// objective') plus one row per prompt; a promptless objective stays a plain
 // row. The option VALUE encodes the choice so save paths can recover both ids:
 //    ''                     → no objective / no prompt
 //    'obj:<OBJID>'          → the whole objective (no prompt)
@@ -1733,7 +1921,7 @@ function fillObjectivePromptPicker(sel, selObjId, selPromptId) {
     // Objective-level row — attach to the whole objective, no prompt.
     const whole = document.createElement('option');
     whole.value = `obj:${objId}`;
-    whole.textContent = '— whole objective —';
+    whole.textContent = 'Whole objective';
     if (curPrompt == null && curObj != null && curObj === objId) whole.selected = true;
     group.appendChild(whole);
 
@@ -1819,52 +2007,40 @@ async function addBookmarkNow() {
   }
 }
 
-async function deleteBookmark(bookmarkId) {
+async function deleteBookmark(bookmarkId, key) {
   if (!_core || !bookmarkId) return;
-  // The trash icon sits inside a clickable row — one misclick used to be one
-  // permanently lost bookmark (the adjacent clip delete already confirms).
+  // Deleting a bookmark is permanent, so it always asks first (the adjacent clip
+  // delete confirms too).
   if (!window.confirm('Delete this bookmark? Its note and objective tag are removed. This can’t be undone.')) {
     return;
   }
-  try {
-    await _core.invoke('delete_bookmark', { payload: { bookmarkId: Number(bookmarkId) } });
-    await reloadBookmarks();
-  } catch (err) {
-    console.error('[vodplayer] delete_bookmark failed:', err);
-  }
+  const write = () => _core.invoke('delete_bookmark', { payload: { bookmarkId: Number(bookmarkId) } });
+  const retry = () => momentWrite(key, 'Couldn’t delete this bookmark.', write, retry);
+  await retry();
 }
 
 // TRUE clip delete: the video file, the DB entry, and (if shared) the public copy.
 // Destructive + irreversible, so gate behind an explicit confirm. The button carries
 // the bookmark id (shareBmId = the clip's vod_bookmarks id). On success, reload the
-// snapshot so the row disappears.
+// snapshot so the row disappears; a refusal or failure stays on the row with Retry.
 async function deleteClip(btn) {
   const bmId = btn && btn.dataset ? Number(btn.dataset.shareBmId) : 0;
   if (!_core || !bmId) return;
   if (!window.confirm('Delete this clip? Its narration and transcript are deleted too.')) return;
+  const key = btn.closest ? btn.closest('.moment')?.dataset.momentKey : '';
   if ('disabled' in btn) btn.disabled = true;
-  try {
-    const res = await _core.invoke('delete_clip', {
-      payload: { gameId: _gameId, bookmarkId: bmId },
-    });
-    if (res && res.ok === false) {
-      console.error('[vodplayer] delete_clip rejected:', res.error);
-    } else cancelShareJob(bmId); // the sidecar cancelled its share job too
-    await reloadBookmarks();
-  } catch (err) {
-    console.error('[vodplayer] delete_clip failed:', err);
-    if ('disabled' in btn) btn.disabled = false; // re-enable so the user can retry
-  }
+  const write = async () => {
+    const res = await _core.invoke('delete_clip', { payload: { gameId: _gameId, bookmarkId: bmId } });
+    if (!(res && res.ok === false)) cancelShareJob(bmId); // the sidecar cancelled its share job too
+    return res;
+  };
+  const retry = () => momentWrite(key, 'Couldn’t delete this clip.', write, retry);
+  const deleted = await retry();
+  if (!deleted && 'disabled' in btn) btn.disabled = false; // re-enable so the user can retry
 }
 
-async function saveBookmarkNote(bookmarkId, note) {
-  if (!_core || !bookmarkId) return;
-  try {
-    await _core.invoke('update_bookmark_note', { payload: { bookmarkId: Number(bookmarkId), note: note || '' } });
-    await reloadBookmarks();
-  } catch (err) {
-    console.error('[vodplayer] update_bookmark_note failed:', err);
-  }
+function saveBookmarkNote(bookmarkId, note) {
+  return _core.invoke('update_bookmark_note', { payload: { bookmarkId: Number(bookmarkId), note: note || '' } });
 }
 
 // ── Evidence (auto-moment / saved-clip) tag + note writes ─────────────────────
@@ -1875,64 +2051,62 @@ async function saveBookmarkNote(bookmarkId, note) {
 // the window; alreadyClipped suppresses re-extraction once it's a clip.
 
 async function setEvidenceObjective(evidenceId, objectiveId, promptId) {
-  if (!_core || !evidenceId) return;
   const evId = Number(evidenceId);
-  try {
-    const payload = { evidenceId: evId, gameId: _gameId };
-    payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
-    await _core.invoke('set_evidence_objective', { payload });
-    // P-027: when a prompt row was chosen, also tag the prompt (independent of the
-    // objective; both coexist). Detaches (promptId:null) when '— whole objective —'
-    // or 'No objective' was picked.
-    await _core.invoke('set_evidence_prompt', {
-      payload: { evidenceId: evId, promptId: promptId ? Number(promptId) : null },
-    });
-    await reloadBookmarks();
-  } catch (err) {
-    console.error('[vodplayer] set_evidence_objective/prompt failed:', err);
-  }
+  const payload = { evidenceId: evId, gameId: _gameId };
+  payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
+  const tagged = await _core.invoke('set_evidence_objective', { payload });
+  if (tagged && tagged.ok === false) return tagged;
+  // P-027: when a prompt row was chosen, also tag the prompt (independent of the
+  // objective; both coexist). Detaches (promptId:null) when 'Whole objective'
+  // or 'No objective' was picked.
+  return _core.invoke('set_evidence_prompt', {
+    payload: { evidenceId: evId, promptId: promptId ? Number(promptId) : null },
+  });
 }
 
 // Clip-bookmark objective/prompt tag: attach/detach on the bookmark row itself (no
 // evidence row exists for these). Mirrors POST /api/bookmark/tag (objective AND
 // prompt in one write; null detaches either).
-async function setBookmarkObjective(bookmarkId, objectiveId, promptId) {
-  if (!_core || !bookmarkId) return;
-  try {
-    const payload = { bookmarkId: Number(bookmarkId) };
-    payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
-    payload.promptId = promptId ? Number(promptId) : null;          // null detaches
-    await _core.invoke('set_bookmark_tag', { payload });
-    await reloadBookmarks();
-  } catch (err) {
-    console.error('[vodplayer] set_bookmark_tag failed:', err);
-  }
+function setBookmarkObjective(bookmarkId, objectiveId, promptId) {
+  const payload = { bookmarkId: Number(bookmarkId) };
+  payload.objectiveId = objectiveId ? Number(objectiveId) : null; // null detaches
+  payload.promptId = promptId ? Number(promptId) : null;          // null detaches
+  return _core.invoke('set_bookmark_tag', { payload });
 }
 
-async function saveEvidenceNote(noteEl) {
-  if (!_core || !noteEl) return;
+// The moment tag picker writes its current choice. A failed tag keeps the choice
+// on screen with Retry, which re-sends whatever the picker shows at that moment.
+function saveMomentTag(sel) {
+  const key = sel && sel.closest ? sel.closest('.moment')?.dataset.momentKey : '';
+  const id = sel && (sel.dataset.route === 'bookmark' ? sel.dataset.bmId : sel.dataset.evId);
+  if (!_core || !key || !id) return Promise.resolve(false);
+  const { objectiveId, promptId } = parsePickerValue(sel.value || '');
+  const write = sel.dataset.route === 'bookmark'
+    ? () => setBookmarkObjective(id, objectiveId, promptId)
+    : () => setEvidenceObjective(id, objectiveId, promptId);
+  const retry = () => {
+    const current = momentRow(key)?.querySelector('.vp-ev-obj');
+    return current ? saveMomentTag(current) : undefined;
+  };
+  return momentWrite(key, 'Couldn’t save this objective tag.', write, retry);
+}
+
+function saveEvidenceNote(noteEl, text, clipped = false) {
   const evidenceId = Number(noteEl.dataset.evId || 0);
-  if (!evidenceId) return;
-  const text = noteEl.value.trim();
   const startS = noteEl.dataset.startS !== '' ? Number(noteEl.dataset.startS) : null;
   const endS = noteEl.dataset.endS !== '' ? Number(noteEl.dataset.endS) : null;
-  const alreadyClipped = noteEl.dataset.hasClip === '1';
-  try {
-    const payload = {
-      evidenceId,
-      text,
-      gameId: _gameId,
-      championName: (_vod && _vod.championName) ? _vod.championName : '',
-      vodPath: (_vod && _vod.filePath) ? _vod.filePath : '',
-      alreadyClipped,
-    };
-    if (startS != null) payload.startTimeS = startS;
-    if (endS != null) payload.endTimeS = endS;
-    await _core.invoke('save_pattern_moment_note', { payload });
-    await reloadBookmarks();
-  } catch (err) {
-    console.error('[vodplayer] saveEvidenceNote failed:', err);
-  }
+  const alreadyClipped = clipped || noteEl.dataset.hasClip === '1';
+  const payload = {
+    evidenceId,
+    text,
+    gameId: _gameId,
+    championName: (_vod && _vod.championName) ? _vod.championName : '',
+    vodPath: (_vod && _vod.filePath) ? _vod.filePath : '',
+    alreadyClipped,
+  };
+  if (startS != null) payload.startTimeS = startS;
+  if (endS != null) payload.endTimeS = endS;
+  return _core.invoke('save_pattern_moment_note', { payload });
 }
 
 // ── Clip share (revu.lol) + inline login-to-share ────────────────────────────
@@ -2169,9 +2343,6 @@ async function uploadShareJob(job) {
       job.copied = copied;
       job.message = copied ? 'Link copied.' : 'Shared. Use Copy to copy the link.';
       renderShareJob(job);
-      window.dispatchEvent(new CustomEvent('revu:first-review-share-done', {
-        detail: { gameId: _gameId, bookmarkId: job.bmId, shareUrl: url },
-      }));
       _shareReloadNeeded = true;
       return 'done';
     } catch (err) {
@@ -2439,11 +2610,9 @@ function setShareBtnDone(bmId, url, copied) {
   setShareCopyVisible(bmId, url, true);
 }
 
-// Normalize an Electron/sidecar error to a displayable string (strips the HTTP prefix).
+// A displayable error string. The platform layer owns host-prefix cleanup.
 function errText(err) {
-  const s = (err && err.message) ? err.message : String(err);
-  const m = s.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
-  return m ? m[1] : s;
+  return (err && err.message) ? err.message : String(err);
 }
 
 // Delegated WRITE handler — kept separate from the transport handler so it can be
@@ -2470,8 +2639,10 @@ document.addEventListener('click', async (ev) => {
     makeClipFromBookmark(t.dataset.bmId);
   } else if (action === 'delete_bookmark') {
     ev.preventDefault();
-    ev.stopPropagation(); // don't let the row's jump fire
-    await deleteBookmark(t.dataset.bmId);
+    await deleteBookmark(t.dataset.bmId, t.closest('.moment')?.dataset.momentKey);
+  } else if (action === 'retry_moment_write') {
+    ev.preventDefault();
+    await retryMomentWrite(t.dataset.momentKey);
   } else if (action === 'clip_in') {
     ev.preventDefault();
     setClipIn();
@@ -2536,18 +2707,10 @@ document.addEventListener('click', async (ev) => {
 });
 
 // Per-row note edit: save on blur or Enter. Listens at document level (the rows
-// are re-rendered on every reload, so per-element listeners would leak).
+// are re-rendered on every reload, so per-element listeners would leak). Blur does
+// not bubble, so this listens in the capture phase. Unchanged text never writes.
 document.addEventListener('blur', (ev) => {
-  const t = ev.target;
-  if (!t || !t.closest) return;
-  const bmNote = t.closest('.vp-bm-editnote');
-  if (bmNote) {
-    const row = bmNote.closest('[data-bm-id]');
-    if (row) saveBookmarkNote(row.dataset.bmId, bmNote.value.trim());
-    return;
-  }
-  const evNote = t.closest('.vp-ev-note');
-  if (evNote) saveEvidenceNote(evNote);
+  if (isMomentNote(ev.target)) queueNoteSave(ev.target);
 }, true);
 
 // Objective/prompt tag picker: attach/detach on change. The encoded value carries
@@ -2566,12 +2729,7 @@ document.addEventListener('change', (ev) => {
   const sel = ev.target.closest && ev.target.closest('.vp-ev-obj');
   if (!sel) return;
   ev.stopPropagation();
-  const { objectiveId, promptId } = parsePickerValue(sel.value || '');
-  if (sel.dataset.route === 'bookmark') {
-    setBookmarkObjective(sel.dataset.bmId, objectiveId, promptId);
-  } else {
-    setEvidenceObjective(sel.dataset.evId, objectiveId, promptId);
-  }
+  saveMomentTag(sel);
 });
 
 // ── Clip tool (I/O in-out points, quality, ffmpeg extract via Save Clip) ──────
@@ -2605,8 +2763,8 @@ function renderClipState() {
   const hasRange = _clipIn >= 0 && _clipOut >= 0 && Math.abs(_clipOut - _clipIn) >= 1;
   if (rangeEl) {
     if (_clipIn >= 0 || _clipOut >= 0) {
-      const a = _clipIn >= 0 ? clock(Math.min(_clipIn, _clipOut < 0 ? _clipIn : _clipOut)) : '—';
-      const b = _clipOut >= 0 ? clock(Math.max(_clipOut, _clipIn < 0 ? _clipOut : _clipIn)) : '—';
+      const a = _clipIn >= 0 ? clock(Math.min(_clipIn, _clipOut < 0 ? _clipIn : _clipOut)) : '--:--';
+      const b = _clipOut >= 0 ? clock(Math.max(_clipOut, _clipIn < 0 ? _clipOut : _clipIn)) : '--:--';
       rangeEl.textContent = `${a} → ${b}`;
     } else {
       rangeEl.textContent = '';
@@ -2883,6 +3041,8 @@ async function runAutoClipForObjective(objId) {
     const payload = { gameId: _gameId };
     if (oid) payload.objectiveId = oid;
     const res = await _core.invoke('auto_clip_objectives', { payload });
+    // Its finished event may still be on the way; it must not report the same batch again.
+    if (res && res.batch) _autoClipReportedBatch = String(res.batch);
     if (res && res.ok) {
       const created = Number(res.created || 0);
       const skipped = Number(res.skipped || 0);
@@ -2899,21 +3059,55 @@ async function runAutoClipForObjective(objId) {
       } else if (res.reason === 'no_vod') {
         setAutoClipHint('No recording on disk to clip from.', true);
       } else {
-        setAutoClipHint('Nothing new to clip — these events are already clipped.', false);
+        setAutoClipHint('Nothing new to clip. These events are already clipped.', false);
       }
     } else {
       setAutoClipHint((res && res.error) || 'Auto-clip failed.', true);
     }
   } catch (err) {
     const msg = String(err && err.message ? err.message : err);
-    setAutoClipHint(/ffmpeg/i.test(msg) ? 'Auto-clip failed; is ffmpeg installed?' : 'Auto-clip failed.', true);
+    // The batch is accepted work in the sidecar: a request deadline only means this page
+    // stopped waiting. Its autoClipProgress event re-reads the clips when it finishes.
+    if (/timeout|timed out|aborted/i.test(msg)) setAutoClipHint('Still clipping in the background. New clips appear here when they are ready.', false);
+    // Another objective's batch for this game is still running (it outlived its request).
+    else if (/already running/i.test(msg)) setAutoClipHint('Auto-clip is already running for this game. Try again when it finishes.', false);
+    else setAutoClipHint(/ffmpeg/i.test(msg) ? 'Auto-clip failed; is ffmpeg installed?' : 'Auto-clip failed.', true);
     console.error('[vodplayer] auto_clip_objectives failed:', err);
+    // Clips saved before the error or deadline are already on disk; show them.
+    await reloadBookmarks();
   } finally {
     _autoClipBusy = false;
     renderObjBar();   // restore the button + show the persisted hint
     renderAutoClipPanel();
   }
 }
+
+// autoClipProgress (forwarded by the shell): live progress while this page waits, and the
+// result of a batch that outlived its request (re-read the clips, finish the first-review
+// step). A waiting request reports its own result, and a batch it already reported is
+// ignored when its finished event arrives after the reply.
+function onAutoClipProgress(ev) {
+  const d = (ev && ev.detail) || {};
+  if (Number(d.gameId) !== _gameId || _gameId <= 0) return;
+  if (!d.finished) {
+    const total = Number(d.total || 0);
+    if (_autoClipBusy && total > 0) setAutoClipHint(`Auto-clipping… ${Number(d.done || 0)} of ${total} done.`, false);
+    return;
+  }
+  if (_autoClipBusy) return;
+  if (d.batch && String(d.batch) === _autoClipReportedBatch) return;
+  const created = Number(d.created || 0);
+  if (d.ok && created > 0) {
+    setAutoClipHint(`Saved ${created} clip${created === 1 ? '' : 's'}.`, false);
+    window.dispatchEvent(new CustomEvent('revu:first-review-autoclip-done', {
+      detail: { gameId: _gameId, objectiveId: d.objectiveId || null, created, skipped: Number(d.skipped || 0) },
+    }));
+  } else if (!d.ok) {
+    setAutoClipHint('Auto-clip failed.', true);
+  }
+  reloadBookmarks();
+}
+window.addEventListener('revu:auto-clip-progress', onAutoClipProgress);
 
 // Click the seek bar to scrub.
 // ── Timeline zoom + pan ───────────────────────────────────────────────────────
@@ -3081,8 +3275,8 @@ function wireSeekBar() {
   window.addEventListener('resize', () => { if (_tlZoom > 1.001) applyTimelineZoom(); });
 }
 
-// Keyboard: space = play/pause, arrows = seek, B = quick bookmark. Enter/Space on
-// a focused moment row jumps to its time (the rows are role=button divs).
+// Keyboard: space = play/pause, arrows = seek, B = quick bookmark. A moment row's
+// own Watch button jumps to its time through native button activation.
 document.addEventListener('keydown', (ev) => {
   if (ev.defaultPrevented || ev.isComposing) return;
   // The narration studio is modal. Keys aimed inside it stop at the dialog; keys that
@@ -3096,7 +3290,8 @@ document.addEventListener('keydown', (ev) => {
     }
     return;
   }
-  if (ev.key === 'Escape' && _composerKind) {
+  // Escape typed in a moment note stays with that note; it never closes the composer.
+  if (ev.key === 'Escape' && _composerKind && !isMomentNote(ev.target)) {
     ev.preventDefault();
     if (!ev.repeat) closeComposer();
     return;
@@ -3117,40 +3312,19 @@ document.addEventListener('keydown', (ev) => {
     }
   }
   if (ev.defaultPrevented || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return;
-  // Per-row Enter shortcuts precede the global typing guard.
-  if (ev.key === 'Enter') {
-    const editNote = ev.target.closest && ev.target.closest('.vp-bm-editnote');
-    if (editNote) {
-      ev.preventDefault();
-      editNote.blur(); // blur handler persists the note
-      return;
-    }
-    const evNote = ev.target.closest && ev.target.closest('.vp-ev-note');
-    if (evNote) {
-      ev.preventDefault();
-      evNote.blur(); // blur handler persists the evidence note
-      return;
-    }
+  // Enter in a moment note saves it and keeps the caret in the field.
+  if (ev.key === 'Enter' && isMomentNote(ev.target)) {
+    ev.preventDefault();
+    if (!ev.repeat) queueNoteSave(ev.target);
+    return;
   }
   // Never hijack typing in a text field, or the arrow/Space keys of a focused
   // <select> or its focused option, for the global shortcuts.
   if (ev.target.isContentEditable || ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT' || ev.target.closest?.('select')) return;
-  // Native card buttons must receive Enter/Space themselves, rather than having
-  // the enclosing moment row turn their activation into a seek.
-  if ((ev.key === 'Enter' || ev.key === ' ') && (ev.target.closest?.('button') || ev.target.closest?.('summary'))
-    && ev.target.closest?.('.moment[data-action="jump"]')) return;
   // Timeline corrections (E / N / Delete / [ ] / Z, and Escape while its form or a
   // selection is live). Consumed keys stop here; everything else falls through.
   if (_fx && _fx.handleKey(ev)) { ev.preventDefault(); return; }
 
-  const moment = ev.target.closest && ev.target.closest('.moment[data-action="jump"]');
-  if (moment && (ev.key === 'Enter' || ev.key === ' ')) {
-    ev.preventDefault();
-    const v0 = video();
-    seekTo(Number(moment.dataset.seconds || 0));
-    if (v0 && v0.paused) v0.play();
-    return;
-  }
   // B captures the moment, then lets the user write before saving.
   if (ev.key === 'b' || ev.key === 'B') {
     ev.preventDefault();

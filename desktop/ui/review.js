@@ -33,7 +33,7 @@ async function postWrite(cmd, args) {
   try {
     const invoke = await getInvoke();
     if (!invoke) {
-      console.info(`[review] (preview) ${cmd} — no Electron backend.`, args);
+      console.info(`[review] (preview) ${cmd}: no Electron backend.`, args);
       return true;
     }
     // Review writes use the same payload envelope as the shared command registry.
@@ -42,10 +42,10 @@ async function postWrite(cmd, args) {
     return true;
   } catch (err) {
     console.error(`[review] ${cmd} failed:`, err);
-    // Accept Error objects and string failures, showing the sidecar's message.
+    // Accept Error objects and string failures, showing the sidecar's message (the
+    // platform layer owns host-prefix cleanup).
     const raw = (err && err.message) ? err.message : (err == null ? '' : String(err));
-    const m = raw.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
-    showCommit((m ? m[1] : raw) || `${cmd} failed.`, 'err');
+    showCommit(raw || `${cmd} failed.`, 'err');
     return false;
   }
 }
@@ -59,7 +59,14 @@ async function postWrite(cmd, args) {
 let _draftTimer = null;
 let _draftDirty = false;
 let _draftSaving = false;
+let _draftFailed = false;   // the last draft write failed; leaving waits for a retry
 let _suppressDraft = false; // true while rendering or while save/skip commits
+
+// A quiet status beside Save: "Draft not saved." with a Retry button.
+function renderDraftStatus() {
+  show($('rv-draft-status'), _draftFailed);
+  show($('rv-draft-retry'), _draftFailed);
+}
 
 function markDraftDirty() {
   if (_suppressDraft || !_subject) return;
@@ -104,12 +111,16 @@ async function flushDraft() {
           }
         }
       }
+      _draftFailed = false;
     } catch (err) {
-      // Autosave is best-effort — never surface an error mid-typing, and don't
-      // re-raise dirty (a dead backend would spin the loop forever).
+      // Never interrupt typing. Show the quiet Retry status instead; the next edit,
+      // Retry or a navigation attempt saves the draft again. Don't re-raise dirty
+      // here (a dead backend would spin the loop forever).
       console.warn('[review] draft autosave failed:', err);
+      _draftFailed = true;
     } finally {
       _draftSaving = false;
+      renderDraftStatus();
     }
   }
 }
@@ -119,6 +130,14 @@ async function flushDraft() {
 function cancelDraft() {
   if (_draftTimer) { clearTimeout(_draftTimer); _draftTimer = null; }
   _draftDirty = false;
+  _draftFailed = false;
+  renderDraftStatus();
+}
+
+// Retry the failed draft now (the Retry button and every navigation attempt).
+function retryDraft() {
+  if (_draftFailed && _subject) _draftDirty = true;
+  return flushDraft();
 }
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
@@ -137,10 +156,11 @@ let _subject = null;
 // nextUnreviewedGameId / unreviewedRemaining off this.
 let _snapshot = null;
 const matchNav = createMatchNavigation({
-  view: 'review', capture: captureReviewState, restore: restoreReviewState, beforeLeave: flushReviewWrites,
+  view: 'review', capture: captureReviewState, restore: restoreReviewState,
+  beforeLeave: message => flushReviewWrites(message, { leave: true }),
 });
 // The persistent sidebar uses the same save barrier as the Review/VOD switch.
-window.revuBeforeNavigate = flushReviewWrites;
+window.revuBeforeNavigate = () => flushReviewWrites(null, { leave: true });
 let _restoreAttempted = false;
 let _linkedRecordingGameId = 0;
 
@@ -317,11 +337,11 @@ function renderHeader(subject) {
       const pair = document.createElement('span');
       pair.className = 'rv-lobby-pair';
       const own = document.createElement('b');
-      own.textContent = r.own || '—';
+      own.textContent = r.own || 'Unknown';
       const vs = document.createElement('i');
       vs.textContent = 'vs';
       const enemy = document.createElement('b');
-      enemy.textContent = r.enemy || '—';
+      enemy.textContent = r.enemy || 'Unknown';
       pair.append(own, vs, enemy);
       cell.append(role, pair);
       lobby.appendChild(cell);
@@ -384,7 +404,14 @@ function renderObjectives(subject) {
     ? `${objs.length} learning objective${objs.length === 1 ? '' : 's'}` : 'None for this game';
 
   // Keep practice controls mounted inside their disclosure. Opening or closing
-  // it never changes the values collected by the existing save/draft flow.
+  // it never changes the values collected by the existing save/draft flow. The
+  // practiced switches earn objective points, so the check-in starts open when
+  // this match has active objectives; later renders keep the player's choice.
+  const checkIn = $('rv-objsec');
+  if (checkIn && !checkIn.dataset.initialized) {
+    checkIn.open = objs.length > 0;
+    checkIn.dataset.initialized = '1';
+  }
   if (objs.length === 0) {
     show($('rv-obj-label'), false);
     // Focus and mental-rating controls share this disclosure, including when
@@ -931,7 +958,14 @@ async function flushEvidenceWrites() {
   return saved;
 }
 
-async function flushReviewWrites(message) {
+// The navigation barrier (sidebar, Update & restart, Review/VOD switch, links).
+// Commits pass { draft: false }: save/skip/delete replace the draft themselves.
+// Leaving passes { leave: true }: a draft that still fails asks before it is left
+// behind, so a draft the backend keeps refusing never traps the player here.
+async function flushReviewWrites(message, { draft = true, leave = false } = {}) {
+  // A failed autosave is retried once now; the page stays open while it still fails
+  // unless the player chooses to leave without it.
+  if (draft && _draftFailed && _subject) _draftDirty = true;
   do {
     if (!await flushEvidenceWrites()) {
       if (typeof message === 'function') message('An evidence change could not be saved. Please retry on its card.');
@@ -948,6 +982,12 @@ async function flushReviewWrites(message) {
     // Drain those edits too before navigating or committing the review.
   } while (_evidenceWrites.size || _draftDirty || _draftSaving || _promptWrites.size
     || [..._matchupNotes.values()].some(state => state.pending || state.value !== state.savedValue));
+  if (draft && _draftFailed) {
+    const text = 'Your review draft could not be saved. Retry before leaving.';
+    showCommit(text, 'err');
+    if (typeof message === 'function') message(text);
+    return leave && window.confirm('Your review draft couldn’t be saved. Leave without saving it?');
+  }
   return true;
 }
 
@@ -1026,25 +1066,21 @@ function renderTagCatalog(subject) {
     chip.querySelector('.rv-tagcat-txt').textContent = t.name || '';
     const id = Number(t.id);
     if (Number.isFinite(id)) chip.dataset.tagId = String(id);
-    if (t.colorHex) chip.dataset.color = t.colorHex;
-    chip.setAttribute('role', 'button');
-    chip.tabIndex = 0;
-    if (t.isSelected) applyTagcatSelected(chip, true);
+    // The tag's color identifies it as a swatch; it never carries the selection.
+    const swatch = chip.querySelector('.rv-tagcat-swatch');
+    if (swatch) {
+      if (t.colorHex) swatch.style.background = t.colorHex;
+      show(swatch, !!t.colorHex);
+    }
+    applyTagcatSelected(chip, !!t.isSelected);
     grid.appendChild(chip);
   }
 }
 
-// Apply/remove the selected look on a catalog chip (tint with the tag's color).
+// Selection is the toggle's pressed state (the shared selected style).
 function applyTagcatSelected(chip, on) {
   chip.classList.toggle('on', on);
-  const color = chip.dataset.color;
-  if (on && color) {
-    chip.style.borderColor = color;
-    chip.style.color = color;
-  } else {
-    chip.style.borderColor = '';
-    chip.style.color = '';
-  }
+  chip.setAttribute('aria-pressed', String(!!on));
 }
 
 // Matchup journal drafts are independent of the review form: they save to the
@@ -1143,7 +1179,7 @@ async function prepareMatchupNote(button) {
     if (result?.ok !== true) throw new Error(result?.error || 'Could not prepare this matchup note.');
     if (Number(_subject?.gameId) !== gameId) return;
     if (result.partial) {
-      if (await flushReviewWrites()) {
+      if (await flushReviewWrites(null, { leave: true })) {
         matchNav.captureState?.();
         window.location.href = `matchups.html?gameId=${encodeURIComponent(gameId)}`;
       }
@@ -1446,8 +1482,7 @@ if (remakeBox) {
     } catch (err) {
       remakeBox.checked = !wanted;
       const raw = (err && err.message) ? err.message : String(err || '');
-      const m = raw.match(/sidecar HTTP \d+(?:\s+[^:]+)?:\s*(.*)$/i);
-      setRemakeStatus((m ? m[1] : raw) || 'The change could not be saved.', true);
+      setRemakeStatus(raw || 'The change could not be saved.', true);
       console.error('[review] set_game_remake failed:', err);
     } finally {
       remakeBox.disabled = false;
@@ -1617,12 +1652,12 @@ document.addEventListener('click', (ev) => {
   }
 });
 
-// Keyboard activation (Enter/Space) for the role=button tag chips and
-// the clickable evidence cards.
+// Keyboard activation (Enter/Space) for the clickable evidence cards. Tag chips
+// are native toggle buttons and activate themselves.
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   const t = ev.target;
-  if (t && t.classList && (t.classList.contains('rv-tagcat-chip') || t.classList.contains('rv-evid-clickable'))) {
+  if (t && t.classList && t.classList.contains('rv-evid-clickable')) {
     ev.preventDefault();
     t.click();
   }
@@ -1680,7 +1715,7 @@ document.addEventListener('input', (ev) => {
 // review_vod  = primary launch action (resume this match's VOD workspace).
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
-const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed', 'prepare_matchup_note', 'retry_matchup_note']);
+const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed', 'prepare_matchup_note', 'retry_matchup_note', 'retry_draft']);
 
 document.addEventListener('click', async (ev) => {
   // An evidence card jump must NOT fire when the click landed on its inner triage
@@ -1695,6 +1730,11 @@ document.addEventListener('click', async (ev) => {
 
   if (action === 'prepare_matchup_note') { await prepareMatchupNote(target); return; }
   if (action === 'retry_matchup_note') { await saveMatchupNote(_matchupState); return; }
+  if (action === 'retry_draft') {
+    await retryDraft();
+    if (!_draftFailed) showCommit('Draft saved.', 'ok');
+    return;
+  }
 
   // The shared controller adds resume=1 for this match and waits for draft
   // writes. Omitting t/clip retains the user's saved VOD position and tools.
@@ -1752,7 +1792,7 @@ document.addEventListener('click', async (ev) => {
     if (delBtn) delBtn.disabled = true;
     showCommit('Deleting…', null);
     try {
-      if (!await flushReviewWrites()) throw new Error('Please save your pending changes before deleting this review.');
+      if (!await flushReviewWrites(null, { draft: false })) throw new Error('Please save your pending changes before deleting this review.');
       cancelDraft();
       _suppressDraft = true;
       // delete_review takes a single {payload} arg in the bridge (the {payload} convention).
@@ -1854,7 +1894,7 @@ document.addEventListener('click', async (ev) => {
   if (!invoke) {
     // Browser preview: no backend to talk to. Acknowledge the click so the
     // standalone preview still feels responsive.
-    console.info(`[review] (preview) action "${action}" — no Electron backend.`, args);
+    console.info(`[review] (preview) action "${action}": no Electron backend.`, args);
     if (action === 'save_review') showCommit('Saved (preview, no backend).', 'ok');
     if (action === 'skip_review') showCommit('Skipped (preview, no backend).', 'ok');
     return;
@@ -1873,7 +1913,7 @@ document.addEventListener('click', async (ev) => {
   // it can't fire mid-save and resurrect the draft.
   try {
     if (action === 'save_review' || action === 'skip_review') {
-      if (!await flushReviewWrites()) throw new Error('Please retry the pending changes before saving this review.');
+      if (!await flushReviewWrites(null, { draft: false })) throw new Error('Please retry the pending changes before saving this review.');
       cancelDraft();
       _suppressDraft = true;
       // Include edits made while an earlier autosave was finishing.
@@ -1919,7 +1959,7 @@ document.addEventListener('click', async (event) => {
   if (!href) return;
   event.preventDefault();
   const navigation = ++_reviewLinkNavigation;
-  if (await flushReviewWrites() && navigation === _reviewLinkNavigation) window.location.href = href;
+  if (await flushReviewWrites(null, { leave: true }) && navigation === _reviewLinkNavigation) window.location.href = href;
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────

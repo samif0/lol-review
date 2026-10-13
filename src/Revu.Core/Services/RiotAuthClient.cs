@@ -20,9 +20,6 @@ public sealed record RiotAccountResult(string Puuid, string GameName, string Tag
 
 public interface IRiotAuthClient
 {
-    /// <summary>POST /auth/signup — sends magic-link email. Throws on failure.</summary>
-    Task SignupAsync(string email, string inviteCode, CancellationToken ct = default);
-
     /// <summary>POST /auth/login — sends magic-link email. Throws on failure.</summary>
     Task LoginAsync(string email, CancellationToken ct = default);
 
@@ -64,15 +61,6 @@ public sealed class RiotAuthClient : IRiotAuthClient
     {
         _http = http;
         _logger = logger;
-    }
-
-    public async Task SignupAsync(string email, string inviteCode, CancellationToken ct = default)
-    {
-        var res = await _http.PostAsJsonAsync(
-            $"{RiotProxyEndpoint.BaseUrl}/auth/signup",
-            new { email, inviteCode },
-            ct).ConfigureAwait(false);
-        await ThrowIfNotOkAsync(res, ct).ConfigureAwait(false);
     }
 
     public async Task LoginAsync(string email, CancellationToken ct = default)
@@ -214,16 +202,14 @@ public sealed class RiotAuthClient : IRiotAuthClient
             HttpStatusCode.BadRequest => message switch
             {
                 "invalid_email" => "That email address doesn't look valid.",
-                "invite_code_required" => "An invite code is required to sign up.",
-                "invite_code_invalid_or_used" => "That invite code is invalid or already used.",
                 "invalid_or_expired_code" => "That code is invalid or expired. Request a new one.",
-                "login_email_not_registered" => "This email isn't registered yet. Go back and enter an invite code to sign up.",
+                "login_email_not_registered" => "This email isn't registered yet.",
                 "code_required" => "Please enter the code from your email.",
                 _ => message ?? "The request was rejected.",
             },
-            HttpStatusCode.TooManyRequests => "Too many attempts — wait a minute and try again.",
+            HttpStatusCode.TooManyRequests => "Too many attempts. Wait a minute and try again.",
             HttpStatusCode.BadGateway => "Couldn't send the email right now. Try again in a moment.",
-            HttpStatusCode.Unauthorized => "Session is no longer valid. Please log in again.",
+            HttpStatusCode.Unauthorized => "Session is no longer valid. Please sign in again.",
             _ => message ?? $"Unexpected server error ({(int)res.StatusCode}).",
         };
         throw new RiotAuthException(friendly);

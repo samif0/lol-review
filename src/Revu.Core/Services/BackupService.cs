@@ -1,6 +1,7 @@
 #nullable enable
 
 using Revu.Core.Data;
+using Revu.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Revu.Core.Services;
@@ -8,21 +9,41 @@ namespace Revu.Core.Services;
 /// <summary>
 /// Database backup service. Two modes:
 /// 1. Safety backups: always-on, stored next to the live DB in the user data root,
-///    no config needed, keep last 3.
-/// 2. User backups: stored in user-configured folder, keep last 5.
-/// Safety backups run before every schema migration and on startup.
-/// NEVER overwrites, deletes, or modifies the live database file.
+///    no config needed, tiered retention (the last 3, the newest per day for 7 days,
+///    the newest per week for 4 weeks). Game-delete and objective-delete backups each
+///    have their own budget.
+/// 2. User backups: when the Settings toggle is on, stored in the chosen local folder
+///    (or beside the safety backups when none is chosen), at most one a day, same
+///    tiered retention with a longer recent tier.
+/// Every backup is an SQLite online backup (consistent while other connections write),
+/// passes PRAGMA quick_check, and is written to a temp file before it takes its name.
+/// NEVER overwrites, deletes, or modifies the live database file (restore swaps it only
+/// after the replacement is validated; see BackupService.Restore.cs).
 /// </summary>
-public sealed class BackupService : IBackupService
+public sealed partial class BackupService : IBackupService
 {
-    /// <summary>Maximum number of safety backup files to keep.</summary>
-    private const int MaxSafetyBackups = 3;
-
-    /// <summary>Maximum number of user backup files to keep.</summary>
-    private const int MaxUserBackups = 5;
-
     private const string SafetyPrefix = "safety_backup_";
     private const string UserPrefix = "lol_review_backup_";
+
+    /// <summary>
+    /// Backups taken before a game is deleted. A burst of deletes used to rotate the
+    /// shared 3-slot safety pool, evicting the last good snapshot; they now keep their
+    /// own budget and never touch the safety tiers.
+    /// </summary>
+    private const string DeletePrefix = "delete_backup_";
+    private const int MaxDeleteBackups = 5;
+
+    /// <summary>
+    /// Backups taken before a learning objective is deleted. A small pool of their own:
+    /// objective deletes are rare and each snapshot is the only way back to that
+    /// objective's prompts and written answers, so a burst of game deletes or routine
+    /// session backups never evicts one, and one never evicts theirs.
+    /// </summary>
+    private const string ObjectiveDeletePrefix = "delete_objective_backup_";
+    private const int MaxObjectiveDeleteBackups = 3;
+
+    private static readonly BackupRetention SafetyRetention = new(KeepRecent: 3, KeepDaily: 7, KeepWeekly: 4);
+    private static readonly BackupRetention UserRetention = new(KeepRecent: 5, KeepDaily: 7, KeepWeekly: 4);
 
     /// <summary>
     /// Pre-migration backups dropped by the coach migration layer. They share
@@ -60,27 +81,28 @@ public sealed class BackupService : IBackupService
         var dataDir = Path.GetDirectoryName(dbPath)!;
         var backupDir = Path.Combine(dataDir, "backups");
 
-        var backupName = $"{SafetyPrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
-        var dest = Path.Combine(backupDir, backupName);
-
-        try
-        {
-            // v2.15.4: force a WAL checkpoint before copying so the backup
-            // actually contains the latest writes. Without this, anything
-            // written since the last implicit checkpoint lives only in
-            // revu.db-wal and File.Copy of the main .db misses it.
-            CheckpointDatabase();
-            Directory.CreateDirectory(backupDir);
-            File.Copy(dbPath, dest, overwrite: false);
-            var fileSize = new FileInfo(dbPath).Length;
-            _logger.LogInformation(
-                "Safety backup created: {Dest} (reason: {Reason}, size: {Size} bytes)",
-                dest, reason, fileSize);
-        }
-        catch (IOException ex) when (ex.Message.Contains("already exists"))
+        // Callers name their reason; GameRepository passes "delete-game-<id>" and the
+        // objective delete "delete-objective-<id>".
+        var isDelete = (reason ?? "").StartsWith("delete-", StringComparison.OrdinalIgnoreCase);
+        var isObjectiveDelete = (reason ?? "").StartsWith("delete-objective-", StringComparison.OrdinalIgnoreCase);
+        var prefix = isObjectiveDelete ? ObjectiveDeletePrefix : isDelete ? DeletePrefix : SafetyPrefix;
+        var dest = Path.Combine(backupDir, $"{prefix}{DateTime.Now:yyyyMMdd_HHmmss}.db");
+        if (File.Exists(dest))
         {
             _logger.LogDebug("Safety backup already exists for this second, skipping");
             return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(backupDir);
+            // A game or objective delete goes ahead either way, so its snapshot is kept
+            // even when quick_check finds a problem; it has its own budget and never
+            // evicts a good safety backup.
+            await Task.Run(() => CreateVerifiedCopy(dbPath, dest, requireIntact: !isDelete)).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Safety backup created: {Dest} (reason: {Reason}, size: {Size} bytes)",
+                dest, reason, new FileInfo(dest).Length);
         }
         catch (Exception ex)
         {
@@ -88,80 +110,84 @@ public sealed class BackupService : IBackupService
             return;
         }
 
-        await PruneBackupsAsync(backupDir, SafetyPrefix, MaxSafetyBackups).ConfigureAwait(false);
+        if (isObjectiveDelete)
+            await PruneNewestAsync(backupDir, ObjectiveDeletePrefix, MaxObjectiveDeleteBackups).ConfigureAwait(false);
+        else if (isDelete)
+            await PruneNewestAsync(backupDir, DeletePrefix, MaxDeleteBackups).ConfigureAwait(false);
+        else
+            await PruneTieredAsync(backupDir, SafetyPrefix, SafetyRetention).ConfigureAwait(false);
 
         // Also prune coach-migration leftovers. They land in the same folder
         // but predate the safety pruner's prefix filter, so without this call
         // they just pile up over time.
-        await PruneBackupsAsync(backupDir, CoachMigrationPrefix, MaxCoachMigrationBackups)
+        await PruneNewestAsync(backupDir, CoachMigrationPrefix, MaxCoachMigrationBackups)
             .ConfigureAwait(false);
     }
-
-    /// <summary>
-    /// How recently a routine user backup must have been created before we skip
-    /// running another one on startup. 12 hours is generous for a once-per-launch
-    /// call that copies the entire DB file.
-    /// </summary>
-    private static readonly TimeSpan RoutineBackupCooldown = TimeSpan.FromHours(12);
 
     /// <inheritdoc />
     public async Task RunBackupAsync()
     {
-        if (!_config.BackupEnabled)
+        // The sidecar runs this once per launch, which is also when the temp files of a
+        // backup or restore cut short by a crash or a forced quit are cleared away.
+        var dbPath = _connectionFactory.DatabasePath;
+        await Task.Run(() => SweepLeftoverTempFiles(dbPath)).ConfigureAwait(false);
+
+        AppConfig cfg;
+        try
+        {
+            cfg = await _config.LoadAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "User database backup skipped: settings unavailable");
+            return;
+        }
+
+        // The chosen folder too, whether or not automatic backups are on now. The same
+        // local-only rule as the backup applies before the folder is touched at all.
+        if (LocalPathPolicy.TryGetLocalFullPath(cfg.BackupFolder, out var chosenFolder))
+            await Task.Run(() => SweepLeftoverTempFiles(chosenFolder, CopyTempName.IsMatch)).ConfigureAwait(false);
+
+        if (!cfg.BackupEnabled)
         {
             _logger.LogDebug("User database backup is disabled");
             return;
         }
 
-        var folder = _config.BackupFolder;
-        if (string.IsNullOrEmpty(folder))
-        {
-            _logger.LogDebug("Backup enabled but no folder configured");
-            return;
-        }
+        if (!TryResolveUserBackupFolder(cfg.BackupFolder, dbPath, out var folder)) return;
 
-        // C1: skip the full DB file-copy when a recent backup already exists
-        // in the user's configured backup folder. We look at the newest file
-        // whose name starts with UserPrefix (yyyyMMdd_HHmmss embedded) so we
-        // use the timestamp encoded in the filename rather than OS mtime, which
-        // can be affected by file-system operations. If no UserPrefix files are
-        // found we fall through and run normally (first backup ever).
-        if (Directory.Exists(folder))
+        // At most one routine backup a day. The newest file's timestamp comes from its
+        // name (yyyyMMdd_HHmmss) rather than the OS mtime, which copies and sync tools
+        // can change.
+        try
         {
-            var newestTimestamp = new DirectoryInfo(folder)
+            var newest = new DirectoryInfo(folder)
                 .EnumerateFiles($"{UserPrefix}*.db")
                 .Select(f => TryParseBackupTimestamp(f.Name) ?? f.LastWriteTime)
                 .DefaultIfEmpty(DateTime.MinValue)
                 .Max();
-
-            if (newestTimestamp != DateTime.MinValue
-                && DateTime.Now - newestTimestamp < RoutineBackupCooldown)
+            if (newest.Date == DateTime.Now.Date)
             {
-                _logger.LogDebug(
-                    "Skipping routine backup: most recent backup is {Age:g} old (cooldown {Cooldown:g})",
-                    DateTime.Now - newestTimestamp, RoutineBackupCooldown);
+                _logger.LogDebug("Skipping routine backup: one was already made today ({Newest:g})", newest);
                 return;
             }
         }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Backup folder {Folder} is not readable; skipping the routine backup", folder);
+            return;
+        }
 
-        var dbPath = _connectionFactory.DatabasePath;
         if (!File.Exists(dbPath))
         {
             _logger.LogWarning("Database file not found for backup");
             return;
         }
 
-        var backupName = $"{UserPrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db";
-        var dest = Path.Combine(folder, backupName);
-
+        var dest = Path.Combine(folder, $"{UserPrefix}{DateTime.Now:yyyyMMdd_HHmmss}.db");
         try
         {
-            // Same WAL checkpoint the safety/reset/restore paths do (v2.15.4):
-            // without it the user's configured backup folder receives copies
-            // missing every write still sitting in revu.db-wal.
-            CheckpointDatabase();
-            Directory.CreateDirectory(folder);
-            File.Copy(dbPath, dest, overwrite: false);
+            await Task.Run(() => CreateVerifiedCopy(dbPath, dest, requireIntact: true)).ConfigureAwait(false);
             _logger.LogInformation("Database backed up to {Dest}", dest);
         }
         catch (Exception ex)
@@ -170,7 +196,46 @@ public sealed class BackupService : IBackupService
             return;
         }
 
-        await PruneBackupsAsync(folder, UserPrefix, MaxUserBackups).ConfigureAwait(false);
+        await PruneTieredAsync(folder, UserPrefix, UserRetention).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Where the automatic backup goes. A blank setting means Revu's own backups folder
+    /// beside the database (the "Default backup location" in Settings), where these
+    /// backups also show up in the restore list. A chosen folder is used only when it is
+    /// local and exists. The raw setting is checked with LocalPathPolicy BEFORE any file
+    /// check, because even asking whether a <c>\\server\share</c> folder exists connects to
+    /// that host, and the backup would copy the whole database there on every launch.
+    /// </summary>
+    private bool TryResolveUserBackupFolder(string? configured, string dbPath, out string folder)
+    {
+        var chosen = (configured ?? "").Trim();
+        if (chosen.Length == 0)
+        {
+            folder = Path.Combine(Path.GetDirectoryName(dbPath)!, "backups");
+            try
+            {
+                Directory.CreateDirectory(folder);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Automatic backup skipped: the default backup folder {Folder} could not be created", folder);
+                return false;
+            }
+            _logger.LogDebug("No backup folder chosen; using the default {Folder}", folder);
+            return true;
+        }
+        if (!LocalPathPolicy.TryGetLocalFullPath(chosen, out folder))
+        {
+            _logger.LogWarning("Automatic backup skipped: the backup folder is not a folder on this PC ({Folder})", chosen);
+            return false;
+        }
+        if (!Directory.Exists(folder))
+        {
+            _logger.LogWarning("Automatic backup skipped: the backup folder {Folder} does not exist", folder);
+            return false;
+        }
+        return true;
     }
 
     // ── v2.15.0 reset + revert ──────────────────────────────────────
@@ -209,133 +274,11 @@ public sealed class BackupService : IBackupService
         });
     }
 
-    public async Task<ResetResult> ResetAllDataAsync()
-    {
-        var dbPath = _connectionFactory.DatabasePath;
-        var dataDir = Path.GetDirectoryName(dbPath)!;
-        var backupDir = Path.Combine(dataDir, "backups");
-
-        string backupFilePath;
-        try
-        {
-            // v2.15.4: checkpoint first so WAL-resident writes (everything
-            // between the last implicit checkpoint and now) land in the
-            // main .db file BEFORE the copy. Otherwise the pre-reset
-            // backup will be silently stale — missing any in-session edits.
-            CheckpointDatabase();
-            Directory.CreateDirectory(backupDir);
-            backupFilePath = ResolveUniqueBackupPath(backupDir, PreResetPrefix);
-            if (File.Exists(dbPath))
-            {
-                File.Copy(dbPath, backupFilePath, overwrite: false);
-                _logger.LogInformation("Pre-reset backup: {Path}", backupFilePath);
-            }
-            else
-            {
-                _logger.LogWarning("Reset requested but no DB at {Path}", dbPath);
-                backupFilePath = "";
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Pre-reset backup failed");
-            return new ResetResult(false, "", "Could not create a safety backup. Reset aborted so no data is lost.");
-        }
-
-        var deleteFailed = await TryDeleteSqliteFamilyAsync(dbPath).ConfigureAwait(false);
-        if (deleteFailed.Count > 0)
-        {
-            _logger.LogError("Reset could not delete {Files}", string.Join(", ", deleteFailed));
-            return new ResetResult(
-                false,
-                backupFilePath,
-                $"Could not delete {string.Join(", ", deleteFailed)}. Close the app fully, then restore from the pre-reset backup if needed. Backup saved to: {backupFilePath}");
-        }
-
-        // Wipe config too — gets the user back to a clean onboarding path. The
-        // config that belongs to THIS database is the one beside it: never the
-        // process-global AppDataPaths.ConfigPath, which is the live user's file
-        // even when the connection factory points at a temp DB (a test scope).
-        // That exact mistake deleted the real config.json on every local
-        // `dotnet test` run for months (2026-07-10, 2026-09-05).
-        try
-        {
-            var configPath = Path.Combine(
-                Path.GetDirectoryName(dbPath) ?? AppDataPaths.UserDataRoot,
-                Path.GetFileName(AppDataPaths.ConfigPath));
-            if (File.Exists(configPath)) File.Delete(configPath);
-            // ConfigService keeps a rolling config.json.bak and restores from it
-            // when config.json is missing — a reset has to take that too.
-            var backupCopy = configPath + ".bak";
-            if (File.Exists(backupCopy)) File.Delete(backupCopy);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Config wipe failed (non-fatal)");
-        }
-
-        return new ResetResult(true, backupFilePath, null);
-    }
-
-    /// <summary>
-    /// Clears SQLite pools + forces finalizers, then tries to delete the live
-    /// DB plus its WAL/SHM sidecars. Returns the names of any files that
-    /// remained after the retry budget — empty list means full success.
-    /// Centralised so reset and restore use the same timing semantics.
-    /// </summary>
-    private async Task<List<string>> TryDeleteSqliteFamilyAsync(string dbPath)
-    {
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-
-        var failed = new List<string>();
-        foreach (var path in new[] { dbPath + "-wal", dbPath + "-shm", dbPath })
-        {
-            if (!File.Exists(path)) continue;
-
-            var ok = false;
-            // ~3s total budget. Windows file locks (AV scans, indexer,
-            // pending finalizers) can linger past the old 750ms ceiling.
-            for (int attempt = 0; attempt < 12; attempt++)
-            {
-                try
-                {
-                    File.Delete(path);
-                    ok = true;
-                    break;
-                }
-                catch (IOException ex)
-                {
-                    _logger.LogWarning(ex, "Delete attempt {Attempt} failed for {Path}", attempt + 1, path);
-                    await Task.Delay(250).ConfigureAwait(false);
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    // Same lock category as IOException on some Windows builds.
-                    _logger.LogWarning(ex, "Delete attempt {Attempt} unauthorized for {Path}", attempt + 1, path);
-                    await Task.Delay(250).ConfigureAwait(false);
-                    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Unexpected delete failure for {Path}", path);
-                    break;
-                }
-            }
-
-            if (!ok) failed.Add(Path.GetFileName(path));
-        }
-        return failed;
-    }
-
     /// <summary>
     /// Returns a fresh path under <paramref name="backupDir"/> using the
     /// timestamp-suffixed naming scheme. If the base name already exists
     /// (e.g. user pressed reset twice in the same second), appends "_2",
-    /// "_3", … so File.Copy with overwrite:false never collides.
+    /// "_3", … so a new backup never collides with an existing one.
     /// </summary>
     private static string ResolveUniqueBackupPath(string backupDir, string prefix)
     {
@@ -348,77 +291,7 @@ public sealed class BackupService : IBackupService
             var candidate = Path.Combine(backupDir, $"{prefix}{stamp}_{suffix}.db");
             if (!File.Exists(candidate)) return candidate;
         }
-        return basePath; // fall back; copy will surface the collision error.
-    }
-
-    public async Task<RestoreResult> RestoreFromBackupAsync(string backupFilePath)
-    {
-        if (string.IsNullOrEmpty(backupFilePath) || !File.Exists(backupFilePath))
-        {
-            return new RestoreResult(false, null, "Backup file not found.");
-        }
-
-        var dbPath = _connectionFactory.DatabasePath;
-        var dataDir = Path.GetDirectoryName(dbPath)!;
-        var backupDir = Path.Combine(dataDir, "backups");
-        Directory.CreateDirectory(backupDir);
-
-        // Back up the current DB first so the restore is itself reversible.
-        string? preRestorePath = null;
-        try
-        {
-            // v2.15.4: checkpoint before backing up — see CreateSafetyBackupAsync.
-            CheckpointDatabase();
-            if (File.Exists(dbPath))
-            {
-                preRestorePath = ResolveUniqueBackupPath(backupDir, PreRestorePrefix);
-                File.Copy(dbPath, preRestorePath, overwrite: false);
-                _logger.LogInformation("Pre-restore backup: {Path}", preRestorePath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Pre-restore backup failed");
-            return new RestoreResult(false, null, "Could not back up your current DB. Restore aborted.");
-        }
-
-        var failedRestore = await TryDeleteSqliteFamilyAsync(dbPath).ConfigureAwait(false);
-        if (failedRestore.Count > 0)
-        {
-            _logger.LogError("Restore could not delete {Files}", string.Join(", ", failedRestore));
-            return new RestoreResult(false, preRestorePath,
-                $"Could not replace the current database ({string.Join(", ", failedRestore)} locked). Your pre-restore snapshot is safe.");
-        }
-
-        try
-        {
-            File.Copy(backupFilePath, dbPath, overwrite: false);
-            _logger.LogInformation("Restored DB from {Source}", backupFilePath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Copy backup into place failed");
-            return new RestoreResult(false, preRestorePath, "Could not copy the backup into place. Your pre-restore snapshot is safe.");
-        }
-
-        // Clear pools AGAIN after the file is back in place. Any connection
-        // that gets opened next must see the restored file, not the old
-        // cached empty-DB state from just before the delete.
-        //
-        // In production the app exits right after this call (see
-        // SettingsViewModel) — so this is belt-and-suspenders. But tests
-        // hold the same process and would otherwise hit "no such table"
-        // against stale cached connections under SqliteCacheMode.Shared.
-        // Combined pool clear + GC releases the shared-cache in-process
-        // handle so the next CreateConnection sees the restored schema.
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-
-        await Task.CompletedTask;
-        return new RestoreResult(true, preRestorePath, null);
+        return basePath; // fall back; the final move will surface the collision error.
     }
 
     // filename format: <prefix>yyyyMMdd_HHmmss.db
@@ -446,75 +319,16 @@ public sealed class BackupService : IBackupService
                 ? "Pre-restore"
                 : fileName.StartsWith(SafetyPrefix, StringComparison.OrdinalIgnoreCase)
                     ? "Safety"
-                    : fileName.StartsWith(UserPrefix, StringComparison.OrdinalIgnoreCase)
-                        ? "User backup"
-                        : fileName.StartsWith(CoachMigrationPrefix, StringComparison.OrdinalIgnoreCase)
-                            ? "Coach migration"
-                            : "Backup";
+                    : fileName.StartsWith(DeletePrefix, StringComparison.OrdinalIgnoreCase)
+                        ? "Before a game was deleted"
+                        : fileName.StartsWith(ObjectiveDeletePrefix, StringComparison.OrdinalIgnoreCase)
+                            ? "Before a learning objective was deleted"
+                            : fileName.StartsWith(UserPrefix, StringComparison.OrdinalIgnoreCase)
+                                ? "User backup"
+                                : fileName.StartsWith(CoachMigrationPrefix, StringComparison.OrdinalIgnoreCase)
+                                    ? "Coach migration"
+                                    : "Backup";
         var mb = sizeBytes / (1024.0 * 1024.0);
-        return $"{kind} — {timestamp:MMM d yyyy, h:mm tt} — {mb:F1} MB";
-    }
-
-    /// <summary>
-    /// v2.15.4: force a full WAL checkpoint so all pending writes land in the
-    /// main .db file. Critical before any File.Copy of the DB — otherwise the
-    /// copy misses everything in the WAL and the resulting backup is silently
-    /// stale.
-    /// </summary>
-    private void CheckpointDatabase()
-    {
-        // If the DB file doesn't exist, don't create an empty one just to
-        // checkpoint nothing. Callers guard their File.Copy on existence
-        // already, so this is a no-op in that case.
-        if (!File.Exists(_connectionFactory.DatabasePath)) return;
-
-        try
-        {
-            using var conn = _connectionFactory.CreateConnection();
-            using var cmd = conn.CreateCommand();
-            // TRUNCATE: writes WAL into main DB + truncates WAL file to zero
-            // length. Blocks until done, which is what we want here.
-            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-            cmd.ExecuteNonQuery();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "WAL checkpoint failed; backup may be stale");
-        }
-    }
-
-    // ── Private helpers ─────────────────────────────────────────────
-
-    private Task PruneBackupsAsync(string folder, string prefix, int maxKeep)
-    {
-        return Task.Run(() =>
-        {
-            try
-            {
-                var backups = new DirectoryInfo(folder)
-                    .EnumerateFiles($"{prefix}*.db")
-                    .OrderBy(f => f.LastWriteTimeUtc)
-                    .ToList();
-
-                while (backups.Count > maxKeep)
-                {
-                    var oldest = backups[0];
-                    backups.RemoveAt(0);
-                    try
-                    {
-                        oldest.Delete();
-                        _logger.LogInformation("Pruned old backup: {Name}", oldest.Name);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Could not delete old backup {Name}", oldest.Name);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Backup pruning failed");
-            }
-        });
+        return $"{kind} · {timestamp:MMM d yyyy, h:mm tt} · {mb:F1} MB";
     }
 }

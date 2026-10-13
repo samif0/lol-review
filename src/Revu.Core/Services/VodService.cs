@@ -70,10 +70,14 @@ public sealed partial class VodService : IVodService
 
     public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken = default, IReadOnlySet<long>? reservedGameIds = null)
         => ScanCoreAsync(null, cancellationToken, reservedGameIds);
+    public Task<VodScanResult> ScanAsync(CancellationToken cancellationToken, IReadOnlySet<long>? reservedGameIds,
+        Func<Task> beforeFirstLink)
+        => ScanCoreAsync(null, cancellationToken, reservedGameIds, beforeFirstLink);
     public async Task<int> AutoMatchRecordingsAsync(CancellationToken cancellationToken = default)
         => (await ScanAsync(cancellationToken).ConfigureAwait(false)).Matched;
 
-    private async Task<VodScanResult> ScanCoreAsync(string? requestedFolder, CancellationToken cancellationToken, IReadOnlySet<long>? reservedGameIds = null)
+    private async Task<VodScanResult> ScanCoreAsync(string? requestedFolder, CancellationToken cancellationToken,
+        IReadOnlySet<long>? reservedGameIds = null, Func<Task>? beforeFirstLink = null)
     {
         await _scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -86,17 +90,26 @@ public sealed partial class VodService : IVodService
             var occupiedGames = existing.Select(v => v.GameId).ToHashSet();
             var usedPaths = existing.Select(v => CanonicalPath(v.FilePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var games = await _games.GetRecentAsync(limit: 100).ConfigureAwait(false);
+            var alreadyLinked = recordings.Count(r => usedPaths.Contains(r.Path));
+            var waiting = recordings.Count(r => !r.IsReady && !usedPaths.Contains(r.Path));
+            var unmatched = 0;
+            var unrecognized = 0;
+            var ambiguous = 0;
+            var protectedMatches = 0;
             var candidates = new List<(GameStats Game, VodRecordingInfo Recording, double Score)>();
             foreach (var rec in recordings.Where(r => r.IsReady && !usedPaths.Contains(r.Path)))
             {
+                if (rec.StartTs is null) { unrecognized++; continue; }
                 // An occupied match still participates in identity resolution: its
                 // duplicate external video must not spill into the following match.
                 var scores = games.Select(g => (Game: g, Score: MatchScore(g, rec)))
                     .Where(x => x.Score.HasValue).OrderBy(x => x.Score).ToArray();
                 // Minute-resolution filenames cannot disambiguate near ties.
-                if (scores.Length == 0 || (scores.Length > 1 && scores[1].Score - scores[0].Score <= 60)) continue;
+                if (scores.Length == 0) { unmatched++; continue; }
+                if (scores.Length > 1 && scores[1].Score - scores[0].Score <= 60) { ambiguous++; continue; }
                 var best = scores[0];
-                if (occupiedGames.Contains(best.Game.GameId) || reservedGameIds?.Contains(best.Game.GameId) == true) continue;
+                if (occupiedGames.Contains(best.Game.GameId) || reservedGameIds?.Contains(best.Game.GameId) == true)
+                { protectedMatches++; continue; }
                 candidates.Add((best.Game, rec, best.Score!.Value));
             }
             var matched = 0;
@@ -107,9 +120,15 @@ public sealed partial class VodService : IVodService
                 // Disconnecting/changing the folder stops an already-running scan
                 // before its next insert. Explicit folder calls are test/manual APIs.
                 if (requestedFolder is null && !SameFolder(_config.AscentFolder, root)) break;
-                if (occupiedGames.Contains(game.GameId) || usedPaths.Contains(rec.Path)) continue;
+                if (usedPaths.Contains(rec.Path)) { alreadyLinked++; continue; }
+                if (occupiedGames.Contains(game.GameId)) { protectedMatches++; continue; }
                 using var read = OpenStable(rec, root);
-                if (read is null) continue;
+                if (read is null) { waiting++; continue; }
+                if (beforeFirstLink is not null)
+                {
+                    await beforeFirstLink().ConfigureAwait(false);
+                    beforeFirstLink = null;
+                }
                 if (await _vods.TryLinkUnownedVodAsync(game.GameId, rec.Path, rec.Size).ConfigureAwait(false))
                 {
                     occupiedGames.Add(game.GameId);
@@ -120,18 +139,25 @@ public sealed partial class VodService : IVodService
                 }
             }
             return new(true, matched, recordings.Count,
-                VodScanMessages.Success(matched, recordings.Count, recordings.Count(r => !r.IsReady))) { LinkedGameIds = linked };
+                VodScanMessages.Success(matched, recordings.Count, waiting, alreadyLinked, unmatched,
+                    unrecognized, ambiguous, protectedMatches)) { LinkedGameIds = linked };
         }
         finally { _scanGate.Release(); }
     }
 
+    // Real recording folders are shallow. Links are never followed, so the walk
+    // is finite; the cap bounds pathological nesting (and the per-ancestor link
+    // check in IsSafePath) instead of descending until the OS rejects the path.
+    internal const int MaxScanDepth = 32;
+
     private List<VodRecordingInfo> Enumerate(string root, CancellationToken ct)
     {
         var found = new List<VodRecordingInfo>();
-        var pending = new Stack<string>();
-        pending.Push(root);
-        while (pending.TryPop(out var directory))
+        var pending = new Stack<(string Path, int Depth)>();
+        pending.Push((root, 0));
+        while (pending.TryPop(out var next))
         {
+            var (directory, depth) = next;
             ct.ThrowIfCancellationRequested();
             if (!IsSafePath(directory, root) || IsNativePath(directory)) continue;
             try
@@ -140,7 +166,11 @@ public sealed partial class VodService : IVodService
                 {
                     ct.ThrowIfCancellationRequested();
                     if ((file.Attributes & FileAttributes.ReparsePoint) != 0) continue;
-                    if ((file.Attributes & FileAttributes.Directory) != 0) { pending.Push(file.FullName); continue; }
+                    if ((file.Attributes & FileAttributes.Directory) != 0)
+                    {
+                        if (depth < MaxScanDepth) pending.Push((file.FullName, depth + 1));
+                        continue;
+                    }
                     if (!VideoExtensions.Contains(file.Extension)) continue;
                     try
                     {

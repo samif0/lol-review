@@ -3,8 +3,8 @@
 namespace Revu.Core.Data;
 
 /// <summary>
-/// All DDL statements ported verbatim from the Python schema.py.
-/// SQL must remain identical for backward compatibility with existing databases.
+/// All DDL statements. Changes are additive only (new tables, new columns via
+/// versioned migrations) so existing user databases keep working.
 /// </summary>
 public static class Schema
 {
@@ -554,6 +554,40 @@ public static class Schema
         ON prompt_answers (game_id);
         """;
 
+    // Hot per-game / per-objective lookups that used to full-scan (VOD + review loads,
+    // clip delete, the matchup journal, objective reconciliation, the event-key sweep's
+    // startup count). No schema version bump: CreatePostMigrationIndexesAsync runs these
+    // CREATE INDEX IF NOT EXISTS statements on every startup, so existing databases gain
+    // them on their next launch, each one individually tolerant, and an older build
+    // simply ignores an index it does not know.
+    public const string CreateVodBookmarksGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_vod_bookmarks_game ON vod_bookmarks (game_id);
+        """;
+
+    public const string CreateMatchupsGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_matchups_game ON matchups (game_id);
+        """;
+
+    public const string CreateMatchupNotesGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_matchup_notes_game ON matchup_notes (game_id);
+        """;
+
+    public const string CreateGameObjectivesObjectiveIndex = """
+        CREATE INDEX IF NOT EXISTS idx_game_objectives_objective ON game_objectives (objective_id);
+        """;
+
+    public const string CreateDerivedEventInstancesGameIndex = """
+        CREATE INDEX IF NOT EXISTS idx_derived_instances_game ON derived_event_instances (game_id);
+        """;
+
+    // The predicate matches the event-key sweep's "WHERE event_key IS NULL" textually, which
+    // is what lets SQLite use a partial index; leading with event_key makes it a covering
+    // search for both the startup COUNT(*) and the per-game stamping walk (otherwise the
+    // planner scans all of idx_game_events_key). event_key is a v16 ALTER column.
+    public const string CreateGameEventsUnkeyedIndex = """
+        CREATE INDEX IF NOT EXISTS idx_game_events_unkeyed ON game_events (event_key, game_id) WHERE event_key IS NULL;
+        """;
+
     public const string CreateMatchupNotesTable = """
         CREATE TABLE IF NOT EXISTS matchup_notes (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -691,12 +725,11 @@ public static class Schema
     // LEGACY Coach Lab tables (Phase -1 of coach rebuild, 2026-04-18).
     //
     // These 8 tables + 3 migration arrays were the prior "Coach Lab" system
-    // (Gemma-only clip ingestion + training pipeline). The code that reads
-    // and writes them has been removed; these CREATE statements are kept
-    // intentionally so existing user databases are not corrupted by missing
-    // table references. No code path in the current app touches any coach_*
-    // table. Safe to leave in place. See COACH_CLEANUP_AUDIT.md and
-    // COACH_PLAN.md for the replacement architecture.
+    // (Gemma-only clip ingestion + training pipeline). The code that read and
+    // wrote them has been removed; these CREATE statements are kept so existing
+    // user databases keep a consistent shape. The only code that still touches
+    // them is the game-delete cascade (GameRepository.Deletion), which tolerates
+    // missing tables.
     // ────────────────────────────────────────────────────────────────────────
     public const string CreateCoachPlayersTable = """
         CREATE TABLE IF NOT EXISTS coach_players (
@@ -989,8 +1022,8 @@ public static class Schema
 
     /// <summary>
     /// v2.15.0: objectives can practice any subset of {pre, in, post} game
-    /// phases instead of being locked to one. Backfilled from the legacy
-    /// <c>phase</c> column by DatabaseInitializer.BackfillObjectivePracticePhasesAsync.
+    /// phases instead of being locked to one. The columns default to 0; sidecar
+    /// startup does not backfill them from the legacy <c>phase</c> column.
     /// </summary>
     public static readonly string[] MigrateObjectivesPracticePhases =
     [
@@ -1347,9 +1380,9 @@ public static class Schema
         CreateObjectiveEventTypesTable,
         CreateObjectiveEventTypesIndex,
         // v2.15.0 NOTE: CreateObjectivePromptsIndex + CreatePromptAnswersIndex
-        // reference columns (phase, etc.) that only exist after
-        // NormalizeObjectivePromptsTableAsync has run. They're applied
-        // separately from DatabaseInitializer after normalize completes.
+        // reference columns (phase, etc.) that a pre-v2.15 prompt table lacks.
+        // DatabaseInitializer.ApplySeedsAndIndexesAsync creates them after the
+        // migrations, and each index there tolerates a missing column.
         CreateMatchupNotesTable,
         CreateMatchupsTable,
         CreateMatchupsLaneIndex,

@@ -83,8 +83,8 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
         for(let i=0;i<10;i++)key('-');
         const slowest=state();
         key('=');const equalsIncrease=state();
-        key('m');await tick();const mutedOnce=state(),muteGlyphOnce=mute.querySelector('.tbtn-icon')?.textContent;
-        key('m');await tick();const mutedTwice=state(),muteGlyphTwice=mute.querySelector('.tbtn-icon')?.textContent;
+        key('m');await tick();const mutedOnce=state(),muteGlyphOnce=mute.querySelector('.tbtn-icon')?.dataset.icon;
+        key('m');await tick();const mutedTwice=state(),muteGlyphTwice=mute.querySelector('.tbtn-icon')?.dataset.icon;
         for(let i=0;i<6;i++)key('ArrowDown');
         const smallestStep=state();key('ArrowUp');const largerStep=state();key('ArrowDown');
         const beforeGuards=state();
@@ -492,13 +492,14 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
   let matchWorkspace;
   // A second sandbox has no preload/host bridge. Existing browser fixtures let
   // us inspect populated screens without adding sample matches to user data.
+  // Hosted pages refuse fixtures unless the shell explicitly opts in (?preview=samples).
   const preview = new BrowserWindow({width:1600,height:1000,show:false,frame:false,
     webPreferences:{session:contents.session,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   preview.showInactive();
   try {
     for (const page of ['dashboard.html','objectives.html','patterns.html','objectivegames.html?id=7','objectivenotes.html?id=7',
       'review.html?gameId=5581701721','vodplayer.html?gameId=5581701721']) {
-      await preview.loadURL(`revu-app://ui/index.html#${page}`);
+      await preview.loadURL(`revu-app://ui/index.html?preview=samples#${page}`);
       await delay(800);
       const frame = preview.webContents.mainFrame.frames.find(f=>f.url.includes(page.split('?')[0]));
       assert.ok(frame,`Sample ${page} must open`);
@@ -552,7 +553,7 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
       if(page.startsWith('review.')) {
         assert.equal(state.error,'');
         assert.equal(state.reflectionOpen,false);
-        assert.equal(state.goalsOpen,false);
+        assert.equal(state.goalsOpen,true,'The practice check-in opens when the match has objectives');
         assert.equal(state.reviewOptionsOpen,false);
         assert.equal(state.matchDetailsOpen,false);
         assert.equal(state.reviewLaunchpad?.first,true,'Review starts with the recording launchpad');

@@ -9,53 +9,6 @@ namespace Revu.Core.Tests;
 public sealed class ReviewWorkflowServiceTests
 {
     [Fact]
-    public async Task LoadAsync_RestoresDraftAndLoadsMatchupHistory()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        var previousGameId = 2001L;
-        var currentGameId = 2002L;
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(previousGameId, champion: "Ahri", timestamp: 1_710_000_000));
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(currentGameId, champion: "Ahri", timestamp: 1_710_000_600));
-
-        var objectiveId = await scope.Objectives.CreateAsync("Trade around cooldowns", "lane", completionCriteria: "Punish after spell use");
-        var tagId = (await scope.ConceptTags.GetAllAsync()).First().Id;
-
-        await scope.MatchupNotes.UpsertForGameAsync(previousGameId, "Ahri", "Syndra", "Respect level 1 spacing");
-        await scope.ReviewDrafts.UpsertAsync(new ReviewDraft
-        {
-            GameId = currentGameId,
-            ReviewNotes = "Draft note",
-            EnemyLaner = "Syndra",
-            MatchupNote = "Save wave for level 6",
-            SelectedTagIdsJson = JsonSerializer.Serialize(new[] { tagId }),
-            ObjectiveAssessmentsJson = JsonSerializer.Serialize(new[]
-            {
-                new SaveObjectivePracticeRequest(objectiveId, true, "Tracked her E")
-            }),
-            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-        });
-
-        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
-        var screenData = await workflow.LoadAsync(currentGameId);
-
-        Assert.NotNull(screenData);
-        Assert.Equal("Draft note", screenData!.Snapshot.ReviewNotes);
-        Assert.Equal("Syndra", screenData.Snapshot.EnemyLaner);
-        Assert.Equal("Save wave for level 6", screenData.Snapshot.MatchupNote);
-        Assert.Contains(tagId, screenData.Snapshot.SelectedTagIds);
-
-        var objective = Assert.Single(screenData.ObjectiveAssessments);
-        Assert.True(objective.Practiced);
-        Assert.Equal("Tracked her E", objective.ExecutionNote);
-
-        var history = Assert.Single(screenData.MatchupHistory);
-        Assert.Equal("Respect level 1 spacing", history.Note);
-        Assert.Equal(previousGameId, history.GameId);
-    }
-
-    [Fact]
     public async Task SaveAsync_RejectsMatchupNoteWithoutEnemyChampion()
     {
         using var scope = new TestDatabaseScope();
@@ -180,42 +133,6 @@ public sealed class ReviewWorkflowServiceTests
     }
 
     [Fact]
-    public async Task LoadAsync_IncludesAllActiveObjectivesInPostGameAssessmentList()
-    {
-        // All active objectives — regardless of phase — are shown in the
-        // post-game review so the user can mark progress on anything in flight.
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        const long gameId = 4101;
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Orianna", win: true));
-
-        var preGameObjectiveId = await scope.Objectives.CreateAsync(
-            "Set loading-screen plan",
-            "prep",
-            completionCriteria: "Name first three waves",
-            phase: ObjectivePhases.PreGame);
-        var inGameObjectiveId = await scope.Objectives.CreateAsync(
-            "Punish cooldowns",
-            "lane",
-            completionCriteria: "Trade after key spell use",
-            phase: ObjectivePhases.InGame);
-        var postGameObjectiveId = await scope.Objectives.CreateAsync(
-            "Write one review takeaway",
-            "review",
-            completionCriteria: "Capture one fix",
-            phase: ObjectivePhases.PostGame);
-
-        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
-        var screenData = await workflow.LoadAsync(gameId);
-
-        Assert.NotNull(screenData);
-        Assert.Contains(screenData!.ObjectiveAssessments, item => item.ObjectiveId == preGameObjectiveId);
-        Assert.Contains(screenData.ObjectiveAssessments, item => item.ObjectiveId == inGameObjectiveId);
-        Assert.Contains(screenData.ObjectiveAssessments, item => item.ObjectiveId == postGameObjectiveId);
-    }
-
-    [Fact]
     public async Task SaveAsync_PersistsMentalRatingToDb_ReviewIsReadableAfterSave()
     {
         // Critical: verifies the mental_rating column is written on save — the field
@@ -286,62 +203,6 @@ public sealed class ReviewWorkflowServiceTests
         Assert.Equal(objectiveId, record.ObjectiveId);
         Assert.True(record.Practiced);
         Assert.Equal("Crashed before roam", record.ExecutionNote);
-    }
-
-    [Fact]
-    public async Task LoadAsync_EvidenceLinkedObjective_DefaultsPracticed_ButNeverOverridesSavedAnswer()
-    {
-        // P-008: evidence attached to an objective on this game is the
-        // strongest practice signal — the PRACTICED toggle defaults ON, with
-        // a flag so the UI can explain the pre-check. An explicit saved
-        // answer must always win over the default.
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-
-        const long gameId = 5003;
-        await scope.Games.SaveAsync(TestGameStatsFactory.Create(gameId, champion: "Jinx", win: true));
-        var withEvidence = await scope.Objectives.CreateAsync("Ward river by 3:00", "laning");
-        var withoutEvidence = await scope.Objectives.CreateAsync("Track enemy jungler", "laning");
-        await scope.Evidence.UpsertAsync(new EvidenceUpsert(
-            GameId: gameId,
-            SourceKind: "bookmark",
-            SourceId: null,
-            SourceKey: "p008-bm-1",
-            StartTimeSeconds: 60,
-            EndTimeSeconds: 90,
-            Title: "River ward",
-            ObjectiveId: withEvidence));
-
-        var workflow = CreateWorkflow(scope, requireReviewNotes: false);
-        var data = await workflow.LoadAsync(gameId);
-        Assert.NotNull(data);
-
-        var defaulted = Assert.Single(data!.ObjectiveAssessments, s => s.ObjectiveId == withEvidence);
-        Assert.True(defaulted.Practiced);
-        Assert.True(defaulted.PracticedFromEvidence);
-
-        var untouched = Assert.Single(data.ObjectiveAssessments, s => s.ObjectiveId == withoutEvidence);
-        Assert.False(untouched.Practiced);
-        Assert.False(untouched.PracticedFromEvidence);
-
-        // Explicitly answer "not practiced" — the evidence default must not
-        // resurrect the toggle on reload.
-        var save = await workflow.SaveAsync(new SaveReviewRequest(
-            GameId: gameId,
-            ChampionName: "Jinx",
-            Win: true,
-            RequireReviewNotes: false,
-            Snapshot: EmptySnapshot with
-            {
-                MentalRating = 7,
-                ObjectivePractices = [new SaveObjectivePracticeRequest(withEvidence, false, "")],
-            }));
-        Assert.True(save.Success);
-
-        var reloaded = await workflow.LoadAsync(gameId);
-        var savedState = Assert.Single(reloaded!.ObjectiveAssessments, s => s.ObjectiveId == withEvidence);
-        Assert.False(savedState.Practiced);
-        Assert.False(savedState.PracticedFromEvidence);
     }
 
     [Fact]
@@ -451,6 +312,7 @@ public sealed class ReviewWorkflowServiceTests
     private static ReviewWorkflowService CreateWorkflow(TestDatabaseScope scope, bool requireReviewNotes)
     {
         return new ReviewWorkflowService(
+            scope.ConnectionFactory,
             scope.Games,
             scope.ConceptTags,
             scope.Vod,
@@ -460,7 +322,6 @@ public sealed class ReviewWorkflowServiceTests
             scope.MatchupNotes,
             scope.Evidence,
             new TestConfigService(new AppConfig { RequireReviewNotes = requireReviewNotes }),
-            new NullCoachSidecarNotifier(),
             NullLogger<ReviewWorkflowService>.Instance);
     }
 

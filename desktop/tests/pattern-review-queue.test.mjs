@@ -31,6 +31,7 @@ function fixture(reply = async () => ({ ok: true })) {
       querySelector(selector) { return this.selectors.get(selector) || null; },
       setAttribute(name, value) { attributes.set(name, String(value)); },
       getAttribute: name => attributes.get(name) ?? null,
+      removeAttribute(name) { attributes.delete(name); },
       focus() { this.focused = true; },
       closest() { return null; },
       scrollIntoView() {},
@@ -38,6 +39,7 @@ function fixture(reply = async () => ({ ok: true })) {
     };
   }
   const $ = id => { if (!ids.has(id)) ids.set(id, element()); return ids.get(id); };
+  $('m-video').readyState = 1;
   const document = {
     readyState: 'loading',
     querySelector: selector => $(selector),
@@ -50,6 +52,7 @@ function fixture(reply = async () => ({ ok: true })) {
     console: { error() {} }, matchMedia: () => ({ matches: true }),
     show: (node, on) => { if (node) node.hidden = !on; },
     clear: node => { node.children = []; },
+    resolveAssetUrl: (_media, path) => path ? `synthetic-media:${path}` : null,
     tpl(name) {
       const node = element();
       const selectors = name === 'tpl-patcard'
@@ -83,14 +86,43 @@ function fixture(reply = async () => ({ ok: true })) {
   });
   vm.runInContext(`${source}\nglobalThis.hooks = { render, markReviewed, selectPattern, selectView,
     activePattern, activeMoment, gotoMoment, saveMomentNote, commitPendingNote, setMomentQuality,
-    playableSource, constrainPlayback, loadPatterns,
+    playableSource, playMoment, constrainPlayback, loadPatterns,
     setPlayback: (transport, window) => { _T = transport; _inlineWindow = window; } };`, context);
   const hooks = { ...context.hooks, render(data) {
     serverSnapshot = clone(data);
     return context.hooks.render(data);
   } };
   const cardTitles = () => $('pat-pick').children.map(card => card.querySelector('.pat-card-title').textContent);
-  return { $, hooks, writes, reads, cardTitles };
+  const click = async (id, action) => {
+    const target = $(id);
+    assert.equal(target.disabled, false, 'The selected control must be enabled');
+    target.dataset.action = action;
+    for (const listener of listeners.get('click') || []) {
+      await listener({ target: { closest: () => target }, preventDefault() {} });
+    }
+  };
+  return { $, hooks, writes, reads, cardTitles, click };
+}
+
+function playback(f) {
+  const loads = [], calls = [], video = f.$('m-video');
+  video.duration = 1200;
+  const transport = {
+    currentTime: 0, duration: 1200,
+    load(url, options) {
+      loads.push({ url, ...options });
+      video.setAttribute('src', url);
+      this.currentTime = options.startSeconds;
+    },
+    unload() { calls.push('unload'); video.removeAttribute('src'); },
+    isExpanded: () => false,
+    handleAction: () => false,
+    pause() { calls.push('pause'); },
+    seekTo(time) { calls.push(time); this.currentTime = time; },
+    toggle() { calls.push('toggle'); },
+  };
+  f.hooks.setPlayback(transport, null);
+  return { loads, calls, transport, video };
 }
 
 function pattern(key, isReviewed = false, reviewMode = 'trend') {
@@ -279,15 +311,15 @@ test('long saved playlists render eight moments at a time and keep the last mome
   p.moments = Array.from({ length: 18 }, (_, i) => ({ ...pattern(i + 1).moments[0], title: `Saved ${i + 1}` }));
   f.hooks.render(snapshot([p]));
   assert.equal(f.$('pat-rail').children.length, 8);
-  assert.equal(f.$('pat-batch-label').textContent, '1–8 of 18');
+  assert.equal(f.$('pat-batch-label').textContent, '1-8 of 18');
   assert.equal(f.$('pat-batch-prev').disabled, true);
   assert.equal(f.$('pat-batch-next').disabled, false);
   f.hooks.gotoMoment(8);
-  assert.equal(f.$('pat-batch-label').textContent, '9–16 of 18');
+  assert.equal(f.$('pat-batch-label').textContent, '9-16 of 18');
   assert.equal(f.$('pat-rail').children[0].dataset.momIdx, '8');
   f.hooks.gotoMoment(17);
   assert.equal(f.$('pat-rail').children.length, 2);
-  assert.equal(f.$('pat-batch-label').textContent, '17–18 of 18');
+  assert.equal(f.$('pat-batch-label').textContent, '17-18 of 18');
   assert.equal(f.$('pat-batch-next').disabled, true);
   assert.equal(f.$('m-title').textContent, 'Saved 18');
 });
@@ -304,6 +336,164 @@ test('bookmark playback stops at its padded end and replay restarts at its padde
   transport.currentTime = 90;
   f.hooks.constrainPlayback();
   assert.equal(transport.currentTime, 105, 'Seeking cannot escape the preview window');
+});
+
+test('fractional recording offsets do not repeatedly seek a rounded playback start', () => {
+  const f = fixture(), seeks = [];
+  // Chromium reports media time at microsecond precision. With a recording
+  // offset of -53.1234567, seeking to game time 300 can report 299.9999993.
+  const transport = { currentTime: 299.9999993, duration: 1200,
+    pause() {}, seekTo(time) { seeks.push(time); this.currentTime = time - 0.0000007; } };
+  f.hooks.setPlayback(transport, { start: 300, end: 330 });
+  for (let i = 0; i < 4; i++) f.hooks.constrainPlayback();
+  assert.deepEqual(seeks, [], 'A rounded seek result must not start another seek');
+  transport.currentTime = 299;
+  f.hooks.constrainPlayback();
+  assert.deepEqual(seeks, [300], 'A meaningful seek outside the window is still corrected');
+  f.hooks.constrainPlayback();
+  assert.deepEqual(seeks, [300], 'The corrected seek remains stable after browser rounding');
+});
+
+test('Next moment plays consecutive bookmarks in one recording and then a standalone clip', async () => {
+  const f = fixture(), p = pattern(1, false, 'saved');
+  p.moments = [
+    { ...pattern(1).moments[0], title: 'First bookmark', hasVod: true, vodPath: 'same-vod.mp4',
+      startTimeSeconds: 105, endTimeSeconds: 135, gameTimeAtVideoStart: -53.1234567 },
+    { ...pattern(2).moments[0], title: 'Second bookmark', hasVod: true, vodPath: 'same-vod.mp4',
+      startTimeSeconds: 205, endTimeSeconds: 235, gameTimeAtVideoStart: -53.1234567 },
+    { ...pattern(3).moments[0], title: 'Saved clip', bookmarkId: null, sourceKind: 'clip',
+      hasVod: false, hasClip: true, clipPath: 'kept-clip.mp4', startTimeSeconds: 600 },
+  ];
+  f.hooks.render(snapshot([p]));
+  const { loads, calls, transport } = playback(f);
+  f.hooks.playMoment();
+  transport.currentTime = 135;
+  f.hooks.constrainPlayback();
+  assert.ok(calls.includes('pause'), 'The first preview has reached its end');
+
+  await f.click('m-next', 'next_moment');
+  assert.equal(f.$('m-title').textContent, 'Second bookmark');
+  assert.equal(f.$('m-position').textContent, 'Moment 2 of 3');
+  assert.equal(f.$('pat-rail').children[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(loads.length, 2);
+  assert.equal(loads[1].url, loads[0].url);
+  assert.equal(loads[1].startSeconds, 205, 'The second bookmark seeks within the shared recording');
+  assert.equal(loads[1].gameTimeAtVideoStart, -53.1234567);
+  assert.equal(loads[1].autoplay, true, 'Next plays even after the previous preview reached its end');
+
+  await f.click('m-next', 'next_moment');
+  assert.equal(f.$('m-title').textContent, 'Saved clip');
+  assert.equal(loads.length, 3);
+  assert.equal(loads[2].url, 'synthetic-media:kept-clip.mp4');
+  assert.equal(loads[2].startSeconds, 0, 'A standalone clip plays from its own beginning');
+  assert.equal(loads[2].autoplay, true);
+  assert.equal(f.$('m-next').disabled, true);
+  assert.equal(f.$('m-prev').disabled, false);
+});
+
+test('Next moment clears the old video when the next saved moment has no playable media', async () => {
+  const f = fixture(), p = pattern(1, false, 'saved');
+  p.moments = [
+    { ...pattern(1).moments[0], hasVod: true, vodPath: 'available-vod.mp4',
+      startTimeSeconds: 105, endTimeSeconds: 135 },
+    { ...pattern(2).moments[0], title: 'Missing recording', hasVod: false, hasClip: false },
+  ];
+  f.hooks.render(snapshot([p]));
+  const { loads, video } = playback(f);
+  f.hooks.playMoment();
+  assert.equal(video.hidden, false);
+  await f.click('m-next', 'next_moment');
+  assert.equal(f.$('m-title').textContent, 'Missing recording');
+  assert.equal(loads.length, 1);
+  assert.equal(video.getAttribute('src'), null, 'The previous video must not represent the new moment');
+  assert.equal(video.hidden, true);
+  assert.equal(f.$('m-transport').hidden, true);
+  assert.equal(f.$('m-novod').hidden, false);
+});
+
+test('advancing moments ignores source-reset events until the new recording has metadata', async () => {
+  const f = fixture(), p = pattern(1, false, 'saved');
+  p.moments = [
+    { ...pattern(1).moments[0], hasVod: true, vodPath: 'previous-vod.mp4',
+      startTimeSeconds: 600, endTimeSeconds: 630 },
+    { ...pattern(2).moments[0], hasVod: true, vodPath: 'next-vod.mp4',
+      startTimeSeconds: 105, endTimeSeconds: 135 },
+  ];
+  f.hooks.render(snapshot([p]));
+  const { calls, transport, video } = playback(f);
+  f.hooks.playMoment();
+  transport.currentTime = 640;
+  transport.load = (url) => {
+    // A source transition may still expose the outgoing time while its first
+    // events fire. Once reset, HAVE_NOTHING precedes the new metadata event.
+    f.hooks.constrainPlayback();
+    video.setAttribute('src', url);
+    video.readyState = 0;
+    transport.currentTime = 0;
+    f.hooks.constrainPlayback();
+  };
+  await f.click('m-next', 'next_moment');
+  f.hooks.constrainPlayback();
+  assert.deepEqual(calls, [], 'Neither the previous time nor the loading position should trigger a seek');
+  video.readyState = 1;
+  transport.currentTime = 105;
+  f.hooks.constrainPlayback();
+  assert.deepEqual(calls, []);
+  assert.equal(video.getAttribute('src'), 'synthetic-media:next-vod.mp4');
+});
+
+test('a bookmark overlapping a late recording starts at the available recording boundary', () => {
+  const f = fixture(), p = pattern(1);
+  Object.assign(p.moments[0], { hasVod: true, vodPath: 'late-recording.mp4',
+    startTimeSeconds: 105, endTimeSeconds: 135, gameTimeAtVideoStart: 120 });
+  f.hooks.render(snapshot([p]));
+  const { calls, transport } = playback(f);
+  f.hooks.playMoment();
+  transport.currentTime = 120;
+  f.hooks.constrainPlayback();
+  assert.deepEqual(calls, []);
+  transport.currentTime = 135;
+  f.hooks.constrainPlayback(true);
+  assert.deepEqual(calls, [120], 'Replay uses the available start rather than an unreachable earlier time');
+});
+
+for (const missingWindow of [
+  { name: 'before a late recording begins', origin: 150, duration: 1200 },
+  { name: 'after a recording ends', origin: 0, duration: 100 },
+]) {
+  test(`a bookmark ${missingWindow.name} stops safely without repeated seeks`, () => {
+    const f = fixture(), p = pattern(1);
+    Object.assign(p.moments[0], { hasVod: true, vodPath: 'short-recording.mp4',
+      startTimeSeconds: 105, endTimeSeconds: 135, gameTimeAtVideoStart: missingWindow.origin });
+    f.hooks.render(snapshot([p]));
+    const { calls, transport, video } = playback(f);
+    transport.duration = missingWindow.duration;
+    f.hooks.playMoment();
+    transport.currentTime = missingWindow.origin || missingWindow.duration;
+    transport.unload = () => {
+      calls.push('unload');
+      // Unloading can emit another media event; it must not recursively seek.
+      f.hooks.constrainPlayback();
+      video.removeAttribute('src');
+    };
+    f.hooks.constrainPlayback();
+    f.hooks.constrainPlayback();
+    assert.deepEqual(calls, ['unload']);
+    assert.equal(video.hidden, true);
+    assert.equal(video.getAttribute('src'), null);
+    assert.match(f.$('m-nstatus').textContent, /outside the available recording/);
+  });
+}
+
+test('the available recording end accepts rounding and replay returns to the preview start', () => {
+  const f = fixture(), calls = [];
+  const transport = { currentTime: 119.9999993, duration: 120,
+    pause() { calls.push('pause'); }, seekTo(time) { calls.push(time); this.currentTime = time; } };
+  f.hooks.setPlayback(transport, { start: 105, end: 135 });
+  f.hooks.constrainPlayback();
+  assert.deepEqual(calls, ['pause'], 'A rounded end must stop without repeatedly seeking the exact end');
+  f.hooks.constrainPlayback(true);
+  assert.deepEqual(calls, ['pause', 105]);
 });
 
 test('bookmark header names the saved point while the scrub labels show its padded window', () => {
@@ -381,4 +571,69 @@ test('rating writes lock selection until accepted and do not lose the current no
   await save;
   assert.equal(f.$('m-note').value, 'Wait for the next wave.');
   assert.equal(f.$('m-note').readOnly, false);
+});
+
+test('Next clicked during a rating save opens and plays the requested bookmark after saving', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const f = fixture(async command => command === 'set_bookmark_quality' ? pending : { ok: true });
+  const p = pattern(1, false, 'saved');
+  p.moments = [
+    { ...pattern(1).moments[0], hasVod: true, vodPath: 'review-vod.mp4',
+      startTimeSeconds: 105, endTimeSeconds: 135 },
+    { ...pattern(2).moments[0], title: 'Next bookmark', hasVod: true, vodPath: 'review-vod.mp4',
+      startTimeSeconds: 205, endTimeSeconds: 235 },
+  ];
+  f.hooks.render(snapshot([p]));
+  const { loads } = playback(f);
+  f.hooks.playMoment();
+  const save = f.hooks.setMomentQuality('good');
+  await new Promise(resolve => setImmediate(resolve));
+  await f.click('m-next', 'next_moment');
+  assert.equal(f.hooks.activeMoment().bookmarkId, 101, 'Selection stays with the moment being saved');
+  assert.equal(loads.length, 1);
+  release({ ok: true });
+  await save;
+  assert.equal(p.moments[0].polarity, 'good');
+  assert.equal(f.hooks.activeMoment().bookmarkId, 102, 'The click is honored after the rating is accepted');
+  assert.equal(f.$('m-title').textContent, 'Next bookmark');
+  assert.equal(loads.length, 2);
+  assert.equal(loads[1].startSeconds, 205);
+  assert.equal(loads[1].autoplay, true);
+  assert.equal(f.$('m-note').readOnly, false);
+});
+
+test('a failed rating keeps its error visible and discards a waiting Next request', async () => {
+  let release, ratingAttempt = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const f = fixture(async command => command === 'set_bookmark_quality' && ratingAttempt++ === 0
+    ? pending : { ok: true });
+  const p = pattern(1, false, 'saved');
+  p.moments = [
+    { ...pattern(1).moments[0], hasVod: true, vodPath: 'review-vod.mp4',
+      startTimeSeconds: 105, endTimeSeconds: 135 },
+    { ...pattern(2).moments[0], hasVod: true, vodPath: 'review-vod.mp4',
+      startTimeSeconds: 205, endTimeSeconds: 235 },
+  ];
+  f.hooks.render(snapshot([p]));
+  const { loads } = playback(f);
+  f.hooks.playMoment();
+  const save = f.hooks.setMomentQuality('good');
+  await new Promise(resolve => setImmediate(resolve));
+  await f.click('m-next', 'next_moment');
+  release({ ok: false, error: 'Synthetic rating failure' });
+  await save;
+  assert.equal(f.hooks.activeMoment().bookmarkId, 101);
+  assert.equal(f.hooks.activeMoment().polarity, 'bad');
+  assert.equal(loads.length, 1);
+  assert.match(f.$('m-nstatus').textContent, /Couldn't save the rating/);
+  assert.equal(f.$('m-note').readOnly, false);
+
+  await f.hooks.setMomentQuality('good');
+  assert.equal(f.hooks.activeMoment().polarity, 'good');
+  assert.equal(f.hooks.activeMoment().bookmarkId, 101, 'A later retry must not reuse the failed save\'s navigation');
+  assert.equal(loads.length, 1);
+  await f.click('m-next', 'next_moment');
+  assert.equal(f.hooks.activeMoment().bookmarkId, 102, 'A fresh Next click still works');
+  assert.equal(loads.length, 2);
 });

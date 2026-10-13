@@ -10,11 +10,30 @@ namespace Revu.Core.Services;
 /// </summary>
 public interface IConfigService
 {
-    /// <summary>Load config from disk (or return defaults if not found).</summary>
+    /// <summary>
+    /// Load config from disk. Defaults only when config.json does not exist; a file
+    /// that exists but cannot be read throws <see cref="ConfigUnreadableException"/>
+    /// rather than being replaced by defaults.
+    /// </summary>
     Task<AppConfig> LoadAsync();
 
     /// <summary>Persist the full config to disk.</summary>
     Task SaveAsync(AppConfig config);
+
+    /// <summary>
+    /// Load, change and save as one step, so concurrent writers cannot lose each
+    /// other's update. <paramref name="mutate"/> edits the loaded config and returns
+    /// false to leave the file untouched. Returns whether a save happened.
+    /// <see cref="ConfigService"/> holds one lock across all three steps; this default
+    /// serves simple in-memory implementations.
+    /// </summary>
+    async Task<bool> UpdateAsync(Func<AppConfig, bool> mutate)
+    {
+        var config = await LoadAsync().ConfigureAwait(false);
+        if (!mutate(config)) return false;
+        await SaveAsync(config).ConfigureAwait(false);
+        return true;
+    }
 
     /// <summary>
     /// Explicitly clear the Riot session (token + email + expiry) — the ONLY path
@@ -27,7 +46,6 @@ public interface IConfigService
 
     // ── Convenience properties ──────────────────────────────────────
 
-    string GithubToken { get; }
     bool TiltFixEnabled { get; }
     string AscentFolder { get; }
     string ClipsFolder { get; }
@@ -45,7 +63,6 @@ public interface IConfigService
     string RiotPuuid { get; }
     string PrimaryRole { get; }
     bool OnboardingSkipped { get; }
-    bool SidebarAnimationEnabled { get; }
     bool MinimizeDuringGame { get; }
 
     /// <summary>v2.17.8: auto-fill Timeline Inbox from derived game events.</summary>
@@ -98,4 +115,16 @@ public interface IConfigService
             { "clip_in",       "Clip In" },
             { "clip_out",      "Clip Out" },
         };
+}
+
+/// <summary>
+/// config.json exists but could not be read, even after brief retries. Nothing was loaded
+/// and nothing was written. Separate from other IO failures so callers can tell "your
+/// settings could not be read" apart from a failed save.
+/// </summary>
+public sealed class ConfigUnreadableException : IOException
+{
+    public ConfigUnreadableException(string message, Exception inner) : base(message, inner)
+    {
+    }
 }

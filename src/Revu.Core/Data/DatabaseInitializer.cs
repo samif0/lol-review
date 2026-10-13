@@ -6,8 +6,9 @@ using Microsoft.Extensions.Logging;
 namespace Revu.Core.Data;
 
 /// <summary>
-/// Creates tables, runs migrations, and seeds default data.
-/// Mirrors the Python ConnectionManager._init_db() logic exactly.
+/// The sidecar's startup schema steps: additive table/column migrations, then
+/// idempotent seeds, indexes and objective reconciliation. Nothing here drops or
+/// rebuilds a table.
 /// </summary>
 public sealed class DatabaseInitializer
 {
@@ -22,107 +23,43 @@ public sealed class DatabaseInitializer
         _logger = logger;
     }
 
-    /// <summary>
-    /// Initialises the database: creates tables, runs migrations, seeds defaults.
-    /// Safe to call multiple times (all statements use IF NOT EXISTS / OR IGNORE).
-    /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    private async Task ReassertWalModeAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        // The old-path â†’ data/ migration is handled by SqliteConnectionFactory.GetDefaultDatabasePath()
-        // and ConfigService's static ctor. Legacy exe-relative migration code has been removed entirely.
-
-        using var connection = _connectionFactory.CreateConnection();
-
-        // B4: WAL mode persists at the DB file level once set; set it once here
-        // during init rather than on every connection open in the factory.
-        // This is the first connection opened on a fresh DB, so WAL will be
-        // established before any DDL or data writes occur.
-        using (var walCmd = connection.CreateCommand())
+        try
         {
-            walCmd.CommandText = "PRAGMA journal_mode=WAL;";
-            await walCmd.ExecuteNonQueryAsync(cancellationToken);
+            using var wal = connection.CreateCommand();
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            var mode = Convert.ToString(await wal.ExecuteScalarAsync(cancellationToken));
+            if (!string.Equals(mode, "wal", StringComparison.OrdinalIgnoreCase))
+                _logger.LogWarning("Database stays in {Mode} journal mode; WAL could not be enabled", mode);
         }
-
-        // 1. Execute all CREATE TABLE / CREATE INDEX statements
-        foreach (var statement in Schema.AllCreateStatements)
+        catch (SqliteException ex)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = statement;
-            await cmd.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogWarning(ex, "Could not re-assert WAL journal mode (non-fatal)");
         }
-
-        // 2. Execute additive migrations by metadata version. Databases from
-        // older builds have no metadata row, so version 0 deliberately runs
-        // the legacy additive set with duplicate-column tolerance.
-        var appliedSchemaVersion = await GetAppliedSchemaVersionAsync(connection, cancellationToken);
-        foreach (var migrationSet in Schema.VersionedMigrations
-                     .Where(static migration => migration.Version > 0)
-                     .OrderBy(static migration => migration.Version))
-        {
-            if (migrationSet.Version <= appliedSchemaVersion)
-            {
-                continue;
-            }
-
-            await ExecuteMigrationSetAsync(connection, migrationSet, cancellationToken);
-            await SetAppliedSchemaVersionAsync(connection, migrationSet.Version, cancellationToken);
-            appliedSchemaVersion = migrationSet.Version;
-        }
-
-        // 2b. Normalize legacy/hybrid tables into the current schema.
-        await NormalizeRulesTableAsync(connection, cancellationToken);
-        await NormalizeObjectivesTableAsync(connection, cancellationToken);
-        await BackfillObjectiveScoreFromLegacyGameObjectivesAsync(connection, cancellationToken);
-        await NormalizeGameObjectivesTableAsync(connection, cancellationToken);
-        await NormalizeObjectivePromptsTableAsync(connection, cancellationToken);
-        await BackfillObjectivePracticePhasesAsync(connection, cancellationToken);
-
-        // v2.15.0: indexes on objective_prompts(phase, sort_order) and
-        // prompt_answers(game_id) have to land AFTER normalize â€” the columns
-        // they reference only exist on the rewritten tables.
-        await CreatePostMigrationIndexesAsync(connection, cancellationToken);
-
-        // 3. Seed default concept tags if the table is empty
-        await SeedConceptTagsAsync(connection, cancellationToken);
-
-        // 4. Seed default derived event definitions if the table is empty
-        await SeedDerivedEventsAsync(connection, cancellationToken);
-
-        // 5. Seed default persistent_notes row if empty
-        await SeedPersistentNotesAsync(connection, cancellationToken);
-
-        // 6. Backfill objectives.game_count / score from game_objectives.
-        // These run on every init by design: they are the reconciliation step
-        // that keeps objectives.score / game_count in sync with practiced
-        // game_objectives rows, not a one-time migration. (A previous attempt to
-        // gate these behind a "run once" flag broke that contract — scores went
-        // stale when new practiced games arrived — so they run every time. The
-        // WHERE guards make them no-ops when nothing changed.)
-        await BackfillObjectiveGameCountAsync(connection, cancellationToken);
-        await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
-
-        _logger.LogInformation("Database initialized at {Path}", _connectionFactory.DatabasePath);
     }
 
     /// <summary>
     /// Runs ONLY the additive, non-destructive schema steps: every
     /// <c>CREATE TABLE/INDEX IF NOT EXISTS</c> and the versioned ALTER/CREATE
-    /// migrations gated by app_schema_version. It deliberately SKIPS the
-    /// normalize-rebuild, seed, and backfill phases of <see cref="InitializeAsync"/>
-    /// — those DROP/rewrite tables and are the data-loss vector this app guards
-    /// against. Idempotent and safe to call on every startup against an EXISTING DB.
+    /// migrations gated by app_schema_version. Idempotent and safe to call on every
+    /// startup against an EXISTING DB.
     ///
-    /// <para>This is the sidecar's migration entry point now that the WinUI app
-    /// (which used to own schema migration) is gone — without it, new versioned
+    /// <para>This is the sidecar's migration entry point: without it, new versioned
     /// migrations never run and write endpoints hit "no such table".</para>
     /// </summary>
     public async Task ApplyAdditiveSchemaAsync(CancellationToken cancellationToken = default)
     {
         using var connection = _connectionFactory.CreateConnection();
 
+        // WAL persists once set, but a database that arrives in rollback-journal mode (a
+        // DataSnapshot restore, an old copy) would otherwise stay there, where readers
+        // block writers. Startup runs this on the first connection, before any other is
+        // open; if SQLite cannot switch, the current mode is kept and logged.
+        await ReassertWalModeAsync(connection, cancellationToken);
+
         // CREATE TABLE / INDEX IF NOT EXISTS — adds any table missing on this DB
-        // (e.g. a v8 table on a DB last migrated by the old WinUI app at v7).
+        // (e.g. a v8 table on a DB last migrated at v7).
         foreach (var statement in Schema.AllCreateStatements)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -132,7 +69,9 @@ public sealed class DatabaseInitializer
         }
 
         // Versioned additive migrations (ALTER ADD COLUMN / CREATE IF NOT EXISTS),
-        // gated by the recorded schema version — same logic as InitializeAsync step 2.
+        // gated by the recorded schema version. Databases from older builds have no
+        // metadata row, so version 0 runs the legacy additive set with
+        // duplicate-column tolerance.
         var appliedSchemaVersion = await GetAppliedSchemaVersionAsync(connection, cancellationToken);
         foreach (var migrationSet in Schema.VersionedMigrations
                      .Where(static migration => migration.Version > 0)
@@ -150,16 +89,13 @@ public sealed class DatabaseInitializer
     }
 
     /// <summary>
-    /// The safe, non-destructive two-thirds of <see cref="InitializeAsync"/> that
-    /// the sidecar-only era lost: default seeds (INSERT OR IGNORE / count-gated),
-    /// post-migration indexes, and the objectives count/score reconciliation.
-    /// Without this a fresh Tauri-era install has no persistent_notes row (notes
-    /// silently never save), an empty derived_event_definitions table (no
-    /// Teamfight/Skirmish/etc. timeline events, ever), no default concept tags,
-    /// no visible-games indexes, and objective game counts that drift stale when
-    /// games are hidden. Everything here is idempotent and touches no user data,
-    /// so it is safe to run on every startup — unlike the normalize-rebuild
-    /// phases of InitializeAsync, which stay excluded on purpose.
+    /// Default seeds (INSERT OR IGNORE / count-gated), post-migration indexes, and
+    /// the objectives count/score reconciliation. Without this a fresh install has
+    /// no persistent_notes row (notes silently never save), an empty
+    /// derived_event_definitions table, no default concept tags, no visible-games
+    /// indexes, and objective game counts that drift stale when games are hidden.
+    /// Everything here is idempotent and touches no user data, so it is safe to run
+    /// on every startup.
     /// </summary>
     public async Task ApplySeedsAndIndexesAsync(CancellationToken cancellationToken = default)
     {
@@ -172,11 +108,89 @@ public sealed class DatabaseInitializer
 
         // Reconciliation, not migration: keeps objectives.game_count / score in
         // sync with practiced game_objectives rows (hide/unhide, deletes). The
-        // WHERE/COALESCE guards make both no-ops when nothing changed.
+        // WHERE/COALESCE guards make both no-ops when nothing changed. Between them, the
+        // practice-point re-base runs once per database (a schema_metadata marker).
         await BackfillObjectiveGameCountAsync(connection, cancellationToken);
+        try
+        {
+            await RebaseLegacyPracticePointsOnceAsync(connection, cancellationToken);
+        }
+        catch (SqliteException ex)
+        {
+            // Rolled back with its marker unwritten, so the next launch tries again.
+            _logger.LogWarning(ex, "Practice-point re-base skipped (non-fatal)");
+        }
         await BackfillObjectiveScoreFromPracticedGamesAsync(connection, cancellationToken);
 
         _logger.LogInformation("Seeds, indexes and objective reconciliation applied at {Path}", _connectionFactory.DatabasePath);
+    }
+
+    /// <summary>schema_metadata key recording that <see cref="RebaseLegacyPracticePointsOnceAsync"/>
+    /// ran on this database (a marker, not a schema version).</summary>
+    internal const string PracticePointsRebasedKey = "objective_practice_points_rebased";
+
+    /// <summary>
+    /// Hide and restore, game delete and remake verdicts move a game's practice points on
+    /// the rule that only a counted game (visible, not a remake) holds them. Builds up to
+    /// 3.14.1 credited every practiced game and never moved points on a hide or a remake
+    /// verdict, so on a database they last opened a practiced hidden game or remake still
+    /// holds its points, and restoring it or clearing the remake would credit them twice.
+    /// Once per database, those points are re-based off the score so it holds practice
+    /// points for counted games only; clip points and older points stay. The marker
+    /// commits with the re-base, so it never runs twice. A restored backup from an older
+    /// build has no marker and is re-based on the launch that follows the restore.
+    /// </summary>
+    private async Task RebaseLegacyPracticePointsOnceAsync(SqliteConnection connection, CancellationToken ct)
+    {
+        using var tx = connection.BeginTransaction();
+        using (var done = connection.CreateCommand())
+        {
+            done.Transaction = tx;
+            done.CommandText = "SELECT 1 FROM schema_metadata WHERE key = $key";
+            done.Parameters.AddWithValue("$key", PracticePointsRebasedKey);
+            if (await done.ExecuteScalarAsync(ct) is not null) return;
+        }
+
+        int rebased;
+        using (var cmd = connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = $"""
+                UPDATE objectives
+                SET score = MAX(0, COALESCE(score, 0) - {Repositories.ObjectivesRepository.PracticePoints} * (
+                    SELECT COUNT(*) FROM game_objectives
+                    JOIN games g ON g.game_id = game_objectives.game_id
+                    WHERE game_objectives.objective_id = objectives.id
+                      AND COALESCE(game_objectives.practiced, 0) != 0
+                      AND NOT ({Repositories.CountedGamesSql.Counted("g")})
+                ))
+                WHERE id IN (
+                    SELECT game_objectives.objective_id FROM game_objectives
+                    JOIN games g ON g.game_id = game_objectives.game_id
+                    WHERE COALESCE(game_objectives.practiced, 0) != 0
+                      AND NOT ({Repositories.CountedGamesSql.Counted("g")})
+                )
+                """;
+            rebased = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using (var mark = connection.CreateCommand())
+        {
+            mark.Transaction = tx;
+            mark.CommandText = """
+                INSERT INTO schema_metadata (key, value, updated_at)
+                VALUES ($key, '1', $updatedAt)
+                """;
+            mark.Parameters.AddWithValue("$key", PracticePointsRebasedKey);
+            mark.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            await mark.ExecuteNonQueryAsync(ct);
+        }
+
+        tx.Commit();
+        if (rebased > 0)
+            _logger.LogInformation(
+                "Re-based practice points of {Count} objective(s) onto counted games (hidden games and remakes hold none)",
+                rebased);
     }
 
     /// <summary>
@@ -250,7 +264,7 @@ public sealed class DatabaseInitializer
         return updated;
     }
 
-    // â”€â”€ Seeding helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Seeding helpers ──────────────────────────────────────────────
 
     private async Task ExecuteMigrationSetAsync(
         SqliteConnection connection,
@@ -273,8 +287,8 @@ public sealed class DatabaseInitializer
         }
 
         // v16: the legacy reviewed-encounter rows become ledger rows exactly once per
-        // database, right after the ALTER and before the version is recorded, so both
-        // InitializeAsync and ApplyAdditiveSchemaAsync run it and a fresh DB is a no-op.
+        // database, right after the ALTER and before the version is recorded, so a
+        // fresh DB is a no-op.
         if (migrationSet.Version == Schema.EventCorrectionsSchemaVersion)
         {
             var imported = await EventCorrectionsLegacyImport.RunAsync(connection, cancellationToken);
@@ -322,361 +336,6 @@ public sealed class DatabaseInitializer
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    private async Task NormalizeRulesTableAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        var columns = await GetTableColumnsAsync(connection, "rules", ct);
-        if (columns.Count == 0)
-        {
-            return;
-        }
-
-        var needsRewrite =
-            columns.Contains("title") ||
-            columns.Contains("status") ||
-            !columns.Contains("name") ||
-            !columns.Contains("rule_type") ||
-            !columns.Contains("condition_value") ||
-            !columns.Contains("is_active");
-
-        if (!needsRewrite)
-        {
-            return;
-        }
-
-        var nameExpr = columns.Contains("name") && columns.Contains("title")
-            ? "COALESCE(NULLIF(name, ''), title, '')"
-            : columns.Contains("name")
-                ? "COALESCE(name, '')"
-                : columns.Contains("title")
-                    ? "COALESCE(title, '')"
-                    : "''";
-
-        var descriptionExpr = columns.Contains("description")
-            ? "COALESCE(description, '')"
-            : "''";
-
-        var ruleTypeExpr = columns.Contains("rule_type")
-            ? "COALESCE(NULLIF(rule_type, ''), 'custom')"
-            : "'custom'";
-
-        var conditionExpr = columns.Contains("condition_value")
-            ? "COALESCE(condition_value, '')"
-            : "''";
-
-        var isActiveExpr = columns.Contains("is_active") && columns.Contains("status")
-            ? "COALESCE(is_active, CASE WHEN lower(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END)"
-            : columns.Contains("is_active")
-                ? "COALESCE(is_active, 1)"
-                : columns.Contains("status")
-                    ? "CASE WHEN lower(COALESCE(status, 'active')) = 'active' THEN 1 ELSE 0 END"
-                    : "1";
-
-        var createdAtExpr = columns.Contains("created_at")
-            ? "created_at"
-            : "NULL";
-
-        using var tx = connection.BeginTransaction();
-
-        using (var createCmd = connection.CreateCommand())
-        {
-            createCmd.Transaction = tx;
-            createCmd.CommandText = """
-                CREATE TABLE rules__migrated (
-                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name            TEXT NOT NULL,
-                    description     TEXT DEFAULT '',
-                    rule_type       TEXT DEFAULT 'custom',
-                    condition_value TEXT DEFAULT '',
-                    is_active       INTEGER DEFAULT 1,
-                    created_at      INTEGER
-                )
-                """;
-            await createCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var copyCmd = connection.CreateCommand())
-        {
-            copyCmd.Transaction = tx;
-            copyCmd.CommandText = $"""
-                INSERT INTO rules__migrated (id, name, description, rule_type, condition_value, is_active, created_at)
-                SELECT
-                    id,
-                    {nameExpr},
-                    {descriptionExpr},
-                    {ruleTypeExpr},
-                    {conditionExpr},
-                    {isActiveExpr},
-                    {createdAtExpr}
-                FROM rules
-                """;
-            await copyCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var dropCmd = connection.CreateCommand())
-        {
-            dropCmd.Transaction = tx;
-            dropCmd.CommandText = "DROP TABLE rules";
-            await dropCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var renameCmd = connection.CreateCommand())
-        {
-            renameCmd.Transaction = tx;
-            renameCmd.CommandText = "ALTER TABLE rules__migrated RENAME TO rules";
-            await renameCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        await tx.CommitAsync(ct);
-
-        _logger.LogInformation("Normalized legacy rules table to current schema");
-    }
-
-    private async Task NormalizeObjectivesTableAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        var columns = await GetTableColumnsAsync(connection, "objectives", ct);
-        if (columns.Count == 0)
-        {
-            return;
-        }
-
-        var needsRewrite =
-            !columns.Contains("title") ||
-            !columns.Contains("skill_area") ||
-            !columns.Contains("type") ||
-            !columns.Contains("phase") ||
-            !columns.Contains("completion_criteria") ||
-            !columns.Contains("description") ||
-            !columns.Contains("status") ||
-            !columns.Contains("is_priority") ||
-            !columns.Contains("score") ||
-            !columns.Contains("game_count") ||
-            !columns.Contains("created_at") ||
-            !columns.Contains("completed_at") ||
-            // v2.15.0: three practice-phase bools. If any are missing we must
-            // rewrite so the re-created objectives table has them (the
-            // ALTER TABLE migrations run BEFORE this normalize step and get
-            // wiped by the rewrite otherwise).
-            !columns.Contains("practice_pregame") ||
-            !columns.Contains("practice_ingame") ||
-            !columns.Contains("practice_postgame");
-            // v2.17.7: target_game_count is added by the v2 versioned migration
-            // (MigrateObjectivesMiniTarget), NOT by this normalize rewrite. The
-            // rewrite path is destructive for FK dependents (game_objectives,
-            // objective_prompts, evidence_items, etc.) so we never want it
-            // triggered by a column that can be added cheaply with ALTER TABLE.
-
-        if (!needsRewrite)
-        {
-            return;
-        }
-
-        using var tx = connection.BeginTransaction();
-
-        using (var createCmd = connection.CreateCommand())
-        {
-            createCmd.Transaction = tx;
-            createCmd.CommandText = """
-                CREATE TABLE objectives__migrated (
-                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title               TEXT NOT NULL,
-                    skill_area          TEXT DEFAULT '',
-                    type                TEXT DEFAULT 'primary',
-                    phase               TEXT DEFAULT 'ingame',
-                    completion_criteria TEXT DEFAULT '',
-                    description         TEXT DEFAULT '',
-                    status              TEXT DEFAULT 'active',
-                    is_priority         INTEGER DEFAULT 0,
-                    score               INTEGER DEFAULT 0,
-                    game_count          INTEGER DEFAULT 0,
-                    target_game_count   INTEGER NOT NULL DEFAULT 0,
-                    focus_phase         TEXT NOT NULL DEFAULT '',
-                    created_at          INTEGER,
-                    completed_at        INTEGER,
-                    practice_pregame    INTEGER NOT NULL DEFAULT 0,
-                    practice_ingame     INTEGER NOT NULL DEFAULT 0,
-                    practice_postgame   INTEGER NOT NULL DEFAULT 0
-                )
-                """;
-            await createCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var copyCmd = connection.CreateCommand())
-        {
-            copyCmd.Transaction = tx;
-            copyCmd.CommandText = $"""
-                INSERT INTO objectives__migrated (
-                    id, title, skill_area, type, phase, completion_criteria, description,
-                    status, is_priority, score, game_count, target_game_count, focus_phase,
-                    created_at, completed_at,
-                    practice_pregame, practice_ingame, practice_postgame
-                )
-                SELECT
-                    id,
-                    {GetTextColumnExpr(columns, "title")},
-                    {GetTextColumnExpr(columns, "skill_area")},
-                    CASE
-                        WHEN {GetTextColumnExpr(columns, "type")} = '' THEN 'primary'
-                        ELSE {GetTextColumnExpr(columns, "type")}
-                    END,
-                    CASE
-                        WHEN {GetTextColumnExpr(columns, "phase")} = '' THEN 'ingame'
-                        ELSE {GetTextColumnExpr(columns, "phase")}
-                    END,
-                    {GetTextColumnExpr(columns, "completion_criteria")},
-                    {GetTextColumnExpr(columns, "description")},
-                    CASE
-                        WHEN {GetTextColumnExpr(columns, "status")} = '' THEN 'active'
-                        ELSE {GetTextColumnExpr(columns, "status")}
-                    END,
-                    {GetIntColumnExpr(columns, "is_priority")},
-                    {GetIntColumnExpr(columns, "score")},
-                    {GetIntColumnExpr(columns, "game_count")},
-                    {GetIntColumnExpr(columns, "target_game_count")},
-                    {GetTextColumnExpr(columns, "focus_phase")},
-                    {GetNullableColumnExpr(columns, "created_at")},
-                    {GetNullableColumnExpr(columns, "completed_at")},
-                    {GetIntColumnExpr(columns, "practice_pregame")},
-                    {GetIntColumnExpr(columns, "practice_ingame")},
-                    {GetIntColumnExpr(columns, "practice_postgame")}
-                FROM objectives
-                """;
-            await copyCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var dropCmd = connection.CreateCommand())
-        {
-            dropCmd.Transaction = tx;
-            dropCmd.CommandText = "DROP TABLE objectives";
-            await dropCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var renameCmd = connection.CreateCommand())
-        {
-            renameCmd.Transaction = tx;
-            renameCmd.CommandText = "ALTER TABLE objectives__migrated RENAME TO objectives";
-            await renameCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        await tx.CommitAsync(ct);
-
-        _logger.LogInformation("Normalized legacy objectives table to current schema");
-    }
-
-    private async Task BackfillObjectiveScoreFromLegacyGameObjectivesAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        var columns = await GetTableColumnsAsync(connection, "game_objectives", ct);
-        if (!columns.Contains("score"))
-        {
-            return;
-        }
-
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE objectives
-            SET score = (
-                SELECT CAST(ROUND(COALESCE(SUM(COALESCE(game_objectives.score, 0)), 0)) AS INTEGER)
-                FROM game_objectives
-                WHERE game_objectives.objective_id = objectives.id
-            )
-            WHERE COALESCE(score, 0) = 0
-              AND EXISTS (
-                    SELECT 1
-                    FROM game_objectives
-                    WHERE game_objectives.objective_id = objectives.id
-                      AND COALESCE(game_objectives.score, 0) != 0
-              )
-            """;
-        await cmd.ExecuteNonQueryAsync(ct);
-    }
-
-    private async Task NormalizeGameObjectivesTableAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        var columns = await GetTableColumnsAsync(connection, "game_objectives", ct);
-        if (columns.Count == 0)
-        {
-            return;
-        }
-
-        var needsRewrite =
-            columns.Contains("score") ||
-            columns.Contains("notes") ||
-            !columns.Contains("practiced") ||
-            !columns.Contains("execution_note");
-
-        if (!needsRewrite)
-        {
-            return;
-        }
-
-        var practicedExpr = columns.Contains("practiced")
-            ? "COALESCE(practiced, 1)"
-            : columns.Contains("score")
-                ? "CASE WHEN COALESCE(score, 0) > 0 THEN 1 ELSE 0 END"
-                : "1";
-
-        var executionNoteExpr = columns.Contains("execution_note")
-            ? "COALESCE(execution_note, '')"
-            : columns.Contains("notes")
-                ? "COALESCE(notes, '')"
-                : "''";
-
-        using var tx = connection.BeginTransaction();
-
-        using (var createCmd = connection.CreateCommand())
-        {
-            createCmd.Transaction = tx;
-            createCmd.CommandText = """
-                CREATE TABLE game_objectives__migrated (
-                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                    game_id         INTEGER NOT NULL,
-                    objective_id    INTEGER NOT NULL,
-                    practiced       INTEGER DEFAULT 1,
-                    execution_note  TEXT DEFAULT '',
-                    FOREIGN KEY (game_id) REFERENCES games(game_id),
-                    FOREIGN KEY (objective_id) REFERENCES objectives(id),
-                    UNIQUE(game_id, objective_id)
-                )
-                """;
-            await createCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var copyCmd = connection.CreateCommand())
-        {
-            copyCmd.Transaction = tx;
-            copyCmd.CommandText = $"""
-                INSERT OR IGNORE INTO game_objectives__migrated (
-                    id, game_id, objective_id, practiced, execution_note
-                )
-                SELECT
-                    id,
-                    game_id,
-                    objective_id,
-                    {practicedExpr},
-                    {executionNoteExpr}
-                FROM game_objectives
-                """;
-            await copyCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var dropCmd = connection.CreateCommand())
-        {
-            dropCmd.Transaction = tx;
-            dropCmd.CommandText = "DROP TABLE game_objectives";
-            await dropCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var renameCmd = connection.CreateCommand())
-        {
-            renameCmd.Transaction = tx;
-            renameCmd.CommandText = "ALTER TABLE game_objectives__migrated RENAME TO game_objectives";
-            await renameCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        await tx.CommitAsync(ct);
-
-        _logger.LogInformation("Normalized legacy game_objectives table to current schema");
-    }
-
     private static async Task<HashSet<string>> GetTableColumnsAsync(
         SqliteConnection connection,
         string tableName,
@@ -696,27 +355,6 @@ public sealed class DatabaseInitializer
         }
 
         return columns;
-    }
-
-    private static string GetTextColumnExpr(HashSet<string> columns, string columnName)
-    {
-        return columns.Contains(columnName)
-            ? $"COALESCE({columnName}, '')"
-            : "''";
-    }
-
-    private static string GetIntColumnExpr(HashSet<string> columns, string columnName)
-    {
-        return columns.Contains(columnName)
-            ? $"CAST(ROUND(COALESCE({columnName}, 0)) AS INTEGER)"
-            : "0";
-    }
-
-    private static string GetNullableColumnExpr(HashSet<string> columns, string columnName)
-    {
-        return columns.Contains(columnName)
-            ? columnName
-            : "NULL";
     }
 
     private static async Task SeedConceptTagsAsync(SqliteConnection connection, CancellationToken ct)
@@ -797,7 +435,9 @@ public sealed class DatabaseInitializer
     private static async Task BackfillObjectiveScoreFromPracticedGamesAsync(SqliteConnection connection, CancellationToken ct)
     {
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        // Only counted games (visible, not a remake) earn practice points, or this floor
+        // would hand back the points a remake verdict took away on every launch.
+        cmd.CommandText = $"""
             UPDATE objectives
             SET score = MAX(
                 COALESCE(score, 0),
@@ -806,183 +446,16 @@ public sealed class DatabaseInitializer
                     FROM game_objectives
                     JOIN games g ON g.game_id = game_objectives.game_id
                     WHERE game_objectives.objective_id = objectives.id
-                      AND COALESCE(g.is_hidden, 0) = 0
+                      AND {Repositories.CountedGamesSql.Counted("g")}
                 ), 0)
             )
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    // v2.15.0 schema rework â€” see docs/OBJECTIVES_CUSTOM_PROMPTS_PLAN.md.
-    //
-    // The legacy objective_prompts / prompt_answers tables were shaped for
-    // yes/no event prompts (answer_type='yes_no', answer_value INTEGER,
-    // event_instance_id, event_time_s). Zero app code paths ever wrote to
-    // them. We repurpose the same tables for free-form text prompts the
-    // user designs themselves. Copy-migrate pattern so any stray rows are
-    // preserved (translated into best-effort text labels).
-    private async Task NormalizeObjectivePromptsTableAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        var promptCols = await GetTableColumnsAsync(connection, "objective_prompts", ct);
-        var answerCols = await GetTableColumnsAsync(connection, "prompt_answers", ct);
-
-        if (promptCols.Count == 0 && answerCols.Count == 0)
-        {
-            return;
-        }
-
-        // Fresh schema indicators: `label` column on prompts + `answer_text`
-        // column on answers. If both present, we're already on the new shape.
-        var needsRewrite =
-            !promptCols.Contains("label") ||
-            !promptCols.Contains("phase") ||
-            !answerCols.Contains("answer_text") ||
-            // Old-shape sentinels â€” if any of these exist, we haven't migrated.
-            promptCols.Contains("question_text") ||
-            promptCols.Contains("answer_type") ||
-            answerCols.Contains("answer_value");
-
-        if (!needsRewrite)
-        {
-            return;
-        }
-
-        using var tx = connection.BeginTransaction();
-
-        // â”€â”€ Rebuild objective_prompts â”€â”€
-        using (var createCmd = connection.CreateCommand())
-        {
-            createCmd.Transaction = tx;
-            createCmd.CommandText = """
-                CREATE TABLE objective_prompts__migrated (
-                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                    objective_id    INTEGER NOT NULL,
-                    phase           TEXT NOT NULL DEFAULT 'ingame',
-                    label           TEXT NOT NULL DEFAULT '',
-                    sort_order      INTEGER NOT NULL DEFAULT 0,
-                    created_at      INTEGER,
-                    FOREIGN KEY (objective_id) REFERENCES objectives(id)
-                )
-                """;
-            await createCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        if (promptCols.Count > 0)
-        {
-            // Translate whatever we can: legacy question_text â†’ label,
-            // phase default 'ingame' (legacy had no phase concept).
-            var labelExpr = promptCols.Contains("label")
-                ? "COALESCE(label, '')"
-                : promptCols.Contains("question_text")
-                    ? "COALESCE(question_text, '')"
-                    : "''";
-            var phaseExpr = promptCols.Contains("phase")
-                ? "COALESCE(phase, 'ingame')"
-                : "'ingame'";
-            var sortExpr = promptCols.Contains("sort_order")
-                ? "COALESCE(sort_order, 0)"
-                : "0";
-            var createdExpr = promptCols.Contains("created_at")
-                ? "created_at"
-                : "NULL";
-
-            using var copyPromptsCmd = connection.CreateCommand();
-            copyPromptsCmd.Transaction = tx;
-            copyPromptsCmd.CommandText = $"""
-                INSERT INTO objective_prompts__migrated
-                    (id, objective_id, phase, label, sort_order, created_at)
-                SELECT id, objective_id,
-                       {phaseExpr},
-                       {labelExpr},
-                       {sortExpr},
-                       {createdExpr}
-                FROM objective_prompts
-                """;
-            await copyPromptsCmd.ExecuteNonQueryAsync(ct);
-
-            using var dropPromptsCmd = connection.CreateCommand();
-            dropPromptsCmd.Transaction = tx;
-            dropPromptsCmd.CommandText = "DROP TABLE objective_prompts";
-            await dropPromptsCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var renamePromptsCmd = connection.CreateCommand())
-        {
-            renamePromptsCmd.Transaction = tx;
-            renamePromptsCmd.CommandText =
-                "ALTER TABLE objective_prompts__migrated RENAME TO objective_prompts";
-            await renamePromptsCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        // â”€â”€ Rebuild prompt_answers â”€â”€
-        using (var createAnswersCmd = connection.CreateCommand())
-        {
-            createAnswersCmd.Transaction = tx;
-            createAnswersCmd.CommandText = """
-                CREATE TABLE prompt_answers__migrated (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    prompt_id   INTEGER NOT NULL,
-                    game_id     INTEGER NOT NULL,
-                    answer_text TEXT NOT NULL DEFAULT '',
-                    updated_at  INTEGER,
-                    FOREIGN KEY (prompt_id) REFERENCES objective_prompts(id),
-                    FOREIGN KEY (game_id) REFERENCES games(game_id),
-                    UNIQUE(prompt_id, game_id)
-                )
-                """;
-            await createAnswersCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        if (answerCols.Count > 0)
-        {
-            // Legacy answer_value was 0/1 INTEGER â€” translate to "yes"/"no"/""
-            // strings so at least the fact that the user answered is preserved.
-            var textExpr = answerCols.Contains("answer_text")
-                ? "COALESCE(answer_text, '')"
-                : answerCols.Contains("answer_value")
-                    ? "CASE answer_value WHEN 1 THEN 'yes' WHEN 0 THEN 'no' ELSE '' END"
-                    : "''";
-            var updatedExpr = answerCols.Contains("updated_at")
-                ? "updated_at"
-                : "NULL";
-
-            // event_instance_id was part of the legacy unique key. We drop
-            // to (prompt_id, game_id). Use INSERT OR REPLACE so duplicates
-            // collapse to the most-recent row.
-            using var copyAnswersCmd = connection.CreateCommand();
-            copyAnswersCmd.Transaction = tx;
-            copyAnswersCmd.CommandText = $"""
-                INSERT OR REPLACE INTO prompt_answers__migrated
-                    (prompt_id, game_id, answer_text, updated_at)
-                SELECT prompt_id, game_id,
-                       {textExpr},
-                       {updatedExpr}
-                FROM prompt_answers
-                """;
-            await copyAnswersCmd.ExecuteNonQueryAsync(ct);
-
-            using var dropAnswersCmd = connection.CreateCommand();
-            dropAnswersCmd.Transaction = tx;
-            dropAnswersCmd.CommandText = "DROP TABLE prompt_answers";
-            await dropAnswersCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        using (var renameAnswersCmd = connection.CreateCommand())
-        {
-            renameAnswersCmd.Transaction = tx;
-            renameAnswersCmd.CommandText =
-                "ALTER TABLE prompt_answers__migrated RENAME TO prompt_answers";
-            await renameAnswersCmd.ExecuteNonQueryAsync(ct);
-        }
-
-        await tx.CommitAsync(ct);
-        _logger.LogInformation("Normalized legacy objective_prompts / prompt_answers schema to v2.15.0 shape");
-    }
-
-    // v2.15.0: CREATE INDEX statements for tables that got rewritten by
-    // NormalizeObjectivePromptsTableAsync. Called after normalize so the
-    // referenced columns exist. Each index is individually tolerant: on a DB
-    // whose prompt tables were never normalized the referenced columns may not
+    // Indexes that must land after the versioned migrations (their columns are
+    // added by ALTER TABLE). Each index is individually tolerant: on a DB whose
+    // prompt tables still have the pre-v2.15 shape the referenced columns may not
     // exist, and one failed index must not block the others (or startup).
     private async Task CreatePostMigrationIndexesAsync(SqliteConnection connection, CancellationToken ct)
     {
@@ -1000,6 +473,13 @@ public sealed class DatabaseInitializer
             // AllCreateStatements (which runs before the column exists).
             Schema.CreateGamesTimestampIndex,
             Schema.CreateGamesChampionIndex,
+            // Additive lookup indexes (no version bump); see Schema.CreateVodBookmarksGameIndex.
+            Schema.CreateVodBookmarksGameIndex,
+            Schema.CreateMatchupsGameIndex,
+            Schema.CreateMatchupNotesGameIndex,
+            Schema.CreateGameObjectivesObjectiveIndex,
+            Schema.CreateDerivedEventInstancesGameIndex,
+            Schema.CreateGameEventsUnkeyedIndex,
         ];
 
         foreach (var sql in indexes)
@@ -1016,24 +496,6 @@ public sealed class DatabaseInitializer
                 _logger.LogWarning(ex, "Post-migration index statement skipped: {Sql}", sql);
             }
         }
-    }
-
-    // Backfill the three new practice_<phase> bool columns on objectives
-    // from the legacy single-string `phase` column. Idempotent â€” the
-    // WHERE guard means this no-ops once any bool has been set.
-    private static async Task BackfillObjectivePracticePhasesAsync(SqliteConnection connection, CancellationToken ct)
-    {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE objectives
-            SET practice_pregame  = CASE WHEN LOWER(COALESCE(phase, 'ingame')) = 'pregame'  THEN 1 ELSE 0 END,
-                practice_ingame   = CASE WHEN LOWER(COALESCE(phase, 'ingame')) = 'ingame'   THEN 1 ELSE 0 END,
-                practice_postgame = CASE WHEN LOWER(COALESCE(phase, 'ingame')) = 'postgame' THEN 1 ELSE 0 END
-            WHERE COALESCE(practice_pregame, 0) = 0
-              AND COALESCE(practice_ingame, 0) = 0
-              AND COALESCE(practice_postgame, 0) = 0
-            """;
-        await cmd.ExecuteNonQueryAsync(ct);
     }
 
 }

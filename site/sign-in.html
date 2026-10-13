@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Sign in - Revu</title>
+  <meta name="description" content="Sign in to Revu with a one-time email code to see and manage the clips you share." />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#171717" />
+
+  <link rel="canonical" href="https://revu.lol/sign-in" />
+
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/account.css" />
+
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  <script src="/account-api.js" defer></script>
+  <script src="/sign-in.js" defer></script>
+  <script src="/header-account.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="/">Review a game</a>
+        <a href="/learn">Desktop app</a>
+        <a href="/discord">Discord</a>
+      </nav>
+      <a class="header-account" href="/sign-in" data-header-account aria-current="page">Sign in</a>
+      <a class="btn-primary header-cta" href="/learn">Download</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="auth-col">
+      <h1>Sign in or create an account</h1>
+      <p class="account-lead">
+        Sign in to see and manage the clips you share from the Revu desktop
+        app. Enter your email and we'll send you a one-time code. New to
+        Revu? The same steps create your account.
+      </p>
+
+      <section class="trust-card card-raised" aria-labelledby="trust-title">
+        <h2 id="trust-title">No passwords, ever</h2>
+        <ul>
+          <li>Revu never asks for your Riot account login or any password, and never stores one.</li>
+          <li>Each sign-in uses a one-time code we email you. It works once and expires in 10 minutes.</li>
+          <li>Use the same email in the Revu desktop app and you'll see the same clips.</li>
+        </ul>
+      </section>
+
+      <div id="sign-in-status" class="notice" role="status" aria-live="polite"></div>
+
+      <form id="email-form" class="auth-form" novalidate>
+        <label for="email-input">Email</label>
+        <input id="email-input" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" placeholder="you@example.com" />
+        <button id="email-submit" class="btn-primary" type="submit">Send sign-in code</button>
+        <div class="auth-links">
+          <button id="have-code" class="btn-link" type="button">Already have a code?</button>
+        </div>
+      </form>
+
+      <form id="code-form" class="auth-form" novalidate hidden>
+        <h2>Check your email</h2>
+        <p>Enter the 8-character code we sent to <strong id="code-email"></strong>. Codes expire after 10 minutes.</p>
+        <p>It comes from login@revu.lol. Not there? Check spam or Promotions, or resend.</p>
+        <p>Only enter this code on revu.lol or in the Revu app. Revu will never ask you to share it.</p>
+        <label for="code-input">Code</label>
+        <input id="code-input" name="code" type="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="16" placeholder="8-character code from email" />
+        <button id="code-submit" class="btn-primary" type="submit">Verify code</button>
+        <div class="auth-links">
+          <button id="resend-code" class="btn-link" type="button">Resend code</button>
+          <button id="go-back" class="btn-link" type="button">Wrong email? Go back</button>
+        </div>
+      </form>
+
+      <p id="sign-in-error" class="account-error" role="alert"></p>
+
+      <div id="turnstile-container"></div>
+
+      <div class="auth-aside">
+        <p class="account-small">
+          You don't need an account to review a game on revu.lol.
+          <a href="/">Review a game</a>
+        </p>
+        <p class="account-small">
+          By continuing you agree to the <a href="/terms">Terms</a> and the
+          <a href="/privacy">Privacy Policy</a>.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <span id="footer-version"></span>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

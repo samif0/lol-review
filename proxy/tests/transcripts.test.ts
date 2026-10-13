@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { Env } from "../src/types";
-import { LOL_PROMPT, TRANSCRIPT_USER_MAX_BYTES, WHISPER_MODEL } from "../src/transcripts";
+import {
+  LOL_PROMPT,
+  TRANSCRIBE_GLOBAL_DAILY_SECONDS,
+  TRANSCRIBE_USER_DAILY_SECONDS,
+  TRANSCRIPT_USER_MAX_BYTES,
+  WHISPER_MODEL,
+} from "../src/transcripts";
 import { resetUserLimits } from "../src/user-limits";
 import { FakeDb, clip, dbWithSessions, json, makeEnv, makeFakeAi, makeFakeR2, makeRequest, nowSec, runScheduled } from "./fakes";
 
@@ -74,7 +80,7 @@ describe("POST /transcribe", () => {
       duration_s: 3,
       text: "gank top",
       segments: [{ start: 0.2, end: 1.4, text: "gank top" }],
-      usage: { audio_seconds_today: 3, cap_seconds: 7200 },
+      usage: { audio_seconds_today: 3, cap_seconds: 1200 },
     });
   });
 
@@ -165,19 +171,28 @@ describe("POST /transcribe", () => {
     expect(s.ai.calls).toHaveLength(1);
   });
 
-  it("enforces the 7200 s user cap with a refund and Retry-After to UTC midnight", async () => {
+  it("keeps one account's daily share a small fraction of the global cap", () => {
+    expect(TRANSCRIBE_GLOBAL_DAILY_SECONDS).toBe(10800);
+    expect(TRANSCRIBE_USER_DAILY_SECONDS).toBe(1200);
+    // Two accounts at their cap leave more than three quarters for everyone else.
+    expect(TRANSCRIBE_USER_DAILY_SECONDS * 2).toBeLessThanOrEqual(TRANSCRIBE_GLOBAL_DAILY_SECONDS / 4);
+    // Still room for two full 10-minute narrated clips a day.
+    expect(TRANSCRIBE_USER_DAILY_SECONDS).toBeGreaterThanOrEqual(2 * 600);
+  });
+
+  it("enforces the 1200 s user cap with a refund and Retry-After to UTC midnight", async () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-10T23:00:00Z"));
     const s = await setup({ text: "ok", segments: [{ start: 0, end: 1, text: "ok" }] });
-    s.db._usage.set(`${USER}|2026-10-10`, { audio_seconds: 7190, requests: 5 });
+    s.db._usage.set(`${USER}|2026-10-10`, { audio_seconds: 1190, requests: 5 });
     const atCap = await transcribe(s.e, "duration_ms=10000");
     expect(atCap.status).toBe(200);
-    expect(((await json(atCap)).usage as Record<string, number>).audio_seconds_today).toBe(7200);
+    expect(((await json(atCap)).usage as Record<string, number>).audio_seconds_today).toBe(1200);
 
     const over = await transcribe(s.e, "duration_ms=1");
     expect(over.status).toBe(429);
     expect(await json(over)).toEqual({ error: "transcribe_quota", message: "Daily transcript limit reached. Try again tomorrow." });
     expect(over.headers.get("Retry-After")).toBe("3600");
-    expect(usageOf(s.db, USER, "2026-10-10")).toEqual({ audio_seconds: 7200, requests: 6 });
+    expect(usageOf(s.db, USER, "2026-10-10")).toEqual({ audio_seconds: 1200, requests: 6 });
     expect(usageOf(s.db, 0, "2026-10-10")).toEqual({ audio_seconds: 10, requests: 1 });
     expect(s.ai.calls).toHaveLength(1);
   });
@@ -226,7 +241,8 @@ describe("POST /transcribe", () => {
 
   it("validates auth, params, media type and length", async () => {
     const s = await setup();
-    expect((await json(await transcribe(s.e, "duration_ms=1000", { token: "static-op-token" }))).error).toBe("login_required");
+    // There is no identity-less operator token any more: an unknown Bearer is 401.
+    expect((await json(await transcribe(s.e, "duration_ms=1000", { token: "static-op-token" }))).error).toBe("unauthorized");
     const bad = await transcribe(s.e, "duration_ms=1000", { token: "nope" });
     expect(bad.status).toBe(401);
     expect(await json(bad)).toEqual({ error: "unauthorized" });
@@ -360,7 +376,7 @@ describe("clip transcripts", () => {
     expect((await putTranscript(s.e, "Narr001", huge)).status).toBe(413);
     expect((await putTranscript(s.e, "Narr001", doc, OTHER)).status).toBe(404);
     expect((await putTranscript(s.e, "Nope123", doc)).status).toBe(404);
-    expect((await json(await putTranscript(s.e, "Narr001", doc, "static-op-token"))).error).toBe("login_required");
+    expect((await json(await putTranscript(s.e, "Narr001", doc, "static-op-token"))).error).toBe("unauthorized");
     const badPut = await putTranscript(s.e, "Narr001", doc, "nope");
     expect(badPut.status).toBe(401);
     expect((await json(badPut)).error).toBe("unauthorized");

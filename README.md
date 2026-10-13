@@ -135,9 +135,9 @@ For reference, Revu keeps user data and logs under `%LOCALAPPDATA%`:
 - Config: `LoLReviewData\config.json`
 - Backups: `LoLReviewData\backups\`
 - Clips: `LoLReviewData\clips\`
-- App logs: `Revu\` (Settings → About → "Open log folder")
+- App logs: `Revu\logs\` (Settings → About → "Open log folder")
 - Electron profile: `Revu\ElectronProfile\`
-- Runtime logs: `Revu\RuntimeLogs\`
+- Runtime logs: `Revu\logs\runtime\`
 - Updater log: `LoLReview\velopack.log` (Settings → About → "Diagnose update")
 
 ## License

@@ -98,6 +98,8 @@ public static partial class SidecarEndpoints
             // it hasn't been clipped yet (mirror the VM's clipNeeded guard). A start-less
             // moment (game-level anchor: recurring tag, rule break) saves its note but
             // never extracts a clip — there is no in-game second to clip around.
+            // body.VodPath only says the page had a playable VOD; the file itself is the
+            // one Revu linked to the game (server-side, local paths only).
             var hasVod = !string.IsNullOrWhiteSpace(body.VodPath);
             if (body.AutoClip && text.Length > 0 && hasVod && !body.AlreadyClipped && body.GameId is > 0 && body.StartTimeS is not null)
             {
@@ -112,8 +114,11 @@ public static partial class SidecarEndpoints
 
                     var note = text.Length > 0 ? text : (body.Title ?? "Clip");
                     var quality = Revu.Core.Data.Repositories.EvidencePolarities.Normalize(body.Polarity);
-                    clipPath = await w.Clips.ExtractClipAsync(
-                        body.VodPath!, startS, endS, body.ChampionName ?? "", w.Config.ClipsFolder, ct);
+                    var vodPath = await ResolveLocalVodPathAsync(w.Vod, body.GameId.Value);
+                    clipPath = vodPath is null ? null : await w.Clips.ExtractClipAsync(
+                        vodPath, startS, endS, body.ChampionName ?? "", w.Config.ClipsFolder, ct);
+                    if (vodPath is null)
+                        log.LogInformation("Pattern moment {EvId} note saved; no local recording to clip", body.EvidenceId);
 
                     if (!string.IsNullOrEmpty(clipPath))
                     {

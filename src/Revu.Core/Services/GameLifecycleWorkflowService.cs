@@ -10,20 +10,17 @@ public sealed class GameLifecycleWorkflowService : IGameLifecycleWorkflowService
     private readonly IGameService _gameService;
     private readonly IMissedGameDecisionRepository _missedGameDecisionRepository;
     private readonly IObjectivesRepository _objectivesRepository;
-    private readonly ICoachSidecarNotifier _coachNotifier;
     private readonly ILogger<GameLifecycleWorkflowService> _logger;
 
     public GameLifecycleWorkflowService(
         IGameService gameService,
         IMissedGameDecisionRepository missedGameDecisionRepository,
         IObjectivesRepository objectivesRepository,
-        ICoachSidecarNotifier coachNotifier,
         ILogger<GameLifecycleWorkflowService> logger)
     {
         _gameService = gameService;
         _missedGameDecisionRepository = missedGameDecisionRepository;
         _objectivesRepository = objectivesRepository;
-        _coachNotifier = coachNotifier;
         _logger = logger;
     }
 
@@ -51,15 +48,6 @@ public sealed class GameLifecycleWorkflowService : IGameLifecycleWorkflowService
                 await EvaluateCriteriaAsync(gameId.Value, objectiveId, request.Stats).ConfigureAwait(false);
             }
         }
-
-        // Fire-and-forget sidecar notify. Coach sidecar may be off, not
-        // installed, or not healthy — the notifier implementation swallows
-        // those cases and returns immediately.
-        BackgroundTaskRunner.Run(
-            () => _coachNotifier.NotifyGameEndedAsync(gameId.Value, cancellationToken),
-            _logger,
-            $"coach game-ended notify {gameId.Value}",
-            cancellationToken);
 
         return new ProcessGameEndResult(gameId.Value, IsSkipped: false, IsRecovered: isRecovered);
     }

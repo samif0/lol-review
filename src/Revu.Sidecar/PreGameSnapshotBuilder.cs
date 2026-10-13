@@ -363,7 +363,7 @@ public sealed class PreGameSnapshotBuilder
 
             return new PreGameMatchupHistoryDto(
                 Has: true,
-                HeaderText: $"YOUR NOTES vs {enemy.ToUpperInvariant()}",
+                HeaderText: $"Matchup notes vs {enemy}",
                 Items: items,
                 AccentHex: BlueHex);
         }

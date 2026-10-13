@@ -35,6 +35,10 @@ public interface IMatchupsRepository
     /// <summary>The newest card linked to <paramref name="gameId"/>, or null.</summary>
     Task<MatchupCard?> GetForGameAsync(long gameId);
 
+    /// <summary>Date and result of every saved game a card links to, keyed by game id, in
+    /// one read (the journal labels each linked card with them).</summary>
+    Task<IReadOnlyDictionary<long, MatchupLinkedGame>> GetLinkedGamesAsync();
+
     /// <summary>Replace lane, champions and both notes. False when the id does not exist.</summary>
     Task<bool> UpdateAsync(
         long id,
@@ -50,3 +54,6 @@ public interface IMatchupsRepository
     /// <summary>Hard delete. False when the id does not exist.</summary>
     Task<bool> DeleteAsync(long id);
 }
+
+/// <summary>The saved game a matchup card links to: just what its label shows.</summary>
+public sealed record MatchupLinkedGame(long GameId, long Timestamp, bool Win, bool IsRemake);

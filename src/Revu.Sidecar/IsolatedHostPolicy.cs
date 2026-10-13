@@ -84,23 +84,27 @@ public static class IsolatedHostPolicy
 
     // Exact reviewed routes prevent a later endpoint with file/network effects
     // from silently inheriting permission merely by sharing a prefix.
-    private static readonly HashSet<string> DatabaseWriteRoutes = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> DatabaseWriteRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/host/shutdown",
         "/api/objective/create", "/api/objective/update", "/api/objective/delete", "/api/objective/priority", "/api/objective/complete",
-        "/api/review/save", "/api/review/skip", "/api/review/delete", "/api/review/draft/save", "/api/review/remake",
+        "/api/review/save", "/api/review/skip", "/api/review/delete", "/api/review/draft/save", "/api/review/remake", "/api/game/hide",
         "/api/bookmark/add", "/api/bookmark/note", "/api/bookmark/delete", "/api/bookmark/objective", "/api/bookmark/tag", "/api/bookmark/quality",
         "/api/evidence/polarity", "/api/evidence/objective", "/api/evidence/prompt", "/api/evidence/status",
         "/api/event/correct", "/api/correction/revert", "/api/death/classify", "/api/death/clear",
         "/api/prompt/answer/save", "/api/focus-adherence"
     };
 
-    private static readonly HashSet<string> ReadRoutes = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> ReadRoutes = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/api/health", "/api/host", "/api/dashboard", "/api/events", "/api/games", "/api/objectives",
+        // /api/host/health only describes the scratch database, so isolated launches keep its reason.
+        "/api/health", "/api/host", "/api/host/health", "/api/dashboard", "/api/events", "/api/games", "/api/objectives",
         "/api/objective/games", "/api/objective/notes", "/api/objective", "/api/vod", "/api/derived", "/api/review",
         "/api/rules", "/api/tiltcheck", "/api/matchups", "/api/matchups/export", "/api/patterns", "/api/config",
-        "/api/settings/status", "/api/settings/export", "/api/review/export", "/api/stint", "/api/corrections",
-        "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status"
+        "/api/settings/status", "/api/review/export", "/api/stint",
+        "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status",
+        // In-memory list only. Saving one (POST /api/missed-games/resolve) also runs the
+        // post-game Riot and recording passes, so it stays denied when isolated.
+        "/api/missed-games"
     };
 }

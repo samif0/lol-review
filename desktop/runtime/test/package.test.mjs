@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:
 import os from 'node:os';
 import path from 'node:path';
 import asar from '@electron/asar';
-import { activatePackage, isAppFile, stageApp, verifyPackage } from '../../scripts/package.mjs';
+import builderConfig from '../../electron-builder.config.mjs';
+import { activatePackage, isAppFile, readFuseWire, requiredFuses, stageApp, verifyFuses, verifyPackage } from '../../scripts/package.mjs';
 
 async function scratch(t) {
   const base = path.resolve(os.tmpdir());
@@ -21,10 +22,15 @@ async function file(root, name, value = 'fixture') {
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, value);
 }
+// A stand-in executable carrying an Electron v1 fuse wire (states are ASCII '0'/'1').
+function fusedExecutable(states = '00001100') {
+  return Buffer.concat([Buffer.from('MZ fixture '), Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX', 'latin1'),
+    Buffer.from([1, states.length]), Buffer.from(states, 'latin1'), Buffer.from(' trailer')]);
+}
 async function fixture(root) {
   for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/branding/revu.ico',
     'runtime/overwolf.mjs', 'ui/index.html', 'ui/app.js', 'ui/platform/index.mjs',
-    'ui/fonts/Inter.ttf', 'ui/sample-dashboard.json']) await file(root, name);
+    'ui/sample-dashboard.json']) await file(root, name);
   await file(root, 'package.json', JSON.stringify({ name: 'revu-desktop', version: '3.10.1',
     main: 'electron/main.mjs', type: 'module', overwolf: { packages: [] } }));
 }
@@ -34,10 +40,11 @@ test('staging copies the canonical app and rejects tests, output, private files 
   await fixture(source);
   for (const name of ['electron/test/host.test.mjs', 'electron/host.test.mjs', 'electron/private.local.mjs',
     'electron/.local/credentials.json', 'electron/package.json', 'ui/dist/index.html', 'ui/.env',
-    'ui/private.json', 'ui/node_modules/test.js', 'runtime/test/host.test.mjs',
+    'ui/private.json', 'ui/node_modules/test.js', 'ui/fonts/Inter.ttf', 'runtime/test/host.test.mjs',
     'overwolf-probes/src/main.ts', 'node_modules/dependency/index.js']) await file(source, name, 'must not ship');
   const copied = await stageApp(source, stage);
-  assert.ok(copied.includes('ui/fonts/Inter.ttf'));
+  // The app renders the Windows UI font; a leftover font folder is not part of the app.
+  assert.equal(copied.some(name => name.startsWith('ui/fonts/')), false);
   assert.ok(copied.includes('ui/sample-dashboard.json'));
   assert.equal(copied.some(name => /test|private|credentials|node_modules|dist|overwolf-probes/.test(name)), false);
   assert.deepEqual((await readdir(path.join(stage, 'electron'))).sort(), ['branding', 'main.mjs', 'preload.cjs']);
@@ -86,8 +93,9 @@ test('layout verification requires self-contained sidecar next to the executable
   const root = await scratch(t);
   const source = path.join(root, 'source'), packaged = path.join(root, 'package');
   await fixture(source);
-  for (const name of ['revu-desktop.exe', 'Revu.Sidecar.exe', 'Revu.Sidecar.dll',
+  for (const name of ['Revu.Sidecar.exe', 'Revu.Sidecar.dll',
     'Revu.Sidecar.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'resources/branding/revu.ico']) await file(packaged, name);
+  await file(packaged, 'revu-desktop.exe', fusedExecutable());
   const archive = path.join(packaged, 'resources/app.asar');
   await asar.createPackage(source, archive);
   await verifyPackage(packaged);
@@ -98,6 +106,33 @@ test('layout verification requires self-contained sidecar next to the executable
   await asar.createPackage(source, archive);
   await rm(path.join(packaged, 'coreclr.dll'));
   await assert.rejects(verifyPackage(packaged), /ENOENT/);
+});
+
+test('fuse verification requires RunAsNode, NODE_OPTIONS and inspect off and the ASAR fuses on', async t => {
+  const root = await scratch(t), executable = path.join(root, 'revu-desktop.exe');
+  assert.deepEqual(readFuseWire(fusedExecutable('01')), [0x30, 0x31]);
+  await writeFile(executable, fusedExecutable());
+  await verifyFuses(executable);
+  // Electron's shipped defaults: RunAsNode, NODE_OPTIONS and inspect enabled, ASAR checks off.
+  await writeFile(executable, fusedExecutable('10110001'));
+  await assert.rejects(verifyFuses(executable), /RunAsNode must be disabled/);
+  for (const [states, name] of [['00101100', 'EnableNodeOptionsEnvironmentVariable'], ['00011100', 'EnableNodeCliInspectArguments'],
+    ['00000100', 'EnableEmbeddedAsarIntegrityValidation'], ['00001000', 'OnlyLoadAppFromAsar'], ['0000', 'EnableEmbeddedAsarIntegrityValidation']]) {
+    await writeFile(executable, fusedExecutable(states));
+    await assert.rejects(verifyFuses(executable), new RegExp(name), states);
+  }
+  await writeFile(executable, Buffer.from('MZ no fuse wire'));
+  await assert.rejects(verifyFuses(executable), /no single Electron fuse wire/);
+  await writeFile(executable, Buffer.concat([fusedExecutable(), fusedExecutable()]));
+  await assert.rejects(verifyFuses(executable), /no single Electron fuse wire/);
+  const future = fusedExecutable(); future[future.indexOf('dL7p') + 32] = 2;
+  await writeFile(executable, future);
+  await assert.rejects(verifyFuses(executable), /Unsupported Electron fuse wire version/);
+});
+
+test('the builder config requests every fuse state the package check enforces', () => {
+  for (const [name, , enabled] of requiredFuses)
+    assert.equal(builderConfig.electronFuses[name[0].toLowerCase() + name.slice(1)], enabled, name);
 });
 
 test('file policy excludes traversal and alternate separators', () => {

@@ -1,8 +1,9 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
-import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
+import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel, TRACKABLE_EVENT_TOKENS } from './objective-labels.mjs';
 import { renderObjectiveProgress } from './objective-progress.mjs';
+import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
 
 // Revu desktop — Objectives page renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_objectives`.
@@ -41,35 +42,6 @@ const FALLBACK_METRICS = [
   { index: 8, key: 'cs_total', label: 'Total CS', lowerIsBetter: false },
   { index: 9, key: 'cs_at_10', label: 'CS at 10 min', lowerIsBetter: false },
   { index: 10, key: 'gold_diff_at_10', label: 'Gold diff at 10 min', lowerIsBetter: false },
-];
-
-// Trackable-event tokens fall back to this static catalog if the snapshot didn't
-// carry eventTypeOptions. MUST mirror Revu.Core.Models.GameEvent.TrackableTokens.Catalog.
-const FALLBACK_EVENT_TOKENS = [
-  { token: 'KILL', group: 'Combat', label: 'Kill', color: '#28c76f' },
-  { token: 'DEATH', group: 'Combat', label: 'Death', color: '#ea5455' },
-  { token: 'JUNGLE_GANK', group: 'Combat', label: 'Died to Gank', color: '#d6455e' },
-  { token: 'FOG_DEATH', group: 'Combat', label: 'Died in Fog', color: '#b23a72' },
-  { token: 'ASSIST', group: 'Combat', label: 'Assist', color: '#0099ff' },
-  { token: 'MULTI_KILL', group: 'Combat', label: 'Multikill', color: '#fbbf24' },
-  { token: 'FIRST_BLOOD', group: 'Combat', label: 'First Blood', color: '#ef4444' },
-  { token: 'DRAGON', group: 'Objectives', label: 'Dragon', color: '#c89b3c' },
-  { token: 'BARON', group: 'Objectives', label: 'Baron', color: '#8b5cf6' },
-  { token: 'HERALD', group: 'Objectives', label: 'Herald', color: '#06b6d4' },
-  { token: 'TURRET', group: 'Objectives', label: 'Turret', color: '#f97316' },
-  { token: 'INHIBITOR', group: 'Objectives', label: 'Inhibitor', color: '#ec4899' },
-  { token: 'RECALL', group: 'Lane', label: 'Recall', color: '#a9c8ff' },
-  { token: 'TRADE', group: 'Lane', label: 'Trade', color: '#ffb86b' },
-  { token: 'SHORT_TRADE', group: 'Lane', label: 'Short Trade', color: '#ffd9a3' },
-  { token: 'EXTENDED_TRADE', group: 'Lane', label: 'Extended Trade', color: '#ff9248' },
-  { token: 'JUNGLE_PROXIMITY', group: 'Map', label: 'Jungler Near', color: '#b07cd8' },
-  { token: 'ENEMY_JUNGLE_PROXIMITY', group: 'Map', label: 'Enemy Jungler Near', color: '#ff7a9e' },
-  { token: 'ALLY_JUNGLE_PROXIMITY', group: 'Map', label: 'Ally Jungler Near', color: '#6bd6c8' },
-  { token: 'TEAMFIGHT', group: 'Fights', label: 'Teamfight', color: '#f3a3a8' },
-  { token: 'OUTNUMBERED_TEAMFIGHT', group: 'Fights', label: 'Outnumbered Fight', color: '#f26d7d' },
-  { token: 'EVEN_TEAMFIGHT', group: 'Fights', label: 'Even-Numbers Fight', color: '#f3a3a8' },
-  { token: 'NUMBERS_UP_TEAMFIGHT', group: 'Fights', label: 'Numbers-Up Fight', color: '#8ee7ba' },
-  { token: 'ABSENT_TEAMFIGHT', group: 'Fights', label: 'Fight Without You', color: '#9fb0c3' },
 ];
 
 // ── data fetch ──────────────────────────────────────────────────────────────
@@ -373,7 +345,7 @@ let _criteriaMetrics = FALLBACK_METRICS;
 let _playedChampions = [];
 // Tracked-event gate: the set of selected event tokens + the catalog to render.
 let _eventTypes = [];           // Set-like array of selected tokens (UPPERCASE)
-let _eventTypeOptions = FALLBACK_EVENT_TOKENS;
+let _eventTypeOptions = TRACKABLE_EVENT_TOKENS;
 
 function setChecked(id, on) { const el = $(id); if (el) el.checked = !!on; }
 function setVal(id, v) { const el = $(id); if (el) el.value = v == null ? '' : String(v); }
@@ -459,7 +431,7 @@ function removePromptRow(idx) {
 // ── tracked-event gate ─────────────────────────────────────────────────────────
 // Render the event-token picker as grouped pill-toggles. Each pill toggles its
 // token in _eventTypes; a selected pill lights up in its own event color. Groups
-// (Combat / Objectives / Lane / Fights) get a tiny eyebrow label.
+// (Combat / Map objectives / Mark these yourself) get a small label.
 function renderEventPicker() {
   const host = $('f-events');
   if (!host) return;
@@ -475,6 +447,8 @@ function renderEventPicker() {
   for (const group of groups) {
     const sec = document.createElement('div');
     sec.className = 'obj-evtgroup';
+    sec.setAttribute('role', 'group');
+    sec.setAttribute('aria-label', group);
     const eyebrow = document.createElement('div');
     eyebrow.className = 'obj-evtgroup-k';
     eyebrow.textContent = group;
@@ -600,6 +574,7 @@ function openCreateForm() {
   $('form-submit').textContent = 'Create learning objective';
   resetFormFields();
   revealForm();
+  _formGuard.mark();
 }
 
 // Open the form in edit mode for objId. Active + completed objectives both edit
@@ -619,7 +594,7 @@ async function openEditForm(id) {
     // Surface on the always-visible statusline (the form is still closed, so its
     // own #form-err wouldn't show). Non-destructive: the objective is left intact.
     const statusB = document.querySelector('#statusline b');
-    if (statusB) statusB.textContent = "Couldn't load that learning objective to edit — try again.";
+    if (statusB) statusB.textContent = "Couldn't load that learning objective to edit. Try again.";
     return;
   }
 
@@ -679,6 +654,7 @@ async function openEditForm(id) {
   // participate in the same complete save payload.
   $('obj-options').open = true;
   $('f-title').focus();
+  _formGuard.mark();
 }
 
 // Map the persisted phasesSummary ("PRE + IN", "ALL CHAMPIONS"…) → checkbox set.
@@ -800,6 +776,8 @@ function applyFirstReviewTutorialDefaults() {
   renderEventPicker();
   $('obj-options').open = true;
   $('f-title')?.focus();
+  // The tutorial's own pre-fill is not an edit: leaving asks only after the player changes it.
+  _formGuard.mark();
 }
 
 // Submit the form → create_objective or update_objective, then reload.
@@ -836,21 +814,27 @@ async function submitForm(submitBtn) {
 }
 
 // ── celebration overlay ───────────────────────────────────────────────────────
-// Shown after a successful mark-complete; auto-dismisses after 5s. Stats line
-// mirrors the WinUI "{score} pts • {games} games played".
-let _celebrateTimer = null;
+// Shown after a successful mark-complete. It is an alert dialog: screen readers
+// announce it, focus moves to Continue, and it stays until Continue or Escape so
+// nobody loses the moment to a timer (WCAG 2.2.1).
+let _celebrateReturnFocus = null;
 function showCelebration(obj) {
   if (!obj) return;
   $('celebrate-title').textContent = obj.title || '';
   const games = Number(obj.gameCount) || 0;
-  $('celebrate-stats').textContent = `${Number(obj.score) || 0} points · ${games} games played`;
+  $('celebrate-stats').textContent = `${Number(obj.score) || 0} points · ${games} ${games === 1 ? 'game' : 'games'} played`;
+  _celebrateReturnFocus = document.activeElement;
   show($('celebrate'), true);
-  if (_celebrateTimer) clearTimeout(_celebrateTimer);
-  _celebrateTimer = setTimeout(dismissCelebration, 5000);
+  $('celebrate-continue').focus();
 }
 function dismissCelebration() {
-  if (_celebrateTimer) { clearTimeout(_celebrateTimer); _celebrateTimer = null; }
-  show($('celebrate'), false);
+  const overlay = $('celebrate');
+  if (!overlay || overlay.hidden) return;
+  show(overlay, false);
+  // The completed card re-rendered away; fall back to a stable control.
+  const back = _celebrateReturnFocus && _celebrateReturnFocus.isConnected ? _celebrateReturnFocus : $('new-objective');
+  _celebrateReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 // ── delete confirm ────────────────────────────────────────────────────────────
@@ -1021,8 +1005,15 @@ document.addEventListener('change', (ev) => {
   else if (id === 'f-crit-metric') syncCriteriaVisibility(true);
 });
 
-// Champion typeahead: Enter (or picking a datalist suggestion) adds the champ.
+// The celebration dialog is modal: Escape closes it and Tab stays on its only
+// control. Champion typeahead: Enter (or picking a datalist suggestion) adds the champ.
 document.addEventListener('keydown', (ev) => {
+  const celebrate = $('celebrate');
+  if (celebrate && !celebrate.hidden) {
+    if (ev.key === 'Escape') { ev.preventDefault(); dismissCelebration(); }
+    else if (ev.key === 'Tab') { ev.preventDefault(); $('celebrate-continue').focus(); }
+    return;
+  }
   if (ev.target && ev.target.id === 'f-champ-input' && ev.key === 'Enter') {
     ev.preventDefault();
     addChamp(ev.target.value);
@@ -1044,6 +1035,11 @@ document.addEventListener('change', (ev) => {
     ev.target.value = '';
   }
 });
+
+// Sidebar navigation asks before discarding an open, edited objective form.
+const _formGuard = trackForm($('obj-form'), () => [_promptRows, _champs, _eventTypes]);
+registerLeaveGuard({ isDirty: _formGuard.isDirty,
+  flush: async () => { await submitForm($('form-submit')); return $('obj-form').hidden; } });
 
 // ── boot ────────────────────────────────────────────────────────────────────
 if (document.readyState === 'loading') {

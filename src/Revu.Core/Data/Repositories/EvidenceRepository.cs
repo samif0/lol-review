@@ -330,7 +330,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
     // this set, even if they happen to track an active objective's event type.
     // Evidence owns the live tag, note and rating when present, including null
     // or empty values from explicit clears; stale bookmark fields cannot revive them.
-    private const string SavedPatternMomentsSql = """
+    private static readonly string SavedPatternMomentsSql = $"""
         WITH saved_moments AS (
             SELECT COALESCE(e.id, 0) AS evidence_id,
                    b.id AS bookmark_id,
@@ -388,7 +388,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
             JOIN objectives o ON o.id = s.objective_id AND o.status = 'active'
             JOIN games g ON g.game_id = s.game_id
             LEFT JOIN vod_files v ON v.game_id = s.game_id
-            WHERE COALESCE(g.is_hidden, 0) = 0
+            WHERE {CountedGamesSql.Counted("g")}
         )
         """;
 
@@ -454,38 +454,60 @@ public sealed class EvidenceRepository : IEvidenceRepository
             .ToArray();
     }
 
-    public async Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern)
+    public async Task<IReadOnlyList<PatternMoment>> GetPatternMomentsAsync(ObjectivePatternCard pattern) =>
+        (await GetPatternMomentsAsync([pattern])).TryGetValue(pattern.PatternKey, out var moments)
+            ? moments
+            : Array.Empty<PatternMoment>();
+
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<PatternMoment>>> GetPatternMomentsAsync(
+        IReadOnlyCollection<ObjectivePatternCard> patterns)
     {
-        if (pattern.ObjectiveId is not long objectiveId
-            || pattern.Kind is not (PatternConstants.KindSavedObjectiveEvidence or PatternConstants.KindBadObjectiveEvidence))
+        var playlists = new Dictionary<string, IReadOnlyList<PatternMoment>>(StringComparer.Ordinal);
+        var objectiveIds = new HashSet<long>();
+        foreach (var pattern in patterns)
         {
             // Old event/criterion keys can still exist in review history; they
             // must not reopen a raw-event playlist after the selection redesign.
-            return Array.Empty<PatternMoment>();
+            playlists[pattern.PatternKey] = Array.Empty<PatternMoment>();
+            if (pattern.ObjectiveId is long objectiveId
+                && pattern.Kind is PatternConstants.KindSavedObjectiveEvidence or PatternConstants.KindBadObjectiveEvidence)
+            {
+                objectiveIds.Add(objectiveId);
+            }
         }
+        if (objectiveIds.Count == 0) return playlists;
 
+        // One read for every card: a saved collection is all of its objective's moments,
+        // a trend the recent bad ones (in_trend), each in the same oldest-first order.
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        var trend = pattern.Kind == PatternConstants.KindBadObjectiveEvidence;
+        var placeholders = new List<string>(objectiveIds.Count);
+        foreach (var objectiveId in objectiveIds)
+        {
+            var name = $"@objectiveId{placeholders.Count}";
+            placeholders.Add(name);
+            cmd.Parameters.AddWithValue(name, objectiveId);
+        }
         cmd.CommandText = $"""
             {SavedPatternMomentsSql}
             SELECT evidence_id, game_id, champion_name, win, game_timestamp,
                    start_time_s, end_time_s, title, note, polarity, source_kind,
-                   vod_path, created_at, clip_path, bookmark_id, game_duration
+                   vod_path, created_at, clip_path, bookmark_id, game_duration,
+                   objective_id,
+                   CASE WHEN polarity = 'bad' AND game_timestamp >= @windowStart THEN 1 ELSE 0 END AS in_trend
             FROM eligible_moments
-            WHERE objective_id = @objectiveId
-              {(trend ? "AND polarity = 'bad' AND game_timestamp >= @windowStart" : "")}
+            WHERE objective_id IN ({string.Join(", ", placeholders)})
             ORDER BY game_timestamp ASC, COALESCE(start_time_s, 2147483647) ASC,
                      COALESCE(bookmark_id, evidence_id) ASC
             """;
-        cmd.Parameters.AddWithValue("@objectiveId", objectiveId);
-        if (trend) cmd.Parameters.AddWithValue("@windowStart", WindowStartUnixSeconds());
+        cmd.Parameters.AddWithValue("@windowStart", WindowStartUnixSeconds());
 
-        var moments = new List<PatternMoment>();
+        var saved = new Dictionary<long, List<PatternMoment>>();
+        var trend = new Dictionary<long, List<PatternMoment>>();
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
-            moments.Add(new PatternMoment(
+            var moment = new PatternMoment(
                 EvidenceId: reader.GetInt64(0),
                 GameId: reader.GetInt64(1),
                 ChampionName: reader.GetString(2),
@@ -501,9 +523,28 @@ public sealed class EvidenceRepository : IEvidenceRepository
                 CreatedAt: reader.GetInt64(12),
                 ClipPath: reader.GetString(13),
                 BookmarkId: reader.IsDBNull(14) ? null : reader.GetInt64(14),
-                GameDurationSeconds: reader.GetInt32(15)));
+                GameDurationSeconds: reader.GetInt32(15));
+            var objectiveId = reader.GetInt64(16);
+            if (!saved.TryGetValue(objectiveId, out var all)) saved[objectiveId] = all = [];
+            all.Add(moment);
+            if (reader.GetInt64(17) == 0) continue;
+            if (!trend.TryGetValue(objectiveId, out var bad)) trend[objectiveId] = bad = [];
+            bad.Add(moment);
         }
-        return moments;
+
+        foreach (var pattern in patterns)
+        {
+            if (pattern.ObjectiveId is not long objectiveId) continue;
+            var source = pattern.Kind switch
+            {
+                PatternConstants.KindSavedObjectiveEvidence => saved,
+                PatternConstants.KindBadObjectiveEvidence => trend,
+                _ => null,
+            };
+            if (source is not null && source.TryGetValue(objectiveId, out var moments))
+                playlists[pattern.PatternKey] = moments;
+        }
+        return playlists;
     }
 
     public async Task MarkPatternReviewedAsync(string patternKey, string kind, int momentCount)

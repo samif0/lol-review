@@ -16,6 +16,8 @@
     ? '1x00000000000000000000AA'
     : '0x4AAAAAADUmEL-Xamn7L2E0';
   const SESSION_KEY = 'revu.web.session.v1';
+  const TURNSTILE_TIMEOUT_MS = 60_000;
+  const lib = window.RevuWebReview;
   const MATCH_COUNT = 20;
   const QUEUE_FILTERS = { all: null, solo: 420, flex: 440 };
   const ROLE_LABEL = { TOP: 'Top', JUNGLE: 'Jungle', MIDDLE: 'Mid', BOTTOM: 'ADC', UTILITY: 'Support' };
@@ -100,6 +102,7 @@
   ];
 
   let state = loadState();
+  migrateNotes();
   let matchCache = loadMatchCache();
   let loadedMatches = [];
   let loadInflight = false;
@@ -108,6 +111,7 @@
   let timerStartedAt = 0;
   let timerBaseSeconds = 0;
   let currentFilter = 'all';
+  let renderedStage = state.stage; // the screen render() last showed
 
   fetch('https://ddragon.leagueoflegends.com/api/versions.json')
     .then((r) => r.json())
@@ -184,7 +188,6 @@
       selectedMatchId: '',
       media: { kind: 'none', name: '', size: 0 },
       clockSeconds: 0,
-      notes: '',
     };
   }
 
@@ -197,7 +200,23 @@
   }
 
   function saveState() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  }
+
+  function notesStore() {
+    try { return window.localStorage; } catch { return null; }
+  }
+
+  // Review notes are kept per match id (web-review-lib.js). Older versions
+  // stored one global string in state.notes; move it once, then drop it.
+  function migrateNotes() {
+    if (typeof state.notes === 'string') {
+      lib.migrateLegacyNotes(notesStore(), state.notes, state.selectedMatchId, Date.now());
+    }
+    if ('notes' in state) {
+      delete state.notes;
+      saveState();
+    }
   }
 
   function loadMatchCache() {
@@ -258,7 +277,8 @@
   function hydrate() {
     el.riotId.value = state.riotId;
     el.region.value = state.region;
-    el.notes.value = state.notes;
+    // A remembered region the list no longer offers falls back to NA.
+    if (el.region.value !== state.region) el.region.value = state.region = 'na1';
   }
 
   function bind() {
@@ -373,8 +393,8 @@
       el.vodHelpPanel.hidden = !el.vodHelpPanel.hidden;
     });
 
-    el.vodTrack.addEventListener('click', onScrubClick);
-    el.vodTrack.addEventListener('mousedown', onScrubDrag);
+    el.vodTrack.addEventListener('pointerdown', onScrubStart);
+    el.vodTrack.addEventListener('keydown', onTrackKey);
 
     el.video.addEventListener('play', () => {
       el.viewerShell.classList.add('is-playing');
@@ -401,8 +421,8 @@
       saveState();
     });
     el.notes.addEventListener('input', () => {
-      state.notes = el.notes.value;
-      saveState();
+      const match = selectedMatch();
+      if (match) lib.saveNotes(notesStore(), match.id, el.notes.value, Date.now());
     });
     el.exportReview.addEventListener('click', exportMarkdown);
 
@@ -497,6 +517,20 @@
     return turnstileReadyPromise;
   }
 
+  // An escalated (interactive) challenge is announced, focused and exposed to
+  // assistive tech; otherwise the container stays offscreen and aria-hidden.
+  function showChallenge(container) {
+    container.classList.add('is-interactive');
+    container.removeAttribute('aria-hidden');
+    setSearchStatus('Complete the quick security check to continue.', 'inflight');
+    try { container.focus(); } catch {}
+  }
+
+  function hideChallenge(container) {
+    container.classList.remove('is-interactive');
+    container.setAttribute('aria-hidden', 'true');
+  }
+
   async function solveTurnstile() {
     await turnstileReady();
     if (!window.turnstile) {
@@ -509,7 +543,25 @@
         try { window.turnstile.remove(turnstileWidgetId); } catch {}
         turnstileWidgetId = null;
       }
-      container.classList.remove('is-interactive');
+      hideChallenge(container);
+      let settled = false;
+      let timer = 0;
+      // Every way out of the challenge lands here exactly once, including the
+      // overall timeout, so the search never hangs on "Looking up...".
+      const settle = (err, token) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        hideChallenge(container);
+        if (err) {
+          try { window.turnstile.remove(turnstileWidgetId); } catch {}
+          turnstileWidgetId = null;
+          reject(err);
+        } else {
+          resolve(token);
+        }
+      };
+      timer = window.setTimeout(() => settle(new Error('turnstile_timeout')), TURNSTILE_TIMEOUT_MS);
       const widgetId = window.turnstile.render(container, {
         sitekey: TURNSTILE_SITE_KEY,
         // Cloudflare removed the legacy size: 'invisible' value (the API now
@@ -521,26 +573,18 @@
         size: 'flexible',
         appearance: 'interaction-only',
         execution: 'execute',
-        callback: (token) => {
-          container.classList.remove('is-interactive');
-          resolve(token);
-        },
+        callback: (token) => settle(null, token),
         'error-callback': () => {
-          container.classList.remove('is-interactive');
-          reject(new Error('turnstile_error'));
+          settle(new Error('turnstile_error'));
+          return true; // handled: don't let Turnstile retry on its own
         },
-        'expired-callback': () => {
-          container.classList.remove('is-interactive');
-          reject(new Error('turnstile_expired'));
-        },
-        'before-interactive-callback': () => {
-          // Cloudflare escalated to an interactive challenge. Surface the
-          // widget so the user can complete it.
-          container.classList.add('is-interactive');
-        },
+        'expired-callback': () => settle(new Error('turnstile_expired')),
+        'timeout-callback': () => settle(new Error('turnstile_timeout')),
+        // Cloudflare escalated to an interactive challenge: surface it.
+        'before-interactive-callback': () => showChallenge(container),
       });
       turnstileWidgetId = widgetId;
-      try { window.turnstile.execute(widgetId); } catch (err) { reject(err); }
+      try { window.turnstile.execute(widgetId); } catch (err) { settle(err); }
     });
   }
 
@@ -616,16 +660,11 @@
         region: state.region,
       });
       if (!res.ok) {
-        let detail = '';
-        try { detail = (await res.json()).status?.message || ''; } catch {}
         if (res.status === 404) {
-          setSearchStatus(`No account found for ${state.riotId} in ${state.region.toUpperCase()}.`, 'error');
-        } else if (res.status === 401 || res.status === 403) {
-          setSearchStatus('Could not verify session. Please try again.', 'error');
-        } else if (res.status === 429) {
-          setSearchStatus('Rate limited. Wait a second and retry.', 'error');
+          setSearchStatus(`No account found for ${state.riotId} in ${regionLabel(state.region)}.`, 'error');
         } else {
-          setSearchStatus(`Lookup failed (${res.status})${detail ? ': ' + detail : ''}.`, 'error');
+          if (res.status === 401) clearSession();
+          setSearchStatus(lib.errorCopy(lib.failureFromStatus(res.status)), 'error');
         }
         return;
       }
@@ -640,7 +679,7 @@
       render();
       loadMatches();
     } catch (err) {
-      setSearchStatus(`Could not reach proxy at ${PROXY_URL}. Is wrangler dev running?`, 'error');
+      setSearchStatus(lib.errorCopy(lib.failureFromError(err)), 'error');
     } finally {
       if (submit) submit.disabled = false;
     }
@@ -660,7 +699,7 @@
         queue: queueId || undefined,
       });
       if (!res.ok) {
-        setMatchesProgress(`Match list failed (${res.status})`, 'error');
+        setMatchesProgress(lib.errorCopy(lib.failureFromStatus(res.status)), 'error');
         return;
       }
       const ids = await res.json();
@@ -694,7 +733,7 @@
 
       setMatchesProgress(`${loadedMatches.length} games`);
     } catch (err) {
-      setMatchesProgress('Could not reach proxy.', 'error');
+      setMatchesProgress(lib.errorCopy(lib.failureFromError(err)), 'error');
     } finally {
       loadInflight = false;
     }
@@ -763,6 +802,11 @@
     el.searchStatus.dataset.tone = tone || 'idle';
   }
 
+  function regionLabel(platform) {
+    const option = Array.from(el.region.options).find((o) => o.value === platform);
+    return option ? option.textContent.trim() : String(platform || '').toUpperCase();
+  }
+
   function render() {
     el.searchScreen.hidden = state.stage !== 'search';
     el.matchScreen.hidden = state.stage !== 'matches';
@@ -770,11 +814,23 @@
 
     if (state.stage === 'matches') renderMatches();
     if (state.stage === 'review') renderReview();
+
+    // Moving to another screen moves focus to its heading, so keyboard and
+    // screen-reader users land on the new content instead of a hidden button.
+    if (state.stage !== renderedStage) {
+      renderedStage = state.stage;
+      const screen = { search: el.searchScreen, matches: el.matchScreen, review: el.reviewScreen }[state.stage];
+      const heading = screen && screen.querySelector('h1');
+      if (heading) {
+        heading.setAttribute('tabindex', '-1');
+        try { heading.focus({ preventScroll: false }); } catch {}
+      }
+    }
   }
 
   function renderMatches() {
     const name = state.canonicalRiotId || state.riotId || 'player';
-    el.matchesTitle.textContent = `${name}'s ranked games`;
+    el.matchesTitle.textContent = lib.matchesTitle(name);
     el.matchList.innerHTML = '';
 
     const source = loadedMatches.length > 0 || state.puuid ? loadedMatches : demoMatchesForRegion();
@@ -798,20 +854,23 @@
     }
   }
 
+  // A <button> may only hold phrasing content, so the card is built from spans
+  // (grid items are laid out as blocks either way).
   function buildMatchCard(match) {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = `match-card ${match.result}`;
     card.dataset.matchId = match.id;
 
-    const square = document.createElement('div');
+    const square = document.createElement('span');
     square.className = 'champion-square';
+    square.setAttribute('aria-hidden', 'true');
     square.style.backgroundImage = `url(https://ddragon.leagueoflegends.com/cdn/${DDRAGON_VERSION}/img/champion/${match.championKey}.png)`;
     card.append(square);
 
-    const identity = document.createElement('div');
+    const identity = document.createElement('span');
     identity.className = 'match-identity';
-    const champ = document.createElement('p');
+    const champ = document.createElement('span');
     champ.className = 'champion';
     champ.textContent = match.champion;
     const role = document.createElement('span');
@@ -820,7 +879,7 @@
     identity.append(champ, role);
     card.append(identity);
 
-    const stats = document.createElement('div');
+    const stats = document.createElement('span');
     stats.className = 'match-stats';
     const kda = document.createElement('span');
     kda.className = 'kda';
@@ -832,7 +891,7 @@
     stats.append(kda, kdaDetail);
     card.append(stats);
 
-    const metaCol = document.createElement('div');
+    const metaCol = document.createElement('span');
     metaCol.className = 'match-meta-col';
     const dur = document.createElement('span');
     dur.className = 'queue';
@@ -849,6 +908,7 @@
 
     const chev = document.createElement('span');
     chev.className = 'match-chevron';
+    chev.setAttribute('aria-hidden', 'true');
     chev.textContent = '>';
     card.append(chev);
 
@@ -868,7 +928,7 @@
     el.reviewMeta.textContent = `${match.role} · ${match.kills}/${match.deaths}/${match.assists} · ${formatTime(match.durationSeconds)} · ${match.id}`;
     el.reviewResult.textContent = match.result === 'win' ? 'Win' : 'Loss';
     el.reviewResult.className = `result-tag ${match.result}`;
-    el.notes.value = state.notes;
+    el.notes.value = lib.notesFor(notesStore(), match.id);
     renderMedia();
     updateClock();
   }
@@ -1028,9 +1088,13 @@
     el.vodFill.style.width = `calc((100% - 20px) * ${pct / 100})`;
     el.vodThumb.style.left = `calc(10px + (100% - 20px) * ${pct / 100})`;
     el.vodCurrent.textContent = formatTime(el.video.currentTime);
+    // #vod-track is a role="slider": keep its value in step with playback.
+    el.vodTrack.setAttribute('aria-valuemax', String(Math.round(el.video.duration)));
+    el.vodTrack.setAttribute('aria-valuenow', String(Math.round(el.video.currentTime)));
+    el.vodTrack.setAttribute('aria-valuetext', `${formatTime(el.video.currentTime)} of ${formatTime(el.video.duration)}`);
   }
 
-  function onScrubClick(event) {
+  function seekToPointer(event) {
     if (!el.video.duration) return;
     const rect = el.vodTrack.getBoundingClientRect();
     const railLeft = rect.left + 10;
@@ -1039,15 +1103,37 @@
     el.video.currentTime = el.video.duration * pct;
   }
 
-  function onScrubDrag(event) {
+  // Pointer events cover mouse, pen and touch; capture keeps the drag going
+  // when the pointer leaves the rail.
+  function onScrubStart(event) {
+    if (event.button !== undefined && event.button !== 0) return;
     event.preventDefault();
-    const move = (e) => onScrubClick(e);
-    const up = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
+    try { el.vodTrack.focus({ preventScroll: true }); } catch {}
+    seekToPointer(event);
+    try { el.vodTrack.setPointerCapture(event.pointerId); } catch {}
+    const move = (e) => seekToPointer(e);
+    const end = () => {
+      el.vodTrack.removeEventListener('pointermove', move);
+      el.vodTrack.removeEventListener('pointerup', end);
+      el.vodTrack.removeEventListener('pointercancel', end);
     };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    el.vodTrack.addEventListener('pointermove', move);
+    el.vodTrack.addEventListener('pointerup', end);
+    el.vodTrack.addEventListener('pointercancel', end);
+  }
+
+  // Arrow keys already seek from anywhere on the review screen (onKey); the
+  // focused slider also takes Home, End, PageUp and PageDown.
+  function onTrackKey(event) {
+    if (!el.video.duration) return;
+    const jumps = { Home: -Infinity, End: Infinity, PageUp: 10, PageDown: -10 };
+    if (!(event.key in jumps)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const step = jumps[event.key];
+    if (step === -Infinity) el.video.currentTime = 0;
+    else if (step === Infinity) el.video.currentTime = el.video.duration;
+    else seekVideo(step);
   }
 
   function exportMarkdown() {
@@ -1065,7 +1151,7 @@
       `- Media: ${state.media.kind}${state.media.name ? ` (${state.media.name})` : ''}`,
       '',
       '## Notes',
-      state.notes || '',
+      lib.notesFor(notesStore(), match.id),
       '',
     ];
 

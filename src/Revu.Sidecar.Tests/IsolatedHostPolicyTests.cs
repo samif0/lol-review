@@ -22,6 +22,8 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("POST", "/api/config/save")]
     [InlineData("POST", "/api/settings/restore")]
     [InlineData("POST", "/api/settings/reset")]
+    [InlineData("POST", "/api/settings/recover-games")]
+    [InlineData("POST", "/api/settings/export")] // writes into Documents\Revu, outside the scratch root
     [InlineData("GET", "/API/AUTH/status")]
     [InlineData("GET", "/API/UPDATE/check/")]
     [InlineData("GET", "/api/pregame")]
@@ -29,6 +31,7 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("GET", "/api/future-download")]
     [InlineData("POST", "/api/bookmark/future-file-operation")]
     [InlineData("DELETE", "/api/review/delete")]
+    [InlineData("POST", "/api/missed-games/resolve")]
     public void ExternalAndUnauditedOperationsAreDenied(string method, string route) => Assert.False(IsolatedHostPolicy.Allows(method, route));
 
     [Theory]
@@ -36,9 +39,12 @@ public sealed class IsolatedHostPolicyTests : IDisposable
     [InlineData("GET", "/api/vod")]
     [InlineData("POST", "/api/review/save")]
     [InlineData("POST", "/api/review/remake")]
+    [InlineData("POST", "/api/game/hide")]
     [InlineData("POST", "/api/bookmark/delete")]
     [InlineData("POST", "/API/EVENT/CORRECT/")]
     [InlineData("POST", "/api/correction/revert")]
+    [InlineData("GET", "/api/missed-games")]
+    [InlineData("GET", "/api/host/health")] // the database-failure reason for isolated and smoke launches
     public void AuditedReviewAndDatabaseOperationsRemainAvailable(string method, string route) => Assert.True(IsolatedHostPolicy.Allows(method, route));
 
     [Theory]

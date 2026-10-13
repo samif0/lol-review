@@ -13,9 +13,9 @@ public static partial class SidecarEndpoints
     private static void MapAccounts(WebApplication app, JsonSerializerOptions jsonOptions)
     {
         // ─────────────────────────────────────────────────────────────────────────────
-        // RIOT AUTH / ACCOUNT (Batch 4). SECURITY-SENSITIVE: the email-OTP login flow
-        // (mirrors OnboardingViewModel + SettingsViewModel's RiotAuth* commands) and the
-        // account resolve that fills RiotPuuid + auto-detected rank. The session triplet
+        // RIOT AUTH / ACCOUNT. SECURITY-SENSITIVE: the email-OTP sign-in flow used by
+        // onboarding and Settings, and the account resolve that fills RiotPuuid +
+        // auto-detected rank. The session triplet
         // (RiotSessionToken/Email/ExpiresAt) and PUUID persist via the WRITE-graph
         // IConfigService, which round-trips through the DPAPI IProtectedSecretStore — so
         // these MUST run on WriteServices, never the read graph.
@@ -28,8 +28,7 @@ public static partial class SidecarEndpoints
         // we surface it with HTTP 422 so the desktop transport's error-extraction shows it.
         // ─────────────────────────────────────────────────────────────────────────────
 
-        // POST /api/auth/login  { email } — sends the magic-link / OTP email. No DB write.
-        // Mirrors OnboardingViewModel.SendLoginCodeAsync (validates non-empty email).
+        // POST /api/auth/login  { email } — sends the OTP email. No DB write.
         app.MapPost("/api/auth/login", async (AuthLoginBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             if (body is null || string.IsNullOrWhiteSpace(body.Email))
@@ -51,36 +50,11 @@ public static partial class SidecarEndpoints
             }
         });
 
-        // POST /api/auth/signup  { email, inviteCode } — sends the email after validating
-        // an invite code. Mirrors SettingsViewModel.RiotAuthSignup (both required; code
-        // upper-cased). No DB write.
-        app.MapPost("/api/auth/signup", async (AuthSignupBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
-        {
-            if (body is null || string.IsNullOrWhiteSpace(body.Email) || string.IsNullOrWhiteSpace(body.InviteCode))
-                return Results.BadRequest(new { error = "Enter an email and an invite code." });
-            try
-            {
-                await w.RiotAuth.SignupAsync(body.Email.Trim(), body.InviteCode.Trim().ToUpperInvariant(), ct);
-                log.LogInformation("Auth: signup code sent.");
-                return Results.Json(new { ok = true, info = $"Check {body.Email.Trim()} for a code." }, jsonOptions);
-            }
-            catch (RiotAuthException ex)
-            {
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions, statusCode: 422);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Auth: signup failed");
-                return Results.Json(new { ok = false, error = "Couldn't reach the server. Check your connection." }, jsonOptions, statusCode: 502);
-            }
-        });
-
         // POST /api/auth/verify  { code } — exchanges the OTP for a session token and
-        // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). Mirrors
-        // OnboardingViewModel.VerifyAsync + SettingsViewModel.RiotAuthVerify. The email we
+        // PERSISTS the session triplet (token/email/expiresAt) via config (DPAPI). The email we
         // stamp is the one the verify call was issued for — the frontend passes it back so
         // we record the right RiotSessionEmail (the proxy's verify response carries only
-        // the token + expiry). Code is trimmed + upper-cased (mirror the VM).
+        // the token + expiry). Code is trimmed + upper-cased.
         app.MapPost("/api/auth/verify", async (AuthVerifyBody body, WriteServices w, SidecarBackgroundWork work,
             IServiceProvider services, ILogger<Program> log, CancellationToken ct) =>
         {
@@ -91,20 +65,24 @@ public static partial class SidecarEndpoints
                 var result = await w.RiotAuth.VerifyAsync(body.Code.Trim().ToUpperInvariant(), ct);
                 await w.BackupGuard.EnsureBackedUpAsync();
 
-                var cfg = await w.Config.LoadAsync();
-                cfg.RiotSessionToken = result.SessionToken;
-                // Prefer the email the frontend carried over from the login step; fall back
-                // to whatever's already stored so a re-verify doesn't blank it.
-                if (!string.IsNullOrWhiteSpace(body.Email)) cfg.RiotSessionEmail = body.Email.Trim();
-                cfg.RiotSessionExpiresAt = result.ExpiresAt;
-                await w.Config.SaveAsync(cfg);
+                var email = "";
+                await w.Config.UpdateAsync(cfg =>
+                {
+                    cfg.RiotSessionToken = result.SessionToken;
+                    // Prefer the email the frontend carried over from the login step; fall back
+                    // to whatever's already stored so a re-verify doesn't blank it.
+                    if (!string.IsNullOrWhiteSpace(body.Email)) cfg.RiotSessionEmail = body.Email.Trim();
+                    cfg.RiotSessionExpiresAt = result.ExpiresAt;
+                    email = cfg.RiotSessionEmail;
+                    return true;
+                });
 
                 log.LogInformation("Auth: session verified + persisted (expires {ExpiresAt}).", result.ExpiresAt);
 
                 // 3.14: signed in now, so narrations waiting on sign-in get transcribed and
                 // deferred remote clip deletes go out. The renderer never calls transcribe itself.
                 work.TryRun("narration sign-in sweep", () => NarrationStartup.OnSignedInAsync(services, log));
-                return Results.Json(new { ok = true, email = cfg.RiotSessionEmail }, jsonOptions);
+                return Results.Json(new { ok = true, email }, jsonOptions);
             }
             catch (RiotAuthException ex)
             {
@@ -120,15 +98,13 @@ public static partial class SidecarEndpoints
         // POST /api/auth/resolve  { riotId, region } — resolve the Riot ID to a PUUID
         // using the stored session token, persist RiotId/RiotRegion/RiotPuuid +
         // OnboardingSkipped=false, then best-effort auto-detect the ranked solo tier
-        // (display-only, never throws). Mirrors OnboardingViewModel.FinishAccountAsync +
-        // SettingsViewModel.Save's PUUID-resolution leg. Validates the gameName#tagLine
-        // shape exactly like the VM. Returns the detected rank so the frontend can show
-        // the "RANK DETECTED" line.
+        // (display-only, never throws). Validates the gameName#tagLine shape. Returns the
+        // detected rank so the frontend can show it.
         app.MapPost("/api/auth/resolve", async (AuthResolveBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             var riotId = (body?.RiotId ?? "").Trim();
             var region = (body?.Region ?? "").Trim();
-            // Mirror the VM validation: must contain '#', not start/end with it.
+            // Must contain '#', not start/end with it.
             if (!riotId.Contains('#') || riotId.StartsWith('#') || riotId.EndsWith('#'))
                 return Results.BadRequest(new { error = "Enter your Riot ID as gameName#tagLine." });
             if (region.Length == 0)
@@ -144,11 +120,16 @@ public static partial class SidecarEndpoints
                 var account = await w.RiotAuth.ResolveAccountAsync(cfg.RiotSessionToken, riotId, regionLower, ct);
 
                 await w.BackupGuard.EnsureBackedUpAsync();
-                cfg.RiotId = riotId;
-                cfg.RiotRegion = regionLower;
-                cfg.RiotPuuid = account.Puuid;
-                cfg.OnboardingSkipped = false; // login path: rely on RiotProxyEnabled + role
-                await w.Config.SaveAsync(cfg);
+                // Re-read under the config lock: cfg is stale after the network call, and
+                // saving it would undo any Settings save made in between.
+                await w.Config.UpdateAsync(fresh =>
+                {
+                    fresh.RiotId = riotId;
+                    fresh.RiotRegion = regionLower;
+                    fresh.RiotPuuid = account.Puuid;
+                    fresh.OnboardingSkipped = false; // login path: rely on RiotProxyEnabled + role
+                    return true;
+                });
 
                 // Best-effort rank detection (display-only; never throws).
                 var rank = await w.RiotAuth.GetSoloRankAsync(cfg.RiotSessionToken, account.Puuid, regionLower, ct);
@@ -168,9 +149,9 @@ public static partial class SidecarEndpoints
         });
 
         // POST /api/auth/logout — clear the session triplet (and reset OnboardingSkipped so
-        // a stale opt-out doesn't trap the user), then best-effort tell the server. Mirrors
-        // SettingsViewModel.RiotAuthLogout: clear config FIRST (so the local state is gone
-        // even if the network call fails), then call LogoutAsync(token).
+        // a stale opt-out doesn't trap the user), then best-effort tell the server. Clear
+        // config FIRST (so the local state is gone even if the network call fails), then
+        // call LogoutAsync(token).
         app.MapPost("/api/auth/logout", async (WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             await w.BackupGuard.EnsureBackedUpAsync();
@@ -181,11 +162,7 @@ public static partial class SidecarEndpoints
             // save no longer clears anything). Reset OnboardingSkipped separately.
             await w.Config.ClearSessionAsync();
             if (cfg.OnboardingSkipped)
-            {
-                var fresh = await w.Config.LoadAsync();
-                fresh.OnboardingSkipped = false;
-                await w.Config.SaveAsync(fresh);
-            }
+                await w.Config.UpdateAsync(fresh => { fresh.OnboardingSkipped = false; return true; });
 
             if (!string.IsNullOrWhiteSpace(token))
             {
@@ -237,7 +214,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex)
             {
                 log.LogWarning(ex, "Auth: could not clear partial onboarding session");
-                return Results.Json(new { ok = false, error = ex.Message }, jsonOptions);
+                return Results.Json(new { ok = false, error = "Couldn't reset the unfinished sign-in. Try again." }, jsonOptions);
             }
         });
 
@@ -285,7 +262,7 @@ public static partial class SidecarEndpoints
                 {
                     ok = true,
                     ranBackfill = false,
-                    text = "Sign in and link your Riot ID first — backfill needs your account.",
+                    text = "Sign in and link your Riot ID first. Backfill needs your account.",
                     enemy = new { scanned = 0, updated = 0, skipped = 0, failed = 0 },
                     laning = new { scanned = 0, updated = 0, skipped = 0, failed = 0 },
                 }, jsonOptions);
@@ -293,10 +270,17 @@ public static partial class SidecarEndpoints
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
+            // Each leg gets its own time budget and stops starting new games when it runs
+            // out, so a deep backlog ends inside the 290 s client deadline with a summary
+            // and a remaining count instead of an aborted request. Separate budgets keep
+            // one huge queue from starving the other two legs. Each leg also remembers the
+            // games it already tried this session and walks the untried ones first, so games
+            // that never resolve cannot hold every later click at the head of the queue.
+            using var enemyBudget = new CancellationTokenSource(BackfillLegBudget);
             EnemyLanerBackfillResult enemy;
             try
             {
-                enemy = await w.EnemyLanerBackfill.RunAsync(ct: ct);
+                enemy = await w.EnemyLanerBackfill.RunAsync(ct: ct, budget: enemyBudget.Token, attempts: EnemyBackfillAttempts);
             }
             catch (OperationCanceledException)
             {
@@ -305,7 +289,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex)
             {
                 log.LogWarning(ex, "Backfill: enemy-laner leg failed");
-                return Results.Json(new { ok = false, error = $"Backfill failed: {ex.Message}" }, jsonOptions, statusCode: 502);
+                return Results.Json(new { ok = false, error = "Backfill couldn't finish. Check your connection and try again." }, jsonOptions, statusCode: 502);
             }
 
             // Map-state leg (v3.2): jungle-proximity events + death map-state stamps from
@@ -316,9 +300,10 @@ public static partial class SidecarEndpoints
             // proxy edge-caches match/timeline, so the laning leg re-fetching the same
             // games afterwards is comparatively cheap. Degrades silently like laning.
             MapStateBackfillResult mapState = new(0, 0, 0, 0);
+            using var mapStateBudget = new CancellationTokenSource(BackfillLegBudget);
             try
             {
-                mapState = await w.MapStateBackfill.RunAsync(ct: ct);
+                mapState = await w.MapStateBackfill.RunAsync(ct: ct, budget: mapStateBudget.Token, attempts: MapStateBackfillAttempts);
             }
             catch (OperationCanceledException)
             {
@@ -335,11 +320,12 @@ public static partial class SidecarEndpoints
             if (mapState.Updated > 0)
                 hub.Publish("mapStateUpdated", new { gameId = 0L, updated = mapState.Updated });
 
-            // Laning leg degrades silently on a proxy 404 (mirror the VM try/catch).
+            // Laning leg degrades silently on a proxy 404.
             LaningBackfillResult laning = new(0, 0, 0, 0);
+            using var laningBudget = new CancellationTokenSource(BackfillLegBudget);
             try
             {
-                laning = await w.LaningBackfill.RunAsync(ct: ct);
+                laning = await w.LaningBackfill.RunAsync(ct: ct, budget: laningBudget.Token, attempts: LaningBackfillAttempts);
             }
             catch (OperationCanceledException)
             {
@@ -350,22 +336,52 @@ public static partial class SidecarEndpoints
                 log.LogDebug(ex, "Backfill: laning leg failed (degraded, non-fatal)");
             }
 
-            var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
-            var text = totalUpdated > 0
-                ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
-                : "Nothing to backfill — every game already has its matchup data.";
+            var (text, remaining) = BackfillSummary(enemy, laning, mapState);
 
-            log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}",
-                enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned);
+            log.LogInformation("Backfill done: enemy {EU}/{ES}, laning {LU}/{LS}, map-state {MU}/{MS}, remaining {Remaining}",
+                enemy.Updated, enemy.Scanned, laning.Updated, laning.Scanned, mapState.Updated, mapState.Scanned, remaining);
             return Results.Json(new
             {
                 ok = true,
                 ranBackfill = true,
                 text,
-                enemy = new { scanned = enemy.Scanned, updated = enemy.Updated, skipped = enemy.Skipped, failed = enemy.Failed },
-                laning = new { scanned = laning.Scanned, updated = laning.Updated, skipped = laning.Skipped, failed = laning.Failed },
-                mapState = new { scanned = mapState.Scanned, updated = mapState.Updated, skipped = mapState.Skipped, failed = mapState.Failed },
+                remaining,
+                enemy = new { scanned = enemy.Scanned, updated = enemy.Updated, skipped = enemy.Skipped, failed = enemy.Failed, remaining = enemy.Remaining },
+                laning = new { scanned = laning.Scanned, updated = laning.Updated, skipped = laning.Skipped, failed = laning.Failed, remaining = laning.Remaining },
+                mapState = new { scanned = mapState.Scanned, updated = mapState.Updated, skipped = mapState.Skipped, failed = mapState.Failed, remaining = mapState.Remaining },
             }, jsonOptions);
         });
+    }
+
+    /// <summary>How long one Settings backfill leg may keep starting new games. Three legs
+    /// plus the game each has in flight stay well inside run_backfill's 290 s deadline.</summary>
+    internal static readonly TimeSpan BackfillLegBudget = TimeSpan.FromSeconds(60);
+
+    // What each Settings backfill leg already tried this sidecar session (see BackfillAttempts).
+    private static readonly BackfillAttempts EnemyBackfillAttempts = new();
+    private static readonly BackfillAttempts MapStateBackfillAttempts = new();
+    private static readonly BackfillAttempts LaningBackfillAttempts = new();
+
+    /// <summary>The Settings backfill result line. A game can wait in more than one leg's
+    /// queue, so the largest leg's remainder is the honest lower bound on what is left. The
+    /// remainder counts only games no run has tried yet this session, so "run it again"
+    /// always reaches new games; games that were tried and still have no data are named as
+    /// such instead of being called finished.</summary>
+    internal static (string Text, int Remaining) BackfillSummary(
+        EnemyLanerBackfillResult enemy, LaningBackfillResult laning, MapStateBackfillResult mapState)
+    {
+        var totalUpdated = enemy.Updated + laning.Updated + mapState.Updated;
+        var totalScanned = enemy.Scanned + laning.Scanned + mapState.Scanned;
+        var remaining = Math.Max(enemy.Remaining, Math.Max(laning.Remaining, mapState.Remaining));
+        var text = totalUpdated > 0
+            ? $"Backfilled {totalUpdated} game(s). Enemy laners: {enemy.Updated}/{enemy.Scanned}. Laning@10: {laning.Updated}/{laning.Scanned}. Map state and teamfights: {mapState.Updated}/{mapState.Scanned}."
+            : remaining > 0
+                ? "No new match data found in this pass."
+                : totalScanned > 0
+                    ? "No new match data found. The games still missing it could not be looked up."
+                    : "Nothing to backfill. Every game already has its matchup data.";
+        if (remaining > 0)
+            text += $" At least {remaining} more {(remaining == 1 ? "game is" : "games are")} waiting. Run it again to continue.";
+        return (text, remaining);
     }
 }

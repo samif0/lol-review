@@ -10,27 +10,43 @@ public sealed partial class GameRepository
     public async Task SetHiddenAsync(long gameId, bool hidden)
     {
         using var conn = _factory.CreateConnection();
+        using var tx = conn.BeginTransaction(deferred: false);
+        var wasHidden = await ReadIsHiddenAsync(conn, tx, gameId);
 
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE games SET is_hidden = @hidden WHERE game_id = @gameId";
-        cmd.Parameters.AddWithValue("@hidden", hidden ? 1 : 0);
-        cmd.Parameters.AddWithValue("@gameId", gameId);
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "UPDATE games SET is_hidden = @hidden WHERE game_id = @gameId";
+            cmd.Parameters.AddWithValue("@hidden", hidden ? 1 : 0);
+            cmd.Parameters.AddWithValue("@gameId", gameId);
+            await cmd.ExecuteNonQueryAsync();
+        }
 
-        await cmd.ExecuteNonQueryAsync();
+        // A hidden game stops counting and a restored one counts again: its objectives'
+        // game counts re-base, and its practice points move with it (a remake had none).
+        if (wasHidden is bool before && before != hidden)
+        {
+            await RebaseObjectiveGameCountsAsync(conn, tx, gameId);
+            if (!await ReadIsRemakeOrFalseAsync(conn, tx, gameId))
+            {
+                await ShiftObjectivePracticePointsAsync(conn, tx, gameId, nowCounted: !hidden);
+            }
+        }
+
+        tx.Commit();
     }
 
     /// <inheritdoc />
     public async Task<string> DeleteAsync(long gameId)
     {
-        // Always snapshot the DB first â€” deletion cascades across 13 child
-        // tables and there is no per-row undo path. The safety backup gives
+        // Always snapshot the DB first — deletion cascades across every child
+        // table that holds the game and there is no per-row undo path. The safety backup gives
         // the user an out of last resort.
         await _backupService.CreateSafetyBackupAsync($"delete-game-{gameId}")
             .ConfigureAwait(false);
 
         // Child tables that reference games.game_id. Listed explicitly so that
         // adding a new child-with-game_id in the schema forces this list to
-        // be updated â€” silent orphan rows are the failure mode we're avoiding.
+        // be updated — silent orphan rows are the failure mode we're avoiding.
         //
         // Deliberately absent: missed_game_decisions. We want the row in that
         // table to survive (as 'dismissed') so the reconciler doesn't re-offer
@@ -42,6 +58,9 @@ public sealed partial class GameRepository
             "session_log",
             "vod_files",
             "game_events",
+            // The per-game event-processing coverage report. Its ON DELETE CASCADE
+            // never fires (foreign keys are off), so it is deleted explicitly.
+            "event_processing_reports",
             // v3.11 (schema v16): the corrections ledger keys on game_id too; a
             // deleted game must not leave dangling correction rows behind.
             "event_corrections",
@@ -65,7 +84,7 @@ public sealed partial class GameRepository
         using var conn = _factory.CreateConnection();
         using var tx = conn.BeginTransaction();
 
-        // Collect clip file paths BEFORE the row is gone â€” we need them to
+        // Collect clip file paths BEFORE the row is gone — we need them to
         // clean up on-disk clip extractions after the transaction commits.
         // Source recording files are preserved; we only touch generated clips.
         var clipPaths = new List<string>();
@@ -93,6 +112,15 @@ public sealed partial class GameRepository
             // collected before their clip_narrations rows go.
             await CollectNarrationPathsAsync(conn, tx, gameId, gamePk, narrationAudioPaths, narratedClipPaths)
                 .ConfigureAwait(false);
+
+            // A counted game's practice points leave with it; its objectives' game counts
+            // re-base once its practice rows are gone (below).
+            var objectiveIds = await ReadObjectiveIdsAsync(conn, tx, gameId).ConfigureAwait(false);
+            if (await ReadIsHiddenAsync(conn, tx, gameId).ConfigureAwait(false) == false
+                && !await ReadIsRemakeOrFalseAsync(conn, tx, gameId).ConfigureAwait(false))
+            {
+                await ShiftObjectivePracticePointsAsync(conn, tx, gameId, nowCounted: false).ConfigureAwait(false);
+            }
 
             await DeleteByCoachMomentGameAsync(conn, tx, "coach_labels", gameId, gamePk).ConfigureAwait(false);
             await DeleteByCoachMomentGameAsync(conn, tx, "coach_inferences", gameId, gamePk).ConfigureAwait(false);
@@ -141,6 +169,8 @@ public sealed partial class GameRepository
                 await gamesCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
             }
 
+            await RebaseObjectiveGameCountsAsync(conn, tx, objectiveIds).ConfigureAwait(false);
+
             tx.Commit();
         }
         catch
@@ -150,7 +180,7 @@ public sealed partial class GameRepository
         }
 
         // Delete clip files after the transaction commits. File-system
-        // failures here are non-fatal â€” the DB is already consistent; a
+        // failures here are non-fatal — the DB is already consistent; a
         // leftover clip just lingers on disk until the user clears it or the
         // folder-size limiter prunes it.
         foreach (var clipPath in clipPaths)
@@ -171,7 +201,7 @@ public sealed partial class GameRepository
             }
             catch
             {
-                // Swallow â€” best-effort cleanup.
+                // Swallow — best-effort cleanup.
             }
         }
 
@@ -229,6 +259,24 @@ public sealed partial class GameRepository
         }
     }
 
+    private static async Task<List<long>> ReadObjectiveIdsAsync(
+        Microsoft.Data.Sqlite.SqliteConnection conn,
+        Microsoft.Data.Sqlite.SqliteTransaction tx,
+        long gameId)
+    {
+        var ids = new List<long>();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "SELECT DISTINCT objective_id FROM game_objectives WHERE game_id = @gameId";
+        cmd.Parameters.AddWithValue("@gameId", gameId);
+        using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+        while (await reader.ReadAsync().ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(0)) ids.Add(reader.GetInt64(0));
+        }
+        return ids;
+    }
+
     private static async Task<long?> GetGamePkAsync(
         Microsoft.Data.Sqlite.SqliteConnection conn,
         Microsoft.Data.Sqlite.SqliteTransaction tx,
@@ -248,13 +296,23 @@ public sealed partial class GameRepository
     // non-constant (or typo'd) table name throws instead of reaching SQLite.
     private static readonly HashSet<string> DeletableTables = new(StringComparer.Ordinal)
     {
-        "evidence_items", "session_log", "vod_files", "game_events", "event_corrections",
+        "evidence_items", "session_log", "vod_files", "game_events", "event_processing_reports",
+        "event_corrections",
         "derived_event_instances", "game_objectives", "game_concept_tags",
         "prompt_answers", "matchup_notes", "tilt_checks", "review_drafts",
         "cleared_rule_breaks", "death_classifications", "game_summary",
         "review_concepts", "feature_values", "coach_moments", "vod_bookmarks",
         "coach_labels", "coach_inferences", "clip_narrations", "game_remakes",
     };
+
+    /// <summary>
+    /// Every table with a game_id column that a game delete accounts for: the rows it
+    /// deletes, plus the two it keeps on purpose (the missed_game_decisions tombstone
+    /// and the player's own matchup journal cards, detached). A schema test fails when a
+    /// new game-keyed table is missing here, instead of its rows silently orphaning.
+    /// </summary>
+    internal static IReadOnlySet<string> GameDeleteCoveredTables { get; } =
+        new HashSet<string>(DeletableTables.Concat(["missed_game_decisions", "matchups"]), StringComparer.Ordinal);
 
     private static string RequireDeletableTable(string table) =>
         DeletableTables.Contains(table)
@@ -369,6 +427,6 @@ public sealed partial class GameRepository
         return result is not null && result != DBNull.Value;
     }
 
-    // â”€â”€ Single reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Single reads ─────────────────────────────────────────────────────
 
 }

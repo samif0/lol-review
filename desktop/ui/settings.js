@@ -3,10 +3,14 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { initializeRecordingSettings } from './recording-settings.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
+import { registerLeaveGuard } from './leave-guard.mjs';
+import { initializeAudioSettings } from './audio-settings.mjs';
 
 // Each editable card saves only its own fields through the existing platform
 // boundary. Refreshes preserve drafts in other categories. Recording and startup
-// remain independently owned by their native settings handlers.
+// remain independently owned by their native settings handlers. Audio devices are
+// renderer-local preferences that save on change (audio-settings.mjs), so they never
+// mark a card dirty or reach the leave guard.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
 
@@ -36,6 +40,7 @@ let _baseline = {};
 let _savingGroup = null;
 let _ascentAvailable = null;
 let _ascentScanning = false;
+let _ascentRecovering = false;
 let _ascentScanResult = null;
 const _nativeBaseline = new Map();
 const CONFIG_FIELDS = [...TEXT_FIELDS, ...NUM_FIELDS, ...TOGGLE_FIELDS, 'windowResolution'];
@@ -92,12 +97,15 @@ function syncAscentControls() {
   $('ascent-save').textContent = folder ? 'Save folder' : 'Connect folder';
   $('ascent-disconnect').disabled = !ready || busy || !!_savingGroup || !folder;
   $('ascent-scan').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
+  $('ascent-recover').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
   group.querySelector('[data-action="discard_config"]').disabled = !ready || busy || !dirty;
   let text, tone;
   if (_ascentAvailable === null) text = 'Checking folder linking availability…';
   else if (!_ascentAvailable) text = 'Connect Ascent in the Revu desktop app. Browser preview cannot access local recordings.';
   else if (!_data) text = 'Loading your recordings folder…';
-  else if (_ascentScanning) text = 'Scanning Ascent recordings and linking matches…';
+  else if (_ascentScanning) text = _ascentRecovering
+    ? 'Recovering recent matches from League and linking recordings…'
+    : 'Scanning Ascent recordings and linking matches…';
   else if (dirty) text = $('ascentFolder').value.trim()
     ? 'Save this folder before scanning or linking recordings.'
     : 'Enter a folder to connect, or use Disconnect to stop automatic linking.';
@@ -336,29 +344,19 @@ function renderError(err) {
 function clearError() { show($('errpanel'), false); }
 
 // ── load orchestration ──────────────────────────────────────────────────────
+// Electron waits for the sidecar before it loads the shell, so a failed read is
+// a real error: show it rather than retrying.
 let _loading = false;
 async function loadConfig() {
   if (_loading) return;
   _loading = true;
-  const maxAttempts = 25; // cold-start grace while the sidecar binds
   try {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        render(await fetchConfig());
-        // Status is a best-effort second read — never blocks the editable page.
-        loadStatus();
-        return;
-      } catch (err) {
-        const transient = /sidecar not ready|not ready|connection refused|failed to fetch/i.test(String(err));
-        if (transient && attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 400));
-          continue;
-        }
-        renderError(err);
-        console.error('[settings] load failed:', err);
-        return;
-      }
-    }
+    render(await fetchConfig());
+    // Status is a best-effort second read — never blocks the editable page.
+    loadStatus();
+  } catch (err) {
+    renderError(err);
+    console.error('[settings] load failed:', err);
   } finally {
     _loading = false;
   }
@@ -391,8 +389,8 @@ function setStatusEl(el, text, tone, autoClear) {
 // ── single delegated action handler ─────────────────────────────────────────
 const ACTIONS = new Set([
   'save_config', 'discard_config', 'pick_ascent', 'pick_clips', 'pick_backup',
-  'disconnect_ascent', 'scan_vods',
-  'refresh_backups', 'export_data', 'open_logs',
+  'disconnect_ascent', 'scan_vods', 'recover_missing_games',
+  'refresh_backups', 'export_data', 'open_export_folder', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
   'run_backfill',
 ]);
@@ -422,10 +420,12 @@ document.addEventListener('click', async (ev) => {
     if (action === 'save_config') return await doSave(invoke, target);
     if (action === 'disconnect_ascent') return await doSave(invoke, target, { disconnectAscent: true });
     if (action === 'scan_vods') return await doScanAscent(invoke);
+    if (action === 'recover_missing_games') return await doScanAscent(invoke, true);
     if (action in PICK_TARGETS) return await doPick(invoke, action);
     if (action === 'run_backfill') return await doBackfill(invoke, target);
     if (action === 'refresh_backups') return await loadStatus();
     if (action === 'export_data') return await doExport(invoke, target);
+    if (action === 'open_export_folder') return await invoke('open_export_folder');
     if (action === 'open_logs') return await invoke('open_log_folder');
     if (action === 'restore_backup') return await doRestore(invoke, target);
     if (action === 'reset_all_data') return await doReset(invoke, target);
@@ -476,11 +476,10 @@ async function doReset(invoke, target) {
   }
 }
 
-// Normalize a sidecar/Electron error to a readable string (strip the HTTP prefix).
+// Electron prefixes errors that cross the IPC boundary; show the sidecar's sentence.
 function errText(err) {
   const s = (err && err.message) ? err.message : String(err);
-  const m = s.match(/sidecar HTTP \d+:\s*(.*)$/i);
-  return m ? m[1] : s;
+  return s.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:\w*Error:\s*)+/, '');
 }
 
 // ── App updates (Velopack) ───────────────────────────────────────────────────
@@ -522,13 +521,39 @@ async function doCheckUpdate(invoke) {
   }
 }
 
+// The shell forwards the download's updateDownloadProgress events while Settings is open.
+let _downloadingUpdate = false;
+function showUpdateDownloadProgress(p) {
+  const percent = Number(p?.percent);
+  if (!_downloadingUpdate || p?.finished || !Number.isFinite(percent)) return;
+  setStatusEl($('update-status'), `Downloading update… ${Math.min(100, Math.max(0, Math.round(percent)))}%`, null, false);
+}
+
 async function doInstallUpdate(invoke, target) {
   if ('disabled' in target) target.disabled = true;
   setStatusEl($('update-status'), 'Downloading update…', null, false);
   try {
-    const d = await invoke('download_update');
+    // The download runs in the sidecar past any request deadline and asking again joins
+    // it, so a timeout means "still downloading", never "failed".
+    let d;
+    _downloadingUpdate = true;
+    for (let attempt = 1; ; attempt++) {
+      try { d = await invoke('download_update'); break; }
+      catch (err) {
+        if (attempt >= 6 || !/timeout|timed out|aborted/i.test(errText(err))) throw err;
+        setStatusEl($('update-status'), 'Still downloading the update…', null, false);
+      }
+    }
+    _downloadingUpdate = false;
     if (!d || d.ok === false) {
       setStatusEl($('update-status'), (d && d.message) || 'Download failed.', 'bad', false);
+      if ('disabled' in target) target.disabled = false;
+      return;
+    }
+    // The restart drops unsaved cards like leaving the page would, so ask first, as the
+    // update banner does.
+    if (typeof window.revuBeforeNavigate === 'function' && await window.revuBeforeNavigate() === false) {
+      setStatusEl($('update-status'), 'Update ready. Save or discard your changes, then install it.', null, false);
       if ('disabled' in target) target.disabled = false;
       return;
     }
@@ -536,6 +561,7 @@ async function doInstallUpdate(invoke, target) {
     // apply_update relaunches the app — this won't return on success.
     await invoke('apply_update');
   } catch (err) {
+    _downloadingUpdate = false;
     setStatusEl($('update-status'), 'Update failed. Try again later.', 'bad', false);
     if ('disabled' in target) target.disabled = false;
     console.error('[settings] install_update failed:', err);
@@ -589,25 +615,32 @@ async function doSave(invoke, target, { disconnectAscent = false } = {}) {
   }
 }
 
-async function doScanAscent(invoke) {
+async function doScanAscent(invoke, recover = false) {
   const group = $('ascent-settings');
   const folder = String(_data?.ascentFolder || '').trim();
   if (!_ascentAvailable || _ascentScanning || _savingGroup || !folder || group?.dataset.dirty === 'true') return;
   _ascentScanning = true;
+  _ascentRecovering = recover;
   syncAscentControls();
   try {
-    const result = await invoke('scan_vods');
-    if (result?.ok !== true) throw new Error(result?.message || 'Could not scan this folder. Check the path and try again.');
+    const result = await invoke(recover ? 'recover_missing_games' : 'scan_vods');
+    if (result?.ok !== true) throw new Error(result?.message || (recover
+      ? 'Could not recover matches. Open the League client and try again.'
+      : 'Could not scan this folder. Check the path and try again.'));
     const matched = Number.isSafeInteger(result.matched) && result.matched >= 0 ? result.matched : null;
     const count = Number.isSafeInteger(result.recordingCount) && result.recordingCount >= 0 ? result.recordingCount : null;
-    const summary = matched !== null && count !== null
+    const scanSummary = matched !== null && count !== null
       ? `${matched} ${matched === 1 ? 'match linked' : 'matches linked'} · ${count} ${count === 1 ? 'recording found' : 'recordings found'}.`
       : 'Recording scan completed.';
+    const recovered = Number.isSafeInteger(result.recovered) && result.recovered >= 0 ? result.recovered : null;
+    const summary = recover && recovered !== null
+      ? `${recovered} ${recovered === 1 ? 'match recovered' : 'matches recovered'}. ${scanSummary}` : scanSummary;
     _ascentScanResult = { folder, text: String(result.message || '').trim() || summary, tone: 'good' };
   } catch (error) {
     _ascentScanResult = { folder, text: errText(error), tone: 'bad' };
   } finally {
     _ascentScanning = false;
+    _ascentRecovering = false;
     syncAscentControls();
   }
 }
@@ -649,32 +682,41 @@ async function doBackfill(invoke, target) {
   }
 }
 
-// Export = build the Markdown (sidecar read) then write it via the native save
-// dialog. 'saved:false' means the user cancelled (no error).
+// Export = the sidecar writes the Markdown into Documents\Revu and answers with the
+// saved path (a long history no longer has to fit through the renderer). The status
+// names the file and an Open folder button opens that fixed folder.
 async function doExport(invoke, target) {
   const canDisable = 'disabled' in target;
   if (canDisable) target.disabled = true;
-  setStatusEl($('export-status'), 'Building export…', null, false);
+  showExportFolderButton(false);
+  setStatusEl($('export-status'), 'Saving export…', null, false);
   try {
-    const built = await invoke('get_export_markdown');
-    if (!built || typeof built.markdown !== 'string') {
-      setStatusEl($('export-status'), 'Export failed: no data returned.', 'bad', false);
+    const out = await invoke('export_review_data');
+    if (!out || out.ok === false || typeof out.path !== 'string' || !out.path) {
+      setStatusEl($('export-status'), `Export failed: ${(out && out.error) || 'no file was saved.'}`, 'bad', false);
       return;
     }
-    const out = await invoke('save_export_file', {
-      fileName: built.fileName || 'revu-review-export.md',
-      markdown: built.markdown,
-    });
-    if (out && out.saved) {
-      setStatusEl($('export-status'), 'Export saved.', 'good', true);
-    } else {
-      setStatusEl($('export-status'), 'Export canceled.', null, true);
-    }
+    setStatusEl($('export-status'), `Saved to ${out.path}`, 'good', false);
+    showExportFolderButton(true);
   } catch (err) {
-    setStatusEl($('export-status'), `Export failed: ${err && err.message ? err.message : err}`, 'bad', false);
+    setStatusEl($('export-status'), `Export failed: ${errText(err)}`, 'bad', false);
   } finally {
     if (canDisable) target.disabled = false;
   }
+}
+
+function showExportFolderButton(show) {
+  let open = $('export-open-btn');
+  if (!open && show) {
+    open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'rule-act';
+    open.id = 'export-open-btn';
+    open.dataset.action = 'open_export_folder';
+    open.textContent = 'Open folder';
+    $('export-btn')?.after(open);
+  }
+  if (open) open.hidden = !show;
 }
 
 // Toggle buttons flip their own visual state on click (saved on Save).
@@ -715,9 +757,41 @@ function nativeValues(group) {
 document.addEventListener('input', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
 document.addEventListener('change', event => { if (event.target.matches('input,select')) settingsEdited(event.target); });
 
+// ── leaving with unsaved cards (shared leave guard) ─────────────────────────
+// Sidebar navigation asks before dropping any card's unsaved edits, including
+// cards in a hidden category. "Save and leave" saves each dirty card exactly as
+// its own button would; a card that cannot save keeps the player here.
+const settingsDirty = () => !!document.querySelector('[data-config-group][data-dirty="true"],[data-native-group][data-dirty="true"]');
+async function saveDirtySettings() {
+  const invoke = await getInvoke();
+  if (!invoke) return false;
+  for (const group of document.querySelectorAll('[data-config-group][data-dirty="true"]')) {
+    await doSave(invoke, group.querySelector('[data-action="save_config"]'));
+  }
+  for (const group of document.querySelectorAll('[data-native-group][data-dirty="true"]')) {
+    const kind = group.dataset.nativeGroup, status = $(`${kind}-settings-status`);
+    $(`save-${kind}-settings`)?.click();
+    for (let waited = 0; status?.textContent === 'Saving…' && waited < 15000; waited += 100) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  if (!settingsDirty()) return true;
+  showFirstUnsavedCard();
+  return false;
+}
+// A card that could not save may sit in a hidden category, where its error and
+// validation message are out of sight: open that category, so Stay lands on it.
+function showFirstUnsavedCard() {
+  const card = document.querySelector('[data-config-group][data-dirty="true"],[data-native-group][data-dirty="true"]');
+  const category = card?.closest('[data-settings-section]')?.dataset.settingsSection;
+  if (category) document.querySelector(`[data-settings-category="${category}"]`)?.click();
+}
+
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
   initializeSettingsNavigation();
+  registerLeaveGuard({ isDirty: settingsDirty, flush: saveDirtySettings });
+  window.addEventListener('revu:update-download-progress', event => showUpdateDownloadProgress(event.detail));
   for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
   for (const [id, groupId] of [['recording-settings-status', 'recording-settings'], ['background-settings-status', 'background-settings']]) {
     new MutationObserver(() => {
@@ -729,6 +803,7 @@ function boot() {
     }).observe($(id), { childList: true, characterData: true, subtree: true });
   }
   loadConfig(); loadAppVersion(); loadAscentAccess();
+  try { initializeAudioSettings(); } catch (err) { console.warn('[settings] audio devices unavailable:', err); }
   initializeRecordingSettings().then(() => {
     for (const group of document.querySelectorAll('[data-native-group]')) {
       _nativeBaseline.set(group.id, nativeValues(group));

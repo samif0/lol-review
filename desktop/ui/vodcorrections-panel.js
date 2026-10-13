@@ -103,7 +103,11 @@ export function renderList(host, corrections, { tpl, show, clear, clock, labelOf
     const row = tpl('tpl-fix-row');
     row.dataset.seconds = String(c.gameTimeSeconds || 0);
     row.dataset.correctionId = String(c.correctionId || '');
-    row.querySelector('.vp-fix-when').textContent = c.timeLabel || clock(c.gameTimeSeconds);
+    // The time is the row's own Watch button; the row itself stays a plain container.
+    const when = row.querySelector('.vp-fix-when');
+    when.textContent = c.timeLabel || clock(c.gameTimeSeconds);
+    when.dataset.seconds = row.dataset.seconds;
+    when.setAttribute('aria-label', `Watch corrected event at ${when.textContent}`);
     row.querySelector('.vp-fix-what').textContent = c.summary || `${labelOf(c.eventType)} ${c.op || ''}`.trim();
     const st = row.querySelector('.vp-fix-state');
     st.textContent = c.stateLabel || c.state || '';

@@ -3,11 +3,11 @@ import { readFile, readdir } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 import { COMMANDS, validateCommand } from '../ui/platform/commands.mjs';
-import { createPlatform, trustedTop, resolveAssetUrl } from '../ui/platform/index.mjs';
+import { createPlatform, hostError, trustedTop, resolveAssetUrl } from '../ui/platform/index.mjs';
 
-function page(origin = 'https://revu.test') {
+function page(origin = 'https://revu.test', { protocol, search = '' } = {}) {
   const scope = new EventTarget();
-  scope.location = { origin };
+  scope.location = { origin, protocol: protocol ?? (URL.canParse(origin) ? new URL(origin).protocol : ''), search };
   scope.top = scope;
   return scope;
 }
@@ -71,6 +71,39 @@ test('cross-origin and opaque-origin iframes cannot inherit the desktop bridge',
   assert.equal(trustedTop({ get top() { throw new Error('cross-origin access'); } }), null);
 });
 
+test('a hosted page without its bridge is a visible host failure, never a browser preview', async () => {
+  const shell = page('revu-app://ui');
+  const child = page('revu-app://ui');
+  child.top = shell;
+  for (const scope of [shell, child]) {
+    const client = createPlatform({ scope });
+    await assert.rejects(client.getInvoke(), /could not connect to its desktop host/);
+    await assert.rejects(client.invoke('get_config'), /could not connect to its desktop host/);
+    client.dispose();
+  }
+  // The UI smoke deliberately opts the shell into preview fixtures.
+  const preview = createPlatform({ scope: page('revu-app://ui', { search: '?preview=samples' }) });
+  assert.equal(await preview.getInvoke(), null);
+  preview.dispose();
+});
+
+test('Electron IPC wrappers are stripped once so pages show the host sentence', async () => {
+  const wrapped = new Error("Error invoking remote method 'revu:command': Error: Revu couldn't open its database: the file revu.db is marked read-only.");
+  const client = createPlatform({ scope: page(), adapterFactory: () => host({
+    capabilities: { commands: true, narration: true },
+    invoke: async () => { throw wrapped; },
+    saveNarration: async () => { throw new Error("Error invoking remote method 'revu:narration-save': TypeError: Invalid narration sync"); },
+  }) });
+  await assert.rejects(client.invoke('get_vod', { gameId: 9 }), error =>
+    error.message === "Revu couldn't open its database: the file revu.db is marked read-only." && error.cause === wrapped);
+  await assert.rejects(client.saveNarration(new Uint8Array(4), {}), { message: 'Invalid narration sync' });
+  client.dispose();
+  const plain = new Error('Error: kept as is');
+  assert.equal(hostError(plain), plain);
+  assert.equal(hostError('text failure'), 'text failure');
+  assert.equal(hostError(new Error("Error invoking remote method 'revu:command': Error: Error: inner")).message, 'Error: inner');
+});
+
 test('invalid preload version is an explicit host failure, never sample-data fallback', async () => {
   const scope = page();
   scope.revuDesktop = host({ version: 2 });
@@ -86,7 +119,7 @@ test('commands preserve read/write envelopes and backend failures across review 
     ['get_pregame', { myChampion: 'Kai\'Sa', participantMap: '{"3":"Ally"}' }],
     ['save_event_correction', { payload: { gameId: 9, correctionId: 2, gameTimeSeconds: 123.5 } }],
     ['add_bookmark', { payload: { gameId: 9, timeSeconds: 100, note: 'spacing' } }],
-    ['save_config', { payload: { clipsFolder: 'D:\\Clips', sidebarAnimationEnabled: false } }],
+    ['save_config', { payload: { clipsFolder: 'D:\\Clips', minimizeDuringGame: false } }],
     ['auth_login', { payload: { email: 'test@example.invalid', password: 'fixture-only' } }],
     ['save_export_file', { fileName: 'review.md', markdown: '# Review\n' }],
     ['copy_text_to_clipboard', { text: '# Review\nKeep the wave near turret.' }],
@@ -220,14 +253,16 @@ test('events, native window methods, links and recorder operations remain narrow
   assert.equal(win.arbitraryMethod, undefined);
   await assert.rejects(win.close(), /Window action unavailable/);
   await assert.rejects(client.listen('arbitrary-ipc', () => {}), /Unsupported desktop event/);
-  await assert.rejects(client.recorderStatus(), /capability unavailable/);
+  assert.equal(client.recorderStatus, undefined); // Recording status is the get_recording_status command.
+  assert.equal(win.startDragging, undefined); // app-region CSS owns frameless dragging.
   await assert.rejects(client.openExternal('file:///C:/private'), /Unsupported external URL/);
   await assert.rejects(client.openExternal('https://revu.example'), /capability unavailable/);
   client.dispose();
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 116);
+  assert.equal(Object.keys(COMMANDS).length, 111);
+  for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
     assert.ok(Object.isFrozen(definition), name);
@@ -256,10 +291,26 @@ test('command declarations keep immutable envelopes, required arguments and exce
   assert.equal(COMMANDS.scan_vods.route, '/api/settings/scan-vods');
   assert.equal(COMMANDS.scan_vods.method, 'POST');
   assert.equal(COMMANDS.scan_vods.timeoutMs, 120_000);
+  assert.deepEqual(COMMANDS.recover_missing_games.args, {});
+  assert.equal(COMMANDS.recover_missing_games.route, '/api/settings/recover-games');
+  assert.equal(COMMANDS.recover_missing_games.method, 'POST');
+  assert.equal(COMMANDS.recover_missing_games.timeoutMs, 120_000);
   assert.equal(COMMANDS.share_clip.timeoutMs, 60_000);
   assert.equal(COMMANDS.extract_clip.timeoutMs, 280_000);
   assert.equal(COMMANDS.mix_clip_narration.timeoutMs, 280_000);
   assert.equal(COMMANDS.run_backfill.timeoutMs, 290_000);
+  // Accepted sidecar work: long enough for real batches, and a timeout never stops the work.
+  assert.equal(COMMANDS.auto_clip_objectives.timeoutMs, 280_000);
+  assert.equal(COMMANDS.download_update.timeoutMs, 280_000);
+  assert.deepEqual(COMMANDS.download_update.args, {});
+  // The sidecar saves the full export itself; the renderer only learns where it went.
+  assert.equal(COMMANDS.export_review_data.method, 'POST');
+  assert.equal(COMMANDS.export_review_data.route, '/api/settings/export');
+  assert.deepEqual(COMMANDS.export_review_data.args, {});
+  assert.equal(COMMANDS.export_review_data.timeoutMs, 120_000);
+  assert.ok(!Object.hasOwn(COMMANDS, 'get_export_markdown'));
+  assert.equal(COMMANDS.open_export_folder.method, 'NATIVE');
+  assert.deepEqual(COMMANDS.open_export_folder.args, {});
   // C0.7: Node fetch gives up waiting for response headers after 300 s.
   for (const [name, definition] of Object.entries(COMMANDS)) {
     if (definition.timeoutMs !== undefined) assert.ok(definition.timeoutMs <= 290_000, name);

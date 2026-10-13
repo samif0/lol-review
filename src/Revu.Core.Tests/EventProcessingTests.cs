@@ -241,6 +241,22 @@ public sealed class EventProcessingTests
     }
 
     [Fact]
+    public void ObjectivePicker_OnlyPromisesEventsRevuSurfacesOnItsOwn()
+    {
+        foreach (var (token, group, _, _) in GameEvent.TrackableTokens.Catalog)
+        {
+            // A plain detector row is what reaches the timeline without the player marking it.
+            var surfacesOnItsOwn = EventEligibility.IsEligible(new GameEvent { EventType = token, Details = "{}" });
+            Assert.True(surfacesOnItsOwn == (group != GameEvent.TrackableTokens.ManualGroup),
+                $"{token} is in group '{group}'");
+            // Existing objectives keep every catalog token they already track.
+            Assert.True(GameEvent.TrackableTokens.IsValid(token), token);
+        }
+        Assert.Contains(GameEvent.TrackableTokens.Catalog,
+            c => c.Token == "TEAMFIGHT" && c.Group == GameEvent.TrackableTokens.ManualGroup);
+    }
+
+    [Fact]
     public void DeathFactSurvives_HeuristicAttributesDoNot_AndRawRowIsUnchanged()
     {
         var raw = new GameEvent { Id = 8, EventType = "DEATH", Details = "{\"killer\":\"A\",\"fog_death\":true,\"fight_numbers\":\"2v3\"}" };

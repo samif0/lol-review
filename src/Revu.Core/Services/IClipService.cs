@@ -37,9 +37,9 @@ public interface IClipService
 
     /// <summary>
     /// Delete oldest clips until the folder is under the specified max size. Counts the
-    /// top-level clip files plus <c>narrated\*.mp4</c>; only top-level files are candidates,
-    /// never <paramref name="justWritten"/> and never a protected path (narration sources and
-    /// renders, shared clips, files pinned by a running share).
+    /// top-level clip files plus <c>narrated\*.mp4</c>; only top-level clips Revu created are
+    /// candidates, never <paramref name="justWritten"/> and never a protected path (narration
+    /// sources and renders, shared or kept clips, linked recordings, files pinned by a share).
     /// </summary>
     Task EnforceFolderSizeLimitAsync(string folder, long maxSizeBytes, string? justWritten = null,
         CancellationToken ct = default);

@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-06-14T09:18:00",
   "view": "history",
-  "heading": "History",
+  "heading": "All games",
   "page": 0,
   "pageSize": 30,
   "returnedCount": 6,
@@ -10,6 +10,7 @@
   "hasMore": true,
   "isEmpty": false,
   "emptyMessage": "No games recorded yet.",
+  "totals": { "games": 181, "wins": 94, "reviewed": 62 },
   "items": [
     {
       "gameId": 5581701721,

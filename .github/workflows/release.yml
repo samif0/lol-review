@@ -2,7 +2,27 @@ name: Build & Release (Overwolf Electron)
 
 # Overwolf Electron builds the app directory; Velopack retains the installed
 # LoLReview identity, signing pipeline, release feed and delta chain.
-# Validate the installer and update path with a prerelease before public rollout.
+#
+# ONLY REVIEWED MAIN SHIPS: the guard job refuses a tag whose commit is not on
+# origin/main (v3.0.11/12 once shipped from an unmerged branch). A hyphenated
+# version such as v3.15.0-beta.1 publishes as a GitHub prerelease that stable
+# installs never auto-update to (see the publish job). Validate the installer and
+# update path with such a prerelease before a public rollout.
+#
+# PINNING POLICY: this pipeline produces the signed binaries every install
+# auto-updates to, so nothing that runs in it may float. Every `uses:` is pinned
+# to a full commit SHA (the trailing comment is the human-readable tag; Dependabot
+# proposes bumps), runner images are named (windows-2025, ubuntu-24.04, never
+# *-latest), the .NET SDK comes from global.json, NuGet restores in locked
+# mode (Directory.Build.props), vpk is the Velopack version in
+# src/Revu.Sidecar/Revu.Sidecar.csproj, desktop dependencies come from the
+# lockfile via `npm ci`, and ffmpeg is checksum-verified
+# (scripts/Get-PinnedFfmpeg.ps1). Bump these deliberately, in their own commit.
+#
+# PERMISSIONS: nothing is granted at workflow level. Third-party package code
+# (NuGet test dependencies, npm build tooling) runs only in read-only jobs. Only
+# the sign job can request the OIDC token the Azure Trusted Signing federation
+# trusts for v* tags, and only the publish job can write releases.
 
 on:
   workflow_dispatch:
@@ -10,13 +30,82 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  id-token: write   # OIDC token for Azure Artifact Signing (azure/login)
+# One release at a time and never cancelled midway: delta generation reads the
+# previous published release. GitHub keeps at most one run pending per group, so
+# push release tags one at a time.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
 
 jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      dotnet_sdk: ${{ steps.sdk.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        id: version
+        env:
+          RELEASE_REF: ${{ github.ref_name }}
+          RELEASE_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [ "$RELEASE_REF_TYPE" != "tag" ] || ! printf '%s' "$RELEASE_REF" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Run this release workflow on a v<version> tag."
+            exit 1
+          fi
+          version="${RELEASE_REF#v}"
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          {
+            echo "version=$version"
+            echo "tag=$RELEASE_REF"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release $RELEASE_REF (version $version, prerelease: $prerelease)"
+
+      # An in-workflow check runs the tagged commit's own copy of this file, so it
+      # stops mistakes, not a hostile writer; a v* tag ruleset is the durable
+      # control (see CONTRIBUTING.md).
+      - name: Require the tagged commit to be on main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          commit="$(git rev-parse --verify 'HEAD^{commit}')"
+          if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
+            echo "::error::Tagged commit $commit is not on origin/main. Merge it to main, then tag the merged commit."
+            exit 1
+          fi
+          echo "Tagged commit $commit is on origin/main."
+
+      # The publish job has no checkout, so it reads the SDK pin from here.
+      - name: Read the pinned .NET SDK
+        id: sdk
+        run: |
+          sdk="$(jq -r '.sdk.version' global.json)"
+          if ! printf '%s' "$sdk" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::global.json must pin an exact .NET SDK version."
+            exit 1
+          fi
+          echo "version=$sdk" >> "$GITHUB_OUTPUT"
+
   test:
-    runs-on: windows-latest
+    needs: guard
+    runs-on: windows-2025
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -27,10 +116,10 @@ jobs:
           "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
           "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
-      - name: Setup .NET 8
+      - name: Setup .NET (global.json)
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
 
       - name: Run critical tests (Core)
         run: dotnet test src/Revu.Core.Tests/Revu.Core.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
@@ -38,10 +127,13 @@ jobs:
       - name: Run sidecar write-contract tests
         run: dotnet test src/Revu.Sidecar.Tests/Revu.Sidecar.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
 
-  build:
-    runs-on: windows-latest
-    needs: test
-
+  package:
+    needs: [guard, test]
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -51,13 +143,13 @@ jobs:
           "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
           "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
-      - name: Setup .NET 8
+      - name: Setup .NET (global.json)
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
@@ -65,20 +157,12 @@ jobs:
         working-directory: desktop
         run: npm ci --ignore-scripts
 
-      - name: Extract and stamp release version
+      # npm stamps package.json and the root lock metadata together, without a
+      # commit. package.mjs stamps the host and sidecar version resources from it.
+      - name: Stamp release version
         shell: pwsh
-        env:
-          RELEASE_REF: ${{ github.ref_name }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
         run: |
-          if ($env:RELEASE_REF_TYPE -ne "tag" -or $env:RELEASE_REF -notmatch '^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
-            throw "Run this release workflow on a v<version> tag."
-          }
-          $version = $Matches[1]
-          "VERSION=$version" >> $env:GITHUB_ENV
-          "TAG=$env:RELEASE_REF" >> $env:GITHUB_ENV
-          # npm stamps package.json and the root lock metadata together, without a commit.
-          npm --prefix desktop version $version --no-git-tag-version --allow-same-version --ignore-scripts
+          npm --prefix desktop version $env:VERSION --no-git-tag-version --allow-same-version --ignore-scripts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Verify desktop and diagnostics
@@ -93,36 +177,11 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # Pin a month-end BtbN build (retained for two years, unlike daily builds).
       # Clip extraction and packaged playback verification require this binary;
-      # never publish a release that silently omits it. Verify the archive SHA-256
-      # against the upstream checksums.sha256 and GitHub release asset digest.
+      # never publish a release that silently omits it.
       - name: Download ffmpeg (pinned + checksum-verified)
         shell: pwsh
-        run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-31-13-27/ffmpeg-n8.1.2-50-g1a748fe2cd-win64-gpl-8.1.zip"
-          $expectedSha256 = "273ABB45F3F9F76C303E35FF39F5BB6C23C163AE65F6244A32B7D4A7F6CF0616"
-          try {
-            Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip -TimeoutSec 300
-            $actual = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash
-            if ($actual -ne $expectedSha256) {
-              throw "ffmpeg checksum mismatch - expected $expectedSha256, got $actual."
-            }
-            Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
-            $executables = @(Get-ChildItem -Recurse -File -Filter "ffmpeg.exe" ffmpeg_tmp |
-              Where-Object { $_.Directory.Name -eq 'bin' })
-            if ($executables.Count -ne 1) { throw 'Expected exactly one ffmpeg.exe in the verified archive.' }
-            New-Item -ItemType Directory -Force -Path deps | Out-Null
-            Copy-Item -LiteralPath $executables[0].FullName -Destination deps\ffmpeg.exe
-            Write-Host "ffmpeg ready (archive SHA-256 verified)"
-          } finally {
-            $workflowRoot = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
-            foreach ($relative in @('ffmpeg.zip', 'ffmpeg_tmp')) {
-              $target = [IO.Path]::GetFullPath((Join-Path $workflowRoot $relative))
-              if ([IO.Path]::GetDirectoryName($target) -ne $workflowRoot) { throw "Unexpected cleanup path" }
-              if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-            }
-          }
+        run: ./scripts/Get-PinnedFfmpeg.ps1
 
       # Same isolated, allowlisted layout used by local packaging and CI. The
       # sidecar and self-contained dependencies sit next to revu-desktop.exe.
@@ -136,19 +195,41 @@ jobs:
 
       - name: Verify packaged startup and synthetic playback
         shell: pwsh
-        run: |
-          $fixtureTool = Join-Path $env:GITHUB_WORKSPACE 'artifacts\desktop-package\win-unpacked\ffmpeg.exe'
-          if (-not (Test-Path -LiteralPath $fixtureTool -PathType Leaf)) {
-            throw 'The release package must include ffmpeg.exe for clip extraction.'
-          }
-          $expected = (Get-FileHash 'deps\ffmpeg.exe' -Algorithm SHA256).Hash
-          if ((Get-FileHash -LiteralPath $fixtureTool -Algorithm SHA256).Hash -ne $expected) {
-            throw 'Packaged ffmpeg.exe differs from the verified download.'
-          }
-          $env:PATH = (Split-Path -Parent $fixtureTool) + [IO.Path]::PathSeparator + $env:PATH
-          $packagedSmokeExe = Join-Path $env:GITHUB_WORKSPACE 'artifacts\desktop-package\win-unpacked\revu-desktop.exe'
-          & ./scripts/Test-ElectronHost.ps1 -PackagedExe $packagedSmokeExe
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: ./scripts/Test-PackagedHost.ps1
+
+      - name: Hand the unsigned app directory to the sign job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-package
+          path: artifacts/desktop-package/win-unpacked
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: [guard, package]
+    runs-on: windows-2025
+    permissions:
+      contents: read
+      id-token: write   # OIDC token for Azure Artifact Signing (azure/login)
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      # Source is needed only for the installer icon; nothing from it is executed.
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download the packaged app directory
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: desktop-package
+          path: artifacts/desktop-package/win-unpacked
+
+      # Same SDK the package job used; keeps any SDK command in this checkout on
+      # the global.json pin.
+      - name: Setup .NET (global.json)
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
 
       # ── Code signing (Azure Artifact Signing) — unchanged identity. OIDC login
       #    also authenticates Velopack's bundled SignTool via AzureCliCredential. ──
@@ -176,8 +257,10 @@ jobs:
           timestamp-digest: SHA256
           timeout: 900
 
+      # Match the sidecar client and retain its installed launcher layout.
+      # Installed outside the repository so global.json's SDK pin does not apply.
       - name: Install vpk CLI
-        # Match the sidecar client and retain its installed launcher layout.
+        working-directory: ${{ runner.temp }}
         run: dotnet tool install -g vpk --version 1.2.0
 
       - name: Configure Velopack signing
@@ -191,6 +274,8 @@ jobs:
           } | ConvertTo-Json | Set-Content -LiteralPath $metadataPath -Encoding utf8NoBOM
           "SIGNING_METADATA=$metadataPath" >> $env:GITHUB_ENV
 
+      # Without --pre this is the latest STABLE release, so prereleases never
+      # become a delta base for the stable chain.
       - name: Download previous Velopack release (for delta generation)
         shell: pwsh
         run: |
@@ -207,7 +292,7 @@ jobs:
           vpk pack `
             --packId LoLReview `
             --packTitle "Revu" `
-            --packVersion "${{ env.VERSION }}" `
+            --packVersion "$env:VERSION" `
             --packDir artifacts/desktop-package/win-unpacked `
             --mainExe revu-desktop.exe `
             --aumid gg.revu.desktop `
@@ -247,30 +332,119 @@ jobs:
             Remove-Item -LiteralPath $resolved -Recurse -Force
           }
 
-      - name: Upload Velopack release to GitHub
+      - name: Hand the signed Velopack release to the publish job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: velopack-release
+          path: Releases
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [guard, sign]
+    runs-on: windows-2025
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+      TAG: ${{ needs.guard.outputs.tag }}
+      PRERELEASE: ${{ needs.guard.outputs.prerelease }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download the signed Velopack release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: velopack-release
+          path: Releases
+
+      # Same SDK as every other job (global.json, read by the guard job), so vpk
+      # never depends on whichever .NET the runner image happens to carry.
+      - name: Setup .NET (global.json pin)
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ needs.guard.outputs.dotnet_sdk }}
+
+      - name: Install vpk CLI
+        working-directory: ${{ runner.temp }}
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # A re-run after a partial failure finds the draft the earlier attempt left,
+      # and vpk refuses to upload over any release with the same tag or name. Delete
+      # such drafts (by id, so a published release is never touched); refuse if the
+      # tag or name is already published.
+      - name: Remove a draft left by an earlier attempt
         shell: pwsh
         run: |
-          vpk upload github `
-            --repoUrl "https://github.com/${{ github.repository }}" `
-            --token "${{ secrets.GITHUB_TOKEN }}" `
-            --publish `
-            --releaseName "Revu v${{ env.VERSION }}" `
-            --tag "${{ env.TAG }}"
+          $releaseName = "Revu v$env:VERSION"
+          $lines = @(gh api --paginate "repos/$env:GH_REPO/releases?per_page=100" --jq '.[] | {id, draft, tag_name, name} | @json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $existing = @($lines | ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.tag_name -ceq $env:TAG -or $_.name -ceq $releaseName })
+          foreach ($release in $existing) {
+            if (-not $release.draft) {
+              throw "Release $($release.tag_name) ('$($release.name)') is already published; refusing to replace it. Release a new version instead."
+            }
+          }
+          foreach ($release in $existing) {
+            Write-Host "Deleting draft release $($release.id) ($($release.tag_name), '$($release.name)') left by an earlier attempt."
+            gh api --method DELETE "repos/$env:GH_REPO/releases/$($release.id)"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      # Upload as a DRAFT: nothing is visible to users or the updater until every
+      # asset is attached and checked below.
+      #
+      # Prereleases: `--pre` (not a separate `--channel`). Installed clients read
+      # releases/latest/download (UpdateService.ReleaseFeedUrl), and GitHub's
+      # "latest" never resolves to a prerelease, so stable users are never offered
+      # a beta. Keeping the default "win" channel means a tester who installed a
+      # beta still moves to the next stable release; a separate channel would
+      # strand them, because the client sets no explicit channel and the stable
+      # feed carries no releases.<channel>.json for it.
+      - name: Upload Velopack release to GitHub as a draft
+        shell: pwsh
+        run: |
+          $arguments = @('upload', 'github',
+            '--repoUrl', "https://github.com/$env:GH_REPO",
+            '--token', $env:GH_TOKEN,
+            '--releaseName', "Revu v$env:VERSION",
+            '--tag', $env:TAG)
+          if ($env:PRERELEASE -eq 'true') { $arguments += '--pre' }
+          & vpk @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Velopack names the installer after --packId (LoLReview-win-Setup.exe). We keep
       # packId=LoLReview for update continuity but ship a cleanly-named COPY
       # (Revu-Setup.exe) as an extra asset; the website download button prefers it.
-      - name: Stage cleanly-named installer copy
+      - name: Attach cleanly-named installer to the draft
         shell: pwsh
         run: |
           $setup = Get-ChildItem Releases -Filter "*-win-Setup.exe" | Select-Object -First 1
           if (-not $setup) { throw "No *-win-Setup.exe found in Releases" }
           Copy-Item $setup.FullName -Destination "Releases/Revu-Setup.exe"
-          Write-Host "Staged Revu-Setup.exe from $($setup.Name)"
+          gh release upload $env:TAG "Releases/Revu-Setup.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Attach cleanly-named installer to GitHub release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          tag_name: ${{ env.TAG }}
-          files: Releases/Revu-Setup.exe
-          fail_on_unmatched_files: true
+      - name: Verify the draft before it goes live
+        shell: pwsh
+        run: |
+          $release = gh release view $env:TAG --json isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $release.isDraft) { throw "Release $env:TAG is already public; refusing to continue." }
+          if ($release.isPrerelease -ne ($env:PRERELEASE -eq 'true')) {
+            throw "Release $env:TAG prerelease flag is $($release.isPrerelease), expected $env:PRERELEASE."
+          }
+          $names = @($release.assets | ForEach-Object name)
+          foreach ($required in @('releases.win.json', "LoLReview-$env:VERSION-full.nupkg", 'LoLReview-win-Setup.exe', 'Revu-Setup.exe')) {
+            if ($names -notcontains $required) { throw "Release $env:TAG is missing asset $required." }
+          }
+          Write-Host "Draft $env:TAG carries $($names.Count) assets: $($names -join ', ')"
+
+      - name: Publish the release
+        shell: pwsh
+        run: |
+          $arguments = @('release', 'edit', $env:TAG, '--draft=false')
+          if ($env:PRERELEASE -eq 'true') { $arguments += '--prerelease' }
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -72,6 +72,27 @@ test('accepted writes finish before backend shutdown and updater or relaunch act
     'updater launched', 'relaunch allowed']);
 });
 
+test('quit waits for ordinary writes but stops waiting on long jobs at the bound and names them', async () => {
+  const write = deferred();
+  const longJob = new Promise(() => {}); // a 290 s backfill that outlives the bound
+  const pendingCommands = new Set([write.promise, longJob]);
+  write.promise.then(() => pendingCommands.delete(write.promise));
+  const calls = [];
+  const finished = shutdownOwnedApp({ pendingCommands, drainTimeoutMs: 50,
+    onAbandoned: remaining => calls.push(['abandoned', remaining]),
+    abortEvents() {}, releaseMedia: () => calls.push(['media released']),
+    stopBackend: async () => calls.push(['backend stopping']),
+  });
+  setTimeout(() => write.resolve(), 10);
+  await finished;
+  assert.deepEqual(calls, [['abandoned', [longJob]], ['media released'], ['backend stopping']]);
+
+  const drained = [];
+  await shutdownOwnedApp({ pendingCommands: new Set([Promise.resolve()]), drainTimeoutMs: 50,
+    onAbandoned: () => drained.push('abandoned'), abortEvents() {}, releaseMedia() {}, stopBackend: async () => {} });
+  assert.deepEqual(drained, []);
+});
+
 test('failed backend shutdown prevents both an updater and relaunch', async () => {
   const terminalActions = [];
   await assert.rejects(shutdownOwnedApp({ pendingCommands: [], abortEvents() {}, releaseMedia() {},
@@ -110,4 +131,7 @@ test('an already-exited failing child cannot pass shutdown as successful', async
   assert.doesNotThrow(() => requireCleanBackendExit({ exitCode: 0, signalCode: null }, true));
   assert.throws(() => requireCleanBackendExit({ exitCode: null, signalCode: 'SIGTERM' }, true), /did not finish cleanly/);
   assert.throws(() => requireCleanBackendExit({ exitCode: 0, signalCode: null }, true, true), /did not finish cleanly/);
+  // Only an exit the host forced is marked, so quit can tell it from a backend reporting a failed drain.
+  assert.throws(() => requireCleanBackendExit({ exitCode: null, signalCode: 'SIGTERM' }, true, true), error => error.forced === true);
+  assert.throws(() => requireCleanBackendExit(child, true), error => error.forced === false);
 });

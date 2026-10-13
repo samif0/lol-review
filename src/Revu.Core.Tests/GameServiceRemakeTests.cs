@@ -13,7 +13,7 @@ namespace Revu.Core.Tests;
 public sealed class GameServiceRemakeTests
 {
     private static GameService BuildService(TestDatabaseScope scope) => new(
-        scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory),
+        scope.ConnectionFactory, scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory),
         scope.GameEvents, scope.DerivedEvents, new TestConfigService(), NullLogger<GameService>.Instance);
 
     private static long _clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 600;
@@ -117,7 +117,7 @@ public sealed class GameServiceRemakeTests
         var objectiveId = await scope.Objectives.CreateAsync("Ward river");
         var lifecycle = new GameLifecycleWorkflowService(
             BuildService(scope), scope.MissedGameDecisions, scope.Objectives,
-            new NullCoachSidecarNotifier(), NullLogger<GameLifecycleWorkflowService>.Instance);
+            NullLogger<GameLifecycleWorkflowService>.Instance);
 
         await lifecycle.ProcessGameEndAsync(new ProcessGameEndRequest(Game(7401, duration: 386, flag: true),
             PreGamePracticedObjectiveIds: [objectiveId]));

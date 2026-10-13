@@ -9,14 +9,22 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 - `native.mjs`: dialogs, exports, window sizing, external URLs, installed updates, and the Windows
   microphone privacy status and settings page.
 - `sidecar.mjs`: launch-specific authenticated backend ownership, HTTP and SSE.
-- `protocols.mjs`: application assets, the renderer's network policy and its permissions. The only
-  permission granted is audio-only microphone capture for clip narration, requested from the app
-  origin (`revu-app://ui`, including its same-origin page iframe). Camera, screen capture, speaker
-  selection and every other permission stay denied, and the UI CSP is unchanged.
+- `protocols.mjs`: application assets, the renderer's network policy and its permissions. Two
+  permissions are granted, both only to the app origin (`revu-app://ui`, including its same-origin
+  page iframe): audio-only microphone capture for clip narration, and speaker selection. Chromium
+  lets a page list output devices and switch playback with `setSinkId` when either check passes, so
+  playback and the Settings test sound can use the output device chosen in Settings without
+  depending on the microphone grant. Camera, screen capture and every other permission stay denied,
+  and the UI CSP is unchanged.
 - `narration.mjs`: validates a narration take, writes it atomically under
   `<dataRoot>/Revu/Narration` and asks the sidecar to render the narrated clip.
 - `media.mjs`: revocable media grants and byte-range playback.
 - `preload.cjs`: the sandboxed renderer API; filesystem and bearer access stay private.
+- `logging.mjs`: size-capped rolling logs under `<dataRoot>/Revu/logs` (`host.log` and a
+  copy of the sidecar's stderr; the sidecar writes `sidecar.log` there, and the Overwolf
+  runtime writes to `logs/runtime`). Settings opens this folder.
+- `lifecycle.mjs` and `splash.mjs`: crash recovery (Restart Revu, Open logs, Quit), relaunch
+  arguments, and the startup window shown while the sidecar starts or upgrades data.
 
 The shared command catalog is `../ui/platform/commands.mjs`. Same-origin child
 pages deliberately use the trusted top document's bridge. The renderer uses its
@@ -36,6 +44,12 @@ original files, so keep them in that folder. Disconnecting the folder stops futu
 imports and preserves already linked videos. Built-in recording is marked
 **Coming soon**, with its controls disabled until release; Ascent stays available.
 
+If the scan finds recordings but the games are missing from Revu, keep the League
+client open and use **Recover missing matches** in Settings → Recording. This
+imports eligible unsaved ranked solo/duo games from the client's latest 10 matches,
+honors previous dismissals, and scans the connected Ascent folder again. Scanning
+alone only links recordings to saved games; it does not import match history.
+
 For a separate local build, run `npm run package:dir` and open
 `../../artifacts/desktop-package/win-unpacked/revu-desktop.exe`. Quit the installed
 Revu first, including its tray process: both normal builds use your existing data.
@@ -51,8 +65,11 @@ writes. It also blocks updater operations, database replacement, and output-path
 changes. The backend independently validates isolated storage and copied config.
 
 The main process owns exactly one sidecar. Shutdown fences new commands, lets
-submitted HTTP requests finish under their existing deadlines, and asks the
-backend to drain background writes and release its database lease. Only its own
+submitted HTTP requests finish under their existing deadlines (long jobs such as
+a backfill are waited on for at most 35 seconds, then logged and cancelled), and asks the
+backend to drain background writes and release its database lease. A sidecar
+that announced a schema upgrade gets 10 minutes instead of the 20-second startup
+deadline; a login launch stays hidden unless the upgrade runs long. Only its own
 unresponsive child can be terminated; failed writes are never retried. Successful
 reset/restore operations relaunch after shutdown. Velopack maintenance hooks exit
 before data access. Installed updates retain `LoLReview` and `revu-desktop.exe`.

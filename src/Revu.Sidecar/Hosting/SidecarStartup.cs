@@ -76,6 +76,12 @@ public static class SidecarStartup
                             reconcileEx, "Back-catalog PUUID reconcile skipped (non-fatal)");
                     }
 
+                    // Settings "Create automatic backups": at most one backup a day into the
+                    // chosen backup folder, with its own retention (IBackupService.RunBackupAsync
+                    // checks the toggle and folder itself and never throws). Off the startup path.
+                    backgroundWork.TryRun("startup user backup", () =>
+                        app.Services.GetRequiredService<WriteServices>().Backup.RunBackupAsync());
+
                     // v3.5: pattern-evidence window backfill — materialize the pattern-
                     // feeding evidence rows for window games not yet stamped at the current
                     // materializer version (games.pattern_evidence_v, map_state_v shape).
@@ -90,8 +96,7 @@ public static class SidecarStartup
                         {
                             var w = app.Services.GetRequiredService<WriteServices>();
                             // Only trip the one-time session backup when there is actual
-                            // work — an every-launch backup would rotate the 3-slot safety
-                            // pool on quiet starts.
+                            // work: quiet starts take no backup at all.
                             var pending = await w.Games.GetPatternEvidenceBackfillIdsAsync(
                                 Revu.Core.Services.PatternEvidenceMaterializer.Version);
                             if (pending.Count == 0) return;
@@ -108,8 +113,9 @@ public static class SidecarStartup
 
                     // v3.11: event corrections sweep (rule G). Stamp event_key on rows that predate
                     // the ledger and let corrections whose applied row vanished find their twin
-                    // again. Same shape as the backfill above: only trips the session backup when
-                    // there is work, capped per launch, never inserts game_events rows.
+                    // again. The session backup is taken right before the sweep's first actual
+                    // change: a correction that still has no twin writes nothing, so it no longer
+                    // costs a backup on every launch. Capped per launch, never inserts game_events.
                     backgroundWork.TryRun("startup event corrections", async () =>
                     {
                         try
@@ -117,8 +123,8 @@ public static class SidecarStartup
                             var w = app.Services.GetRequiredService<WriteServices>();
                             var pending = await w.EventCorrectionSweep.CountPendingAsync();
                             if (pending == 0) return;
-                            await w.BackupGuard.EnsureBackedUpAsync();
-                            var result = await w.EventCorrectionSweep.RunAsync(maxRows: 20_000);
+                            var result = await w.EventCorrectionSweep.RunAsync(maxRows: 20_000,
+                                beforeFirstWrite: w.BackupGuard.EnsureBackedUpAsync);
                             app.Services.GetRequiredService<ILoggerFactory>()
                                 .CreateLogger("Startup")
                                 .LogInformation(
@@ -149,6 +155,8 @@ public static class SidecarStartup
             app.Services.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("Startup")
                 .LogError(ex, "First-run DB creation / additive schema upgrade failed at startup");
+            // Still a degraded start, but /api/health now reports it.
+            app.Services.GetRequiredService<StorageStartupHealth>().MarkSchemaUpgradeFailed();
         }
 
         // 3.14 narrated clips: crash recovery + orphan/stale-file sweeps, then the share and

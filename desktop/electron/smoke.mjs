@@ -27,7 +27,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
     try { await bridge.invoke('arbitrary_fetch', {url:'http://127.0.0.1'}); } catch { rejected = true; }
     return { version: bridge.version, kind: bridge.kind, node: typeof window.require,
       process: typeof window.process, noCredentials: !('token' in bridge) && !('port' in bridge),
-      recorder: bridge.capabilities.recorder, recording, background, commands, rejected, hasConfig: !!status };
+      recording, background, commands, rejected, hasConfig: !!status };
   })()`);
   assert.equal(boundary.version, 1); assert.equal(boundary.kind, 'electron');
   assert.equal(boundary.node, 'undefined'); assert.equal(boundary.process, 'undefined');
@@ -115,13 +115,16 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
   // folder changes/imports are validated separately with a normal scratch host.
   const ascent = await contents.executeJavaScript(`(async () => {
     const config=await window.revuDesktop.invoke('get_config');
-    let scanBlocked=false;
+    let scanBlocked=false, recoveryBlocked=false;
     try { await window.revuDesktop.invoke('scan_vods'); }
     catch(error) { scanBlocked=String(error.message).includes('disabled in isolated host testing'); }
-    return {folderAvailable:typeof config.ascentFolder==='string',scanBlocked};
+    try { await window.revuDesktop.invoke('recover_missing_games'); }
+    catch(error) { recoveryBlocked=String(error.message).includes('disabled in isolated host testing'); }
+    return {folderAvailable:typeof config.ascentFolder==='string',scanBlocked,recoveryBlocked};
   })()`);
   assert.equal(ascent.folderAvailable, true);
   assert.equal(ascent.scanBlocked, true);
+  assert.equal(ascent.recoveryBlocked, true);
   await contents.executeJavaScript(`document.querySelector('iframe').src='settings.html'`);
   let settingsFrame;
   const settingsDeadline = Date.now() + 10_000;
@@ -140,6 +143,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
         startupDisabled:document.querySelector('#startWithWindows').disabled,
         ascentFolderVisible:!!document.querySelector('#ascentFolder'),
         ascentScanDisabledWithoutFolder:document.querySelector('[data-action="scan_vods"]')?.disabled===true,
+        ascentRecoveryDisabledWithoutFolder:document.querySelector('[data-action="recover_missing_games"]')?.disabled===true,
         builtInRecordingDisabled:['recordingEnabled','recordingPreset','open-recordings-folder','save-recording-settings']
           .every(id=>document.getElementById(id)?.disabled===true),
         nativeRecorderControls:!!document.querySelector('#recordingEnabled') && !!document.querySelector('#open-recordings-folder')};
@@ -150,6 +154,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
   assert.equal(recordingSettings.presets, 3); assert.equal(recordingSettings.startupDisabled, true);
   assert.equal(recordingSettings.ascentFolderVisible, true);
   assert.equal(recordingSettings.ascentScanDisabledWithoutFolder, true);
+  assert.equal(recordingSettings.ascentRecoveryDisabledWithoutFolder, true);
   assert.equal(recordingSettings.builtInRecordingDisabled, true);
   assert.equal(recordingSettings.nativeRecorderControls, true);
   await settingsFrame.executeJavaScript(`(async () => {

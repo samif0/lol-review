@@ -23,11 +23,12 @@ public static class AscentRecordingScan
             try
             {
                 if (string.IsNullOrWhiteSpace((await config.LoadAsync()).AscentFolder)) return;
-                await beforeWrite().ConfigureAwait(false);
+                // The session backup runs only right before a recording is actually linked:
+                // an attempt that links nothing (most launches) takes no backup.
                 var result = registrations is null
-                    ? await scan.ScanAsync(work.Stopping).ConfigureAwait(false)
+                    ? await scan.ScanAsync(work.Stopping, null, beforeWrite).ConfigureAwait(false)
                     : await registrations.RunExternalScanAsync(
-                        reserved => scan.ScanAsync(work.Stopping, reserved), work.Stopping).ConfigureAwait(false);
+                        reserved => scan.ScanAsync(work.Stopping, reserved, beforeWrite), work.Stopping).ConfigureAwait(false);
                 foreach (var linkedId in result.LinkedGameIds) linked(linkedId);
                 if (gameId is long target && await vods.GetVodAsync(target) is not null) return;
             }

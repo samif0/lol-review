@@ -16,9 +16,11 @@ public sealed class PromptsRepository : IPromptsRepository
 
     // ── Prompt CRUD ─────────────────────────────────────────────────
 
-    public async Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder)
+    public async Task<long> CreatePromptAsync(long objectiveId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO objective_prompts (objective_id, phase, label, sort_order, created_at)
@@ -36,9 +38,11 @@ public sealed class PromptsRepository : IPromptsRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
-    public async Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder)
+    public async Task UpdatePromptAsync(long promptId, string phase, string label, int sortOrder,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objective_prompts
@@ -54,9 +58,10 @@ public sealed class PromptsRepository : IPromptsRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task DeletePromptAsync(long promptId)
+    public async Task DeletePromptAsync(long promptId, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using (var deleteAnswers = conn.CreateCommand())
         {
@@ -202,14 +207,15 @@ public sealed class PromptsRepository : IPromptsRepository
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
         // Champion gate: inclusive of objectives with no champion rows (they
-        // apply to all champions). NULL championName skips the clause.
+        // apply to all champions). NULL championName skips the clause. Any
+        // spelling of the champion passes ("Kaisa" rows gate a "Kai'Sa" pick).
         var championClause = string.IsNullOrEmpty(championName)
             ? ""
-            : """
+            : $"""
               AND (
                   NOT EXISTS (SELECT 1 FROM objective_champions oc WHERE oc.objective_id = o.id)
                OR EXISTS (SELECT 1 FROM objective_champions oc
-                          WHERE oc.objective_id = o.id AND oc.champion_name = @championName)
+                          WHERE oc.objective_id = o.id AND {ChampionSql.Matches(cmd, "oc.champion_name", "@championName", championName)})
               )
               """;
         cmd.CommandText = $"""
@@ -225,10 +231,6 @@ public sealed class PromptsRepository : IPromptsRepository
                      op.sort_order ASC, op.id ASC
             """;
         cmd.Parameters.AddWithValue("@phase", normalized);
-        if (!string.IsNullOrEmpty(championName))
-        {
-            cmd.Parameters.AddWithValue("@championName", championName);
-        }
 
         var results = new List<ActivePrompt>();
         using var reader = await cmd.ExecuteReaderAsync();
@@ -309,6 +311,38 @@ public sealed class PromptsRepository : IPromptsRepository
                 AnswerText: reader.IsDBNull(6) ? "" : reader.GetString(6)));
         }
         return results;
+    }
+
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<PromptAnswer>>> GetAllAnswersByGameAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT pa.prompt_id, op.objective_id, o.title, o.is_priority,
+                   op.phase, op.label, pa.answer_text, pa.game_id
+            FROM prompt_answers pa
+            JOIN objective_prompts op ON op.id = pa.prompt_id
+            JOIN objectives o ON o.id = op.objective_id
+            ORDER BY pa.game_id, o.is_priority DESC, o.created_at ASC, o.id ASC,
+                     op.sort_order ASC, op.id ASC
+            """;
+
+        var results = new Dictionary<long, List<PromptAnswer>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var gameId = reader.GetInt64(7);
+            if (!results.TryGetValue(gameId, out var answers)) results[gameId] = answers = [];
+            answers.Add(new PromptAnswer(
+                PromptId: reader.GetInt64(0),
+                ObjectiveId: reader.GetInt64(1),
+                ObjectiveTitle: reader.IsDBNull(2) ? "" : reader.GetString(2),
+                IsPriority: !reader.IsDBNull(3) && reader.GetInt64(3) != 0,
+                Phase: reader.IsDBNull(4) ? ObjectivePhases.InGame : ObjectivePhases.Normalize(reader.GetString(4)),
+                Label: reader.IsDBNull(5) ? "" : reader.GetString(5),
+                AnswerText: reader.IsDBNull(6) ? "" : reader.GetString(6)));
+        }
+        return results.ToDictionary(static pair => pair.Key, static pair => (IReadOnlyList<PromptAnswer>)pair.Value);
     }
 
     public async Task<IReadOnlyList<ObjectivePromptAnswer>> GetAnswersForObjectiveAsync(long objectiveId)

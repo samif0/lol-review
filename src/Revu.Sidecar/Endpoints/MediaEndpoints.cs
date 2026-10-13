@@ -13,8 +13,8 @@ public static partial class SidecarEndpoints
     private static void MapMedia(WebApplication app, JsonSerializerOptions jsonOptions)
     {
         // ── GET /api/vod?gameId=N (token-gated): VOD file path + bookmarks ───────────
-        app.MapGet("/api/vod", async (long gameId, VodSnapshotBuilder builder, CancellationToken ct) =>
-            Results.Json(await builder.BuildAsync(gameId, ct), jsonOptions));
+        app.MapGet("/api/vod", (long gameId, VodSnapshotBuilder builder, CancellationToken ct) =>
+            GetVodSnapshotAsync(gameId, builder, jsonOptions, ct));
 
         app.MapPost("/api/bookmark/add", async (AddBookmarkBody body, WriteServices w, ILogger<Program> log) =>
         {
@@ -107,16 +107,15 @@ public static partial class SidecarEndpoints
         // default the note to "Clip", extract via ffmpeg into ClipsFolder, then on success
         // add a clip-backed bookmark (returns id), mark the objective practiced if tagged,
         // and upsert the evidence row (polarity = quality or neutral; status = evidence
-        // when a quality is set, else needs_review). vodPath + championName ride in the
-        // body — the frontend has both from the loaded VOD snapshot, matching the VM which
-        // reads them from its loaded VodPath/ChampionName state. Returns the clip path +
-        // bookmark id so the frontend can confirm + refetch.
+        // when a quality is set, else needs_review). The recording is the one Revu linked to
+        // gameId (server-side, local paths only); a vodPath in the body is ignored, so the
+        // renderer can never point ffmpeg at an arbitrary or network file. championName
+        // rides in the body. Returns the clip path + bookmark id so the frontend can
+        // confirm + refetch.
         app.MapPost("/api/clip/extract", async (ExtractClipBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
         {
             if (body is null || body.GameId <= 0)
                 return Results.BadRequest(new { error = "gameId required" });
-            if (string.IsNullOrWhiteSpace(body.VodPath))
-                return Results.BadRequest(new { error = "vodPath required" });
 
             // Order + clamp the range exactly like the VM (start = min, end = max).
             var startS = Math.Max(0, Math.Min(body.StartTimeS, body.EndTimeS));
@@ -125,6 +124,10 @@ public static partial class SidecarEndpoints
                 return Results.BadRequest(new { error = "clip range must be at least 1s" });
             if (NarrationRequestValidator.ExtractRangeError(startS, endS) is { } tooLong)
                 return Results.Json(new { ok = false, error = tooLong }, jsonOptions, statusCode: 422);
+
+            var vodPath = await ResolveLocalVodPathAsync(w.Vod, body.GameId);
+            if (vodPath is null)
+                return Results.Json(new { ok = false, error = NoLocalRecording }, jsonOptions, statusCode: 422);
 
             await w.BackupGuard.EnsureBackedUpAsync();
 
@@ -148,7 +151,7 @@ public static partial class SidecarEndpoints
             string? clipPath;
             try
             {
-                clipPath = await w.Clips.ExtractClipAsync(body.VodPath, startS, endS, champion, clipsFolder, ct);
+                clipPath = await w.Clips.ExtractClipAsync(vodPath, startS, endS, champion, clipsFolder, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -191,27 +194,13 @@ public static partial class SidecarEndpoints
         // IAutoClipService. Gated by config.AutoClipObjectivesEnabled (returns reason
         // "disabled" when off). Sequential ffmpeg at BelowNormal priority; idempotent
         // (re-running creates no duplicates). Token-gated + backup-guarded.
-        app.MapPost("/api/clip/auto-objectives", async (AutoObjectiveClipsBody body, WriteServices w, ILogger<Program> log, CancellationToken ct) =>
-        {
-            if (body is null || body.GameId <= 0)
-                return Results.BadRequest(new { error = "gameId required" });
-
-            await w.BackupGuard.EnsureBackedUpAsync();
-
-            try
-            {
-                var objectiveId = (body.ObjectiveId is > 0) ? body.ObjectiveId : null;
-                var result = await w.AutoClip.ClipObjectiveEventsAsync(body.GameId, objectiveId, ct);
-                log.LogInformation("Auto-clip objectives: game {GameId} created {Created} skipped {Skipped} ({Reason})",
-                    body.GameId, result.Created, result.Skipped, result.Reason);
-                return Results.Json(new { ok = true, created = result.Created, skipped = result.Skipped, reason = result.Reason }, jsonOptions);
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning(ex, "Auto-clip objectives failed for game {GameId}", body.GameId);
-                return Results.Json(new { ok = false, error = "Auto-clip failed (is ffmpeg installed?)." }, jsonOptions, statusCode: 422);
-            }
-        });
+        // Up to 12 ffmpeg runs can outlast the client's deadline, so the batch is accepted
+        // background work (SidecarJobs): a client that stops waiting no longer kills the clip
+        // in progress, a repeat click joins the running batch, and progress plus the final
+        // result go out as autoClipProgress SSE events.
+        app.MapPost("/api/clip/auto-objectives", (AutoObjectiveClipsBody body, WriteServices w, SidecarJobs jobs,
+            SidecarEventHub events, ILogger<Program> log, CancellationToken ct) =>
+            AutoClipObjectivesAsync(body, w.AutoClip, w.BackupGuard.EnsureBackedUpAsync, jobs, events, jsonOptions, log, ct));
 
         // POST /api/clip/upload  { gameId, bookmarkId, championName? }: validates and queues a
         // background share (ClipShareWorker), returning at once. Progress and the result go
@@ -310,6 +299,115 @@ public static partial class SidecarEndpoints
                 body.BookmarkId, fileDeleted, remoteDeleted);
             return Results.Json(new { ok = true, fileDeleted, remoteDeleted }, jsonOptions);
         });
+    }
+
+    internal const string NoLocalRecording = "This game has no recording on this PC to clip from.";
+
+    // The recording Revu linked to the game (vod_files), never a renderer-supplied path.
+    // Null when there is none, it is gone, or it is not a local path: the UNC check runs
+    // before File.Exists, so a network path is never touched (LocalPathPolicy).
+    internal static async Task<string?> ResolveLocalVodPathAsync(IVodRepository vods, long gameId)
+    {
+        var paths = await vods.GetVodPathsAsync(new[] { gameId });
+        if (!paths.TryGetValue(gameId, out var stored)) return null;
+        if (!LocalPathPolicy.TryGetLocalFullPath(stored, out var full)) return null;
+        return File.Exists(full) ? full : null;
+    }
+
+    /// <summary>
+    /// GET /api/vod. The snapshot stops when the player navigates away mid-load; that abort is
+    /// routine, so it ends quietly (499, nobody reads it) instead of reaching the error-level
+    /// unhandled-request log.
+    /// </summary>
+    internal static async Task<IResult> GetVodSnapshotAsync(long gameId, VodSnapshotBuilder builder,
+        JsonSerializerOptions jsonOptions, CancellationToken ct)
+    {
+        try
+        {
+            return Results.Json(await builder.BuildAsync(gameId, ct), jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Results.StatusCode(499);
+        }
+    }
+
+    /// <summary>
+    /// POST /api/clip/auto-objectives as accepted work: starts (or joins) the game's batch and
+    /// waits for it while the client is listening. A client that gives up gets 499 and the
+    /// batch keeps going; its final autoClipProgress event (finished = true) tells any open
+    /// player to re-read its clips. The reply and every event carry the run's batch id, so a
+    /// page that already showed a batch's result can ignore that batch's finished event.
+    /// </summary>
+    internal static async Task<IResult> AutoClipObjectivesAsync(AutoObjectiveClipsBody body, IAutoClipService autoClip,
+        Func<Task> ensureBackedUp, SidecarJobs jobs, SidecarEventHub events, JsonSerializerOptions jsonOptions,
+        ILogger log, CancellationToken ct)
+    {
+        if (body is null || body.GameId <= 0)
+            return Results.BadRequest(new { error = "gameId required" });
+
+        await ensureBackedUp();
+
+        var gameId = body.GameId;
+        var objectiveId = (body.ObjectiveId is > 0) ? body.ObjectiveId : null;
+        var batch = Guid.NewGuid().ToString("N");
+        // One batch per game: a repeat click for the same objective (or a retry after a client
+        // timeout) joins it instead of planning the same clips twice. A click for another
+        // objective (or for all of them) is refused while it runs: joining would answer it with
+        // this batch's result and never clip what it asked for.
+        var job = jobs.Start($"auto-clip:{gameId}", objectiveId is { } only ? $"objective:{only}" : "all",
+            "auto-clip objectives", async stopping =>
+        {
+            try
+            {
+                var result = await autoClip.ClipObjectiveEventsAsync(gameId, objectiveId, stopping,
+                    new InlineJobProgress<AutoClipProgress>(p => events.Publish("autoClipProgress", new
+                    {
+                        gameId, objectiveId, batch, done = p.Done, total = p.Total, created = p.Created, skipped = p.Skipped,
+                        finished = false,
+                    })));
+                log.LogInformation("Auto-clip objectives: game {GameId} created {Created} skipped {Skipped} ({Reason})",
+                    gameId, result.Created, result.Skipped, result.Reason);
+                events.Publish("autoClipProgress", new
+                {
+                    gameId, objectiveId, batch, created = result.Created, skipped = result.Skipped, reason = result.Reason,
+                    finished = true, ok = true,
+                });
+                return (Batch: batch, Result: result);
+            }
+            catch (Exception) when (!stopping.IsCancellationRequested)
+            {
+                events.Publish("autoClipProgress", new { gameId, objectiveId, batch, finished = true, ok = false });
+                throw;
+            }
+        }, out var busy);
+        if (busy)
+            return Results.Json(new { ok = false, error = "Auto-clip is already running for this game; try again when it finishes." },
+                jsonOptions, statusCode: 409);
+        if (job is null)
+            return Results.Json(new { ok = false, error = "Revu is closing; auto-clip was not started." }, jsonOptions, statusCode: 503);
+
+        try
+        {
+            var (runBatch, result) = await job.WaitAsync(ct);
+            return Results.Json(new { ok = true, batch = runBatch, created = result.Created, skipped = result.Skipped, reason = result.Reason },
+                jsonOptions);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            log.LogInformation("Auto-clip for game {GameId}: the client stopped waiting; the batch keeps running", gameId);
+            return Results.Json(new { ok = false, error = "The request was cancelled." }, jsonOptions, statusCode: 499);
+        }
+        catch (OperationCanceledException)
+        {
+            return Results.Json(new { ok = false, error = "Revu is closing; auto-clip stopped. Clips already saved are kept." },
+                jsonOptions, statusCode: 503);
+        }
+        catch (Exception ex)
+        {
+            log.LogWarning(ex, "Auto-clip objectives failed for game {GameId}", gameId);
+            return Results.Json(new { ok = false, error = "Auto-clip failed (is ffmpeg installed?)." }, jsonOptions, statusCode: 422);
+        }
     }
 
     // The public slug in a revu.lol/<slug> share URL (the last non-empty path segment),

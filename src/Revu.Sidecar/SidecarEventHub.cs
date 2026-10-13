@@ -11,10 +11,9 @@ namespace Revu.Sidecar;
 /// channel subscription that receives a copy.
 ///
 /// <para>
-/// A small ring buffer of the most-recent events is retained so a client that
-/// connects mid-flow (e.g. the webview reloads the pre-game page after champ
-/// select already started) is replayed the latest champ-select / in-progress
-/// state immediately instead of waiting for the next LCU tick.
+/// Nothing is buffered here. A client that connects mid-flow (e.g. the page
+/// reloads after champ select already started) gets the current state from the
+/// synthetic <c>liveState</c> event GET /api/events writes on connect.
 /// </para>
 /// </summary>
 public sealed class SidecarEventHub

@@ -3,7 +3,8 @@
 Static marketing, download, web review and clip-share site for Revu. Served
 from Cloudflare Pages, bound to the `revu.lol` apex + `www.revu.lol` redirect.
 
-No build step. Everything in this directory ships as-is.
+No build step. The deploy uploads the public files in this directory as-is;
+`tests/`, this README and `wrangler.toml` are never published.
 
 ## Look
 
@@ -19,7 +20,13 @@ update `tokens.css` to match.
 
 ## Files
 
-- `index.html` + `app.js`: home page and the in-browser web review tool
+- `index.html` + `app.js`: home page and the in-browser web review tool;
+  `web-review-lib.js` holds its DOM-free helpers (review notes kept per
+  match id, error copy) so `tests/` can run them; `turnstile-ready.js`
+  reserves the Turnstile onload callback before the async loader runs, and
+  `version-chip.js` refreshes the header pill version. The region list in
+  `index.html` must match the platforms in `proxy/src/riot.ts` (a test
+  checks it)
 - `learn.html` + `download.js`: desktop app page; `download.js` rewrites the
   download button href from the latest GitHub release on page load and falls
   back to the static installer URL
@@ -28,6 +35,17 @@ update `tokens.css` to match.
 - `privacy.html`, `terms.html`, `discord.html` (`discord/index.html` is an
   identical copy for the `/discord/` route)
 - `lightbox.js`: screenshot lightbox on the desktop app page
+- Web accounts (email code sign-in, served at `/sign-in`, `/my-clips`,
+  `/account`):
+  - `account-api.js`: the only client for `clips.revu.lol/auth/web/*`
+    (credentialed CORS, `X-Revu-CSRF`, error copy, formatters); it stores
+    only the `revu.web.signedIn.v1` hint, never a token or email
+  - `sign-in.html` + `sign-in.js`: email, Turnstile, then the one-time code
+  - `my-clips.html` + `my-clips.js`: the signed-in user's shared clips
+  - `account.html` + `account.js`: sign out, sign out everywhere on the web,
+    delete account
+  - `header-account.js`: swaps the header "Sign in" link for "My clips"
+    from the hint, with no network call
 - `_headers`: security headers and CSPs (the clip page has its own)
 - `revu.svg`, `favicon.ico`, `icon-*.png`, `revu-mark.png`: brand assets
   copied from `desktop/electron/branding/`
@@ -41,18 +59,53 @@ Every page loads the stylesheets in this order:
 2. `styles.css`: base, header, footer, buttons, forms, cards, lightbox, legal
    pages and the desktop app page
 3. the page stylesheet, if any: `webapp.css` (web review tool on the home
-   page) or `clip.css` (clip page)
+   page), `clip.css` (clip page) or `account.css` (sign-in, My clips and
+   Account pages)
+
+## Scripts and CSP
+
+Every revu.lol page sits inside the web account trust boundary: any script
+on revu.lol can call the credentialed account API on `clips.revu.lol`. So
+no page may use inline scripts or inline event handlers, and `_headers`
+never allows `'unsafe-inline'` in `script-src`. Put page JS in a `.js`
+file loaded with `src`.
+
+The one exception is `clip.html`, whose JS stays in its first inline
+`<script>` so `tests/` can run it. Its `/clip` and `/clip.html` CSPs allow
+that script by sha256, once for LF and once for CRLF line endings. Any edit
+to that script must update both hashes in `_headers`;
+`tests/headers.test.mjs` recomputes them and fails until they match.
 
 ## Edit + preview locally
 
 ```sh
 cd site
-python -m http.server 8000
-# open http://localhost:8000
+npx wrangler pages dev . --port 8788
+# open http://localhost:8788
 ```
 
-The clip page accepts `?proxy=http://localhost:8787` (localhost or 127.0.0.1
-only) to read clips from a local `wrangler dev` proxy.
+`wrangler pages dev` applies `_headers`, so CSP errors show up in the
+console the same way they would in production. It serves the working tree,
+`tests/` and this README included; see Deploy for checking exactly which
+files a deploy uploads.
+
+When the page itself is served from localhost or 127.0.0.1, the clip page
+accepts `?proxy=http://localhost:8787` (a loopback proxy only) to read clips
+from a local `wrangler dev` proxy. On revu.lol the parameter is ignored, and
+the clip CSP only allows port 8787 on loopback.
+
+## Local account dev
+
+Run these in two terminals from the repo root:
+
+```sh
+cd proxy && npx wrangler dev            # Worker on 8787, with .dev.vars
+cd site && npx wrangler pages dev . --port 8788
+```
+
+Open http://localhost:8788 (not 127.0.0.1) in Chrome or Firefox. On
+localhost the account pages call `http://localhost:8787` and use the
+Turnstile test key.
 
 ## Tests
 
@@ -62,15 +115,33 @@ node --test site/tests
 
 ## Deploy
 
-Commit first, then deploy manually via wrangler (must `cd site` first):
+Merge to `main` first, then deploy from an up-to-date, clean `main`
+checkout at the repository root:
 
 ```sh
-cd site
-npx wrangler pages deploy . --project-name=revu-site --branch=main
+node scripts/deploy-site.mjs
 ```
 
+The script runs `scripts/guard-deploy.mjs` (clean tree, `HEAD` equals
+`origin/main` after a fetch, `node --test site/tests` passes), stages only
+the public files into `artifacts/site-deploy` (the `pages_build_output_dir`
+in `wrangler.toml`), uploads them with the wrangler version pinned in
+`proxy/package-lock.json`, and removes the stage. A new file type in this
+directory fails the deploy until it is added to the allowlist in
+`scripts/deploy-site.mjs`; every file in `.well-known/` is published.
+`node scripts/deploy-site.mjs --stage-only` stages without deploying, so
+you can inspect the exact upload in `artifacts/site-deploy`.
+
+For a change that touches web accounts, deploy in this order: apply the
+proxy D1 migration, deploy the proxy (`npm run deploy` in `proxy/`, also
+guarded), then run `node scripts/deploy-site.mjs` for the site.
+
+Keep Cloudflare Rocket Loader off for revu.lol. It rewrites script tags,
+which breaks the strict CSP.
+
 Deploys are not triggered by git. Deploying an uncommitted or stale tree has
-clobbered the live site before, so always deploy from a committed checkout.
+clobbered the live site before, which is why the deploy script refuses
+anything but a clean checkout of `origin/main`.
 
 ## Do not touch
 

@@ -2,7 +2,7 @@
    its own label and a concrete next step, with the full rules on demand. */
 .objectives-shell .ringwrap .pc { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1px; }
 .objectives-shell .obj-points-value { font: 600 18px/1.1 var(--fb); }
-.objectives-shell .ringwrap .pc > span { font: 400 10px/1.2 var(--fb); color: var(--muted); }
+.objectives-shell .ringwrap .pc > span { font: 400 var(--font-label)/1.2 var(--fb); color: var(--muted); }
 .objectives-shell .obj-progress-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

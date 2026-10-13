@@ -49,10 +49,14 @@ public interface IRulesRepository
     /// <summary>
     /// Check all active rules and return violation results.
     /// Rule types: no_play_day, no_play_after, loss_streak, max_games, min_mental, custom.
+    /// Clock rules (day, curfew, cooldown) are judged at <paramref name="asOf"/>: now for a
+    /// pre-queue check, the game's start for a post-game stamp. With an <paramref name="asOf"/>,
+    /// games in <paramref name="todaysGames"/> from that moment on are ignored.
     /// </summary>
     Task<IReadOnlyList<RuleViolation>> CheckViolationsAsync(
         IReadOnlyList<RuleCheckGame>? todaysGames = null,
-        int? mentalRating = null);
+        int? mentalRating = null,
+        DateTimeOffset? asOf = null);
 
     /// <summary>
     /// Per-rule behavioral record over all visible games (see

@@ -17,7 +17,7 @@
   },
   "matchupHistory": {
     "has": true,
-    "headerText": "YOUR NOTES vs CAITLYN",
+    "headerText": "Matchup notes vs Caitlyn",
     "items": [
       { "note": "Don't walk up before 6; her net + trap zones the wave.", "dateText": "Jun 9", "wasHelpful": true, "hasHelpfulRating": true },
       { "note": "Buy cloth + 4 pots, you out-sustain after first back.", "dateText": "May 30", "wasHelpful": false, "hasHelpfulRating": true }

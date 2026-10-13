@@ -9,26 +9,6 @@
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
-  <div class="grain"></div>
-  <script type="module" src="./shell.js" data-page="rules"></script>
-
-  <!-- Persistent left nav rail. Authored as static HTML on every page (INCLUDING the -->
-  <!-- .active item) so the whole rail + its highlight paint with the first frame — no -->
-  <!-- JS injection, no late-mount, no highlight transitioning in on nav. shell.js only -->
-  <!-- re-asserts the active item as a safety net; it never (re)builds this. -->
-  <nav class="nav nav-ready">
-    <a class="nav-i" data-nav="dashboard" href="index.html" aria-label="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Dashboard</span></a>
-    <a class="nav-i" data-nav="games" href="games.html" aria-label="Games"><svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Games</span></a>
-    <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Objectives"><svg viewBox="0 0 24 24"><path d="M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Objectives</span></a>
-    <a class="nav-i" data-nav="matchups" href="matchups.html" aria-label="Matchups"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 5h4M5 5v4M19 5h-4M19 5v4M5 19h4M5 19v-4M19 19h-4M19 19v-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Matchups</span></a>
-    <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg viewBox="0 0 24 24"><path d="M4 7h11v11H4zM9 4h11v11" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 11.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Patterns</span></a>
-    <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt check"><svg viewBox="0 0 24 24"><path d="M3 12h4l2 5 4-12 2 7h6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Tilt check</span></a>
-    <a class="nav-i active" data-nav="rules" href="rules.html" aria-label="Rules"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3zM9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Rules</span></a>
-    <div class="nav-spacer"></div>
-    <a class="nav-i" data-nav="onboarding" href="onboarding.html" aria-label="Welcome / Sign in"><svg viewBox="0 0 24 24"><path d="M15 12H3M9 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Welcome / Sign in</span></a>
-    <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg viewBox="0 0 24 24"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="tip">Settings</span></a>
-  </nav>
   <div class="shell">
     <!-- HERO — eyebrow / title / subtitle + the "+ New rule" action that opens
          the create form. -->
@@ -36,7 +16,7 @@
       <div class="hero">
         <div class="eyebrow">Session protocols</div>
         <h1>Session rules</h1>
-        <div class="rules-subt" id="rules-subt">Stop-losses · Time limits · Mindset checks</div>
+        <div class="rules-subt" id="rules-subt">Stop-losses, time limits and mindset checks</div>
       </div>
       <div class="rules-hero-act">
         <button class="cta rules-new-btn" id="new-rule" data-action="new_rule" type="button">+ New rule</button>
@@ -111,7 +91,7 @@
     <!-- RULE CHECK banner — live check vs today's games. P2b: observation, not
          a verdict. Hidden unless an active rule is tripped today. Each entry has
          two layouts: a plan-led IF/THEN block (when the rule has a replacement
-         plan) or a plain "RuleName — Reason" line. -->
+         plan) or a plain "RuleName: Reason" line. -->
     <div class="rule-check" id="rule-check" hidden>
       <div class="rule-check-head">
         <span class="rule-check-ico" aria-hidden="true">⚠</span>
@@ -192,11 +172,10 @@
     </div>
   </template>
 
-  <!-- ── BANNER-ITEM TEMPLATE (no plan): "RuleName — Reason" ── -->
+  <!-- ── BANNER-ITEM TEMPLATE (no plan): "RuleName: Reason" ── -->
   <template id="tpl-vbanner">
     <div class="rule-check-item">
-      <span class="rule-check-name"></span>
-      <span class="rule-check-dash" aria-hidden="true">—</span>
+      <span class="rule-check-name"></span><span class="rule-check-dash" aria-hidden="true">:</span>
       <span class="rule-check-reason"></span>
     </div>
   </template>

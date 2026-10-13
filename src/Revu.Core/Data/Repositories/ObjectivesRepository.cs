@@ -42,9 +42,11 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     public async Task<long> CreateWithPhasesAndTargetAsync(string title, string skillArea, string type,
         string completionCriteria, string description,
         bool practicePre, bool practiceIn, bool practicePost,
-        int targetGameCount)
+        int targetGameCount,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         var shouldBePriority = await ShouldNewObjectiveBecomePriorityAsync(conn);
         // Legacy phase column is set to the first true bool (pre→in→post).
         // Readers that haven't migrated to the bools still see something sane.
@@ -86,9 +88,10 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     /// v2.17.7: update the target game count for a mini objective. Pass 0 to
     /// clear the target.
     /// </summary>
-    public async Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount)
+    public async Task UpdateTargetGameCountAsync(long objectiveId, int targetGameCount, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objectives
@@ -104,9 +107,11 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     /// v2.18 (schema v5): set or clear the structured criterion. Pass an empty
     /// metric to clear (the objective falls back to free-text criteria only).
     /// </summary>
-    public async Task UpdateCriteriaAsync(long objectiveId, string criteriaMetric, string criteriaOp, double criteriaValue)
+    public async Task UpdateCriteriaAsync(long objectiveId, string criteriaMetric, string criteriaOp, double criteriaValue,
+        DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objectives
@@ -127,9 +132,10 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     /// Only touches existing game_objectives rows — evaluation never creates a
     /// practice record on its own.
     /// </summary>
-    public async Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met)
+    public async Task SetCriteriaMetAsync(long gameId, long objectiveId, bool met, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE game_objectives
@@ -332,9 +338,10 @@ public sealed class ObjectivesRepository : IObjectivesRepository
     /// v2.18 (F2): set the game-phase focus used to match auto-clips to this
     /// objective. '' = auto-infer from title. See <see cref="ObjectiveFocusPhases"/>.
     /// </summary>
-    public async Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase)
+    public async Task UpdateFocusPhaseAsync(long objectiveId, string focusPhase, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objectives
@@ -442,17 +449,19 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         }
         else
         {
+            // Any spelling of the champion passes the gate (rows saved as "Kaisa" still
+            // gate a "Kai'Sa" champ select).
+            var sameChampion = ChampionSql.Matches(cmd, "oc.champion_name", "@championName", championName);
             cmd.CommandText = $"""
                 SELECT o.* FROM objectives o
                 WHERE o.status = 'active' AND o.{column} = 1
                   AND (
                         NOT EXISTS (SELECT 1 FROM objective_champions oc WHERE oc.objective_id = o.id)
                      OR EXISTS (SELECT 1 FROM objective_champions oc
-                                WHERE oc.objective_id = o.id AND oc.champion_name = @championName)
+                                WHERE oc.objective_id = o.id AND {sameChampion})
                   )
                 ORDER BY o.is_priority DESC, o.type ASC, o.created_at ASC
                 """;
-            cmd.Parameters.AddWithValue("@championName", championName);
         }
         return await ReadObjectivesAsync(cmd);
     }
@@ -478,12 +487,14 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         return results;
     }
 
-    public async Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions)
+    public async Task SetChampionsForObjectiveAsync(long objectiveId, IReadOnlyList<string> champions,
+        DbWriteSession? session = null)
     {
         // Diff-save: compute current set, then add/remove only the delta.
         // Keeps PKs stable + avoids unnecessary churn.
-        using var conn = _factory.CreateConnection();
-        using var tx = conn.BeginTransaction();
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var tx = lease.Transaction!;
 
         var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var readCmd = conn.CreateCommand())
@@ -532,7 +543,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await insCmd.ExecuteNonQueryAsync();
         }
 
-        await tx.CommitAsync();
+        lease.Complete();
     }
 
     // ── Objective event-token gating (objective_event_types) ──────────────────
@@ -559,11 +570,13 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         return results;
     }
 
-    public async Task SetEventTokensForObjectiveAsync(long objectiveId, IReadOnlyList<string> tokens)
+    public async Task SetEventTokensForObjectiveAsync(long objectiveId, IReadOnlyList<string> tokens,
+        DbWriteSession? session = null)
     {
         // Diff-save: add/remove only the delta (stable PKs, no churn).
-        using var conn = _factory.CreateConnection();
-        using var tx = conn.BeginTransaction();
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var tx = lease.Transaction!;
 
         var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var readCmd = conn.CreateCommand())
@@ -612,7 +625,7 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await insCmd.ExecuteNonQueryAsync();
         }
 
-        await tx.CommitAsync();
+        lease.Complete();
     }
 
     // For the VOD timeline matcher: every (token → objective) tie for ACTIVE
@@ -787,14 +800,16 @@ public sealed class ObjectivesRepository : IObjectivesRepository
 
     public async Task UpdateWithPhasesAsync(long objectiveId, string title, string skillArea, string type,
         string completionCriteria, string description,
-        bool practicePre, bool practiceIn, bool practicePost)
+        bool practicePre, bool practiceIn, bool practicePost,
+        DbWriteSession? session = null)
     {
         var legacyPhase = practicePre  ? ObjectivePhases.PreGame
                         : practiceIn   ? ObjectivePhases.InGame
                         : practicePost ? ObjectivePhases.PostGame
                         : ObjectivePhases.InGame;
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE objectives
@@ -859,7 +874,15 @@ public sealed class ObjectivesRepository : IObjectivesRepository
 
     public async Task DeleteAsync(long objectiveId)
     {
+        // One transaction: a failure partway must not drop the prompt answers while the
+        // objective survives. (The caller takes the safety backup first.)
         using var conn = _factory.CreateConnection();
+        using var tx = conn.BeginTransaction(deferred: false);
+
+        // Clips, bookmarks and evidence the player tied to this objective are their own
+        // work: keep them, untagged, instead of pointing at a deleted objective (or at
+        // one of its deleted prompts). Pre-game prompt drafts go with their prompts.
+        await DetachObjectiveReferencesAsync(conn, objectiveId);
 
         // v2.15.0: cascade-delete custom prompts + their answers first.
         // SQLite doesn't enforce FK cascade without PRAGMA foreign_keys=ON
@@ -913,14 +936,61 @@ public sealed class ObjectivesRepository : IObjectivesRepository
         }
 
         await EnsurePriorityObjectiveAsync(conn);
+        tx.Commit();
     }
 
-    public async Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "")
+    // Runs inside DeleteAsync's transaction (commands enlist through the connection).
+    // Columns added by later migrations are skipped when an older database lacks them.
+    private static async Task DetachObjectiveReferencesAsync(SqliteConnection conn, long objectiveId)
     {
-        using var conn = _factory.CreateConnection();
-        using var tx = conn.BeginTransaction();
+        const string ObjectivePrompts = "SELECT id FROM objective_prompts WHERE objective_id = @id";
+        var statements = new List<string>();
+        foreach (var table in new[] { "evidence_items", "vod_bookmarks" })
+        {
+            var columns = await ColumnsAsync(conn, table);
+            if (columns.Contains("objective_id"))
+                statements.Add($"UPDATE {table} SET objective_id = NULL WHERE objective_id = @id");
+            if (columns.Contains("prompt_id"))
+                statements.Add($"UPDATE {table} SET prompt_id = NULL WHERE prompt_id IN ({ObjectivePrompts})");
+        }
+        if ((await ColumnsAsync(conn, "pre_game_draft_prompts")).Contains("prompt_id"))
+            statements.Add($"DELETE FROM pre_game_draft_prompts WHERE prompt_id IN ({ObjectivePrompts})");
 
-        var newScoreContribution = practiced ? 2 : 0;
+        foreach (var sql in statements)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.Parameters.AddWithValue("@id", objectiveId);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task<HashSet<string>> ColumnsAsync(SqliteConnection conn, string table)
+    {
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM pragma_table_info(@table)";
+        cmd.Parameters.AddWithValue("@table", table);
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            columns.Add(reader.GetString(0));
+        }
+        return columns;
+    }
+
+    public async Task RecordGameAsync(long gameId, long objectiveId, bool practiced, string executionNote = "",
+        DbWriteSession? session = null)
+    {
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var tx = lease.Transaction!;
+
+        // Practice points and the game count come only from a counted game: visible and
+        // not a remake (3.14.1). A game that starts or stops counting later moves its
+        // points with it (GameRepository: remake verdict, hide/restore, delete).
+        var counted = await IsCountedAsync(conn, tx, gameId);
+        var newScoreContribution = practiced && counted ? PracticePoints : 0;
         var existingPracticed = default(bool?);
 
         using (var existingCmd = conn.CreateCommand())
@@ -963,11 +1033,11 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await upsertCmd.ExecuteNonQueryAsync();
         }
 
-        var previousScoreContribution = existingPracticed == true ? 2 : 0;
+        var previousScoreContribution = existingPracticed == true && counted ? PracticePoints : 0;
         var scoreDelta = newScoreContribution - previousScoreContribution;
         // 3.14.1: a remake never adds to game_count (so it cannot complete a mini either).
         // A verdict that arrives later re-bases the count (GameRepository.Remakes).
-        var gameCountDelta = existingPracticed.HasValue || await IsRemakeAsync(conn, tx, gameId) ? 0 : 1;
+        var gameCountDelta = existingPracticed.HasValue || !counted ? 0 : 1;
 
         if (scoreDelta != 0 || gameCountDelta != 0)
         {
@@ -1007,22 +1077,28 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             await archiveCmd.ExecuteNonQueryAsync();
         }
 
-        await tx.CommitAsync();
+        lease.Complete();
     }
 
-    private static async Task<bool> IsRemakeAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
+    /// <summary>Points one practiced, counted game adds to its objective's score.</summary>
+    internal const int PracticePoints = 2;
+
+    // Visible and not a remake. A game_id with no games row counts (as it always has).
+    private static async Task<bool> IsCountedAsync(SqliteConnection conn, SqliteTransaction tx, long gameId)
     {
+        const string Visible = "COALESCE((SELECT is_hidden FROM games WHERE game_id = @gameId), 0) = 0";
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.Parameters.AddWithValue("@gameId", gameId);
         try
         {
-            using var cmd = conn.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = $"SELECT CASE WHEN {RemakeSql.NotRemake("@gameId")} THEN 0 ELSE 1 END";
-            cmd.Parameters.AddWithValue("@gameId", gameId);
+            cmd.CommandText = $"SELECT CASE WHEN {Visible} AND {RemakeSql.NotRemake("@gameId")} THEN 1 ELSE 0 END";
             return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0) != 0;
         }
         catch (SqliteException ex) when (RemakeSql.IsMissingTable(ex))
         {
-            return false;
+            cmd.CommandText = $"SELECT CASE WHEN {Visible} THEN 1 ELSE 0 END";
+            return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0) != 0;
         }
     }
 
@@ -1138,6 +1214,23 @@ public sealed class ObjectivesRepository : IObjectivesRepository
             """;
         cmd.Parameters.AddWithValue("@gameId", gameId);
         return await ReadGameObjectivesAsync(cmd);
+    }
+
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<GameObjectiveRecord>>> GetAllGameObjectivesAsync()
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT go.game_id, go.objective_id, go.practiced, go.execution_note,
+                   o.title, o.completion_criteria, o.type, o.is_priority, o.phase,
+                   go.criteria_met, o.criteria_metric, o.criteria_op, o.criteria_value
+            FROM game_objectives go
+            JOIN objectives o ON o.id = go.objective_id
+            ORDER BY go.game_id, o.is_priority DESC, o.created_at ASC, o.id ASC
+            """;
+        return (await ReadGameObjectivesAsync(cmd))
+            .GroupBy(static row => row.GameId)
+            .ToDictionary(static group => group.Key, static group => (IReadOnlyList<GameObjectiveRecord>)group.ToList());
     }
 
     public async Task<IReadOnlySet<long>> GetGamesWithPracticedObjectivesAsync(IReadOnlyCollection<long> gameIds)

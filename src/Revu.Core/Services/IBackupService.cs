@@ -9,16 +9,21 @@ namespace Revu.Core.Services;
 public interface IBackupService
 {
     /// <summary>
-    /// Create a timestamped safety backup of the DB in the user-data backups directory.
-    /// Called automatically before schema migrations and on startup.
-    /// Keeps only the 3 most recent safety backups. Requires no user configuration.
+    /// Create a timestamped safety backup of the DB in the user-data backups directory
+    /// (an SQLite online backup that passed quick_check). Taken before the first real
+    /// write of a session and before each game delete. Safety backups keep the last 3,
+    /// the newest per day for 7 days and the newest per week for 4 weeks; a reason
+    /// starting with "delete-" files the backup under a separate game-delete budget,
+    /// and "delete-objective-" under a separate objective-delete budget.
+    /// Requires no user configuration.
     /// </summary>
     Task CreateSafetyBackupAsync(string reason);
 
     /// <summary>
-    /// Copy the .db file to the user-configured backup folder.
-    /// Keeps only the 5 most recent backups.
-    /// Called on startup if backup_enabled is true in config.
+    /// Back up the DB into the user-configured backup folder when "Create automatic
+    /// backups" is on, at most once a day, with its own tiered retention. Run on
+    /// startup by the sidecar, which is also when temp files a killed backup or restore
+    /// left behind are swept.
     /// </summary>
     Task RunBackupAsync();
 
@@ -42,8 +47,11 @@ public interface IBackupService
     Task<ResetResult> ResetAllDataAsync();
 
     /// <summary>
-    /// Restore the live DB from a backup file. Backs up the current DB first
-    /// (as <c>pre_restore_</c>) so the action is itself reversible.
+    /// Restore the live DB from a backup in <see cref="ListBackupsAsync"/> (matched by
+    /// path or file name; any other path is refused). The backup is staged and validated
+    /// (SQLite header, quick_check, schema no newer than this build) before the live DB
+    /// is touched, the current DB is backed up first (as <c>pre_restore_</c>) so the
+    /// action is itself reversible, and the swap rolls back on failure.
     /// Caller is responsible for quitting the app afterward.
     /// </summary>
     Task<RestoreResult> RestoreFromBackupAsync(string backupFilePath);

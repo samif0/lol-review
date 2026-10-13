@@ -10,19 +10,19 @@ namespace Revu.Sidecar;
 
 public static partial class SidecarEndpoints
 {
+    /// <summary>
+    /// Opt-in switch for the practice-capture research routes (see PRACTICE-CAPTURE.md).
+    /// They are mapped only when the sidecar starts with this set to "1", so shipped
+    /// builds never expose them.
+    /// </summary>
+    public const string PracticeDiagnosticsSetting = "REVU_PRACTICE_DIAGNOSTICS";
+
     private static void MapDiagnostics(WebApplication app, JsonSerializerOptions jsonOptions)
     {
-        // ─────────────────────────────────────────────────────────────────────────────
-        // RIOT-API BACKFILL (Batch 4). Walk games missing enemy_laner / laning@10 and
-        // resolve them via Match-V5 (through the proxy). Long-running (throttled ~1.5 RPS,
-        // two round-trips per game on the laning leg). Mirrors SettingsViewModel.Backfill-
-        // EnemyLanersCommand: run EnemyLanerBackfillService.RunAsync, then the laning leg
-        // wrapped so a proxy 404 (no /timeline route yet) degrades silently. Bails to a
-        // zero result with a friendly note if not signed in / no PUUID (the services
-        // themselves return 0/0/0/0 in that case). This is fire-and-return: the whole run
-        // completes before the response (the 5-min sidecar request timeout covers small-
-        // to-moderate backlogs; a huge backlog can be re-run to drain the rest).
-        // ─────────────────────────────────────────────────────────────────────────────
+        // Practice capture (scripts/Practice-Capture.ps1): a diagnostic instrument with
+        // no app caller. Read through configuration, which includes the environment.
+        if (app.Configuration[PracticeDiagnosticsSetting] != "1") return;
+
         app.MapPost("/api/diagnostics/practice/start", (PracticeCaptureService capture) => Results.Json(capture.Arm(), jsonOptions));
 
         app.MapGet("/api/diagnostics/practice/status", (PracticeCaptureService capture) => Results.Json(capture.Status, jsonOptions));

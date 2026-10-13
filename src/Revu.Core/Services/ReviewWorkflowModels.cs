@@ -5,36 +5,6 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Services;
 
-public sealed record ReviewTagState(
-    long Id,
-    string Name,
-    string Polarity,
-    string ColorHex,
-    bool IsSelected);
-
-public sealed record ReviewObjectiveState(
-    long ObjectiveId,
-    string Title,
-    string Criteria,
-    string Phase,
-    bool IsPriority,
-    bool Practiced,
-    string ExecutionNote,
-    // v2.18 (schema v5): live structured-criterion verdict for this game.
-    // Sign: 0 = no verdict, 1 = hit, -1 = miss.
-    string CriteriaVerdict = "",
-    int CriteriaVerdictSign = 0,
-    // P-008: true when Practiced defaulted ON because evidence_items link
-    // this objective to this game and no saved/draft answer exists yet.
-    // Explicable pre-check only — an explicit user answer always wins.
-    bool PracticedFromEvidence = false);
-
-public sealed record ReviewMatchupHistoryItem(
-    string Note,
-    bool? Helpful,
-    long? GameId,
-    long? CreatedAt);
-
 public sealed record SaveObjectivePracticeRequest(
     long ObjectiveId,
     bool Practiced,
@@ -46,7 +16,7 @@ public sealed record ReviewSnapshot(
     string Mistakes,
     string FocusNext,
     string ReviewNotes,
-    // NULL = "leave the persisted value unchanged" for the fields below. The Tauri
+    // NULL = "leave the persisted value unchanged" for the fields below. The
     // review form does NOT render these (improvement/mental-handled/the three
     // attribution texts/enemy-laner/matchup-note), so its save payload omits them
     // and they arrive null — which must NOT overwrite migrated/pre-existing data
@@ -68,24 +38,15 @@ public sealed record ReviewSnapshot(
     // 0 = no, 1 = partly, 2 = yes.
     int? FocusAdherence = null);
 
-public sealed record ReviewScreenData(
-    GameStats Game,
-    bool RequireReviewNotes,
-    bool HasVod,
-    int BookmarkCount,
-    ObjectiveSummary? PriorityObjective,
-    IReadOnlyList<ReviewTagState> Tags,
-    IReadOnlyList<ReviewObjectiveState> ObjectiveAssessments,
-    IReadOnlyList<ReviewMatchupHistoryItem> MatchupHistory,
-    ReviewSnapshot Snapshot,
-    // v2.18 (schema v5): the intent declared at Start Block for the day this
-    // game was played — what the adherence question is asked against.
-    string SessionIntention = "");
-
 public sealed record ReviewDraftRequest(
     long GameId,
     ReviewSnapshot Snapshot);
 
+/// <summary>
+/// The final review save. <see cref="ChampionName"/> and <see cref="Win"/> are the
+/// client's echo of the game and are not trusted: the save reads both from the stored
+/// games row.
+/// </summary>
 public sealed record SaveReviewRequest(
     long GameId,
     string ChampionName,

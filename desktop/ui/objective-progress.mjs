@@ -1,3 +1,5 @@
+const NO_DATA = 'No data yet';
+
 export const PRACTICE_STAGES = [
   { name: 'Exploring', at: 0 },
   { name: 'Drilling', at: 15 },
@@ -82,11 +84,12 @@ export function renderObjectiveProgress(card, o) {
   }
   set('.obj-readiness-title', p.title);
   set('.obj-readiness-hint', p.hint);
-  set('.obj-success-value', p.successRate === null ? '—' : p.rateMet === false && p.successRate >= p.threshold ? `<${p.threshold}%` : `${p.successRate}%`);
+  // Missing values read as words, never as a dash glyph.
+  set('.obj-success-value', p.successRate === null ? NO_DATA : p.rateMet === false && p.successRate >= p.threshold ? `<${p.threshold}%` : `${p.successRate}%`);
   set('.obj-success-target', `${p.threshold}% target`);
-  set('.obj-games-value', String(p.games ?? '—'));
+  set('.obj-games-value', p.games === null ? NO_DATA : String(p.games));
   set('.obj-games-target', `At least ${p.minGames} games`);
-  set('.obj-days-value', p.days === null ? '—' : `${p.days} ${p.days === 1 ? 'day' : 'days'}`);
+  set('.obj-days-value', p.days === null ? NO_DATA : `${p.days} ${p.days === 1 ? 'day' : 'days'}`);
   set('.obj-days-target', `${p.minDays} days needed`);
   set('.obj-success-source', o.hasStructuredCriteria
     ? 'Success means meeting the game-stat target above. Only games where that target was evaluated count.'

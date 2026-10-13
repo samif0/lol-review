@@ -15,6 +15,7 @@
 
 import { Env } from "../src/types";
 import { makeFakeR2 } from "./fake-r2";
+import { FakeAuthState, handleAuthAll, handleAuthBatch, handleAuthFirst, handleAuthRun } from "./fake-auth";
 
 export { knownLengthStreams, makeFakeAi, makeFakeR2, makeRequest } from "./fake-r2";
 
@@ -54,6 +55,8 @@ export type FakeDb = D1Database & {
   _clips: Map<string, FakeClip>;
   _transcripts: Map<string, FakeTranscript>;
   _usage: Map<string, { audio_seconds: number; requests: number }>;
+  /** email_send_usage: day → sends. */
+  _emailSends: Map<string, number>;
   _sql: string[];
   /** Make the next statement whose SQL contains `fragment` throw once. */
   /** Make a matching statement throw, after letting `skip` matches through. */
@@ -92,11 +95,22 @@ function parseInsert(sql: string, args: unknown[]): Record<string, unknown> {
   return out;
 }
 
-export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> = [], sessions: Record<string, number> = {}): FakeDb {
+/**
+ * With `auth`, the auth-table statements (fake-auth.ts) are answered FIRST, ahead
+ * of the generic "FROM sessions" branch, and share this DB's clip, transcript and
+ * usage stores. Without it, behavior is unchanged.
+ */
+export function makeFakeDb(
+  seedClips: Array<Partial<FakeClip> & { id: string }> = [],
+  sessions: Record<string, number> = {},
+  auth?: FakeAuthState,
+): FakeDb {
   const clips = new Map<string, FakeClip>();
   for (const c of seedClips) clips.set(c.id, { ...CLIP_DEFAULTS, ...(c as FakeClip) });
-  const transcripts = new Map<string, FakeTranscript>();
-  const usage = new Map<string, { audio_seconds: number; requests: number }>();
+  const transcripts = auth?.clipTranscripts ?? new Map<string, FakeTranscript>();
+  const usage = auth?.transcribeUsage ?? new Map<string, { audio_seconds: number; requests: number }>();
+  if (auth) auth.clips = clips;
+  const emailSends = new Map<string, number>();
   const sqlLog: string[] = [];
   const failures: { fragment: string; skip: number }[] = [];
 
@@ -116,6 +130,8 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
   function prepare(sql: string) {
     let args: unknown[] = [];
     const api = {
+      _sql: sql,
+      get _args() { return args; },
       bind(...a: unknown[]) {
         if (a.some((v) => v === undefined)) throw new TypeError("D1_TYPE_ERROR: undefined is not a bindable value");
         if (a.length > 100) throw new Error("D1: too many SQL variables");
@@ -125,10 +141,17 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
       async first<T>(): Promise<T | null> {
         sqlLog.push(sql);
         maybeFail(sql);
+        const authed = auth ? handleAuthFirst(auth, sql, args) : null;
+        if (authed?.handled) return authed.value as T | null;
         if (sql.includes("FROM sessions")) {
           const userId = sessions[args[0] as string];
           if (userId === undefined) return null;
           return { token_hash: args[0], user_id: userId, created_at: 0, expires_at: 9e9 } as T;
+        }
+        if (sql === "INSERT INTO email_send_usage (day, sends) VALUES (?1, 1) ON CONFLICT(day) DO UPDATE SET sends = sends + 1 RETURNING sends") {
+          const sends = (emailSends.get(args[0] as string) ?? 0) + 1;
+          emailSends.set(args[0] as string, sends);
+          return { sends } as T;
         }
         if (sql.startsWith("INSERT INTO transcribe_usage") && sql.includes("RETURNING audio_seconds")) {
           const key = `${args[0]}|${args[1]}`;
@@ -198,6 +221,8 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
       async run() {
         sqlLog.push(sql);
         maybeFail(sql);
+        const authed = auth ? handleAuthRun(auth, sql, args) : null;
+        if (authed?.handled) return authed.value as ReturnType<typeof changes>;
         const changes = (n: number) => ({ success: true, meta: { changes: n } });
         if (sql.startsWith("INSERT INTO clips")) {
           const rec = parseInsert(sql, args) as Partial<FakeClip> & { id: string };
@@ -258,6 +283,24 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
           return changes(clips.delete(args[0] as string) ? 1 : 0);
         }
         if (sql.startsWith("DELETE FROM sessions WHERE expires_at <= ?1")) return changes(0);
+        if (sql === "DELETE FROM sessions WHERE token_hash = ?1") {
+          const had = (args[0] as string) in sessions;
+          delete sessions[args[0] as string];
+          return changes(had ? 1 : 0);
+        }
+        if (sql.startsWith("DELETE FROM login_requests WHERE expires_at <= ?1")) return changes(0);
+        if (sql === "UPDATE email_send_usage SET sends = sends - 1 WHERE day = ?1 AND sends > 0") {
+          const sends = emailSends.get(args[0] as string) ?? 0;
+          if (sends > 0) emailSends.set(args[0] as string, sends - 1);
+          return changes(sends > 0 ? 1 : 0);
+        }
+        if (sql === "DELETE FROM email_send_usage WHERE day < ?1") {
+          let n = 0;
+          for (const day of [...emailSends.keys()]) {
+            if (day < (args[0] as string)) { emailSends.delete(day); n++; }
+          }
+          return changes(n);
+        }
         if (sql.startsWith("DELETE FROM transcribe_usage WHERE day < ?1")) {
           let n = 0;
           for (const key of [...usage.keys()]) {
@@ -270,6 +313,8 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
       async all<T>(): Promise<{ results: T[] }> {
         sqlLog.push(sql);
         maybeFail(sql);
+        const authed = auth ? handleAuthAll(auth, sql, args) : null;
+        if (authed?.handled) return authed.value as { results: T[] };
         if (sql.includes("FROM clips WHERE user_id = ?1 AND expires_at > ?2 ORDER BY created_at DESC")) {
           const results = live(args[1] as number)
             .filter((c) => c.user_id === args[0])
@@ -310,11 +355,26 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
     return api;
   }
 
+  // D1 batch: one transaction. Injected failures fire before anything runs.
+  async function batch(statements: Array<ReturnType<typeof prepare>>): Promise<unknown[]> {
+    if (!auth) {
+      const out: unknown[] = [];
+      for (const st of statements) out.push(await st.run());
+      return out;
+    }
+    for (const st of statements) { sqlLog.push(st._sql); maybeFail(st._sql); }
+    const r = handleAuthBatch(auth, statements.map((st) => ({ sql: st._sql, args: st._args })));
+    if (r.handled) return r.value as unknown[];
+    throw new Error(`fake D1: unhandled batch SQL: ${statements.map((st) => st._sql).join(" | ")}`);
+  }
+
   return {
     prepare,
+    batch,
     _clips: clips,
     _transcripts: transcripts,
     _usage: usage,
+    _emailSends: emailSends,
     _sql: sqlLog,
     _failNext(fragment: string, skip = 0) { failures.push({ fragment, skip }); },
   } as unknown as FakeDb;
@@ -325,7 +385,6 @@ export function makeFakeDb(seedClips: Array<Partial<FakeClip> & { id: string }> 
 export function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     RIOT_API_KEY: "riot-key",
-    ALLOWED_TOKENS: "static-op-token",
     RESEND_API_KEY: "",
     AGGREGATE_RPS: "100",
     PER_TOKEN_RPS: "20",

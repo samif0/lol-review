@@ -1,11 +1,25 @@
 // Terminal actions (update/relaunch) belong after accepted commands and the
 // owned backend have finished. A failed stop must never arm an updater.
-export async function shutdownOwnedApp({ pendingCommands, abortEvents, releaseMedia, stopBackend, afterShutdown }) {
+export async function shutdownOwnedApp({ pendingCommands, abortEvents, releaseMedia, stopBackend, afterShutdown,
+  drainTimeoutMs = Infinity, onAbandoned = () => {} }) {
   abortEvents();
-  await Promise.allSettled([...pendingCommands]);
+  await drainPending(pendingCommands, drainTimeoutMs, onAbandoned);
   releaseMedia();
   await stopBackend();
   await afterShutdown?.();
+}
+
+// Ordinary writes settle within their own deadline, so the bound never cuts them
+// short. Only long jobs (clip export, backfill, scans) can outlast it; their replies
+// are no longer awaited, and onAbandoned cancels them before the backend is stopped.
+async function drainPending(pendingCommands, timeoutMs, onAbandoned) {
+  const settled = Promise.allSettled([...pendingCommands]).then(() => true);
+  if (!Number.isFinite(timeoutMs)) { await settled; return; }
+  let timer;
+  const drained = await Promise.race([settled,
+    new Promise(resolve => { timer = setTimeout(resolve, timeoutMs, false); })]);
+  clearTimeout(timer);
+  if (!drained) onAbandoned([...pendingCommands]);
 }
 
 // A terminal command owns admission until exit. Its command reply can explicitly
@@ -30,9 +44,10 @@ export function createCommandGate() {
   };
 }
 
+// `forced` on the error says the host ended the backend itself after its stop timed out.
 export function requireCleanBackendExit(child, ready, forced = false) {
   if (ready && (forced || child.exitCode !== 0 || child.signalCode !== null))
-    throw new Error('Backend shutdown did not finish cleanly; check the latest save in the logs');
+    throw Object.assign(new Error('Backend shutdown did not finish cleanly; check the latest save in the logs'), { forced });
 }
 
 // Every quit request is intercepted until the one shared drain completes.

@@ -26,7 +26,7 @@ public class AppConfig
 
     // ── Riot API proxy (Path B: session-based auth) ─────────────────
     // Session token is issued by POST /auth/verify after the user enters an
-    // invite code, receives a magic-link email, and pastes the one-time code
+    // email, receives a magic-link email, and pastes the one-time code
     // back into the app. Stored here so the app can authenticate on restart.
 
     /// <summary>
@@ -64,29 +64,21 @@ public class AppConfig
     // rejected by the user. A stale benchmark_rank key in config.json is
     // ignored harmlessly by the deserializer.)
 
-    /// <summary>
-    /// v2.15.0: sidebar page-enter animation. Some users find it distracting.
-    /// Default true to keep the existing feel for anyone who hasn't touched
-    /// the toggle.
-    /// </summary>
-    public bool SidebarAnimationEnabled { get; set; } = true;
+    // (SidebarAnimationEnabled removed: its Settings toggle went with the Tauri
+    // shell and the rail animation it gated no longer renders. A stale
+    // sidebar_animation_enabled key in config.json is ignored by the deserializer.)
 
     /// <summary>
-    /// v2.16.1: minimize the window + suspend always-on UI animations
-    /// (sidebar trails, ring pulses) while a League game is in progress.
-    /// Restores both on game end. Cuts steady-state GPU/CPU during play.
+    /// Minimize the window when a League game starts (the shell acts on the
+    /// once-per-game gameInProgress event). Default on.
     /// </summary>
     public bool MinimizeDuringGame { get; set; } = true;
 
     /// <summary>
-    /// v2.17.8: when true (default), VodPlayerViewModel auto-fills the
-    /// Timeline Inbox from inferred game events (kills, deaths, objective
-    /// fights, teamfight clusters) via <c>SyncEvidenceCandidatesAsync</c>.
-    /// Setting false stops the inbox auto-fill but leaves the colored
-    /// timeline regions visible on the scrubber — the user just doesn't
-    /// get a Needs-Review queue out of them.
-    /// Default true preserves existing behavior for everyone who relies
-    /// on the inbox today.
+    /// v2.17.8: when true (default), the review, VOD and export surfaces include
+    /// the post-game pass's automatic evidence anchors (objev:/objcrit: rows, see
+    /// <c>EvidenceAutoAnchors</c>). Setting false hides those anchors from the
+    /// per-game surfaces; Patterns keep counting them either way.
     /// </summary>
     public bool AutoTimelineClippingEnabled { get; set; } = true;
 
@@ -103,8 +95,8 @@ public class AppConfig
     /// generating clips is ffmpeg + disk heavy, so the user turns it on
     /// deliberately. The toggle only GATES the button — nothing fires
     /// automatically. The button itself is on-demand.
-    /// (Distinct from the orphaned <see cref="AutoTimelineClippingEnabled"/>,
-    /// which referenced a now-deleted WinUI inbox-fill path.)
+    /// (Distinct from <see cref="AutoTimelineClippingEnabled"/>, which gates the
+    /// automatic evidence anchors on the review, VOD and export surfaces.)
     /// </summary>
     public bool AutoClipObjectivesEnabled { get; set; }
 
@@ -124,10 +116,10 @@ public class AppConfig
 
     /// <summary>
     /// v3.4: preferred main-window size, applied by the Electron host on launch and
-    /// live on Settings save. "" = the built-in default (1600x1000, tauri.conf.json),
+    /// live on Settings save. "" = the built-in default (1600x1000),
     /// "maximized" = fill the screen, or "WxH" (e.g. "1920x1080") for a fixed size.
     /// Values are validated by <see cref="Services.ConfigSaveGuards.TryResolveWindowResolution"/>
-    /// before they land here; the Rust host ignores anything it can't parse.
+    /// before they land here; the host falls back to the default for anything it can't parse.
     /// </summary>
     public string WindowResolution { get; set; } = "";
 

@@ -10,9 +10,18 @@ export async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
-export async function sha256Prefix(input: string, hexChars: number): Promise<string> {
-  const full = await sha256Hex(input);
-  return full.slice(0, hexChars);
+export async function hmacSha256Hex(secret: string, input: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** 48-char hex string — 24 random bytes. Session tokens. */
@@ -31,11 +40,16 @@ export function randomSessionToken(): string {
  */
 export function randomOtpCode(length = 8): string {
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
+  // Rejection sampling: 256 is not a multiple of 31, so a plain `b % 31` would
+  // favor the first few characters. Only bytes below 248 (8 * 31) are used.
+  const limit = Math.floor(256 / alphabet.length) * alphabet.length;
   let out = "";
-  for (let i = 0; i < length; i++) {
-    out += alphabet[bytes[i] % alphabet.length];
+  while (out.length < length) {
+    const bytes = new Uint8Array(length * 2);
+    crypto.getRandomValues(bytes);
+    for (let i = 0; i < bytes.length && out.length < length; i++) {
+      if (bytes[i] < limit) out += alphabet[bytes[i] % alphabet.length];
+    }
   }
   return out;
 }

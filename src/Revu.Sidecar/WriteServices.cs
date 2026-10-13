@@ -34,7 +34,6 @@ public sealed class WriteServices : IDisposable
     private readonly SidecarBackgroundWork? _backgroundWork;
     private readonly ILogger<WriteServices> _logger;
 
-    public ReviewedEncountersRepository ReviewedEncounters => _provider.GetRequiredService<ReviewedEncountersRepository>();
     // v3.11: the event corrections ledger (POST /api/event/correct, /api/correction/revert)
     // wrapped in the rule-F workflow (derived recompute + pattern re-materialize after a
     // fix), and the rule-G startup sweep (event_key stamping + orphan resolution).
@@ -44,7 +43,8 @@ public sealed class WriteServices : IDisposable
     public WriteServices(
         ILoggerFactory loggerFactory,
         SidecarBackgroundWork? backgroundWork = null,
-        Revu.Core.Lcu.ILcuClient? lcu = null)
+        Revu.Core.Lcu.ILcuClient? lcu = null,
+        IConfigService? sharedConfig = null)
     {
         _backgroundWork = backgroundWork;
         _logger = loggerFactory.CreateLogger<WriteServices>();
@@ -58,7 +58,12 @@ public sealed class WriteServices : IDisposable
         // Core dependencies the write repos/services need (mirrors the read graph
         // in Program.cs, but bound to the WRITE factory).
         services.AddSingleton<IProtectedSecretStore, ProtectedSecretStore>();
-        services.AddSingleton<IConfigService, ConfigService>();
+        // One ConfigService for the whole sidecar (the read graph's, injected by DI).
+        // config.json is a file, not the database, so the read/write split adds nothing;
+        // two instances kept separate caches and locks, so reads went stale after a save
+        // and two writers could replace the file under each other.
+        if (sharedConfig is not null) services.AddSingleton(sharedConfig);
+        else services.AddSingleton<IConfigService, ConfigService>();
         services.AddSingleton<IBackupService, BackupService>();
 
         // Repositories the daily-loop writes need. GameRepository implements
@@ -101,14 +106,14 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IDeathClassificationsRepository, DeathClassificationsRepository>();
         services.AddSingleton<IPromptsRepository, PromptsRepository>();
 
-        // Review-save's coach notifier is a no-op; clip extraction is on demand.
+        // Clip extraction is on demand.
         services.AddSingleton<IClipService, ClipService>();
-        services.AddSingleton<ICoachSidecarNotifier, NullCoachSidecarNotifier>();
         // On-demand objective auto-clipper (POST /api/clip/auto-objectives). Reuses
         // the ClipService + the objective/event/evidence repos registered here.
         services.AddSingleton<IAutoClipService, AutoClipService>();
 
-        // The review save — the big transactional multi-table write.
+        // The review save: the big multi-table write, committed as one transaction
+        // (DbWriteSession over the write factory above).
         services.AddSingleton<IReviewWorkflowService, ReviewWorkflowService>();
 
         // v3.5: pattern-evidence materializer — writes the evidence rows the
@@ -128,9 +133,7 @@ public sealed class WriteServices : IDisposable
         //     the kill-feed + derived-event rows for the captured game.
         //   • IMissedGameDecisionRepository — reconcile dismissals.
         services.AddSingleton<IGameEventsRepository, GameEventsRepository>();
-        services.AddSingleton<ReviewedEncountersRepository>();
         // v3.11: the corrections ledger (schema v16) + its sidecar workflow and sweep.
-        // ReviewedEncountersRepository.SaveAsync delegates to the same ledger.
         services.AddSingleton<IEventCorrectionsRepository, EventCorrectionsRepository>();
         services.AddSingleton<EventCorrectionWorkflow>();
         services.AddSingleton<EventCorrectionSweep>();
@@ -173,6 +176,10 @@ public sealed class WriteServices : IDisposable
 
         _provider = services.BuildServiceProvider();
     }
+
+    /// <summary>One transaction over the write factory for a multi-table endpoint write;
+    /// the repository calls it joins commit or roll back together.</summary>
+    public DbWriteSession BeginWriteSession() => DbWriteSession.Begin(_provider.GetRequiredService<IDbConnectionFactory>());
 
     public ISessionLogRepository SessionLog => _provider.GetRequiredService<ISessionLogRepository>();
     // Coaching stints (POST /api/stint/start, /api/stint/end, GET /api/stint).

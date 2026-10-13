@@ -107,12 +107,20 @@ body.review-launchpad-page #rv-body .rv-check-in .rv-focus{margin:0;padding:0;bo
 .review-launchpad-page #rv-body .rv-tags-wrap{margin:0;padding:0}
 .review-launchpad-page #rv-body .rv-tagcat{margin-top:22px}
 .review-launchpad-page #rv-body .rv-tagcat-grid{margin-top:12px}
+/* Topic chips are toggle buttons; the tag color is a swatch, selection is aria-pressed. */
+.review-launchpad-page #rv-body .rv-tagcat-chip{display:inline-flex;align-items:center;gap:7px;font:400 13px/1.4 var(--fb);letter-spacing:0;padding:6px 11px}
+.review-launchpad-page .rv-tagcat-swatch{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.review-launchpad-page .rv-tagcat-swatch[hidden]{display:none}
+/* The practice check-in sits directly above Save in the takeaway section. */
+.review-launchpad-page #rv-body .rv-takeaway-section>.rv-objsec{margin:0 0 18px}
+.review-launchpad-page #rv-body .rv-draft-status{color:#ffaaaa}
+.review-launchpad-page #rv-body .rv-draft-retry{padding:6px 12px;min-height:34px;font-size:13px}
 .review-launchpad-page .rv-secondary-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:24px}
 .review-launchpad-page #rv-body .rv-secondary-actions>button{font-size:14px;padding:9px 14px;min-height:40px}
 .review-launchpad-page #rv-body .rv-secondary-actions .rv-deletebtn{margin-left:0}
 .review-launchpad-page #rv-body .rv-export-msg{margin:10px 0 0}
 .review-launchpad-page #rv-body .rv-evid-save-status{margin:6px 0 0;font-size:12px}
-.review-launchpad-page #rv-body .rv-evid-save-status.is-error{color:var(--loss)}
+.review-launchpad-page #rv-body .rv-evid-save-status.is-error{color:var(--error)}
 
 @media(max-width:760px){
   html.framed body.review-launchpad-page .shell{padding:20px 22px 40px}

@@ -72,12 +72,12 @@ public sealed class SidecarWriteScope : IDisposable
         // ── Services the save_review endpoint composes ──────────────────────
         Config = new TestConfigService();
         ClipService = new ClipService(Config, NullLogger<ClipService>.Instance);
-        CoachNotifier = new NullCoachSidecarNotifier();
 
         // ReviewWorkflowService.SaveAsync is the contract-critical write path
         // (null-passthrough / no-clobber semantics live here). Wired with its
         // real dependency list — see ReviewWorkflowService's constructor.
         ReviewWorkflow = new ReviewWorkflowService(
+            ConnectionFactory,
             Games,
             ConceptTags,
             Vod,
@@ -87,7 +87,6 @@ public sealed class SidecarWriteScope : IDisposable
             MatchupNotes,
             Evidence,
             Config,
-            CoachNotifier,
             NullLogger<ReviewWorkflowService>.Instance);
     }
 
@@ -125,12 +124,24 @@ public sealed class SidecarWriteScope : IDisposable
 
     public ClipService ClipService { get; }
 
-    public NullCoachSidecarNotifier CoachNotifier { get; }
-
     public ReviewWorkflowService ReviewWorkflow { get; }
 
-    /// <summary>Create the schema (runs the full migration set, mirroring startup).</summary>
-    public Task InitializeAsync() => Initializer.InitializeAsync();
+    /// <summary>
+    /// Create the schema the way the sidecar does: a fresh WAL database, then the
+    /// additive schema and the idempotent seeds and indexes (SidecarStartup).
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        using (var connection = ConnectionFactory.CreateConnection())
+        using (var wal = connection.CreateCommand())
+        {
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            await wal.ExecuteNonQueryAsync();
+        }
+
+        await Initializer.ApplyAdditiveSchemaAsync();
+        await Initializer.ApplySeedsAndIndexesAsync();
+    }
 
     public SqliteConnection OpenConnection() => ConnectionFactory.CreateConnection();
 
@@ -154,6 +165,8 @@ public sealed class SidecarWriteScope : IDisposable
 
     public void Dispose()
     {
+        // Release pooled connections first, or the delete fails and the DB leaks.
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try
         {
             Directory.Delete(_rootDirectory, recursive: true);
@@ -201,7 +214,6 @@ public sealed class TestConfigService : IConfigService
     public string RiotPuuid => Current.RiotPuuid;
     public string PrimaryRole => Current.PrimaryRole;
     public bool OnboardingSkipped => Current.OnboardingSkipped;
-    public bool SidebarAnimationEnabled => Current.SidebarAnimationEnabled;
     public bool MinimizeDuringGame => Current.MinimizeDuringGame;
     public bool AutoTimelineClippingEnabled => Current.AutoTimelineClippingEnabled;
     public bool AutoTimelineClippingHintDismissed => Current.AutoTimelineClippingHintDismissed;

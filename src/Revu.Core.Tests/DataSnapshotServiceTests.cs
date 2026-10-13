@@ -232,7 +232,8 @@ public sealed class DataSnapshotServiceTests
             File.WriteAllText(Path.Combine(Source, "config.json"), "{\"fixture\":true,\"AscentFolder\":\"X:\\\\synthetic-external-media\"}");
         }
 
-        public Task InitializeAsync() => new DatabaseInitializer(Factory, NullLogger<DatabaseInitializer>.Instance).InitializeAsync();
+        public Task InitializeAsync() =>
+            StartupSchema.ApplyAsync(Factory, new DatabaseInitializer(Factory, NullLogger<DatabaseInitializer>.Instance));
         public SqliteConnection OpenSource() => Open(DatabasePath, SqliteOpenMode.ReadWrite);
         public SqliteConnection OpenRestored() => Open(Path.Combine(Restored, "revu.db"), SqliteOpenMode.ReadOnly);
         public static SqliteConnection Open(string path, SqliteOpenMode mode)

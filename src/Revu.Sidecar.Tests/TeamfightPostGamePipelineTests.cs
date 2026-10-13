@@ -21,7 +21,7 @@ public sealed class TeamfightPostGamePipelineTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task TargetedRecovery_PreservesSnapshotAndLiveRows_AndRerunsWithoutDuplicates(bool hasSnapshot)
+    public async Task PostGameRecovery_PreservesSnapshotAndLiveRows_AndRerunsWithoutDuplicates(bool hasSnapshot)
     {
         using var scope = new SidecarWriteScope();
         await scope.InitializeAsync();
@@ -55,7 +55,12 @@ public sealed class TeamfightPostGamePipelineTests
         var service = new MapStateBackfillService(scope.Games, events, client, config, NullLogger<MapStateBackfillService>.Instance);
         for (int run = 0; run < 2; run++)
         {
-            Assert.Equal(0, (await service.RunForGameAsync(GameId)).Failed);
+            // The second run is the re-capture path: GameService clears map_state_v, which
+            // puts an already processed match back in the post-game pass's queue.
+            if (run > 0) await scope.Games.ClearMapStateVersionAsync(GameId);
+            var result = await service.RunAsync(maxGames: 5);
+            Assert.Equal(1, result.Scanned);
+            Assert.Equal(0, result.Failed);
             var report = await events.GetProcessingReportAsync(GameId);
             if (!hasSnapshot) Assert.Null(report);
             else

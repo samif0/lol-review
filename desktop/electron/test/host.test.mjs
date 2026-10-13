@@ -49,6 +49,11 @@ test('only trusted main-frame IPC, command allowlist, and query encoding', () =>
   assert.equal(scan.method, 'POST');
   assert.deepEqual(scan.body, {});
   assert.throws(() => commandRequest('scan_vods', { folder: 'C:\\unconfigured' }));
+  const recovery = commandRequest('recover_missing_games');
+  assert.equal(recovery.route, '/api/settings/recover-games');
+  assert.equal(recovery.method, 'POST');
+  assert.deepEqual(recovery.body, {});
+  assert.throws(() => commandRequest('recover_missing_games', { games: [{ gameId: 1 }] }));
   assert.throws(() => commandRequest('save_config', { payload: { notes: 'x'.repeat(65536) } }));
   assert.equal(snapshotMedia('get_config', { filePath: 'secret' }), null);
   assert.deepEqual(snapshotMedia('get_patterns', { groups: [{ moments: [{ vodPath: 'vod', clipPath: 'clip' }] }] }), ['vod', 'clip']);
@@ -60,6 +65,18 @@ test('only trusted main-frame IPC, command allowlist, and query encoding', () =>
   ['game.mp4', 'clips/a.mp4', 'clips/narrated/a_narrated.mp4', 'clips/b.mp4', 'clips/narrated/b_narrated.mp4']);
   assert.deepEqual(snapshotMedia('get_vod', { narration: { voicePath: 'narration/voice.webm', narratedClipPath: 7 } }), []);
   assert.equal(snapshotMedia('mix_clip_narration', { narration: { narratedClipPath: 'x.mp4' } }), null);
+});
+test('the media grant cap counts distinct files, so late saved moments keep their video', () => {
+  // 600 moments of one game's VOD plus a saved card at the end: occurrences exceed 512, files do not.
+  const repeated = Array.from({ length: 600 }, (_, index) => ({ vodPath: 'C:\\vods\\game.mp4', clipPath: `C:\\clips\\${index % 3}.mp4` }));
+  const saved = { moments: [{ vodPath: 'C:\\vods\\saved.mp4', clipPath: 'C:\\clips\\saved.mp4' }] };
+  const paths = snapshotMedia('get_patterns', { cards: [{ moments: repeated }, saved] });
+  assert.deepEqual(paths, ['C:\\vods\\game.mp4', 'C:\\clips\\0.mp4', 'C:\\clips\\1.mp4', 'C:\\clips\\2.mp4',
+    'C:\\vods\\saved.mp4', 'C:\\clips\\saved.mp4']);
+  const distinct = Array.from({ length: 700 }, (_, index) => ({ vodPath: `C:\\vods\\${index}.mp4` }));
+  const capped = snapshotMedia('get_patterns', { moments: distinct });
+  assert.equal(capped.length, 512);
+  assert.equal(new Set(capped).size, 512);
 });
 test('stale and foreign handshakes never become an authenticated backend', () => {
   const identity = { launchId: 'test', processId: 12, dataDirectory: path.resolve('scratch') };

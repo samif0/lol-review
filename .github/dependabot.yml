@@ -1,0 +1,30 @@
+# Weekly update PRs for every pinned dependency surface. Each PR runs CI like any
+# other change; security updates arrive as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Restores the src/ projects through their committed packages.lock.json files.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /proxy
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

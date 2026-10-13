@@ -1,8 +1,13 @@
 name: CI
 
 # The mechanical reviewer for the autonomous loop: every PR and every push to
-# main must pass the same tests release.yml runs at tag time. Branch protection
-# should require both jobs below; auto-merge waits on them.
+# main must pass the same tests release.yml runs at tag time, plus the proxy and
+# site checks that gate their manual deploys (scripts/guard-deploy.mjs). Branch
+# protection should require every job below; auto-merge waits on them.
+#
+# Pinning policy (see release.yml): actions by commit SHA, named runner images,
+# the .NET SDK from global.json, NuGet in locked mode (Directory.Build.props,
+# CI=true), npm via lockfiles, ffmpeg checksum-verified.
 
 on:
   pull_request:
@@ -10,15 +15,18 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push to the same PR supersedes the older run. Every push to main gets
+  # its own group, so no main commit is ever cancelled or replaced while queued:
+  # a red main always names the commit that broke it.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   dotnet-tests:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -30,12 +38,13 @@ jobs:
           "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
           "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
-      - name: Setup .NET 8
+      - name: Setup .NET (global.json)
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
 
       # Same invocations as release.yml so "green" is identical in both places.
+      # Release builds treat warnings as errors and restore in locked mode.
       - name: Core tests
         run: dotnet test src/Revu.Core.Tests/Revu.Core.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
 
@@ -43,7 +52,7 @@ jobs:
         run: dotnet test src/Revu.Sidecar.Tests/Revu.Sidecar.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
 
   desktop-build:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -54,16 +63,16 @@ jobs:
           "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
-      - name: Setup .NET 8
+      - name: Setup .NET (global.json)
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: 8.0.x
+          global-json-file: global.json
 
       - name: Verify desktop and diagnostics
         working-directory: desktop
@@ -79,6 +88,22 @@ jobs:
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # Keeps the ~100 MB third-party archive between runs. The key changes with
+      # the script, so a new pin starts a new cache, and the script hashes a
+      # cached archive against the pin before use, downloading again on a
+      # mismatch. Releases skip the cache and always download fresh.
+      - name: Restore the pinned ffmpeg archive
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}\ffmpeg-archive
+          key: ffmpeg-win64-${{ hashFiles('scripts/Get-PinnedFfmpeg.ps1') }}
+
+      # The same pinned, checksum-verified binary release.yml packages, so the
+      # packaged smoke below exercises the release layout.
+      - name: Download ffmpeg (pinned + checksum-verified)
+        shell: pwsh
+        run: ./scripts/Get-PinnedFfmpeg.ps1 -ArchiveCache (Join-Path $env:RUNNER_TEMP 'ffmpeg-archive')
+
       - name: Build Windows app directory
         working-directory: desktop
         run: |
@@ -86,3 +111,56 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run package:dir
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Catch broken packaged startup (preload, asar layout, fuses, sidecar
+      # handshake, codec playback) before merge instead of after a release tag.
+      - name: Verify packaged startup and synthetic playback
+        shell: pwsh
+        run: ./scripts/Test-PackagedHost.ps1
+
+  proxy:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: proxy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: proxy/package-lock.json
+
+      - name: Install pinned proxy dependencies
+        run: npm ci
+
+      # vitest strips types without checking them; this is the only typecheck.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Proxy tests
+        run: npm test
+
+  site-and-scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Site tests
+        run: node --test site/tests
+
+      # Deploy guard, site staging allowlist and recording-benchmark analysis.
+      - name: Script tests
+        run: node --test scripts/*.test.mjs scripts/recording-benchmark/*.test.mjs
+
+      - name: Video event recovery checks
+        run: python3 -m unittest scripts/test_video_event_recovery.py

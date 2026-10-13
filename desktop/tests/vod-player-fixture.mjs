@@ -8,16 +8,73 @@ import { shareProgressLabel } from '../ui/clip-share-wait.mjs';
 
 // Shared VOD player fixture: executes the page's real render/action handlers.
 // Electron smoke covers native button activation and layout; this fixture covers
-// event identity, drafts and write flows.
-const source = (await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8')).replace(/^import .*?;\r?\n/gm, '');
+// event identity, drafts and write flows. Events follow DOM propagation (capture,
+// target, bubble, stopPropagation; blur and focus do not bubble) and focus follows
+// the browser: focusing moves blur to the previous element, and detaching a node
+// that holds focus drops focus to the page without a blur event.
+const source = (await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8'))
+  .replace(/^import\s[\s\S]*?\sfrom\s+['"][^'"]+['"];\r?\n/gm, '');
+if (/^import\s/m.test(source)) throw new Error('vod-player-fixture could not strip every import from vodplayer.js');
 export const plain = value => JSON.parse(JSON.stringify(value));
+
+const NON_BUBBLING = new Set(['blur', 'focus', 'load', 'loadedmetadata', 'error']);
+
+function listenerStore() {
+  const byType = new Map();
+  return {
+    add(type, listener, options) {
+      const capture = typeof options === 'boolean' ? options : !!options?.capture;
+      if (!byType.has(type)) byType.set(type, []);
+      const list = byType.get(type);
+      if (!list.some(entry => entry.listener === listener && entry.capture === capture)) list.push({ listener, capture });
+    },
+    remove(type, listener, options) {
+      const capture = typeof options === 'boolean' ? options : !!options?.capture;
+      byType.set(type, (byType.get(type) || []).filter(entry => entry.listener !== listener || entry.capture !== capture));
+    },
+    get: type => [...(byType.get(type) || [])],
+  };
+}
 
 export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'Plan the fight' }, { objectiveId: 11, title: 'Keep a safe position' }], search = '', noVod = false, initialLoading = false, invokeReply, invokeWrite, timers, shareWait, narrationOk = false } = {}) {
   const studios = [];
-  const ids = new Map(), listeners = new Map(), windowListeners = new Map(), writes = [], reads = [], seeks = [], selections = [], confirmations = [];
+  const ids = new Map(), listeners = listenerStore(), windowListeners = new Map(), writes = [], reads = [], seeks = [], selections = [], confirmations = [];
   let navOptions, restoreState = null, snapshot;
-  const document = { readyState: 'loading', activeElement: null,
-    addEventListener(type, listener) { if (!listeners.has(type)) listeners.set(type, []); listeners.get(type).push(listener); },
+  // Run one event through capture, target and bubble phases. Returns the listener
+  // results so the test can await the page's async handlers.
+  function dispatch(target, event) {
+    const path = [];
+    for (let node = target; node; node = node.parent) path.push(node);
+    path.push(document);
+    let stopped = false, stoppedNow = false;
+    Object.assign(event, { target,
+      stopPropagation() { stopped = true; },
+      stopImmediatePropagation() { stopped = true; stoppedNow = true; } });
+    const results = [];
+    const run = (node, capture) => {
+      event.currentTarget = node;
+      for (const entry of node.listeners.get(event.type)) {
+        if (entry.capture !== capture) continue;
+        results.push(entry.listener.call(node, event));
+        if (stoppedNow) return;
+      }
+    };
+    for (let index = path.length - 1; index > 0 && !stopped; index--) run(path[index], true);
+    if (!stopped) { run(target, true); if (!stoppedNow) run(target, false); }
+    if (event.bubbles !== false && !NON_BUBBLING.has(event.type)) {
+      for (let index = 1; index < path.length && !stopped; index++) run(path[index], false);
+    }
+    return results;
+  }
+  const focusEvent = type => ({ type, bubbles: false, preventDefault() { this.defaultPrevented = true; } });
+  // Chrome's focus fixup: removing the focused element (or an ancestor) moves focus
+  // to the page and fires no blur, so the page never gets a chance to save.
+  const dropFocusInside = node => {
+    if (document.activeElement && node.contains(document.activeElement)) document.activeElement = null;
+  };
+  const document = { readyState: 'loading', activeElement: null, listeners,
+    addEventListener(type, listener, options) { listeners.add(type, listener, options); },
+    removeEventListener(type, listener, options) { listeners.remove(type, listener, options); },
     querySelectorAll(selector) {
       const [id, ...tail] = selector.split(' ');
       if (id.startsWith('#')) return tail.length ? $(id.slice(1)).querySelectorAll(tail.join(' ')) : [$(id.slice(1))];
@@ -27,8 +84,8 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
     createElement: tag => node(tag),
   };
   function node(tag = 'div', className = '') {
-    const attributes = new Map(), events = new Map();
-    const el = { tagName: tag.toUpperCase(), className, id: '', dataset: {}, children: [], parent: null,
+    const attributes = new Map(), events = listenerStore();
+    const el = { tagName: tag.toUpperCase(), className, id: '', dataset: {}, children: [], parent: null, listeners: events,
       value: '', textContent: '', hidden: false, open: false, disabled: false, clientWidth: 600,
       style: { setProperty(name, value) { this[name] = value; } },
       classList: {
@@ -47,6 +104,14 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
         if (index < 0) return this.appendChild(child);
         this.children.splice(index, 0, child); child.parent = this; return child;
       },
+      replaceChild(child, old) {
+        child.remove();
+        const index = this.children.indexOf(old);
+        if (index < 0) return old;
+        this.children[index] = child; child.parent = this; old.parent = null;
+        dropFocusInside(old);
+        return old;
+      },
       contains(child) { return child === this || this.children.some(node => node.contains(child)); },
       get parentNode() { return this.parent; }, get parentElement() { return this.parent; },
       get nextSibling() { return this.parent?.children[this.parent.children.indexOf(this) + 1] || null; },
@@ -59,6 +124,7 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
       },
       querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
       matches(selector) {
+        if (selector.includes(',')) return selector.split(',').some(part => this.matches(part.trim()));
         if (selector.startsWith('#')) return this.id === selector.slice(1);
         const attr = selector.match(/\[data-([\w-]+)(?:="([^"]*)")?\]/);
         const cls = selector.match(/^\.([\w-]+)/);
@@ -70,22 +136,50 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
         return !!cls || this.tagName.toLowerCase() === selector.toLowerCase();
       },
       closest(selector) { return this.matches(selector) ? this : this.parent?.closest(selector) || null; },
-      addEventListener(type, listener) { if (!events.has(type)) events.set(type, []); events.get(type).push(listener); },
-      emit(type, event) { for (const fn of events.get(type) || []) fn(event); },
-      focus() { document.activeElement = this; }, blur() { document.activeElement = null; },
+      addEventListener(type, listener, options) { events.add(type, listener, options); },
+      removeEventListener(type, listener, options) { events.remove(type, listener, options); },
+      // Direct call of this element's own listeners (no propagation), for element-level wiring tests.
+      emit(type, event) { for (const { listener } of events.get(type)) listener(event); },
+      dispatchEvent(event) { dispatch(this, event); return !event.defaultPrevented; },
+      focus() {
+        if (document.activeElement === this) return;
+        const previous = document.activeElement;
+        document.activeElement = null;
+        if (previous) dispatch(previous, focusEvent('blur'));
+        document.activeElement = this;
+        dispatch(this, focusEvent('focus'));
+      },
+      blur() {
+        if (document.activeElement !== this) return;
+        document.activeElement = null;
+        dispatch(this, focusEvent('blur'));
+      },
       scrollIntoView() { this.scrolled = true; },
-      remove() { if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this); this.parent = null; },
+      remove() {
+        if (!this.parent) return;
+        this.parent.children = this.parent.children.filter(child => child !== this);
+        this.parent = null;
+        dropFocusInside(this);
+      },
       get firstChild() { return this.children[0] || null; },
       removeChild(child) { child.remove(); return child; },
       get ownerDocument() { return document; },
       get options() { return this.children.flatMap(child => child.tagName === 'OPTION' ? [child] : child.options); },
     };
+    // A <select> reports its selected option, and assigning a value selects it.
+    if (el.tagName === 'SELECT') {
+      Object.defineProperty(el, 'value', {
+        get() { const options = this.options; return (options.find(option => option.selected) || options[0])?.value ?? ''; },
+        set(value) { for (const option of this.options) option.selected = option.value === String(value); },
+      });
+    }
     return el;
   }
   const $ = id => {
     if (!ids.has(id)) { const el = node(); el.id = id; ids.set(id, el); }
     return ids.get(id);
   };
+  document.body = node('body');
   for (const filter of ['auto', 'clips', 'bm']) {
     const tab = node('button', 'tab'); tab.dataset.filter = filter; $('vp-tabs').appendChild(tab);
   }
@@ -110,15 +204,28 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
       if (event.key === 'Escape' && this.isExpanded()) { event.preventDefault(); this.toggleEnlarge(); return true; }
       return false;
     },
+    // Mirrors the real core: one load replaces the previous load's error listener.
+    load(url, { onError = null } = {}) {
+      if (this.loadError) v.removeEventListener('error', this.loadError);
+      this.loadError = onError;
+      this.loadOptions = arguments[1];
+      v.src = url;
+      if (onError) v.addEventListener('error', onError, { once: true });
+      v.load();
+    },
   };
   const corrections = { selectEvent(value) { selections.push(value); }, renderPanel() {}, decorateBar() {}, appendGhosts() {},
-    captureState: () => null, restoreState() {}, handleKey: () => false };
-  const context = vm.createContext({ document, $, window: { location: { search },
+    captureState: () => null, restoreState() {}, handleKey: () => false, pendingFlushes: 0,
+    async flushPending() { this.pendingFlushes++; await this.heldNudge; } };
+  const window = { location: { search },
     confirm(message) { confirmations.push(message); return true; },
-    addEventListener(type, callback) { windowListeners.set(type, callback); }, dispatchEvent() {} },
-    show: (el, on) => { if (el) el.hidden = !on; }, clear: el => { el.children = []; },
+    addEventListener(type, callback) { windowListeners.set(type, callback); }, dispatchEvent() {} };
+  const context = vm.createContext({ document, $, window,
+    show: (el, on) => { if (el) el.hidden = !on; }, clear: el => { for (const child of [...el.children]) el.removeChild(child); },
     tpl() {
-      const row = node('div', 'moment'); row.dataset.action = 'jump';
+      // Mirrors vodplayer.html tpl-bookmark: a plain row whose Watch button owns the jump.
+      const row = node('div', 'moment');
+      const watch = row.appendChild(node('button', 'ricon')); watch.dataset.action = 'jump';
       for (const name of ['vp-bm-src', 'vp-bm-time', 'vp-bm-note', 'vp-bm-clip']) row.appendChild(node('span', name));
       const bookmarkEdit = row.appendChild(node('div', 'vp-bm-edit'));
       bookmarkEdit.appendChild(node('input', 'vp-bm-editnote'));
@@ -130,6 +237,9 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
       share.appendChild(node('div', 'vp-clip-transcript-host')).hidden = true;
       const edit = row.appendChild(node('div', 'vp-ev-edit'));
       edit.appendChild(node('select', 'vp-ev-obj')); edit.appendChild(node('input', 'vp-ev-note'));
+      const status = row.appendChild(node('div', 'vp-moment-status')); status.hidden = true;
+      status.appendChild(node('span', 'vp-moment-status-txt'));
+      const retry = status.appendChild(node('button', 'key vp-moment-retry')); retry.dataset.action = 'retry_moment_write';
       return row;
     },
     createMatchNavigation: options => {
@@ -158,7 +268,7 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
   vm.runInContext(`${source}\n globalThis.hooks = { markersForObjective, reviewEvents, renderReviewEvents, renderMoments, renderObjBar,
     setFocusedObjective, wireFraming, watchReviewEvent, momentLanes, setClipIn, setClipOut, openShareLogin,
     copyToClipboard, copyClipLink, uploadShareJob, shareJob, setCore(core) { _core = core; },
-    captureVodViewState, restoreVodViewState, restoreMatchView, applyClipDeepLink, render, reloadBookmarks,
+    captureVodViewState, restoreVodViewState, restoreMatchView, applyClipDeepLink, render, reloadBookmarks, placeMarkers,
     setInitialLoading(value) { _vodInitialLoading = value; }, refreshLinkedRecording,
     async flush() { await _viewWrites.flush(); },
     configure(vod, objectives, transport, corrections, core) { _vod = vod; _gameId = vod.gameId; _objectives = objectives;
@@ -183,14 +293,27 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
   context.hooks.configure(snapshot, objectives, transport, corrections, core);
   context.hooks.setInitialLoading(initialLoading);
   $('vp-novod').hidden = !noVod;
-  return { $, document, snapshot, core, hooks: context.hooks, transport, seeks, selections, writes, reads, confirmations, studios,
+  return { $, document, snapshot, core, hooks: context.hooks, transport, corrections, window, seeks, selections, writes, reads, confirmations, studios,
     windowListener: type => windowListeners.get(type),
     linked: gameId => windowListeners.get('revu:vod-linked')({ detail: { gameId } }),
     setRestore(value) { restoreState = value; },
+    get nav() { return navOptions; },
+    // Dispatch through the target's ancestors and the document, then wait for the
+    // page's async handlers. Blur and focus do not bubble.
     async emit(type, target, extra = {}) {
-      const event = { target, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {}, ...extra };
-      for (const listener of listeners.get(type) || []) await listener(event);
+      const event = { type, preventDefault() { this.defaultPrevented = true; }, ...extra };
+      for (const result of dispatch(target, event)) await result;
       return event;
+    },
+    // A user typing: each key goes to whatever holds focus at that moment (the page
+    // body when nothing does) and only lands in a text field that kept focus.
+    async type(text) {
+      for (const key of text) {
+        const target = document.activeElement || document.body;
+        const event = await this.emit('keydown', target, { key });
+        const editable = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+        if (editable && document.activeElement === target && !event.defaultPrevented) target.value += key;
+      }
     },
   };
 }

@@ -5,14 +5,38 @@ using Revu.Core.Services;
 
 namespace Revu.Core.Lcu;
 
-/// <summary>Sent when an end-of-game stats extraction completes.</summary>
+/// <summary>
+/// Sent when a finished game is ready to save. <paramref name="IsRecovered"/> is true when its
+/// stats came from match history (the end-of-game capture failed or was missed) instead of
+/// the end-of-game payload.
+/// </summary>
 public sealed record GameEndedMessage(GameStats Stats, bool IsRecovered = false);
+
+/// <summary>
+/// Sent the moment the monitor sees a game end (a post-game phase, or a collector finished
+/// once its game went away), before the end-of-game capture runs. The sidecar keeps that
+/// game's pre-game choices (mood, intention, practiced objectives, lobby) under
+/// <paramref name="GameId"/> right then, so a capture that uses its whole retry budget never
+/// lends the game a champ select that began meanwhile. <paramref name="GameId"/> is 0 when the
+/// id is unknown. A casual game is never saved; <paramref name="IsCasual"/> only ends its flow.
+/// </summary>
+public sealed record GameEndObservedMessage(long GameId, bool IsCasual = false);
+
+/// <summary>
+/// Sent when a tracked game's end-of-game capture fails or its end is missed, as the game is
+/// handed to match-history reconciliation. Its pre-game choices were kept when it ended
+/// (<see cref="GameEndObservedMessage"/>); the recovered <see cref="GameEndedMessage"/> for
+/// the same id uses them. <paramref name="GameId"/> is 0 when the id is unknown: the game
+/// still ends for the pages, and it waits for the player on Home once match history lists it.
+/// </summary>
+public sealed record GameCaptureDeferredMessage(long GameId);
 
 /// <summary>Sent when recent unsaved finished games are detected from match history.</summary>
 /// <param name="Games">Candidates that need review.</param>
 /// <param name="IsPostGameReconcile">
-/// True when reconciliation fired immediately after a game the monitor tracked (InProgress → idle),
-/// meaning the user just finished a game. The shell should skip the selection dialog and open post-game directly.
+/// True when reconciliation fired right after a game the monitor tracked. The tracked game itself
+/// is saved through <see cref="GameEndedMessage"/> (IsRecovered); these are the other unsaved games
+/// the same pass found, which wait for the player like the startup ones.
 /// </param>
 public sealed record MissedReviewsDetectedMessage(IReadOnlyList<MissedGameCandidate> Games, bool IsPostGameReconcile = false);
 
@@ -53,30 +77,6 @@ public sealed record ChampSelectCancelledMessage;
 
 /// <summary>Sent when the LCU connection state changes.</summary>
 public sealed record LcuConnectionChangedMessage(bool IsConnected);
-
-/// <summary>
-/// Sent after a game is permanently deleted (rows purged from games + all
-/// child tables, clip files removed). ViewModels that cache lists or
-/// computed stats derived from the deleted game should refresh.
-/// </summary>
-public sealed record GameDeletedMessage(long GameId);
-
-/// <summary>v2.16.6: a VOD bookmark or clip was created, retagged, or
-/// deleted. Lets the review/post-game pages re-run the bookmark→objective
-/// auto-merge live instead of waiting for the user to leave + re-enter.</summary>
-public sealed record BookmarkChangedMessage(long GameId);
-
-/// <summary>Sent after a game is marked reviewed (including a skip-review
-/// from a list view). Lets other open list views refresh their unreviewed /
-/// reviewed bucketing without a full reload.</summary>
-public sealed record GameReviewedMessage(long GameId);
-
-/// <summary>
-/// Sent after the Match-V5 backfill writes lane matchup metadata. Open game
-/// lists should reload so old rows can switch from "champion vs enemy" to
-/// role-aware duo labels when participant maps become available.
-/// </summary>
-public sealed record GameMatchupsBackfilledMessage(int Updated);
 
 /// <summary>
 /// v3.7 (hard stop): the client is sitting in a queue — LCU gameflow phase

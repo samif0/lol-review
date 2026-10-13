@@ -44,11 +44,11 @@ public sealed class MatchupsSnapshotBuilder
     public const string LoadFailedReason = "Couldn't read your recent games.";
     public const int RecentGamesLimit = 30;
     /// <summary>Opponents missing and the player is signed in: the click looks them up first.</summary>
-    public const string EnemyLookupHint = "Opponents weren't recorded for this game — Revu will look them up from Riot when you click.";
+    public const string EnemyLookupHint = "Opponents weren't recorded for this game. Revu will look them up from Riot when you click.";
     /// <summary>Opponents missing and no Riot session: the click opens the form to add them.</summary>
-    public const string EnemyManualHint = "Opponents weren't recorded for this game — you'll add them when the card opens.";
+    public const string EnemyManualHint = "Opponents weren't recorded for this game. You'll add them when the card opens.";
     /// <summary>The game carries no lane; the pre-fill used the configured primary role, so the form opens for a check.</summary>
-    public const string LaneGuessHint = "Lane guessed from your primary role — check it when the card opens.";
+    public const string LaneGuessHint = "Lane guessed from your primary role. Check it when the card opens.";
 
     /// <summary>v3.10.1: the matchup was estimated at game end and Riot has not confirmed it yet.</summary>
     public const string EstimateLookupHint = "Estimated when the game ended. Revu checks it with Riot when you click.";
@@ -139,10 +139,12 @@ public sealed class MatchupsSnapshotBuilder
     }
 
     /// <summary>"Sep 5, 2026 · Win" — the games-list date style plus the result.</summary>
-    internal static string GameLabel(GameStats game)
+    internal static string GameLabel(GameStats game) => GameLabel(game.Timestamp, game.Win, game.IsRemake);
+
+    internal static string GameLabel(long timestamp, bool win, bool isRemake)
     {
-        var date = MatchupJournalExporter.CreatedAtText(game.Timestamp);
-        var result = GameResultLabel.For(game);
+        var date = MatchupJournalExporter.CreatedAtText(timestamp);
+        var result = GameResultLabel.For(win, isRemake);
         return date.Length > 0 ? $"{date} · {result}" : result;
     }
 
@@ -214,21 +216,19 @@ public sealed class MatchupsSnapshotBuilder
         return lanes;
     }
 
-    /// <summary>"Sep 5, 2026 · Win" per linked game (one read per distinct id; best-effort).</summary>
+    /// <summary>"Sep 5, 2026 · Win" per linked game: one read for every card (best-effort).</summary>
     private async Task<IReadOnlyDictionary<long, string>> BuildGameLabelsAsync(IReadOnlyList<MatchupCard> cards)
     {
         var labels = new Dictionary<long, string>();
-        foreach (var gameId in cards.Where(c => c.GameId is > 0).Select(c => c.GameId!.Value).Distinct())
+        if (!cards.Any(c => c.GameId is > 0)) return labels;
+        try
         {
-            try
-            {
-                var game = await _games.GetAsync(gameId);
-                if (game is not null) labels[gameId] = GameLabel(game);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Matchups: game {GameId} label load failed (degrading)", gameId);
-            }
+            foreach (var game in (await _matchups.GetLinkedGamesAsync()).Values)
+                labels[game.GameId] = GameLabel(game.Timestamp, game.Win, game.IsRemake);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Matchups: linked game labels load failed (degrading)");
         }
         return labels;
     }

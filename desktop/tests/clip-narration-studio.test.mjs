@@ -43,7 +43,7 @@ class FakeRecorder extends EventTarget {
 }
 const flush = async (n = 8) => { for (let i = 0; i < n; i++) await new Promise(resolve => setTimeout(resolve, 2)); };
 
-function environment({ access = 'granted', micError = null, savedMic = null, devicesGate = null } = {}) {
+function environment({ access = 'granted', micError = null, savedMic = null, savedOutput = null, devicesGate = null, gumGate = null } = {}) {
   const names = ['close', 'shared', 'mic-block', 'mic', 'level', 'blocked', 'open-settings', 'countdown', 'rec', 'game', 'game-out',
     'voice', 'voice-out', 'duck', 'sync-row', 'nudge-minus', 'nudge-plus', 'sync', 'record', 'stop', 'apply', 'record-again',
     'remove', 'done', 'status'];
@@ -56,7 +56,8 @@ function environment({ access = 'granted', micError = null, savedMic = null, dev
   dialog.querySelector = selector => parts[/data-nr="([^"]+)"/.exec(selector)?.[1]] || null;
   const tracks = [];
   const calls = { gum: [], invoke: [], saves: [], changed: 0, confirms: [], audio: [] };
-  const storage = new Map(savedMic ? [['revu.narration.mic', JSON.stringify(savedMic)]] : []);
+  const storage = new Map([...(savedMic ? [['revu.narration.mic', JSON.stringify(savedMic)]] : []),
+    ...(savedOutput ? [['revu.playback.output', JSON.stringify(savedOutput)]] : [])]);
   const win = new EventTarget();
   const doc = new EventTarget();
   Object.assign(doc, { visibilityState: 'visible', activeElement: null, createElement: () => new El('option') });
@@ -70,6 +71,7 @@ function environment({ access = 'granted', micError = null, savedMic = null, dev
     navigator: { mediaDevices: {
       async getUserMedia(constraints) {
         calls.gum.push(constraints);
+        if (gumGate) await gumGate;
         const failure = micFailures.shift();
         if (failure) throw Object.assign(new Error(failure), { name: failure });
         const track = { label: 'USB Mic', stopped: false, stop() { this.stopped = true; }, getSettings: () => ({ deviceId: 'mic-1' }) };
@@ -79,7 +81,8 @@ function environment({ access = 'granted', micError = null, savedMic = null, dev
       async enumerateDevices() {
         if (devicesGate) await devicesGate;
         return [{ kind: 'audioinput', deviceId: 'communications', label: 'Communications' }, { kind: 'videoinput', deviceId: 'cam', label: 'Cam' },
-          { kind: 'audioinput', deviceId: 'mic-1', label: 'USB Mic' }, { kind: 'audioinput', deviceId: 'default', label: 'Default' }];
+          { kind: 'audioinput', deviceId: 'mic-1', label: 'USB Mic' }, { kind: 'audioinput', deviceId: 'default', label: 'Default' },
+          { kind: 'audiooutput', deviceId: 'default', label: 'Default' }, { kind: 'audiooutput', deviceId: 'spk-2', label: 'Headphones' }];
       },
     } },
   };
@@ -137,7 +140,7 @@ test('opening pauses the VOD, asks for audio only and lists microphones with Def
       channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } }, video: false }]);
     assert.deepEqual(env.parts.mic.options.map(option => option.value), ['default', 'mic-1', 'communications']);
     assert.equal(env.parts.mic.value, 'mic-1');
-    assert.deepEqual(JSON.parse(env.storage.get('revu.narration.mic')), { deviceId: 'mic-1', label: 'USB Mic' });
+    assert.equal(env.storage.has('revu.narration.mic'), false, 'opening keeps the system default instead of pinning a device');
     assert.equal(env.parts.record.hidden, false); assert.equal(env.parts.record.disabled, false);
     assert.equal(env.parts['mic-block'].hidden, false); assert.equal(env.parts.blocked.hidden, true);
     assert.equal(env.parts.shared.hidden, true);
@@ -343,13 +346,98 @@ test('a missing microphone, a busy one and a vanished saved device each behave a
     busy.open(clipCtx()); await flush();
     assert.equal(busy.parts.status.textContent, 'Your microphone is busy in another app, or Windows blocked it.');
   } finally { busy.restore(); }
-  const gone = environment({ micError: 'OverconstrainedError', savedMic: { deviceId: 'old-mic', label: 'Old' } });
+  // A saved device that is not connected opens the system default and stays saved.
+  const gone = environment({ savedMic: { deviceId: 'old-mic', label: 'Old' } });
   try {
     gone.open(clipCtx()); await flush();
-    assert.deepEqual(gone.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'old-mic' }, undefined]);
+    assert.deepEqual(gone.calls.gum.map(constraints => constraints.audio.deviceId), [undefined]);
     assert.equal(gone.parts.record.disabled, false);
     assert.equal(gone.parts.status.textContent, '');
+    assert.deepEqual(JSON.parse(gone.storage.get('revu.narration.mic')), { deviceId: 'old-mic', label: 'Old' });
   } finally { gone.restore(); }
+  // A listed device that refuses its exact id falls back to the system default.
+  const refused = environment({ micError: 'OverconstrainedError', savedMic: { deviceId: 'mic-1', label: 'USB Mic' } });
+  try {
+    refused.open(clipCtx()); await flush();
+    assert.deepEqual(refused.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'mic-1' }, undefined]);
+    assert.equal(refused.parts.record.disabled, false);
+    assert.equal(refused.parts.status.textContent, '');
+  } finally { refused.restore(); }
+});
+
+const storageEvent = key => Object.assign(new Event('storage'), { key });
+
+test('the studio shares the Settings microphone: it opens it, saves a pick made here and follows a change made in Settings', async () => {
+  const env = environment({ savedMic: { deviceId: 'mic-1', label: 'USB Mic' } });
+  try {
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.deepEqual(env.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'mic-1' }]);
+
+    // A pick in the studio is saved through the shared preference and opens once.
+    env.parts.mic.value = 'communications';
+    env.parts.mic.dispatchEvent(new Event('change'));
+    await flush();
+    assert.deepEqual(JSON.parse(env.storage.get('revu.narration.mic')), { deviceId: 'communications', label: 'Communications' });
+    assert.deepEqual(env.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'mic-1' }, { exact: 'communications' }]);
+    assert.equal(env.tracks[0].stopped, true, 'the previous microphone is released');
+
+    // Settings (another page) changes the choice: the waiting studio follows it.
+    env.storage.set('revu.narration.mic', JSON.stringify({ deviceId: 'mic-1', label: 'USB Mic' }));
+    env.win.dispatchEvent(storageEvent('revu.narration.mic'));
+    await flush();
+    assert.deepEqual(env.calls.gum.at(-1).audio.deviceId, { exact: 'mic-1' });
+    assert.equal(env.calls.gum.length, 3);
+
+    // Unrelated keys and the output choice never reopen the microphone.
+    env.win.dispatchEvent(storageEvent('revu.other'));
+    env.storage.set('revu.playback.output', JSON.stringify({ deviceId: 'spk-2', label: 'Headphones' }));
+    env.win.dispatchEvent(storageEvent('revu.playback.output'));
+    await flush();
+    assert.equal(env.calls.gum.length, 3);
+
+    // Choosing Default in the studio stores the system default.
+    env.parts.mic.value = 'default';
+    env.parts.mic.dispatchEvent(new Event('change'));
+    await flush();
+    assert.deepEqual(JSON.parse(env.storage.get('revu.narration.mic')), { deviceId: '', label: '' });
+    assert.deepEqual(env.calls.gum.at(-1).audio.deviceId, { exact: 'default' });
+    assert.equal(env.calls.gum.length, 4);
+
+    studio.close();
+    env.storage.set('revu.narration.mic', JSON.stringify({ deviceId: 'mic-1', label: 'USB Mic' }));
+    env.win.dispatchEvent(storageEvent('revu.narration.mic'));
+    await flush();
+    assert.equal(env.calls.gum.length, 4, 'a closed studio stops following the preference');
+    assert.ok(env.tracks.every(track => track.stopped));
+  } finally { env.restore(); }
+});
+
+test('a saved microphone whose id changed is found by its name', async () => {
+  const env = environment({ savedMic: { deviceId: 'stale-id', label: 'usb mic ' } });
+  try {
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.deepEqual(env.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'mic-1' }]);
+    studio.close();
+  } finally { env.restore(); }
+});
+
+test('the clip preview plays on the chosen output until the studio closes', async () => {
+  const env = environment({ savedOutput: { deviceId: 'spk-2', label: 'Headphones' } });
+  const sinks = [];
+  env.parts.video.sinkId = '';
+  env.parts.video.setSinkId = async id => { sinks.push(id); env.parts.video.sinkId = id; };
+  try {
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.deepEqual(sinks, ['spk-2']);
+    studio.close();
+    env.storage.set('revu.playback.output', JSON.stringify({ deviceId: '', label: '' }));
+    env.win.dispatchEvent(storageEvent('revu.playback.output'));
+    await flush();
+    assert.deepEqual(sinks, ['spk-2'], 'a closed studio no longer follows the output choice');
+  } finally { env.restore(); }
 });
 
 test('a missing clip file disables recording', async () => {
@@ -523,5 +611,55 @@ test('closing while the microphone list loads never starts a level meter afterwa
     assert.equal(env.calls.audio.length, 0, 'no AudioContext outlives the studio');
     assert.equal(env.storage.has('revu.narration.mic'), false);
     assert.equal(env.tracks[0].stopped, true);
+  } finally { env.restore(); }
+});
+
+test('closing while a refused microphone opens never opens the system default in its place', async () => {
+  let refuse;
+  const env = environment({ micError: 'OverconstrainedError', savedMic: { deviceId: 'mic-1', label: 'USB Mic' },
+    gumGate: new Promise(resolve => { refuse = resolve; }) });
+  try {
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.deepEqual(env.calls.gum.map(constraints => constraints.audio.deviceId), [{ exact: 'mic-1' }]);
+    studio.close();
+    refuse();
+    await flush();
+    assert.equal(env.calls.gum.length, 1, 'no retry after the studio closed');
+    assert.equal(env.tracks.length, 0);
+    assert.equal(env.calls.audio.length, 0);
+  } finally { env.restore(); }
+});
+
+test('an active take chains onto the page navigation flush and restores it afterwards', async () => {
+  const env = environment();
+  try {
+    const flushed = [];
+    const pageGuard = async () => { flushed.push('page'); return true; };
+    env.win.revuBeforeNavigate = pageGuard;
+    const studio = env.open(clipCtx());
+    await flush();
+    assert.equal(env.win.revuBeforeNavigate, pageGuard, 'setup does not replace the page flush');
+    await startTake(env);
+    assert.notEqual(env.win.revuBeforeNavigate, pageGuard);
+    env.confirm = false;
+    assert.equal(await env.win.revuBeforeNavigate(), false);
+    assert.deepEqual(flushed, [], 'a declined leave keeps the page and its pending writes');
+    env.confirm = true;
+    assert.equal(await env.win.revuBeforeNavigate(), true);
+    assert.deepEqual(flushed, ['page'], 'an accepted leave still flushes the page writes');
+    const laterOwner = async () => false;
+    env.win.revuBeforeNavigate = laterOwner;
+    studio.close();
+    await flush();
+    assert.equal(env.win.revuBeforeNavigate, laterOwner, 'never overwrite a hook the studio does not own');
+    env.win.revuBeforeNavigate = pageGuard;
+    const again = env.open(clipCtx());
+    await flush();
+    await startTake(env);
+    again.close();
+    await flush();
+    assert.equal(env.win.revuBeforeNavigate, pageGuard, 'closing restores the page flush');
+    assert.equal(env.win.__revuActiveWork, false);
   } finally { env.restore(); }
 });

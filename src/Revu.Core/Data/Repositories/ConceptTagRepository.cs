@@ -65,10 +65,28 @@ public sealed class ConceptTagRepository : IConceptTagRepository
         return results;
     }
 
-    public async Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds)
+    public async Task<IReadOnlyDictionary<long, IReadOnlyList<long>>> GetIdsByGameAsync()
     {
         using var conn = _factory.CreateConnection();
-        using var transaction = conn.BeginTransaction();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT game_id, tag_id FROM game_concept_tags";
+
+        var results = new Dictionary<long, List<long>>();
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var gameId = reader.GetInt64(0);
+            if (!results.TryGetValue(gameId, out var tagIds)) results[gameId] = tagIds = [];
+            tagIds.Add(reader.GetInt64(1));
+        }
+        return results.ToDictionary(static pair => pair.Key, static pair => (IReadOnlyList<long>)pair.Value);
+    }
+
+    public async Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds, DbWriteSession? session = null)
+    {
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
+        var transaction = lease.Transaction!;
 
         using (var delCmd = conn.CreateCommand())
         {
@@ -93,7 +111,7 @@ public sealed class ConceptTagRepository : IConceptTagRepository
             }
         }
 
-        await transaction.CommitAsync();
+        lease.Complete();
     }
 
     public async Task<IReadOnlyList<TagFrequency>> GetTagFrequencyAsync(int limit = 20)

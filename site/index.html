@@ -8,7 +8,7 @@
   <meta name="description" content="Review a League match in your browser. Riot ID, no install. Or download the desktop app to link local VODs and review every ranked game." />
 
   <meta property="og:title" content="Revu: ranked League, reviewed" />
-  <meta property="og:description" content="Review a ranked League match in your browser, or get the desktop app to link local VODs and review every ranked game." />
+  <meta property="og:description" content="Review a League match in your browser, or get the Revu desktop app for Windows to link local VODs and review every ranked game." />
   <meta property="og:image" content="https://revu.lol/og-image.jpg" />
   <meta property="og:url" content="https://revu.lol/" />
   <meta property="og:type" content="website" />
@@ -55,13 +55,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/webapp.css" />
 
-  <script>
-    // Reserve the callback name before Turnstile's script loads, so the
-    // async loader has something to invoke. app.js will reassign once it
-    // initializes its solveTurnstile promise.
-    window.__turnstileLoaded = false;
-    window.onTurnstileReady = function () { window.__turnstileLoaded = true; };
-  </script>
+  <script src="/turnstile-ready.js"></script>
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>
 </head>
 <body>
@@ -73,6 +67,7 @@
         <a href="/learn">Desktop app</a>
         <a href="/discord">Discord</a>
       </nav>
+      <a class="header-account" href="/sign-in" data-header-account>Sign in</a>
       <a class="btn-primary header-cta" id="download-chip" href="/learn">
         Download
         <span class="header-cta-meta" id="download-chip-version">Windows</span>
@@ -84,7 +79,7 @@
     <section class="search-screen" id="search-screen" aria-label="Find player">
       <div class="search-intro">
         <h1>Find a game</h1>
-        <p class="sublead">Review a ranked match in your browser.</p>
+        <p class="sublead">Revu is a Windows desktop app for reviewing your League games. This quick web version finds your recent matches by Riot ID so you can review one in your browser.</p>
       </div>
       <div class="search-card card-raised">
 
@@ -95,6 +90,8 @@
           </label>
           <label>
             Region
+            <!-- Every platform the proxy accepts (proxy/src/riot.ts);
+                 tests/web-review.test.mjs keeps the two lists in step. -->
             <select id="region">
               <option value="na1">NA</option>
               <option value="euw1">EUW</option>
@@ -105,6 +102,14 @@
               <option value="la2">LAS</option>
               <option value="jp1">JP</option>
               <option value="oc1">OCE</option>
+              <option value="tr1">TR</option>
+              <option value="ru">RU</option>
+              <option value="me1">ME</option>
+              <option value="ph2">PH</option>
+              <option value="sg2">SG</option>
+              <option value="th2">TH</option>
+              <option value="tw2">TW</option>
+              <option value="vn2">VN</option>
             </select>
           </label>
           <button class="btn-primary" type="submit">Search</button>
@@ -114,7 +119,7 @@
           <span class="chip-label">Recent</span>
         </div>
 
-        <p class="status-line" id="search-status">Type a Riot ID to pull your recent ranked games.</p>
+        <p class="status-line" id="search-status" role="status" aria-live="polite">Type a Riot ID to pull your recent games.</p>
       </div>
 
     </section>
@@ -124,7 +129,7 @@
         <button class="btn-secondary" id="back-to-search" type="button">Back</button>
         <div class="screen-header-title">
           <p class="eyebrow">Matches</p>
-          <h1 id="matches-title">Recent ranked games</h1>
+          <h1 id="matches-title">Recent games</h1>
         </div>
         <div class="header-meta">
           <span class="meta-pill" id="matches-count">0 games</span>
@@ -173,7 +178,7 @@
               <span class="vod-btn-label">+3</span>
             </button>
             <span class="vod-time" id="vod-current">00:00</span>
-            <div class="vod-track" id="vod-track">
+            <div class="vod-track" id="vod-track" role="slider" tabindex="0" aria-label="Seek video" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="00:00 of 00:00">
               <span class="vod-fill" id="vod-fill"></span>
               <span class="vod-thumb" id="vod-thumb"></span>
             </div>
@@ -255,7 +260,9 @@
     </div>
   </footer>
 
-  <div id="turnstile-container" aria-hidden="true"></div>
+  <!-- Offscreen and aria-hidden unless Turnstile escalates to an interactive
+       check; app.js then shows it, exposes it and moves focus to it. -->
+  <div id="turnstile-container" role="region" aria-label="Security check" tabindex="-1" aria-hidden="true"></div>
 
   <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot viewer">
     <button class="lightbox-close btn-secondary" type="button" aria-label="Close screenshot">X</button>
@@ -263,24 +270,10 @@
     <span class="lightbox-caption"></span>
   </div>
 
+  <script src="/web-review-lib.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/lightbox.js" defer></script>
-  <script>
-    // Keep the header pill's version label fresh, but leave its href pointing
-    // at /learn (the dedicated desktop-app info page).
-    (async () => {
-      const versionLabel = document.querySelector('#download-chip-version');
-      if (!versionLabel) return;
-      try {
-        const res = await fetch(
-          'https://api.github.com/repos/samif0/lol-review/releases/latest',
-          { headers: { Accept: 'application/vnd.github+json' } }
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.tag_name) versionLabel.textContent = data.tag_name;
-      } catch {}
-    })();
-  </script>
+  <script src="/version-chip.js" defer></script>
+  <script src="/header-account.js" defer></script>
 </body>
 </html>

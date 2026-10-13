@@ -19,6 +19,8 @@ public enum GamesView
     Today = 1,
     History = 2,
     Vod = 3,
+    /// <summary>Games removed from history, listed so they can be restored.</summary>
+    Removed = 4,
 }
 
 /// <summary>
@@ -77,6 +79,8 @@ public sealed class GamesSnapshotBuilder
     // Queue window: unreviewed games from the last 14 days (mirrors the VM's
     // GetUnreviewedGamesAsync(days:14) call).
     private const int QueueDays = 14;
+    // Removed view: the most recent games removed from history.
+    private const int RemovedLimit = 200;
 
     // ── Mockup palette (TODO: extract to Revu.Core; mirrors DashboardSnapshotBuilder) ─
     private const string AccentHex = "#9d8bff";
@@ -126,6 +130,8 @@ public sealed class GamesSnapshotBuilder
         var totalCount = 0;       // History only; the other views report returned count.
         var hasMore = false;      // ApplyViewCopy forces this false off-History.
         var effectivePage = resolvedView == GamesView.History ? safePage : 0;
+        GamesTotalsDto? totals = null;
+        string? errorText = null;
 
         try
         {
@@ -134,15 +140,24 @@ public sealed class GamesSnapshotBuilder
                 case GamesView.Queue:
                     games = await _gameHistory.GetUnreviewedGamesAsync(days: QueueDays);
                     totalCount = games.Count;
+                    totals = TotalsOf(games);
                     break;
 
                 case GamesView.Today:
                     games = await _gameHistory.GetTodaysGamesAsync();
                     totalCount = games.Count;
+                    totals = TotalsOf(games);
                     break;
 
                 case GamesView.Vod:
                     games = await LoadVodGamesAsync();
+                    totalCount = games.Count;
+                    totals = TotalsOf(games);
+                    break;
+
+                case GamesView.Removed:
+                    // Removed games count toward nothing, so the view has no stat strip.
+                    games = await _gameHistory.GetRemovedGamesAsync(limit: RemovedLimit);
                     totalCount = games.Count;
                     break;
 
@@ -156,12 +171,18 @@ public sealed class GamesSnapshotBuilder
                     // (mirrors GamesViewModel.LoadHistoryPageAsync's
                     // HasMoreHistory = offset + page.Count < totalCount).
                     hasMore = offset + games.Count < totalCount;
+                    // The strip describes all of history, never just the pages loaded.
+                    var library = await _gameHistory.GetLibraryTotalsAsync();
+                    totals = new GamesTotalsDto(library.Games, library.Wins, library.Reviewed);
                     break;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Games: {View} view load (page {Page}) failed", resolvedView, effectivePage);
+            // A locked or damaged database must not read as "no games yet".
+            _logger.LogWarning(ex, "Games: {View} view load (page {Page}) failed", resolvedView, effectivePage);
+            totals = null;
+            errorText = LoadErrorText;
         }
 
         // ── Map to display rows ─────────────────────────────────────────────
@@ -186,7 +207,20 @@ public sealed class GamesSnapshotBuilder
             HasMore: hasMore,
             IsEmpty: returned == 0,
             EmptyMessage: emptyMessage,
-            Items: items);
+            Items: items,
+            Totals: totals,
+            ErrorText: errorText);
+    }
+
+    private const string LoadErrorText =
+        "Revu couldn't read your games from its local database. Try again, or restart Revu.";
+
+    /// <summary>Strip numbers for a single-shot view whose whole list is loaded:
+    /// remakes are listed but never counted; reviewed matches the row labels.</summary>
+    private static GamesTotalsDto TotalsOf(IEnumerable<GameStats> games)
+    {
+        var counted = games.Where(g => !g.IsRemake).ToList();
+        return new GamesTotalsDto(counted.Count, counted.Count(g => g.Win), counted.Count(HasPersistedReview));
     }
 
     /// <summary>
@@ -213,7 +247,7 @@ public sealed class GamesSnapshotBuilder
 
     /// <summary>
     /// Parse the <c>?view=</c> query param into a <see cref="GamesView"/>.
-    /// Accepts the named keys (queue/today/history/vod) case-insensitively;
+    /// Accepts the named keys (queue/today/history/vod/removed) case-insensitively;
     /// anything else (null, empty, garbage) defaults to Queue — the WinUI page's
     /// initial SelectedViewIndex.
     /// </summary>
@@ -222,25 +256,29 @@ public sealed class GamesSnapshotBuilder
         "today" => GamesView.Today,
         "history" => GamesView.History,
         "vod" => GamesView.Vod,
+        "removed" => GamesView.Removed,
         _ => GamesView.Queue,
     };
 
-    /// <summary>Stable lowercase view key echoed back in the DTO (queue/today/history/vod).</summary>
+    /// <summary>Stable lowercase view key echoed back in the DTO (queue/today/history/vod/removed).</summary>
     private static string ViewKey(GamesView view) => view switch
     {
         GamesView.Today => "today",
         GamesView.History => "history",
         GamesView.Vod => "vod",
+        GamesView.Removed => "removed",
         _ => "queue",
     };
 
     /// <summary>Heading + empty-message per view (mirror GamesViewModel.ApplyViewCopy).</summary>
+    /// The tab already names the view, so the heading describes what is listed.
     private static (string Heading, string EmptyMessage) ViewCopy(GamesView view) => view switch
     {
-        GamesView.Queue => ("Review Queue", "No games need review."),
-        GamesView.Today => ("Today", "No games logged today."),
-        GamesView.History => ("History", "No games recorded yet."),
-        GamesView.Vod => ("VOD Review", "No VOD recordings are linked yet."),
+        GamesView.Queue => ("Games to review", "No games need review."),
+        GamesView.Today => ("Today's games", "No games logged today."),
+        GamesView.History => ("All games", "No games recorded yet."),
+        GamesView.Vod => ("Games with recordings", "No recordings are linked yet."),
+        GamesView.Removed => ("Removed games", "No removed games."),
         _ => ("Games", "No games found."),
     };
 

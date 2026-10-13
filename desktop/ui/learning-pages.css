@@ -1,7 +1,7 @@
 /* Guidance and form rhythm inherit the app's neutral theme. */
 .page-intro{max-width:68ch;margin:10px 0 28px;color:var(--muted);font-size:15px;line-height:1.7}
 .field-help{margin:0;color:var(--muted);font-size:14px;line-height:1.65}
-body .shell :is(.obj-field-k,.rv-field-k,.pat-nk){
+body .shell :is(.obj-field-k,.rv-field-k){
   color:var(--text);font-size:14px;font-weight:500;line-height:1.55;letter-spacing:0;text-transform:none;
 }
 body .shell .obj-field-hint{color:var(--muted);font-size:13px;font-weight:400;line-height:1.55;letter-spacing:0}
@@ -51,13 +51,13 @@ body .objectives-shell :is(.obj-card,.obj-mini,.obj-done){
   background:var(--surface)!important;border:1px solid var(--border)!important;
   border-radius:16px!important;padding:24px;margin:0;box-shadow:none;
 }
-body .objectives-shell :is(#active-label,#focus-label,#spotted-label){
+body .objectives-shell :is(#active-label,#focus-label){
   color:var(--text);font-size:16px;font-weight:600;line-height:1.5;margin:0 0 16px;
 }
-body .objectives-shell :is(#focus-label,#spotted-label){
+body .objectives-shell #focus-label{
   flex-direction:column;align-items:flex-start;gap:4px;margin-top:36px;
 }
-.objectives-shell :is(#focus-label,#spotted-label) .n{font-size:13px;font-weight:400;opacity:1}
+.objectives-shell #focus-label .n{font-size:13px;font-weight:400;opacity:1}
 .objectives-shell .obj-completed-toggle{margin-top:36px}
 .objectives-shell .obj-card-mastery{margin-top:16px;padding-top:0;border-top:0}
 .objectives-shell :is(.obj-card-actrow,.obj-mini-actrow,.obj-done-actrow){margin-top:20px;padding-top:16px}
@@ -161,6 +161,60 @@ body .onb-shell .onb-sectitle{color:var(--text);font-size:18px;font-weight:600;l
 body .onb-shell .onb-role{min-height:48px;font-size:13px;letter-spacing:0}
 body .onb-shell .onb-cta{min-height:46px;font-size:14px;margin-top:4px}
 body .onb-shell .onb-link{font-size:14px;line-height:1.5}
+
+/* Learning objective games and notes share the objectives page look: plain cards,
+   sentence-case headings and the shared tokens instead of page-local colors. */
+body .shell :is(.og-head,.on-head){display:flex;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-4)}
+body .shell :is(.og-back,.on-back){flex-shrink:0;width:36px;height:36px;padding:0;font-size:18px;line-height:1}
+body .shell :is(.og-titles,.on-titles){min-width:0}
+body .shell :is(.og-title,.on-title){margin:0;color:var(--text);font-size:24px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+body .shell .og-sub{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-3);margin-top:var(--space-1)}
+body .shell :is(.og-status,.og-counter,.on-status){color:var(--muted);font-size:var(--font-small)}
+body .shell .on-status{margin-top:var(--space-1)}
+body .shell .og-ledger{padding:var(--space-5)}
+body .shell .og-ledger-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3)}
+body .shell :is(.og-ledger-eyebrow,.on-eyebrow){margin:0;color:var(--text);font-size:var(--font-control);font-weight:600;line-height:1.5}
+body .shell .og-ledger-sum{color:var(--muted);font-size:var(--font-caption);text-align:right}
+body .shell .og-ev-list{display:flex;flex-direction:column;gap:var(--space-2)}
+body .shell .og-ev{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);
+  padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:12px;background:var(--surface-raised)}
+body .shell :is(.og-ev-main,.og-grow-main,.on-card-main){min-width:0}
+body .shell .og-ev-title{color:var(--text);font-size:var(--font-control);font-weight:500;line-height:1.4}
+body .shell :is(.og-ev-meta,.on-clip-tags){margin-top:var(--space-1);color:var(--muted);font-size:var(--font-caption)}
+body .shell .og-ev-note{margin-top:var(--space-2);color:var(--t2);font-size:var(--font-small);line-height:1.5}
+body .shell :is(.og-ev-chip,.og-badge,.on-clip-time){flex-shrink:0;padding:2px var(--space-2);border-radius:6px;
+  background:var(--surface);color:var(--t2);font-size:var(--font-caption);line-height:1.5;white-space:nowrap}
+body .shell .og-grow{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:var(--space-3) var(--space-5);padding:var(--space-4) var(--space-5);margin-bottom:var(--space-3)}
+body .shell .og-grow-main{flex:1}
+body .shell .og-grow-top{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-1) var(--space-3)}
+body .shell .og-grow-wl{font-size:var(--font-small);font-weight:600}
+body .shell .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip-path:inset(50%);white-space:nowrap;border:0}
+body .shell .og-grow-champ{color:var(--text);font-size:16px;font-weight:600}
+body .shell :is(.og-grow-kda,.og-grow-date,.on-clip-game){color:var(--muted);font-size:var(--font-small)}
+body .shell .og-badge{background:var(--surface-raised)}
+body .shell .og-grow-exec{margin-top:var(--space-2);color:var(--t2);font-size:var(--font-small);font-style:italic;line-height:1.5}
+body .shell .og-grow-acts{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);flex-shrink:0}
+body .shell :is(.og-empty,.on-empty){padding:var(--space-6) var(--space-5);text-align:center}
+body .shell :is(.og-empty-h,.on-empty-h){max-width:440px;margin:0 auto;color:var(--t2);font-size:16px;font-weight:500;line-height:1.5}
+body .shell .on-sec{margin-bottom:var(--space-5)}
+body .shell .on-sec .on-eyebrow{margin-bottom:var(--space-3)}
+body .shell .on-list{display:flex;flex-direction:column;gap:var(--space-2)}
+body .shell .on-group{margin-bottom:var(--space-3)}
+body .shell .on-group-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-2);margin:0 0 var(--space-2)}
+body .shell .on-group-label{color:var(--text);font-size:var(--font-control);font-weight:500}
+body .shell .on-group-phase{color:var(--muted);font-size:var(--font-caption)}
+body .shell .on-card{padding:var(--space-4);border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+body .shell .on-card-clickable{cursor:pointer}
+body .shell .on-card-clickable:hover{background:var(--surface-raised)}
+body .shell .on-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3)}
+body .shell .on-card-header{color:var(--muted);font-size:var(--font-caption);font-weight:500}
+body .shell .on-card-body{margin-top:var(--space-1);color:var(--text);font-size:var(--font-small);line-height:1.6;white-space:pre-wrap}
+body .shell .on-card-body.italic{color:var(--t2);font-style:italic}
+body .shell .on-jump{flex-shrink:0;align-self:flex-start;white-space:nowrap}
+body .shell .on-clip-top{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2) var(--space-3)}
+body .shell .on-clip-time{background:var(--surface-raised);color:var(--text);font-variant-numeric:tabular-nums}
 
 @media(max-width:1050px){
   #rv-body{grid-template-columns:minmax(0,1fr);gap:32px}

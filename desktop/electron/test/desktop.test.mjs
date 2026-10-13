@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { isMaintenanceLaunch, launchOptions, prepareConfiguration } from '../configuration.mjs';
+import { fileURLToPath } from 'node:url';
+import { declaredPackages, isMaintenanceLaunch, launchOptions, prepareConfiguration } from '../configuration.mjs';
 import { externalUrl, updaterPath, nativeCommands } from '../native.mjs';
 import { appResponse } from '../protocols.mjs';
 
@@ -53,6 +54,40 @@ test('native commands retain export cancellation and version behavior without in
   assert.equal(await native('pick_folder'), null);
   assert.deepEqual(await native('save_export_file', { fileName: 'review.md', markdown: 'draft' }), { ok: true, saved: false });
   await assert.rejects(native('apply_update'), /isolated mode/);
+});
+
+test('the export folder action opens only the fixed Documents\\Revu folder the sidecar saves into', async () => {
+  const opened = [];
+  let failure = '';
+  const native = nativeCommands({
+    app: { getPath: name => { assert.equal(name, 'documents'); return path.join('C:', 'Users', 'me', 'Documents'); } },
+    shell: { openPath: async target => { opened.push(target); return failure; } },
+  });
+  assert.equal(await native('open_export_folder', { path: 'C:\\Windows\\System32\\cmd.exe' }), null);
+  assert.deepEqual(opened, [path.join('C:', 'Users', 'me', 'Documents', 'Revu')]);
+  failure = 'The system cannot find the file specified.';
+  await assert.rejects(native('open_export_folder', {}), /Unable to open the export folder/);
+});
+
+test('Open log folder opens the logs directory beside the sidecar log; navigation stubs are gone', async () => {
+  const dataRoot = await mkdtemp(path.join(os.tmpdir(), 'Revu.LogFolder.'));
+  const opened = [];
+  const native = nativeCommands({ dataRoot, isolated: true, shell: { openPath: async folder => { opened.push(folder); return ''; } } });
+  assert.equal(await native('open_log_folder'), null);
+  assert.deepEqual(opened, [path.join(dataRoot, 'Revu', 'logs')]);
+  assert.ok((await stat(opened[0])).isDirectory());
+  for (const command of ['review_vod', 'open_review', 'take_next_step'])
+    await assert.rejects(native(command, {}), /Unsupported desktop operation/);
+});
+
+test('the ordinary build declares no gaming packages, so the dormant recorder stays idle', async () => {
+  assert.deepEqual(declaredPackages(fileURLToPath(new URL('../..', import.meta.url))), []);
+  const root = await mkdtemp(path.join(os.tmpdir(), 'Revu.Packages.'));
+  assert.deepEqual(declaredPackages(root), []);
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ overwolf: { packages: ['recorder', 7] } }));
+  assert.deepEqual(declaredPackages(root), ['recorder']);
+  await writeFile(path.join(root, 'package.json'), '{');
+  assert.deepEqual(declaredPackages(root), []);
 });
 
 test('UI protocol serves approved assets with CSP and rejects arbitrary files and malformed paths', async () => {

@@ -9,7 +9,7 @@ using Revu.Core.Services;
 namespace Revu.Core.Data.Repositories;
 
 /// <summary>
-/// CRUD operations for the games table â€” ported from Python GameRepository.
+/// CRUD operations for the games table.
 /// </summary>
 public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery, IGameAnalyticsQuery, IGameDeletionService
 {
@@ -22,7 +22,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         _backupService = backupService;
     }
 
-    // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private static string CasualFilter => GameConstants.CasualModeSqlFilter;
 
@@ -125,7 +125,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             IsRemake = GetIntOrDefault(reader, "is_remake") != 0,
         };
 
-        // items â€” JSON array of ints
+        // items — JSON array of ints
         var itemsJson = GetStringOrDefault(reader, "items");
         if (!string.IsNullOrEmpty(itemsJson))
         {
@@ -133,7 +133,7 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
             catch { stats.Items = []; }
         }
 
-        // raw_stats â€” JSON dict
+        // raw_stats — JSON dict
         var rawJson = GetStringOrDefault(reader, "raw_stats");
         if (!string.IsNullOrEmpty(rawJson))
         {
@@ -144,71 +144,61 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         return stats;
     }
 
-    private static int GetIntOrDefault(SqliteDataReader r, string col)
+    // A column a later migration added can be missing from an older database's rows, and
+    // a read may not select a computed column (is_remake): only an absent column reads as
+    // the default. Any other read failure throws instead of silently becoming 0 or "".
+    // (Column names are checked against the schema by GameRowMappingTests.)
+    private static int? OrdinalOrNull(SqliteDataReader r, string col)
     {
         try
         {
-            var ord = r.GetOrdinal(col);
-            if (r.IsDBNull(ord)) return 0;
-            // SQLite stores all ints as INT64; safely cast down
-            var val = r.GetInt64(ord);
-            return val > int.MaxValue ? int.MaxValue : val < int.MinValue ? int.MinValue : (int)val;
+            return r.GetOrdinal(col);
         }
-        catch { return 0; }
+        catch (Exception ex) when (ex is ArgumentOutOfRangeException or IndexOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    private static int GetIntOrDefault(SqliteDataReader r, string col)
+    {
+        if (OrdinalOrNull(r, col) is not int ord || r.IsDBNull(ord)) return 0;
+        // SQLite stores all ints as INT64; safely cast down
+        var val = r.GetInt64(ord);
+        return val > int.MaxValue ? int.MaxValue : val < int.MinValue ? int.MinValue : (int)val;
     }
 
     private static long GetLongOrDefault(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? 0L : r.GetInt64(ord);
-        }
-        catch { return 0L; }
+        if (OrdinalOrNull(r, col) is not int ord) return 0L;
+        return r.IsDBNull(ord) ? 0L : r.GetInt64(ord);
     }
 
     // v2.18 (schema v5): nullable reads where NULL means "not backfilled yet",
     // which must stay distinguishable from zero.
     private static double? GetNullableDouble(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? null : r.GetDouble(ord);
-        }
-        catch { return null; }
+        if (OrdinalOrNull(r, col) is not int ord) return null;
+        return r.IsDBNull(ord) ? null : r.GetDouble(ord);
     }
 
     private static int? GetNullableInt(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? null : (int)r.GetInt64(ord);
-        }
-        catch { return null; }
+        if (OrdinalOrNull(r, col) is not int ord) return null;
+        return r.IsDBNull(ord) ? null : (int)r.GetInt64(ord);
     }
 
     private static double GetDoubleOrDefault(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            if (r.IsDBNull(ord)) return 0.0;
-            // SQLite might store as int or real; handle both
-            return Convert.ToDouble(r.GetValue(ord));
-        }
-        catch { return 0.0; }
+        if (OrdinalOrNull(r, col) is not int ord || r.IsDBNull(ord)) return 0.0;
+        // SQLite converts an INTEGER (or numeric text) cell to REAL itself.
+        return r.GetDouble(ord);
     }
 
     private static string GetStringOrDefault(SqliteDataReader r, string col)
     {
-        try
-        {
-            var ord = r.GetOrdinal(col);
-            return r.IsDBNull(ord) ? "" : r.GetString(ord);
-        }
-        catch { return ""; }
+        if (OrdinalOrNull(r, col) is not int ord) return "";
+        return r.IsDBNull(ord) ? "" : r.GetString(ord);
     }
 
     /// <summary>Read all rows from a command into a list of GameStats.</summary>
@@ -231,8 +221,8 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
     {
         if (!string.IsNullOrWhiteSpace(champion) && champion != "All Champions")
         {
-            whereClauses.Add("champion_name = @champion");
-            cmd.Parameters.AddWithValue("@champion", champion);
+            // Every spelling of the champion ("Kai'Sa" from champ select finds "Kaisa" rows).
+            whereClauses.Add(ChampionSql.Matches(cmd, "champion_name", "@champion", champion));
         }
 
         if (win.HasValue)
@@ -242,15 +232,16 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         }
     }
 
-    // â”€â”€ Save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Save ─────────────────────────────────────────────────────────────
 
-    public async Task<int> SaveAsync(GameStats stats)
+    public async Task<int> SaveAsync(GameStats stats, DbWriteSession? session = null)
     {
         // Only ranked games are saved (manual entries go through a different path).
         if (!GameConstants.RankedQueueTypes.Contains(stats.QueueType ?? ""))
             return -1;
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         // Check for duplicates
         using (var checkCmd = conn.CreateCommand())
@@ -414,14 +405,16 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         string mistakes = "",
         string wentWell = "",
         string focusNext = "",
-        List<string>? tags = null)
+        List<string>? tags = null,
+        DbWriteSession? session = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var gameId = (int)now;
         var kdaRatio = Math.Round((kills + assists) / (double)Math.Max(deaths, 1), 2);
         var dateStr = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -467,11 +460,12 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         return gameId;
     }
 
-    // â”€â”€ Update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Update ───────────────────────────────────────────────────────────
 
-    public async Task UpdateReviewAsync(long gameId, GameReview review)
+    public async Task UpdateReviewAsync(long gameId, GameReview review, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -505,9 +499,10 @@ public sealed partial class GameRepository : IGameRepository, IGameHistoryQuery,
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task UpdateEnemyLanerAsync(long gameId, string enemyLaner)
+    public async Task UpdateEnemyLanerAsync(long gameId, string enemyLaner, DbWriteSession? session = null)
     {
-        using var conn = _factory.CreateConnection();
+        using var lease = DbWriteSession.Lease(_factory, session);
+        var conn = lease.Connection;
 
         using var cmd = conn.CreateCommand();
         // v3.10.1: this is the Review page's edit (ReviewWorkflowService). A typed

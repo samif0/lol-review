@@ -164,6 +164,9 @@
   border-radius: var(--radius-row);
   background: var(--surface-raised) center / cover no-repeat;
 }
+/* Match cards are <button>s built from spans (phrasing content only). */
+.champion,
+.match-role { display: block; }
 .champion {
   margin: 0 0 2px;
   font-size: 17px;
@@ -298,7 +301,8 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
-.vod-track { position: relative; flex: 1; height: 34px; cursor: pointer; }
+/* role="slider": pointer events drive it on touch too, so no browser panning. */
+.vod-track { position: relative; flex: 1; height: 34px; cursor: pointer; touch-action: none; }
 .vod-track::before {
   content: '';
   position: absolute;

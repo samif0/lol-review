@@ -224,7 +224,7 @@ public sealed record EventCorrectionRequest(
     EventPatch Patch,                  // EventPatch.Empty for remove/confirm
     string Reason,                     // <= 280 after trim
     string AppVersion = "",
-    string? EncounterNote = null);     // legacy /api/encounter/save note (<= 2000) written to details.note
+    string? EncounterNote = null);     // ReviewedEncountersRepository.SaveAsync note (<= 2000) written to details.note
 
 public sealed record EventCorrectionSaveResult(
     long Id,

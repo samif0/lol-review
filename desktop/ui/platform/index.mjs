@@ -1,7 +1,25 @@
 import { validateCommand } from './commands.mjs';
 
 const NARRATION_MAX_BYTES = 33554432;
-const WINDOW_ACTIONS = Object.freeze(['minimize', 'toggleMaximize', 'close', 'unminimize', 'show', 'setFocus', 'startDragging']);
+const WINDOW_ACTIONS = Object.freeze(['minimize', 'toggleMaximize', 'close', 'unminimize', 'show', 'setFocus']);
+// Electron prefixes every rejected IPC call with this; pages show the host's own sentence.
+const IPC_ERROR_PREFIX = /^Error invoking remote method '[^']*':\s*(?:[A-Za-z]*Error:\s*)?/;
+
+/** Strip Electron's IPC wrapper once; any other failure passes through unchanged. */
+export function hostError(error) {
+  if (typeof error?.message !== 'string' || !IPC_ERROR_PREFIX.test(error.message)) return error;
+  return new Error(error.message.replace(IPC_ERROR_PREFIX, ''), { cause: error });
+}
+
+// A revu-app page always runs under Electron's preload, so a missing bridge there is a
+// host failure, never a browser preview. The UI smoke opts into the preview fixtures
+// explicitly with ?preview=samples on the shell document.
+function hostedPage(top) {
+  try {
+    const location = top?.location;
+    return location?.protocol === 'revu-app:' && new URLSearchParams(location.search || '').get('preview') !== 'samples';
+  } catch (_) { return false; }
+}
 
 // Electron exposes its preload only on the trusted top-level document. Same-
 // origin child pages deliberately use that bridge, never subframe Node access.
@@ -23,6 +41,7 @@ async function resolveAdapter(scope) {
       || typeof bridge.invoke !== 'function') throw new Error('Unsupported desktop bridge');
     return bridge;
   }
+  if (hostedPage(top)) throw new Error('Revu could not connect to its desktop host. Restart Revu.');
   return null; // Deliberate browser preview; no native host is present.
 }
 
@@ -52,7 +71,8 @@ export function createPlatform({ scope = globalThis.window, adapterFactory = res
   const invoke = async (command, args) => {
     validateCommand(command, args);
     const adapter = await requireAdapter('commands');
-    return adapter.invoke(command, args);
+    try { return await adapter.invoke(command, args); }
+    catch (error) { throw hostError(error); }
   };
   const listen = async (event, callback) => {
     if (event !== 'lcu-event') throw new Error('Unsupported desktop event');
@@ -155,7 +175,6 @@ export function createPlatform({ scope = globalThis.window, adapterFactory = res
       const adapter = await requireAdapter('externalLinks');
       return adapter.openExternal(target.href);
     },
-    async recorderStatus() { return (await requireAdapter('recorder')).recorder.status(); },
     // Narration audio uses its own host channel; bytes never enter the command envelope.
     async saveNarration(bytes, meta) {
       const a = await requireAdapter('narration');
@@ -166,7 +185,8 @@ export function createPlatform({ scope = globalThis.window, adapterFactory = res
       if (!((byteView || rawBuffer) && bytes.byteLength <= NARRATION_MAX_BYTES)) {
         throw new TypeError('Narration audio must be bytes of at most 32 MiB');
       }
-      return a.saveNarration(bytes, meta);
+      try { return await a.saveNarration(bytes, meta); }
+      catch (error) { throw hostError(error); }
     },
     async narrationAvailable() {
       const adapter = await getAdapter();

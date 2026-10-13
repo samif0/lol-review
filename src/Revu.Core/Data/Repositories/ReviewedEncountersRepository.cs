@@ -5,9 +5,11 @@ using Revu.Core.Models;
 namespace Revu.Core.Data.Repositories;
 
 /// <summary>Explicit review judgments, never inferred from duration or HP loss.
-/// v3.11: the legacy /api/encounter/save entry point. Validation and messages are unchanged;
-/// the write itself is delegated to the corrections ledger (<see cref="EventCorrectionsRepository"/>)
-/// so an encounter review is one more correction row, keyed and re-applied like every other.</summary>
+/// The static helpers recognize reviewed encounter rows for every reader. <see cref="SaveAsync"/>
+/// was the legacy encounter form's writer; its route is gone, so the app no longer calls it and
+/// only tests use it to write a reviewed encounter. The write is delegated to the corrections
+/// ledger (<see cref="EventCorrectionsRepository"/>) so an encounter review is one more
+/// correction row, keyed and re-applied like every other.</summary>
 public sealed class ReviewedEncountersRepository(IDbConnectionFactory factory)
 {
     public const string Source = "reviewed_encounter";

@@ -119,6 +119,23 @@ kbd { font-family: var(--font-mono); }
 .header-cta { min-height: 36px; padding: 7px 16px; }
 .header-cta-meta { color: #5c5c5c; font-size: 12px; }
 
+/* Account link (header-account.js swaps "Sign in" for "My clips"). It sits
+   outside .site-nav so it stays visible on phones. */
+.header-account {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color .12s ease, color .12s ease;
+}
+.header-account:hover { background: var(--surface-raised); color: var(--text); }
+.header-account[aria-current="page"] { background: #2f2f2f; color: var(--text); }
+
 /* Footer. */
 .site-footer { margin-top: 56px; border-top: 1px solid var(--border); background: var(--bg); }
 .site-footer-inner {
@@ -379,7 +396,7 @@ kbd {
   list-style: none;
 }
 .feature-card { padding: 20px; border-radius: var(--radius-panel); background: var(--surface); }
-.feature-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.feature-card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 .feature-card p { color: var(--muted); font-size: 14px; line-height: 1.6; }
 
 @media (min-width: 768px) {
@@ -389,12 +406,14 @@ kbd {
   .screenshot-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
-/* Phones: header shows only the brand and its pill, and every control is a
-   44px tap target. */
+/* Phones: header shows only the brand, the account link and the pill, and
+   every control is a 44px tap target. */
 
 @media (max-width: 639.98px) {
   .site-nav,
   .header-cta-meta { display: none; }
+  .site-header-inner { gap: 8px; }
+  .header-account { min-height: 44px; display: inline-flex; align-items: center; padding: 0 10px; }
   .btn-primary,
   .btn-secondary,
   .btn-pill,

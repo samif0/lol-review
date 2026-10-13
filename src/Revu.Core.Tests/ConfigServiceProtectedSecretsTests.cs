@@ -14,7 +14,7 @@ public sealed class ConfigServiceProtectedSecretsTests
     };
 
     [Fact]
-    public async Task LoadAsync_MigratesPlaintextTokensToProtectedStoreAndSanitizesConfigFile()
+    public async Task LoadAsync_MigratesPlaintextSessionTokenAndDropsTheRetiredGithubToken()
     {
         using var scope = new TempConfigScope();
         var secrets = new FakeProtectedSecretStore();
@@ -30,9 +30,10 @@ public sealed class ConfigServiceProtectedSecretsTests
         var service = CreateService(scope.ConfigPath, secrets);
         var loaded = await service.LoadAsync();
 
-        Assert.Equal("github-secret", loaded.GithubToken);
+        // Nothing consumes the GitHub token any more: it is dropped, not migrated.
+        Assert.Equal("", loaded.GithubToken);
         Assert.Equal("riot-session-secret", loaded.RiotSessionToken);
-        Assert.Equal("github-secret", secrets.GetSecret("github_token"));
+        Assert.Null(secrets.GetSecret("github_token"));
         Assert.Equal("riot-session-secret", secrets.GetSecret("riot_session_token"));
 
         var persisted = await File.ReadAllTextAsync(scope.ConfigPath);
@@ -59,7 +60,7 @@ public sealed class ConfigServiceProtectedSecretsTests
             RiotSessionExpiresAt = DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
         });
 
-        Assert.Equal("github-secret", secrets.GetSecret("github_token"));
+        Assert.Null(secrets.GetSecret("github_token"));
         Assert.Equal("riot-session-secret", secrets.GetSecret("riot_session_token"));
 
         var persisted = await File.ReadAllTextAsync(scope.ConfigPath);
@@ -67,8 +68,23 @@ public sealed class ConfigServiceProtectedSecretsTests
         Assert.DoesNotContain("riot-session-secret", persisted);
 
         var loaded = await service.LoadAsync();
-        Assert.Equal("github-secret", loaded.GithubToken);
+        Assert.Equal("", loaded.GithubToken);
         Assert.Equal("riot-session-secret", loaded.RiotSessionToken);
+    }
+
+    [Fact]
+    public async Task LoadAsync_RemovesAStoredRetiredGithubToken_AndKeepsTheOtherSecrets()
+    {
+        using var scope = new TempConfigScope();
+        var secrets = new FakeProtectedSecretStore();
+        secrets.SetSecret("github_token", "old-pat");
+        secrets.SetSecret("riot_session_token", "riot-session-secret");
+        await File.WriteAllTextAsync(scope.ConfigPath, JsonSerializer.Serialize(new AppConfig(), JsonOptions));
+
+        await CreateService(scope.ConfigPath, secrets).LoadAsync();
+
+        Assert.Null(secrets.GetSecret("github_token"));
+        Assert.Equal("riot-session-secret", secrets.GetSecret("riot_session_token"));
     }
 
     [Fact]
@@ -96,7 +112,7 @@ public sealed class ConfigServiceProtectedSecretsTests
         loaded.RiotSessionExpiresAt = 0;       // and a zeroed expiry
         await service.SaveAsync(loaded);
 
-        // GitHub token still clears on empty (unchanged behavior).
+        // The retired GitHub token is never stored.
         Assert.Null(secrets.GetSecret("github_token"));
         // Riot session token + expiry are PRESERVED, not wiped.
         Assert.Equal("riot-session-secret", secrets.GetSecret("riot_session_token"));

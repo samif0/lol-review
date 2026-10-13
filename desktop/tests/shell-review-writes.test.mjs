@@ -128,3 +128,15 @@ test('pages without a write barrier navigate normally and retain query and fragm
   assert.deepEqual(f.assignments, ['vodplayer.html?gameId=42&t=864#clip']);
   assert.deepEqual(f.active, ['vodplayer']);
 });
+
+test('a fragment change on the same page while the leave question is open does not cancel the navigation', async () => {
+  // Settings opens the category of a card that failed to save (#settings-data); after the
+  // player then discards, the sidebar choice goes through on that first try.
+  const saved = deferred();
+  const f = fixture(() => saved.promise);
+  const navigation = f.navigate('games.html');
+  f.sourceWindow.location.href = `${f.initial}#settings-data`;
+  saved.resolve(true); assert.equal(await navigation, true);
+  assert.deepEqual(f.assignments, ['games.html']);
+  assert.deepEqual(f.active, ['games']);
+});

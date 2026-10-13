@@ -83,7 +83,8 @@ public sealed class VodServiceTests
         {
             var result = await service.ScanAsync();
             Assert.Equal(2, result.RecordingCount); Assert.Equal(0, result.Matched);
-            Assert.Contains("still settling", result.Message);
+            Assert.Contains("2 files are empty, busy, or still settling", result.Message);
+            Assert.DoesNotContain("Recover missing matches", result.Message);
         }
         File.SetLastWriteTimeUtc(file, DateTime.UtcNow);
         Assert.Equal(0, (await service.ScanAsync()).Matched);
@@ -94,6 +95,65 @@ public sealed class VodServiceTests
         Assert.False((await observing).Single(r => r.Path == file).IsReady);
         File.SetLastWriteTime(file, Start.AddMinutes(30));
         Assert.Equal(1, (await service.ScanAsync()).Matched);
+    }
+
+    [Fact]
+    public async Task ScanExplainsEachUnlinkedRecordingWithoutGuessingIdentity()
+    {
+        using var db = new TestDatabaseScope(); await db.InitializeAsync();
+        using var folder = new MediaFolder();
+        var linkedFile = folder.Video("renamed-existing.mp4");
+        await db.Games.SaveAsync(Game(1001));
+        await db.Vod.LinkVodAsync(1001, linkedFile.ToUpperInvariant());
+        var newStart = Start.AddHours(2);
+        await db.Games.SaveAsync(Game(1002, newStart));
+        var newFile = folder.Video(newStart.ToString("MM-dd-yyyy-HH-mm") + ".mp4", newStart.AddMinutes(30));
+        var ambiguousStart = Start.AddHours(4);
+        await db.Games.SaveAsync(Game(1003, ambiguousStart));
+        await db.Games.SaveAsync(Game(1004, ambiguousStart.AddSeconds(20)));
+        folder.Video(ambiguousStart.ToString("MM-dd-yyyy-HH-mm") + ".mp4", ambiguousStart.AddMinutes(30));
+        var occupiedStart = Start.AddHours(6);
+        await db.Games.SaveAsync(Game(1005, occupiedStart));
+        await db.Vod.LinkVodAsync(1005, "chosen-recording.mp4");
+        folder.Video(occupiedStart.ToString("MM-dd-yyyy-HH-mm") + ".mp4", occupiedStart.AddMinutes(30));
+        var absentStart = Start.AddHours(8);
+        folder.Video(absentStart.ToString("MM-dd-yyyy-HH-mm") + ".mp4", absentStart.AddMinutes(30));
+        folder.Video("highlight.mp4");
+        File.WriteAllBytes(folder.Video("empty.mp4"), []);
+
+        var result = await Service(db, new(new AppConfig { AscentFolder = folder.Root })).ScanAsync();
+
+        Assert.True(result.Ok);
+        Assert.Equal(7, result.RecordingCount);
+        Assert.Equal(1, result.Matched);
+        Assert.Equal(new long[] { 1002 }, result.LinkedGameIds);
+        Assert.Equal(newFile, (await db.Vod.GetVodAsync(1002))!.FilePath);
+        Assert.Contains("1 recording is already linked", result.Message);
+        Assert.Contains("1 recording could not be matched to the latest 100 saved games", result.Message);
+        Assert.Contains("keep League open and choose Recover missing matches, then scan again", result.Message);
+        Assert.Contains("1 filename has no recognized recording timestamp", result.Message);
+        Assert.Contains("1 recording has more than one possible match and was left unlinked", result.Message);
+        Assert.Contains("1 recording matches a game with an existing or reserved recording", result.Message);
+        Assert.Contains("1 file is empty, busy, or still settling", result.Message);
+        Assert.Null(await db.Vod.GetVodAsync(1003));
+        Assert.Null(await db.Vod.GetVodAsync(1004));
+        Assert.Equal("chosen-recording.mp4", (await db.Vod.GetVodAsync(1005))!.FilePath);
+    }
+
+    [Fact]
+    public async Task UnmatchedExplanationDoesNotClaimSavedGameIsMissingWhenFileTimeWasChanged()
+    {
+        using var db = new TestDatabaseScope(); await db.InitializeAsync();
+        using var folder = new MediaFolder();
+        await db.Games.SaveAsync(Game(1001));
+        folder.Video("09-11-2026-17-25.mp4", Start.AddHours(2));
+
+        var result = await Service(db, new(new AppConfig { AscentFolder = folder.Root })).ScanAsync();
+
+        Assert.Equal(0, result.Matched);
+        Assert.Contains("could not be matched to the latest 100 saved games. If matches are missing", result.Message);
+        Assert.DoesNotContain("no recognized recording timestamp", result.Message);
+        Assert.Null(await db.Vod.GetVodAsync(1001));
     }
 
     [Theory]
@@ -140,7 +200,9 @@ public sealed class VodServiceTests
         await db.Games.SaveAsync(Game(1001)); await db.Games.SaveAsync(Game(1002, Start.AddHours(4)));
         await db.Vod.LinkVodAsync(1002, "\0malformed");
         var service = Service(db, new(new AppConfig { AscentFolder = folder.Root }));
-        Assert.Equal(0, (await service.ScanAsync(reservedGameIds: new HashSet<long> { 1001 })).Matched);
+        var reserved = await service.ScanAsync(reservedGameIds: new HashSet<long> { 1001 });
+        Assert.Equal(0, reserved.Matched);
+        Assert.Contains("1 recording matches a game with an existing or reserved recording", reserved.Message);
         Assert.Null(await db.Vod.GetVodAsync(1001));
         Assert.Equal(1, (await service.ScanAsync()).Matched);
     }
@@ -164,6 +226,38 @@ public sealed class VodServiceTests
             Assert.Empty(await service.FindRecordingsAsync(junction));
         }
         finally { Directory.Delete(junction); }
+    }
+
+    [WindowsFact]
+    public async Task DirectoryJunctionOutsideTheFolderIsNotFollowed()
+    {
+        using var db = new TestDatabaseScope(); using var folder = new MediaFolder(); using var outside = new MediaFolder();
+        var video = folder.Video("09-11-2026-17-25.mp4");
+        outside.Video("09-11-2026-19-25.mp4");
+        var junction = Path.Combine(folder.Root, "elsewhere");
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            Arguments = $"/d /c mklink /J \"{junction}\" \"{outside.Root}\""
+        })!;
+        await process.WaitForExitAsync(); Assert.Equal(0, process.ExitCode);
+        try
+        {
+            var service = Service(db, new(new AppConfig { AscentFolder = folder.Root }));
+            Assert.Equal(video, Assert.Single(await service.FindRecordingsAsync()).Path);
+        }
+        finally { Directory.Delete(junction); }
+    }
+
+    [Fact]
+    public async Task ScanStopsDescendingBelowMaxScanDepth()
+    {
+        using var db = new TestDatabaseScope(); using var folder = new MediaFolder();
+        var deepest = Path.Combine(Enumerable.Repeat("d", VodService.MaxScanDepth).ToArray());
+        var atCap = folder.Video(Path.Combine(deepest, "09-11-2026-17-25.mp4"));
+        folder.Video(Path.Combine(deepest, "d", "09-11-2026-19-25.mp4"));
+        var service = Service(db, new(new AppConfig { AscentFolder = folder.Root }));
+        Assert.Equal(atCap, Assert.Single(await service.FindRecordingsAsync()).Path);
     }
 
     [Fact]

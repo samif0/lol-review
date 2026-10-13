@@ -3,6 +3,9 @@ import path from 'node:path';
 
 const DEFAULTS = Object.freeze({ closeToTray: false, startWithWindows: false });
 const LOGIN_ARGS = Object.freeze(['--revu-startup']);
+// 'query-session-end' only asks: another app can still cancel the logoff. Treat the
+// window as closing for this long, then let tray hiding and settings saves recover.
+const SESSION_QUERY_MS = 60_000;
 
 export function validateBackgroundSettings(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
@@ -24,10 +27,10 @@ export function startupLauncher(executable, packaged, isolated, smoke, platform)
 
 export async function createBackgroundController({ app, window, Tray, Menu, iconPath, profile,
   isolated = false, smoke = false, platform = process.platform, executablePath = process.execPath,
-  argv = process.argv, localAppData = process.env.LOCALAPPDATA }) {
+  argv = process.argv, localAppData = process.env.LOCALAPPDATA, now = Date.now }) {
   const file = path.join(profile, 'background-settings.json');
   let settings = { ...DEFAULTS }, message = '', tray = null, quitting = false, disposed = false;
-  let saving = Promise.resolve();
+  let saving = Promise.resolve(), sessionQueriedAt = -Infinity;
   let launcher = startupLauncher(executablePath, app.isPackaged, isolated, smoke, platform);
   if (!localAppData || path.resolve(profile).toLowerCase() !== path.resolve(localAppData, 'Revu/ElectronProfile').toLowerCase())
     launcher = null;
@@ -81,17 +84,19 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
   }
 
   const beginQuit = () => { quitting = true; };
+  const queryQuit = () => { sessionQueriedAt = now(); };
+  const closing = () => quitting || now() - sessionQueriedAt < SESSION_QUERY_MS;
   app.on('before-quit', beginQuit);
   // Windows does not reliably emit before-quit at logoff/shutdown. Never turn
   // these closes into a tray hide or prevent the operating system from exiting.
-  window.on('query-session-end', beginQuit);
+  window.on('query-session-end', queryQuit);
   window.on('session-end', beginQuit);
   const getSettings = () => ({ ...settings, startupAvailable: !!launcher,
     trayAvailable: !smoke && typeof Tray === 'function' && !!Menu?.buildFromTemplate, message });
   const saveSettings = payload => {
     const requested = validateBackgroundSettings(payload);
     const operation = saving.then(async () => {
-      if (disposed || quitting) throw new Error('Revu is closing');
+      if (disposed || closing()) throw new Error('Revu is closing');
       if (requested.startWithWindows && !launcher)
         throw new Error('Start with Windows is available after installing Revu.');
       const previousStartup = launcher ? readStartup() : false;
@@ -127,15 +132,15 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
   return {
     getSettings, saveSettings, restore,
     onClose: event => {
-      if (quitting || disposed || !settings.closeToTray || !tray || tray.isDestroyed()) return;
+      if (closing() || disposed || !settings.closeToTray || !tray || tray.isDestroyed()) return;
       event.preventDefault(); window.hide();
     },
-    shouldStartHidden: () => !quitting && !disposed && !isolated && !smoke && !!launcher
+    shouldStartHidden: () => !closing() && !disposed && !isolated && !smoke && !!launcher
       && argv.includes('--revu-startup') && settings.startWithWindows && settings.closeToTray && !!tray && !tray.isDestroyed(),
     dispose: () => {
       disposed = true; dropTray();
       app.removeListener('before-quit', beginQuit);
-      window.removeListener('query-session-end', beginQuit);
+      window.removeListener('query-session-end', queryQuit);
       window.removeListener('session-end', beginQuit);
     },
   };

@@ -133,7 +133,7 @@ function fixture({ invoke, snapshot, search = '' } = {}) {
   });
   vm.runInContext(`${source}\n globalThis.hooks = { render(data) { _lastData = data; render(data); },
     applyFilters, clearFilters, openGroup, scrollToCard, saveNote, flushPendingNotes, loadMatchups,
-    submitForm, openEditForm, fromLastGame, fromSelectedGame, openRequestedGame,
+    submitForm, openEditForm, fromLastGame, fromSelectedGame, openRequestedGame, saveNotesBeforeLeaving,
     cardElById, get notes() { return _notes; } };`, context, { filename: 'matchups.js' });
   return { $, document, hooks: context.hooks, calls,
     groups: () => document.querySelectorAll('.mj-group'),
@@ -244,6 +244,21 @@ test('refresh preserves filters, expansion, failed raw drafts and mounted cards 
   assert.equal(card.querySelector('.mj-card-err').textContent, 'Offline');
   assert.equal(f.groups()[0].open, true); assert.equal(f.$('mj-search').value, 'aatrox');
   assert.equal(f.$('mj-lane-filter').value, 'top'); assert.equal(f.groups()[1].hidden, true);
+});
+
+test('leaving saves a note still being typed and reports a note that could not be saved', async () => {
+  let offline = false;
+  const f = fixture({ invoke: async () => { if (offline) throw new Error('Offline'); } }); f.hooks.render(sample());
+  const [, observed] = f.notes(2);
+  assert.equal(await f.hooks.saveNotesBeforeLeaving(), true);
+  assert.deepEqual(f.calls, [], 'unchanged notes are not rewritten');
+  observed.value = 'Still focused, never blurred';
+  assert.equal(await f.hooks.saveNotesBeforeLeaving(), true);
+  assert.deepEqual(f.calls.map(([command, { payload }]) => [command, payload]),
+    [['save_matchup_notes', { id: 2, observed: 'Still focused, never blurred' }]]);
+  offline = true; observed.value = 'Typed while offline';
+  assert.equal(await f.hooks.saveNotesBeforeLeaving(), false, 'the shell then asks before discarding it');
+  assert.equal(observed.value, 'Typed while offline');
 });
 
 test('refresh waits through a pending note save and its newer edit without duplicate writes', async () => {

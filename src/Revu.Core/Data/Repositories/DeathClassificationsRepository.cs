@@ -22,7 +22,7 @@ public static class DeathClasses
     /// <summary>(Key, short chip label, one-line meaning) in display order.</summary>
     public static readonly IReadOnlyList<(string Key, string Label, string Hint)> All =
     [
-        (Greed, "GREED", "Overstayed — wave, tower dive, one more trade"),
+        (Greed, "GREED", "Overstayed: wave, tower dive, one more trade"),
         (Vision, "VISION", "No ward coverage where the threat came from"),
         (Wave, "WAVE", "Overextended for the wave state"),
         (Cooldowns, "COOLDOWNS", "Fought without key spells (yours or theirs)"),
@@ -138,11 +138,11 @@ public sealed class DeathClassificationsRepository : IDeathClassificationsReposi
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT dc.death_class, COUNT(*)
             FROM death_classifications dc
             JOIN games g ON g.game_id = dc.game_id
-            WHERE COALESCE(g.is_hidden, 0) = 0
+            WHERE {CountedGamesSql.Counted("g")}
               AND g.timestamp >= @cutoff
               AND dc.death_class != ''
             GROUP BY dc.death_class
@@ -165,12 +165,12 @@ public sealed class DeathClassificationsRepository : IDeathClassificationsReposi
     {
         using var conn = _factory.CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT COUNT(*)
             FROM game_events ge
             JOIN games g ON g.game_id = ge.game_id
             WHERE ge.event_type = 'DEATH'
-              AND COALESCE(g.is_hidden, 0) = 0
+              AND {CountedGamesSql.Counted("g")}
               AND g.timestamp >= @cutoff
             """;
         cmd.Parameters.AddWithValue("@cutoff", CutoffFor(days));

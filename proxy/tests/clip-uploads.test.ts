@@ -214,11 +214,17 @@ describe("multipart clip uploads", () => {
     expect((await putPart(s.e, up.id, 1, payload(100), { token: OTHER })).status).toBe(404);
     expect((await complete(s.e, up.id, [{ part_number: 1, etag: "x" }], OTHER)).status).toBe(404);
 
+    // There is no identity-less operator token any more: an unknown Bearer is 401.
     const staticInit = await init(s.e, 100, { token: "static-op-token" });
-    expect(staticInit.status).toBe(403);
-    expect((await json(staticInit)).error).toBe("login_required");
+    expect(staticInit.status).toBe(401);
+    expect((await json(staticInit)).error).toBe("unauthorized");
     const staticPart = await putPart(s.e, up.id, 1, payload(100), { token: "static-op-token" });
-    expect((await json(staticPart)).error).toBe("login_required");
+    expect((await json(staticPart)).error).toBe("unauthorized");
+    // A session lookup failure is a retryable 503, never a 401 that signs the app out.
+    s.db._failNext("FROM sessions");
+    const unavailable = await init(s.e, 100);
+    expect(unavailable.status).toBe(503);
+    expect((await json(unavailable)).error).toBe("auth_unavailable");
     const badInit = await init(s.e, 100, { token: "nope" });
     expect(badInit.status).toBe(401);
     expect(await json(badInit)).toEqual({ error: "unauthorized" });
@@ -496,7 +502,11 @@ describe("multipart clip uploads", () => {
 
     const full = await setup([clip({ id: "Full001", user_id: USER, size_bytes: MAX_ACTIVE_CLIP_BYTES_PER_USER })]);
     const denied = await worker.fetch(
-      makeRequest(`${BASE}/clips`, { method: "POST", headers: { ...auth(), "Content-Type": "video/mp4" }, body: mp4Bytes() }),
+      makeRequest(`${BASE}/clips`, {
+        method: "POST",
+        headers: { ...auth(), "Content-Type": "video/mp4", "Content-Length": "16" },
+        body: mp4Bytes(),
+      }),
       full.e,
     );
     expect(denied.status).toBe(403);

@@ -91,7 +91,8 @@ public interface ISessionLogRepository
         int preGameMood = 0,
         bool ruleBroken = false,
         string pregameIntention = "",
-        string intentionSource = ""
+        string intentionSource = "",
+        DbWriteSession? session = null
     );
 
     /// <summary>Update the mental rating for a specific game.</summary>
@@ -105,14 +106,14 @@ public interface ISessionLogRepository
 
     /// <summary>Reset is_skipped to 0 — used when a previously-skipped game
     /// gets a real review on a follow-up open of the review page.</summary>
-    Task ClearSkippedAsync(long gameId);
+    Task ClearSkippedAsync(long gameId, DbWriteSession? session = null);
 
     /// <summary>Delete-review: clear ONLY the three fields that gate the review
     /// queue (improvement_note, mental_handled, is_skipped), returning the game to
     /// the unreviewed queue. Deliberately preserves mental_rating, focus_adherence
     /// and rule_broken so the live-computed mental + adherence streaks (and the
     /// pre-2026-06-12 grandfathered verdicts) are untouched — the row stays.</summary>
-    Task ClearReviewMarkersAsync(long gameId);
+    Task ClearReviewMarkersAsync(long gameId, DbWriteSession? session = null);
 
     /// <summary>v2.15.10: clear or set the rule_broken flag for a specific game.
     /// User-initiated only — used to undo a false positive flagged by the
@@ -128,7 +129,7 @@ public interface ISessionLogRepository
     Task<bool> IsRuleBreakClearedAsync(long gameId);
 
     /// <summary>Save the post-game mental reflection for a specific game.</summary>
-    Task UpdateMentalHandledAsync(long gameId, string mentalHandled);
+    Task UpdateMentalHandledAsync(long gameId, string mentalHandled, DbWriteSession? session = null);
 
     /// <summary>Set or update the session intention for a given date.
     /// v3.3 (schema v12): <paramref name="withCoach"/> tags the block as run
@@ -153,7 +154,7 @@ public interface ISessionLogRepository
     /// v2.18 (schema v5): stamp the one-tap focus-adherence answer
     /// (null = unanswered, 0 = no, 1 = partly, 2 = yes) on a game's row.
     /// </summary>
-    Task UpdateFocusAdherenceAsync(long gameId, int? adherence);
+    Task UpdateFocusAdherenceAsync(long gameId, int? adherence, DbWriteSession? session = null);
 
     /// <summary>Get a single session_log entry by game_id, or null if not found.</summary>
     Task<SessionLogEntry?> GetEntryAsync(long gameId);
@@ -178,12 +179,6 @@ public interface ISessionLogRepository
 
     /// <summary>Check if a game already has a session_log entry.</summary>
     Task<bool> HasEntryAsync(long gameId);
-
-    /// <summary>
-    /// Remove session_log entries whose date doesn't match the game's actual date.
-    /// Returns the number of deleted rows.
-    /// </summary>
-    Task<int> CleanupMismatchedEntriesAsync();
 
     /// <summary>Get aggregate session stats for today. <paramref name="currentPuuid"/>
     /// lenient-scopes to the logged-in account (null/empty = all accounts).</summary>
@@ -229,8 +224,8 @@ public interface ISessionLogRepository
 
     /// <summary>
     /// Bulk-fetch all (game_id → mental_rating) pairs from session_log in a single
-    /// query. Used by AnalysisService to avoid one-per-game N+1 round-trips when
-    /// building a filtered profile. Only rows where is_skipped = 0 are included.
+    /// query. Used by ReviewExportService to avoid one-per-game N+1 round-trips
+    /// when exporting many games. Only rows where is_skipped = 0 are included.
     /// </summary>
     Task<IReadOnlyDictionary<long, int>> GetAllMentalRatingsAsync();
 }

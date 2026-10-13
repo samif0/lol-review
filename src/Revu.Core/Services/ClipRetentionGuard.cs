@@ -6,14 +6,22 @@ using Revu.Core.Data.Repositories;
 namespace Revu.Core.Services;
 
 /// <summary>
-/// The set of clip files the clips-folder eviction must never delete (C8): narration
-/// sources and narrated renders, the clip of every shared bookmark, and files pinned by
-/// a running share job.
+/// What the clips-folder eviction may touch. It considers ONLY files Revu created as
+/// clips (H5), and never deletes a protected one (C8): narration sources and narrated
+/// renders, the clip of every shared bookmark, clips the user kept (rated, saved as
+/// evidence or a highlight, or tagged themselves), any file linked as a game recording,
+/// and files pinned by a running share job.
 /// </summary>
 public interface IClipRetentionGuard
 {
     /// <summary>Full paths (case-insensitive) that eviction must skip.</summary>
     Task<IReadOnlySet<string>> GetProtectedPathsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Full paths (case-insensitive) of every clip file Revu created. Any other file in
+    /// the clips folder (a recording, the user's own video) is never deleted.
+    /// </summary>
+    Task<IReadOnlySet<string>> GetRevuClipPathsAsync(CancellationToken ct = default);
 
     /// <summary>Protect <paramref name="path"/> until the returned handle is disposed (refcounted).</summary>
     IDisposable Pin(string path);
@@ -40,8 +48,23 @@ public sealed class ClipRetentionGuard : IClipRetentionGuard
         ct.ThrowIfCancellationRequested();
         foreach (var path in await _vod.ListSharedClipPathsAsync().ConfigureAwait(false))
             AddNormalized(set, path);
+        ct.ThrowIfCancellationRequested();
+        foreach (var clip in await _vod.ListClipFilesAsync().ConfigureAwait(false))
+            if (clip.Kept) AddNormalized(set, clip.ClipPath);
+        ct.ThrowIfCancellationRequested();
+        foreach (var vod in await _vod.GetAllVodsAsync().ConfigureAwait(false))
+            AddNormalized(set, vod.FilePath);
         foreach (var pinned in _pins.Keys)
             set.Add(pinned);
+        return set;
+    }
+
+    public async Task<IReadOnlySet<string>> GetRevuClipPathsAsync(CancellationToken ct = default)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var clip in await _vod.ListClipFilesAsync().ConfigureAwait(false))
+            AddNormalized(set, clip.ClipPath);
+        ct.ThrowIfCancellationRequested();
         return set;
     }
 

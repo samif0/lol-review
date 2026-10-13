@@ -7,7 +7,10 @@ using Revu.Core.Models;
 
 namespace Revu.Core.Services;
 
-public sealed record EnemyLanerBackfillResult(int Scanned, int Updated, int Skipped, int Failed);
+/// <param name="Remaining">Queued games this run did not reach (its <c>maxGames</c> cap or
+/// time budget ended it first), less any an earlier run with the same
+/// <see cref="BackfillAttempts"/> already tried; a later run continues with them.</param>
+public sealed record EnemyLanerBackfillResult(int Scanned, int Updated, int Skipped, int Failed, int Remaining = 0);
 
 /// <summary>v3.9.2: outcome of a single-game lookup (<see cref="EnemyLanerBackfillService.BackfillGameAsync"/>).</summary>
 public enum EnemyLanerBackfillOutcome
@@ -62,10 +65,17 @@ public sealed class EnemyLanerBackfillService
         _logger = logger;
     }
 
+    /// <param name="budget">Soft stop: once cancelled, the run starts no new game and
+    /// reports the rest as <see cref="EnemyLanerBackfillResult.Remaining"/>. Unlike
+    /// <paramref name="ct"/> it never throws, so a capped run still returns its summary.</param>
+    /// <param name="attempts">The manual backfill's record of games already tried this session:
+    /// untried games go first, and only they count as remaining.</param>
     public async Task<EnemyLanerBackfillResult> RunAsync(
         int maxGames = int.MaxValue,
         IProgress<EnemyLanerBackfillProgress>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        CancellationToken budget = default,
+        BackfillAttempts? attempts = null)
     {
         var region = _config.RiotRegion;
         var puuid = _config.RiotPuuid;
@@ -75,7 +85,8 @@ public sealed class EnemyLanerBackfillService
             return new EnemyLanerBackfillResult(0, 0, 0, 0);
         }
 
-        var allIds = await _games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
+        var queue = await _games.GetGameIdsMissingEnemyLanerAsync().ConfigureAwait(false);
+        var allIds = attempts?.Order(queue) ?? queue.ToList();
         // v2.15.8: auto-backfill on launch caps work so a brand-new user with
         // a thousand-game backlog doesn't trickle for an hour. Settings card
         // calls with maxGames=int.MaxValue to drain the queue manually.
@@ -90,7 +101,9 @@ public sealed class EnemyLanerBackfillService
         foreach (var gameId in ids)
         {
             ct.ThrowIfCancellationRequested();
+            if (budget.IsCancellationRequested) break;
             scanned++;
+            attempts?.Tried(gameId);
             progress?.Report(new EnemyLanerBackfillProgress(scanned, ids.Count, updated, skipped, failed));
 
             // Reconstruct Match-V5 id. Riot game_ids are platform-scoped, so
@@ -120,10 +133,11 @@ public sealed class EnemyLanerBackfillService
             await Throttle(ct).ConfigureAwait(false);
         }
 
+        var remaining = attempts?.CountUntried(allIds.Skip(scanned)) ?? allIds.Count - scanned;
         _logger.LogInformation(
-            "Backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed}",
-            scanned, updated, skipped, failed);
-        return new EnemyLanerBackfillResult(scanned, updated, skipped, failed);
+            "Backfill done: scanned={Scanned} updated={Updated} skipped={Skipped} failed={Failed} remaining={Remaining}",
+            scanned, updated, skipped, failed, remaining);
+        return new EnemyLanerBackfillResult(scanned, updated, skipped, failed, remaining);
     }
 
     /// <summary>

@@ -20,8 +20,11 @@ public interface IConceptTagRepository
 
     Task<IReadOnlyList<long>> GetIdsForGameAsync(long gameId);
 
+    /// <summary>Every game's tag ids in one read (the full review export), keyed by game id.</summary>
+    Task<IReadOnlyDictionary<long, IReadOnlyList<long>>> GetIdsByGameAsync();
+
     /// <summary>Replace the concept tags for a game.</summary>
-    Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds);
+    Task SetForGameAsync(long gameId, IReadOnlyList<long> tagIds, DbWriteSession? session = null);
 
     /// <summary>Get concept tag usage frequency across all games.</summary>
     Task<IReadOnlyList<TagFrequency>> GetTagFrequencyAsync(int limit = 20);

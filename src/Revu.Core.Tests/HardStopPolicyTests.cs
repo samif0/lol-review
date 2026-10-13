@@ -91,7 +91,7 @@ public sealed class HardStopPolicyTests
             Game(t0 + 30 * 60, win: false),  // loss 3, during cooldown
         };
         var rule = Rule(1, "loss_streak", "2:120");
-        var violations = new[] { new RuleViolation(rule, true, "3 consecutive losses — cooldown ends in 1h 30m") };
+        var violations = new[] { new RuleViolation(rule, true, "3 consecutive losses. Cooldown ends in 1h 30m") };
 
         var decision = HardStopPolicy.Decide(violations, new HashSet<long>(), games, Now);
 
