@@ -4,12 +4,14 @@ import { getInvoke } from './platform/index.mjs';
 import { objectiveDisplayText, objectiveTypeLabel, objectivePhaseLabel, TRACKABLE_EVENT_TOKENS } from './objective-labels.mjs';
 import { renderObjectiveProgress } from './objective-progress.mjs';
 import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
+import { toneFromHex, tokenTone } from './meaning-tone.mjs';
 
 // Revu desktop — Objectives page renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_objectives`.
 // All server-supplied strings are written via textContent (never innerHTML)
-// to keep the surface XSS-free. Colors arrive as *Hex strings and are applied
-// to style/stroke properties only.
+// to keep the surface XSS-free. The sidecar's *Hex colors are never painted:
+// a meaning color becomes a data-tone that the theme maps to its own token
+// (meaning-tone.mjs), and progress (rings, drill bars) stays monochrome.
 
 // ── invoke resolver ────────────────────────────────────────────────────────
 // Platform commands are available only in an active desktop host. Browser
@@ -21,8 +23,6 @@ import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
 
 const RING_SMALL = 150.8; // 2·π·r, r=24 (active cards)
 const RING_LARGE = 251.3; // 2·π·r, r=40 (priority pane)
-const DEFAULT_DIM = 'rgba(255,255,255,0.13)';
-const DEFAULT_PROG = '#9d8bff';
 
 // Score at which an objective is "Ready" — gates Complete vs Complete-Early.
 const READY_SCORE = 50;
@@ -52,13 +52,11 @@ async function fetchObjectives() {
 // ── ring drawing (shared) ───────────────────────────────────────────────────
 // Start empty (full offset = 0% drawn), then transition to the target on the
 // next frame so the CSS transition on .ring-prog animates the arc filling.
-function drawRing(scope, progress, circumference, progHex, dimHex) {
+// The ring is monochrome in every theme, so its stroke colors come from CSS.
+function drawRing(scope, progress, circumference) {
   const p = Math.max(0, Math.min(1, Number(progress) || 0));
   const offset = circumference * (1 - p);
-  const track = scope.querySelector('.ring-track');
   const prog = scope.querySelector('.ring-prog');
-  track.setAttribute('stroke', dimHex || DEFAULT_DIM);
-  prog.setAttribute('stroke', progHex || DEFAULT_PROG);
   prog.setAttribute('stroke-dashoffset', String(circumference));
   requestAnimationFrame(() => requestAnimationFrame(() => {
     prog.setAttribute('stroke-dashoffset', String(offset));
@@ -74,9 +72,10 @@ function fillGate(gateEl, valEl, obj) {
 }
 
 // ── measured criterion + hit-rate chip ───────────────────────────────────────
-// Renders the "Success: …" line and a mono HIT x/y GAMES chip whose color comes
-// from the server (criteriaHitRateHex: muted / win / loss). The whole row hides
-// when the objective carries neither a structured criterion nor free text.
+// Renders the "Success: …" line and a HIT x/y GAMES chip whose tone comes from
+// the server's criteriaHitRateHex (met reads ok, missed reads loss, no data
+// stays neutral). The whole row hides when the objective carries neither a
+// structured criterion nor free text.
 function fillCriteria(card, o) {
   const wrap = card.querySelector('.obj-card-crit');
   if (!wrap) return;
@@ -90,7 +89,7 @@ function fillCriteria(card, o) {
   const hasHit = !!(o.hasStructuredCriteria && o.criteriaHitRateText);
   if (hasHit) {
     hitEl.textContent = objectiveDisplayText(o.criteriaHitRateText);
-    if (o.criteriaHitRateHex) hitEl.style.color = o.criteriaHitRateHex;
+    hitEl.dataset.tone = toneFromHex(o.criteriaHitRateHex);
   }
   show(hitEl, hasHit);
 
@@ -116,7 +115,12 @@ function renderHeader(d) {
   const statusB = line.querySelector('b');
   while (line.lastChild && line.lastChild !== statusB) line.removeChild(line.lastChild);
   const tail = parts.slice(1);
-  if (tail.length) line.appendChild(document.createTextNode(' · ' + tail.join(' · ')));
+  // Its own element, so the line's flex gap separates it from the count sentence.
+  if (tail.length) {
+    const t = document.createElement('span');
+    t.textContent = tail.join(' · ');
+    line.appendChild(t);
+  }
 }
 
 // Map objective type → the accent class used on its tag chip.
@@ -143,7 +147,6 @@ function renderFocus(d) {
     const fill = el.querySelector('.obj-mini-fill');
     const p = Math.max(0, Math.min(1, Number(o.progress) || 0));
     fill.style.width = `${Math.round(p * 100)}%`;
-    if (o.levelColorHex) fill.style.background = o.levelColorHex;
 
     // Minis are "ready" once they hit their target game count; otherwise the
     // quiet Complete-Early shows (mirrors the score gate for leveling objectives).
@@ -180,7 +183,7 @@ function renderObjectives(d) {
     if (o.isPriority) el.classList.add('obj-card-priority');
 
     const progress = renderObjectiveProgress(el, o);
-    drawRing(el, progress.score / READY_SCORE, RING_SMALL, o.levelColorHex, o.levelDimColorHex);
+    drawRing(el, progress.score / READY_SCORE, RING_SMALL);
     el.querySelector('.obj-points-value').textContent = String(progress.score);
     el.querySelector('.ringwrap').setAttribute('aria-label', `${progress.score} practice points; 50 points reaches Ready`);
 
@@ -245,7 +248,7 @@ function renderCompleted(d) {
 
   for (const c of items) {
     const el = tpl('tpl-completed');
-    // id is needed so the row's Edit / Games / Notes / Delete actions resolve.
+    // id is needed so the row's Games / Notes / Edit / Delete actions resolve.
     if (c.id != null) el.dataset.objId = String(c.id);
     el.querySelector('.obj-done-name').textContent = c.title || '';
     el.querySelector('.obj-done-phase').textContent = objectivePhaseLabel(c.phaseLabel);
@@ -430,8 +433,9 @@ function removePromptRow(idx) {
 
 // ── tracked-event gate ─────────────────────────────────────────────────────────
 // Render the event-token picker as grouped pill-toggles. Each pill toggles its
-// token in _eventTypes; a selected pill lights up in its own event color. Groups
-// (Combat / Map objectives / Mark these yourself) get a small label.
+// token in _eventTypes; its dot carries the event's tone (the one the VOD timeline
+// uses), never the catalog hex. Groups (Combat / Map objectives / Mark these
+// yourself) get a small label.
 function renderEventPicker() {
   const host = $('f-events');
   if (!host) return;
@@ -461,7 +465,7 @@ function renderEventPicker() {
       pill.type = 'button';
       pill.className = 'obj-evtpill' + (selected.has(token) ? ' on' : '');
       pill.dataset.token = token;
-      pill.style.setProperty('--evt', opt.color || 'var(--accent)');
+      pill.dataset.tone = tokenTone(token);
       pill.textContent = opt.label || token;
       pill.setAttribute('aria-pressed', selected.has(token) ? 'true' : 'false');
       pill.addEventListener('click', (e) => { e.preventDefault(); toggleEventToken(token); });

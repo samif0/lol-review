@@ -161,7 +161,7 @@ test('the dialog offers Save, Discard and Stay in plain copy, and Escape means s
 });
 
 test('every form page registers the shared guard', async () => {
-  for (const file of ['settings.js', 'objectives.js', 'rules.js', 'manualentry.js', 'matchups.js']) {
+  for (const file of ['settings.js', 'objectives.js', 'rules.js', 'manualentry.js', 'matchups.js', 'app.js']) {
     const source = await readFile(new URL(`../ui/${file}`, import.meta.url), 'utf8');
     assert.match(source, /from '\.\/leave-guard\.mjs'/, file);
     assert.match(source, /registerLeaveGuard\(\{/, file);

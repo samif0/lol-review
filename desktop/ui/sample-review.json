@@ -68,7 +68,7 @@
           { "id": 2, "phase": "Mid", "label": "Were you on a wave when you recalled?", "answer": "", "clips": [] }
         ],
         "unpromptedClips": [
-          { "evidenceId": 50, "timeText": "14:20", "note": "Crashed wave then backed on tempo — good CS habit, no prompt.", "startSeconds": 860, "polarity": "good", "polarityColorHex": "#8ee7ba", "shareUrl": "" }
+          { "evidenceId": 50, "timeText": "14:20", "note": "Crashed wave then backed on tempo, good CS habit, no prompt.", "startSeconds": 860, "polarity": "good", "polarityColorHex": "#8ee7ba", "shareUrl": "" }
         ]
       },
       {
@@ -261,7 +261,7 @@
     ],
     "unsortedClips": [
       { "evidenceId": 52, "timeText": "16:50–17:04", "note": "Dragon setup: late to the pit, missed first contest.", "startSeconds": 1010, "polarity": "neutral", "polarityColorHex": "#9d8bff", "shareUrl": "" },
-      { "evidenceId": 58, "timeText": "24:18", "note": "Auto-captured teamfight — untagged.", "startSeconds": 1458, "polarity": "neutral", "polarityColorHex": "#9d8bff", "shareUrl": "" }
+      { "evidenceId": 58, "timeText": "24:18", "note": "Auto-captured teamfight, untagged.", "startSeconds": 1458, "polarity": "neutral", "polarityColorHex": "#9d8bff", "shareUrl": "" }
     ]
   },
   "subjectSourceText": "Most recent unreviewed game",

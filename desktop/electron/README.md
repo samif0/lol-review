@@ -25,6 +25,9 @@ There is one dependency lockfile at `desktop/package-lock.json`.
   runtime writes to `logs/runtime`). Settings opens this folder.
 - `lifecycle.mjs` and `splash.mjs`: crash recovery (Restart Revu, Open logs, Quit), relaunch
   arguments, and the startup window shown while the sidecar starts or upgrades data.
+- `appearance.mjs`: the native mirror of the theme the shell shows (`set_window_appearance`). It
+  paints the window background and keeps `<profile>/appearance.json`, so the next launch opens
+  the splash and window in the same colors. Revu never sets `nativeTheme.themeSource`.
 
 The shared command catalog is `../ui/platform/commands.mjs`. Same-origin child
 pages deliberately use the trusted top document's bridge. The renderer uses its

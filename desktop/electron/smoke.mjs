@@ -5,6 +5,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Sidecar } from './sidecar.mjs';
 import { checkDesktopUi } from './smoke-ui.mjs';
 
+// The Home "Last 30 days" strip, in order (ui/app.js renderStats). The smoke waits for
+// exactly these cells; tests/dashboard-home.test.mjs keeps the two in agreement.
+export const HOME_STAT_LABELS = Object.freeze(['Win rate', 'Average mental', 'Patterns reviewed, all time', 'Rules kept']);
+
 // Executed only with --smoke against an explicit scratch root. This exercises
 // the real Chromium renderer/preload, sidecar, and synthetic codec fixture.
 export async function runSmoke(window, { dataRoot, packageEvents, media, backend, executable }) {
@@ -59,12 +63,14 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
       const error = document.querySelector('#errpanel');
       if (error && !error.hidden) throw new Error(document.querySelector('#err-detail')?.textContent || 'Dashboard failed');
       const status = document.querySelector('#statusline b')?.textContent;
-      const statCount = document.querySelector('#strip')?.children.length;
-      if (status && !status.includes('Loading') && statCount === 5) return { status, statCount };
+      const labels = [...document.querySelectorAll('#strip .home-stat .k')].map(label => label.textContent);
+      if (status && !status.includes('Loading') && labels.length === ${HOME_STAT_LABELS.length})
+        return { status, statCount: labels.length, labels };
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     throw new Error('Dashboard did not render its backend data');
   })()`);
+  assert.deepEqual(dashboard.labels, [...HOME_STAT_LABELS], 'Home renders the Last 30 days strip');
   const rendered = await contents.executeJavaScript(`({frame:document.querySelector('iframe').getBoundingClientRect().toJSON(),
     textLength:document.querySelector('iframe').contentDocument.body.innerText.length,
     title:document.querySelector('iframe').contentDocument.title,

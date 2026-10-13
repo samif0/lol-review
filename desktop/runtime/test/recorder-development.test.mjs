@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { bundledFonts } from '../../scripts/package.mjs';
 import { prepareRecorderDevelopment } from '../../scripts/start-recorder.mjs';
 
 async function scratch(t) {
@@ -23,7 +24,7 @@ async function file(root, name, value = 'fixture') {
 async function fixture(root) {
   for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/recording-service.mjs',
     'electron/branding/revu.ico', 'runtime/overwolf.mjs', 'ui/index.html', 'ui/settings.html',
-    'ui/recording-settings.mjs', 'ui/platform/index.mjs']) await file(root, name);
+    'ui/recording-settings.mjs', 'ui/platform/index.mjs', 'ui/appearance.css', ...bundledFonts]) await file(root, name);
   const manifest = JSON.stringify({ name: 'revu-desktop', productName: 'Revu', version: '3.10.1',
     author: '', main: 'electron/main.mjs', type: 'module', overwolf: { packages: [] } }, null, 2);
   await file(root, 'package.json', manifest);
@@ -43,6 +44,7 @@ test('Recorder development stages the real host with approved identity and only 
   assert.equal(staged.version, '3.10.1');
   assert.ok(files.includes('electron/recording-service.mjs'));
   assert.ok(files.includes('ui/recording-settings.mjs'));
+  for (const font of bundledFonts) assert.ok(files.includes(font), font);
   assert.equal(await readFile(path.join(root, 'package.json'), 'utf8'), originalManifest);
 });
 

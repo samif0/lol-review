@@ -1,0 +1,81 @@
+/* Before the match and current match page styles (tokens only; see appearance.css).
+   Both pages are read at a glance while the game loads: quiet outlined sections,
+   suggestions as pills, and color only where it means something (your champion
+   and the enemy, whether a note helped, the priority objective in the pending tone).
+   Selectors start at body so they beat the shared resets in styles.css. */
+
+/* Sections: lists divided by hairlines, as on Tilt check. The intel rotator stays the one raised surface. */
+body .pg-shell .pg-card{padding:20px 0 4px;border:0!important;border-top:1px solid var(--line)!important;border-radius:0!important;
+  background:transparent!important;box-shadow:none!important}
+body .pg-shell .pg-intel{padding:18px 20px;border:var(--raised-border)!important;border-radius:var(--r-lg)!important;
+  background:var(--raised)!important;box-shadow:var(--raised-shadow)!important}
+body .pg-shell .pg-card .seclabel-in{margin-bottom:10px;font-family:var(--f-body);font-size:13px;font-weight:500;color:var(--t3)}
+body .pg-shell .live-banner{padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-md);background:transparent;
+  font-family:var(--f-body);font-size:13px}
+body .pg-shell .noactive-p{font-size:14px;line-height:1.6}
+
+/* Intel rotator */
+body .pg-shell .intel-card .intel-eyebrow{font-family:var(--f-body);font-size:12px;color:var(--t3)}
+body .pg-shell .intel-card .intel-headline{margin-top:6px;font-size:18px;font-weight:var(--display-weight);line-height:1.35;
+  letter-spacing:var(--display-track)!important}
+body .pg-shell .intel-card .intel-body{font-size:14px;line-height:1.55}
+body .pg-shell .intel-arr{display:inline-grid;place-items:center;width:32px;height:30px;padding:0;border-radius:var(--btn-radius)!important;
+  font-family:var(--f-body);font-size:16px}
+body .pg-shell .intel-dot{background:var(--line-strong)}
+body .pg-shell .intel-dot.on{background:var(--t1)}
+
+/* Matchup */
+body .pg-shell :is(.matchup-my,.matchup-enemy){font-weight:var(--display-weight);letter-spacing:var(--display-track)!important}
+body .pg-shell .matchup-x{font-family:var(--f-body);font-size:13px;color:var(--t3)}
+
+/* Matchup notes: a quiet list, each note in your own words. */
+body .pg-shell .mh-row{margin:0;padding:12px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+body .pg-shell .mh-row:first-child{padding-top:2px}
+body .pg-shell .mh-row:last-child{padding-bottom:0;border-bottom:0}
+body .pg-shell .mh-note{font-size:14px;line-height:1.55;color:var(--t1)}
+body .pg-shell .mh-date{font-family:var(--f-body);font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+body .pg-shell .mh-helpful{font-family:var(--f-body);font-size:12px;font-weight:500}
+
+/* This game's intent */
+body .pg-shell .intent-dot{background:var(--pending)}
+body .pg-shell .intent-prov{font-size:12px}
+body .pg-shell .active-plan-row{padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:transparent}
+body .pg-shell .active-plan-k{font-family:var(--f-body);font-size:12px;font-weight:500;color:var(--t3)}
+body .pg-shell .active-plan{font-size:14px;line-height:1.5;color:var(--t1)}
+body .pg-shell .pg-textarea{font-size:14px;line-height:1.55}
+body .pg-shell .intent-hint-t{font-family:var(--f-body);font-size:12px;color:var(--t3)}
+body .pg-shell .intent-dont{min-height:30px;padding:4px 10px;font-family:var(--f-body);font-size:13px}
+
+/* Suggestions are pills; the chosen source fills quietly. */
+body .pg-shell :is(.src-chip,.sess-chip){display:inline-flex;align-items:center;min-height:30px;padding:4px 12px;
+  border:1px solid var(--line-strong);border-radius:999px!important;background:transparent;font-family:var(--f-body);font-size:13px;
+  font-weight:400;line-height:1.3;color:var(--t2)}
+body .pg-shell :is(.src-chip,.sess-chip).on{background:var(--selected)!important;border-color:var(--t2)!important;color:var(--t1)!important}
+
+/* Mood */
+body .pg-shell .mood-btn{min-height:40px;padding:8px 6px;font-family:var(--f-body);font-size:13px;font-weight:500}
+body .pg-shell .mood-btn.on{background:var(--selected)!important;border-color:var(--t2)!important;color:var(--t1)!important}
+
+/* Objectives */
+body .pg-shell .obj-priority-title{font-weight:var(--display-weight);line-height:1.35;letter-spacing:var(--display-track)!important}
+body .pg-shell .obj-priority-crit{font-size:14px;line-height:1.5}
+body .pg-shell .obj-row{padding:12px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+body .pg-shell .obj-row:last-child{border-bottom:0}
+body .pg-shell .obj-title{font-size:14px;font-weight:500}
+body .pg-shell .obj-pri{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--r-sm);
+  background:var(--pending-soft);color:var(--pending);font-family:var(--f-body);font-size:12px;font-weight:500;line-height:1}
+body .pg-shell .obj-crit{font-size:13px;color:var(--t3)}
+body .pg-shell .obj-toggle{min-height:34px;padding:6px 14px;font-family:var(--f-body);font-size:13px;font-weight:500}
+body .pg-shell .obj-toggle.on{background:var(--selected)!important;border-color:var(--t2)!important;color:var(--t1)!important}
+
+/* Prompt blocks: the priority objective's edge and eyebrow take the pending tone. */
+body .pg-shell .pb{--pb-accent:var(--line-strong);padding:4px 0 4px 16px;background:transparent;border:0;
+  border-left:2px solid var(--pb-accent);border-radius:0}
+body .pg-shell .pb[data-tone="pending"]{--pb-accent:var(--pending);border-left-width:2px}
+body .pg-shell .pb .pb-eyebrow{font-family:var(--f-body);font-size:12px;font-weight:500;color:var(--tone,var(--t3))}
+body .pg-shell .pb-title{font-family:var(--f-body);font-size:14px;font-weight:500}
+body .pg-shell .p-label{font-size:13px;line-height:1.45}
+
+@media(prefers-reduced-motion:no-preference){
+  body .pg-shell :is(.src-chip,.sess-chip,.mood-btn,.obj-toggle){transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+}

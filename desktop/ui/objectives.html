@@ -7,12 +7,13 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./learning-pages.css">
 <link rel="stylesheet" href="./objective-progress.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell objectives-shell">
-    <div class="eyebrow">Learning</div>
     <div class="hero obj-hero">
       <h1>Learning objectives</h1>
       <button class="cta obj-new-btn" id="new-objective" data-action="new_objective" type="button">New learning objective</button>
@@ -188,7 +189,7 @@
     <div class="obj-celebrate-card glass">
       <div class="obj-celebrate-eyebrow">Milestone reached</div>
       <h2 class="obj-celebrate-head" id="celebrate-head">Learning objective complete</h2>
-      <div class="obj-celebrate-title" id="celebrate-title"></div>
+      <div class="obj-celebrate-title own-words" id="celebrate-title"></div>
       <div class="obj-celebrate-stats" id="celebrate-stats"></div>
       <div class="obj-celebrate-line">Skill acquired: carry it into your next games.</div>
       <button class="cta obj-celebrate-cta" id="celebrate-continue" data-action="dismiss_celebration" type="button">Continue</button>
@@ -214,14 +215,14 @@
             <span class="pill obj-card-pri" hidden>Priority</span>
             <span class="obj-tag obj-card-type"></span>
           </div>
-          <div class="oname obj-card-name"></div>
+          <div class="oname obj-card-name own-words"></div>
           <div class="obj-card-meta"></div>
         </div>
       </div>
-      <!-- MEASURED CRITERION — the success line + a mono hit-rate chip (v2.18).
-           Hidden when the objective has no structured criterion or free text. -->
+      <!-- MEASURED CRITERION — the success line + a hit-rate chip whose data-tone
+           JS sets. Hidden when the objective has no structured criterion or free text. -->
       <div class="obj-card-crit" hidden>
-        <div class="obj-crit-text"></div>
+        <div class="obj-crit-text own-words"></div>
         <div class="obj-crit-hit" hidden></div>
       </div>
       <div class="obj-progress-layout">
@@ -282,7 +283,7 @@
       <div class="obj-mini-main">
         <div class="obj-mini-head">
           <span class="obj-tag obj-tag-focus">Short focus drill</span>
-          <span class="obj-mini-name"></span>
+          <span class="obj-mini-name own-words"></span>
         </div>
         <div class="obj-mini-prog"></div>
       </div>
@@ -323,15 +324,15 @@
   <template id="tpl-completed">
     <div class="card obj-done">
       <div class="obj-done-main">
-        <div class="obj-done-name"></div>
+        <div class="obj-done-name own-words"></div>
         <div class="obj-done-phase"></div>
       </div>
       <div class="obj-done-sum"></div>
       <span class="obj-done-badge">Done</span>
       <div class="obj-actrow obj-done-actrow">
-        <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
         <button class="obj-act" data-action="open_obj_games" type="button">Games</button>
         <button class="obj-act" data-action="open_obj_notes" type="button">Notes</button>
+        <button class="obj-act" data-action="edit_objective" type="button">Edit</button>
         <button class="obj-act obj-act-danger" data-action="delete_objective" type="button">Delete</button>
       </div>
     </div>

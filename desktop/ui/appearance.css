@@ -1,0 +1,241 @@
+/* Revu appearance: bundled fonts, the legacy bridge, and the color, type and shape
+   tokens for four themes in two modes. Linked LAST on every page. nav-prepaint.js sets
+   data-theme, data-mode (resolved dark or light), data-mode-pref, data-page and
+   data-daypart on <html> before this parses. Token blocks use element-agnostic
+   [data-theme] selectors, so any element (the Settings previews) can carry a theme.
+   This is the only stylesheet allowed to hold color literals.
+
+   Calm token contract (every dark block defines all of these; light blocks redefine every color):
+   Surfaces  --bg --side --raised --hover --selected --well --line --line-strong --field --field-line
+   Text      --t1 --t2 --t3
+   Accent    --accent --accent-ink --accent-soft --focus --accent-mark (always the --t1 value: the brand mark is never tinted)
+   Meaning   --win --loss --pending --pending-soft --ok --danger --gold --calm
+   Events    --ev-kill --ev-assist --ev-death --ev-dragon --ev-void --ev-structure --ev-fight --ev-recall
+             --mk-clip --mk-note --playhead --track
+   Type      --f-display --f-body --f-data --display-weight --display-track --greet-size --title-size
+   Shape     --r-lg --r-md --r-sm --btn-radius --raised-shadow --raised-border
+   Tints     --primary-rgb (accent) --neutral-rgb (loss) --bg-rgb, for rgba(var(--x-rgb),a)
+   Small text  --mk-clip-text --calm-text --ev-code-mix (how much event color a timeline code
+             keeps). The bridge sets the mark colors and 72%; light blocks darken the two
+             colors to 4.5:1 on their surfaces and lower the mix to 50%.
+   Journal adds --f-voice --voice --spine. Aura adds the light field, lit and composer tokens. */
+
+/* Fonts (SIL Open Font License 1.1, license texts in ./fonts/OFL-*.txt). Sources from the
+   google/fonts repository: ofl/sourceserif4/SourceSerif4[opsz,wght].ttf and
+   SourceSerif4-Italic[opsz,wght].ttf (4.004), ofl/instrumentsans/InstrumentSans[wdth,wght].ttf,
+   ofl/geist/Geist[wght].ttf, ofl/geistmono/GeistMono[wght].ttf. Built with fontTools 4.62.1:
+     py -3.12 -I -m fontTools.varLib.instancer SourceSerif4-Roman.ttf wght=400:500 -o ss4r.ttf   (opsz kept)
+     py -3.12 -I -m fontTools.varLib.instancer SourceSerif4-Italic.ttf wght=400 -o ss4i.ttf
+     py -3.12 -I -m fontTools.varLib.instancer InstrumentSans.ttf wdth=100 wght=400:700 -o is.ttf
+     py -3.12 -I -m fontTools.varLib.instancer Geist.ttf wght=400:700 -o g.ttf
+     py -3.12 -I -m fontTools.varLib.instancer GeistMono.ttf wght=400:600 -o gm.ttf
+     py -3.12 -I -m fontTools.subset <instance>.ttf --unicodes=U+0000-00FF,U+0100-017F,U+0131,U+0152-0153,
+       U+0218-021B,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+1E9E,U+2000-206F,U+20AC,U+2122,
+       U+2190-2199,U+21B3,U+2212,U+2215,U+2264-2265,U+2713,U+2715,U+25B2,U+25B6,U+25B8,U+25BC,U+25BE,
+       U+25C0,U+25CE,U+FEFF,U+FFFD --layout-features+=tnum --name-IDs=0,1,2,3,4,5,6,7,13,14
+       --no-hinting --flavor=woff2 --output-file=<name>.woff2
+   block, not swap: every frame navigation is a new document, and a swap would reflow it. */
+@font-face{font-family:'Source Serif 4';src:url('./fonts/source-serif-4-roman.woff2') format('woff2');font-weight:400 500;font-style:normal;font-display:block}
+@font-face{font-family:'Source Serif 4';src:url('./fonts/source-serif-4-italic.woff2') format('woff2');font-weight:400;font-style:italic;font-display:block}
+@font-face{font-family:'Instrument Sans';src:url('./fonts/instrument-sans.woff2') format('woff2');font-weight:400 700;font-style:normal;font-display:block}
+@font-face{font-family:'Geist';src:url('./fonts/geist.woff2') format('woff2');font-weight:400 700;font-style:normal;font-display:block}
+@font-face{font-family:'Geist Mono';src:url('./fonts/geist-mono.woff2') format('woff2');font-weight:400 600;font-style:normal;font-display:block}
+
+/* Bridge: legacy names read the calm tokens, plus derived defaults. Before the theme
+   blocks, so Aura can override the lit and composer mixins at equal specificity. */
+:root,[data-theme]{
+  --text:var(--t1);--muted:var(--t3);--t4:var(--t3);--surface:var(--raised);
+  --surface-raised:color-mix(in srgb,var(--t1) 6%,var(--raised));--border:var(--line);
+  --primary:var(--accent);--primary-ink:var(--accent-ink);--error:var(--danger);
+  --result-win:var(--win);--result-loss:var(--loss);--glass:var(--raised);--glass2:var(--raised);
+  --gline:var(--line-strong);--gline2:var(--line);--font-ui:var(--f-body);--fo:var(--f-display);
+  --fb:var(--f-body);--fm:var(--f-body);--radius:var(--r-md);--f-num:var(--f-body);
+  --ev-summoner:var(--calm);--ev-trade:var(--ev-dragon);--ev-away:var(--ev-recall);--ev-proximity:var(--ev-structure);
+  --mk-clip-text:var(--mk-clip);--calm-text:var(--calm);--ev-code-mix:72%;
+  --selection:color-mix(in srgb,var(--focus) 32%,transparent);--scroll-thumb:var(--line-strong);
+  --accent-hover:color-mix(in srgb,var(--accent) 86%,var(--bg));
+  --danger-line:color-mix(in srgb,var(--danger) 45%,transparent);--danger-soft:color-mix(in srgb,var(--danger) 12%,transparent);
+  --scrim:color-mix(in srgb,var(--well) 60%,transparent);
+  --pop-shadow:0 2px 8px color-mix(in srgb,var(--well) 22%,transparent),0 24px 56px -20px color-mix(in srgb,var(--well) 55%,transparent);
+  --lit-fill:var(--selected);--lit-shadow:none;--glow:transparent;
+  --composer-bg:var(--raised);--composer-sky:transparent;--composer-border:var(--raised-border);--composer-shadow:var(--raised-shadow);
+}
+
+/* Warm (the default), dark. Journal is Warm plus the voice tokens below. */
+:root:not([data-theme]),[data-theme="warm"],[data-theme="journal"]{
+  --bg:#21201e;--side:#1a1918;--raised:#2a2926;--hover:rgba(255,248,235,.045);--selected:rgba(255,248,235,.075);--well:#0e0e0d;
+  --line:rgba(255,248,235,.08);--line-strong:rgba(255,248,235,.17);--field:#2a2926;--field-line:rgba(255,248,235,.36);
+  --t1:#f3f0ea;--t2:#d0ccc3;--t3:#a29d93;
+  --accent:#f3f0ea;--accent-ink:#1d1c1a;--accent-soft:rgba(255,248,235,.08);--focus:#e2b866;--accent-mark:#f3f0ea;
+  --win:#7ea6f2;--loss:#ec8189;--pending:#e2b866;--pending-soft:rgba(226,184,102,.13);--ok:#86c6a3;--danger:#ef8d92;--gold:#e2b866;--calm:#9cbcd9;
+  --ev-kill:#f3f0ea;--ev-assist:#7ea6f2;--ev-death:#ec8189;--ev-dragon:#e8924a;--ev-void:#b9a0f2;--ev-structure:#a29d93;--ev-fight:#ec8189;
+  --ev-recall:#6e6a62;--mk-clip:#e2b866;--mk-note:#d0ccc3;--playhead:#ffffff;--track:rgba(255,248,235,.14);
+  --f-display:'Source Serif 4',Georgia,serif;--f-body:'Instrument Sans','Segoe UI',system-ui,sans-serif;--f-data:'Geist Mono',Consolas,monospace;
+  --display-weight:400;--display-track:-0.01em;--greet-size:40px;--title-size:28px;
+  --r-lg:18px;--r-md:10px;--r-sm:7px;--btn-radius:10px;
+  --raised-shadow:0 1px 0 rgba(255,248,235,.04) inset,0 10px 30px -18px rgba(0,0,0,.6);--raised-border:1px solid rgba(255,248,235,.09);
+  --primary-rgb:243,240,234;--neutral-rgb:236,129,137;--bg-rgb:33,32,30;
+}
+[data-theme="warm"][data-mode="light"],[data-theme="journal"][data-mode="light"]{
+  --bg:#f8f7f3;--side:#f0eee8;--raised:#ffffff;--hover:rgba(40,30,10,.04);--selected:rgba(40,30,10,.065);--well:#111110;
+  --line:rgba(40,30,10,.09);--line-strong:rgba(40,30,10,.2);--field:#ffffff;--field-line:rgba(40,30,10,.48);
+  --t1:#1c1b19;--t2:#47443d;--t3:#69645a;
+  --accent:#1c1b19;--accent-ink:#f8f7f3;--accent-soft:rgba(40,30,10,.06);--focus:#9a6a12;--accent-mark:#1c1b19;
+  --win:#2f62c4;--loss:#bd3c48;--pending:#835709;--pending-soft:rgba(196,140,40,.15);--ok:#24704b;--danger:#b8363f;--gold:#875b0b;--calm:#5f88b3;
+  --ev-kill:#1c1b19;--ev-assist:#2f62c4;--ev-death:#bd3c48;--ev-dragon:#c0651a;--ev-void:#7550c4;--ev-structure:#8a857b;--ev-fight:#bd3c48;
+  --ev-recall:#8a8478;--mk-clip:#b07a14;--mk-note:#716c62;--playhead:#1c1b19;--track:rgba(40,30,10,.15);
+  --mk-clip-text:#7a540b;--calm-text:#3f6a96;--ev-code-mix:50%;
+  --raised-shadow:0 1px 2px rgba(40,30,10,.05),0 12px 32px -20px rgba(40,30,10,.3);--raised-border:1px solid rgba(40,30,10,.1);
+  --primary-rgb:28,27,25;--neutral-rgb:189,60,72;--bg-rgb:248,247,243;
+}
+
+/* Journal: your own words are set in the serif "voice". */
+[data-theme="journal"]{--f-voice:'Source Serif 4',Georgia,serif;--voice:#ebe6dc;--spine:rgba(255,248,235,.14)}
+[data-theme="journal"][data-mode="light"]{--voice:#24221f;--spine:rgba(40,30,10,.16)}
+
+/* Neutral: cool greys, one sans family. */
+[data-theme="neutral"]{
+  --bg:#1c1d1f;--side:#161719;--raised:#25272a;--hover:rgba(255,255,255,.045);--selected:rgba(255,255,255,.075);--well:#0b0b0c;
+  --line:rgba(255,255,255,.075);--line-strong:rgba(255,255,255,.17);--field:#25272a;--field-line:rgba(255,255,255,.36);
+  --t1:#f3f4f6;--t2:#c9ccd1;--t3:#979ba3;
+  --accent:#f3f4f6;--accent-ink:#141517;--accent-soft:rgba(255,255,255,.08);--focus:#8fb2ff;--accent-mark:#f3f4f6;
+  --win:#76a0f4;--loss:#ef7f88;--pending:#e6bd6c;--pending-soft:rgba(230,189,108,.13);--ok:#7fc8a4;--danger:#f08c92;--gold:#e6bd6c;--calm:#8fb2ff;
+  --ev-kill:#f3f4f6;--ev-assist:#76a0f4;--ev-death:#ef7f88;--ev-dragon:#ec9a4f;--ev-void:#b8a0f4;--ev-structure:#979ba3;--ev-fight:#ef7f88;
+  --ev-recall:#6c6f75;--mk-clip:#e6bd6c;--mk-note:#c9ccd1;--playhead:#ffffff;--track:rgba(255,255,255,.14);
+  --f-display:'Geist','Segoe UI',system-ui,sans-serif;--f-body:'Geist','Segoe UI',system-ui,sans-serif;--f-data:'Geist Mono',Consolas,monospace;
+  --display-weight:500;--display-track:-0.025em;--greet-size:34px;--title-size:26px;
+  --r-lg:22px;--r-md:10px;--r-sm:7px;--btn-radius:999px;
+  --raised-shadow:0 12px 34px -20px rgba(0,0,0,.75);--raised-border:1px solid rgba(255,255,255,.09);
+  --primary-rgb:243,244,246;--neutral-rgb:239,127,136;--bg-rgb:28,29,31;
+}
+[data-theme="neutral"][data-mode="light"]{
+  --bg:#ffffff;--side:#f7f7f8;--raised:#ffffff;--hover:rgba(10,12,16,.04);--selected:rgba(10,12,16,.06);--well:#0d0d0e;
+  --line:rgba(10,12,16,.08);--line-strong:rgba(10,12,16,.18);--field:#ffffff;--field-line:rgba(10,12,16,.46);
+  --t1:#0f1012;--t2:#3d4046;--t3:#656971;
+  --accent:#0f1012;--accent-ink:#ffffff;--accent-soft:rgba(10,12,16,.06);--focus:#2b63d9;--accent-mark:#0f1012;
+  --win:#2b63d9;--loss:#c4384a;--pending:#8c5d07;--pending-soft:rgba(214,150,30,.15);--ok:#1f7149;--danger:#bd3443;--gold:#8c5d07;--calm:#3f74c9;
+  --ev-kill:#0f1012;--ev-assist:#2b63d9;--ev-death:#c4384a;--ev-dragon:#c25e10;--ev-void:#7048c8;--ev-structure:#83878f;--ev-fight:#c4384a;
+  --ev-recall:#868a92;--mk-clip:#a8720b;--mk-note:#6b6f77;--playhead:#0f1012;--track:rgba(10,12,16,.14);
+  --mk-clip-text:#7f570c;--calm-text:#3667b5;--ev-code-mix:50%;
+  --raised-shadow:0 1px 2px rgba(10,12,16,.05),0 14px 36px -22px rgba(10,12,16,.35);--raised-border:1px solid rgba(10,12,16,.1);
+  --primary-rgb:15,16,18;--neutral-rgb:196,56,74;--bg-rgb:255,255,255;
+}
+
+/* Aura: Warm plus light as hierarchy. A soft field behind the Home greeting follows the
+   time of day, the composer is the one lit surface, and "lit" marks the thing you are on.
+   The dark base is evening and the light base is morning. */
+[data-theme="aura"]{
+  --bg:#1f1e1c;--side:#191817;--raised:#2a2825;--hover:rgba(255,246,230,.045);--selected:rgba(255,246,230,.075);--well:#0d0d0d;
+  --line:rgba(255,246,230,.08);--line-strong:rgba(255,246,230,.17);--field:#2a2825;--field-line:rgba(255,246,230,.36);
+  --t1:#f3efe8;--t2:#d0cbc1;--t3:#a39d92;
+  --accent:#f3efe8;--accent-ink:#1d1c1a;--accent-soft:rgba(255,246,230,.08);--focus:#e2b866;--accent-mark:#f3efe8;
+  --win:#7ea6f2;--loss:#ec8189;--pending:#e2b866;--pending-soft:rgba(226,184,102,.13);--ok:#86c6a3;--danger:#ef8d92;--gold:#e2b866;--calm:#9cbcd9;
+  --ev-kill:#f3efe8;--ev-assist:#7ea6f2;--ev-death:#ec8189;--ev-dragon:#e8924a;--ev-void:#b9a0f2;--ev-structure:#a29d93;--ev-fight:#ec8189;
+  --ev-recall:#6e6a62;--mk-clip:#e2b866;--mk-note:#d0ccc3;--playhead:#ffffff;--track:rgba(255,248,235,.14);
+  --f-display:'Source Serif 4',Georgia,serif;--f-body:'Instrument Sans','Segoe UI',system-ui,sans-serif;--f-data:'Geist Mono',Consolas,monospace;
+  --display-weight:400;--display-track:-0.01em;--greet-size:40px;--title-size:28px;
+  --r-lg:18px;--r-md:10px;--r-sm:7px;--btn-radius:10px;
+  --raised-shadow:0 1px 0 rgba(255,248,235,.04) inset,0 10px 30px -18px rgba(0,0,0,.6);--raised-border:1px solid rgba(255,248,235,.09);
+  --primary-rgb:243,239,232;--neutral-rgb:236,129,137;--bg-rgb:31,30,28;
+  --aura-core:rgba(238,158,82,.19);--aura-wide:rgba(196,104,60,.075);--aura-y:250px;--aura-rx:430px;--aura-ry:230px;
+  --lit:rgba(255,206,150,.12);--lit-soft:rgba(255,226,190,.045);--lit-far:rgba(255,240,220,.02);--lit-edge:rgba(255,232,205,.055);
+  --glow:rgba(255,208,150,.16);
+  --composer-bg:linear-gradient(180deg,#302d29,#292724 70%);--composer-sky:rgba(255,210,155,.07);--composer-edge:rgba(255,232,200,.11);
+  --composer-shadow:inset 0 1px 0 rgba(255,236,210,.08),0 2px 6px rgba(0,0,0,.22),0 30px 60px -30px rgba(0,0,0,.85);
+  --lit-fill:radial-gradient(120% 220% at 0% 50%,var(--lit) 0%,var(--lit-soft) 55%,var(--lit-far) 100%);
+  --lit-shadow:inset 0 1px 0 var(--lit-edge);--composer-border:1px solid var(--composer-edge);
+}
+[data-theme="aura"][data-mode="light"]{
+  --bg:#f7f6f2;--side:#efede7;--raised:#ffffff;--hover:rgba(40,30,10,.04);--selected:rgba(40,30,10,.065);--well:#111110;
+  --line:rgba(40,30,10,.09);--line-strong:rgba(40,30,10,.2);--field:#ffffff;--field-line:rgba(40,30,10,.48);
+  --t1:#1c1b19;--t2:#47443d;--t3:#69645a;
+  --accent:#1c1b19;--accent-ink:#f8f7f3;--accent-soft:rgba(40,30,10,.06);--focus:#9a6a12;--accent-mark:#1c1b19;
+  --win:#2f62c4;--loss:#bd3c48;--pending:#835709;--pending-soft:rgba(196,140,40,.15);--ok:#24704b;--danger:#b8363f;--gold:#875b0b;--calm:#5f88b3;
+  --ev-kill:#1c1b19;--ev-assist:#2f62c4;--ev-death:#bd3c48;--ev-dragon:#c0651a;--ev-void:#7550c4;--ev-structure:#8a857b;--ev-fight:#bd3c48;
+  --ev-recall:#8a8478;--mk-clip:#b07a14;--mk-note:#716c62;--playhead:#1c1b19;--track:rgba(40,30,10,.15);
+  --mk-clip-text:#7a540b;--calm-text:#3f6a96;--ev-code-mix:50%;
+  --raised-shadow:0 1px 2px rgba(40,30,10,.05),0 12px 32px -20px rgba(40,30,10,.3);--raised-border:1px solid rgba(40,30,10,.1);
+  --primary-rgb:28,27,25;--neutral-rgb:189,60,72;--bg-rgb:247,246,242;
+  --aura-core:rgba(255,255,255,.95);--aura-wide:rgba(246,200,120,.16);--aura-y:110px;--aura-rx:520px;--aura-ry:300px;
+  --lit:rgba(232,168,72,.17);--lit-soft:rgba(240,190,110,.07);--lit-far:rgba(40,30,10,.025);--lit-edge:rgba(255,255,255,.7);
+  --glow:rgba(222,150,50,.16);
+  --composer-bg:linear-gradient(180deg,#ffffff,#fffefb);--composer-sky:rgba(255,226,170,.28);--composer-edge:rgba(60,40,10,.1);
+  --composer-shadow:0 1px 2px rgba(60,40,10,.06),0 22px 48px -26px rgba(120,80,20,.32);
+  --lit-fill:radial-gradient(120% 220% at 0% 50%,var(--lit) 0%,var(--lit-soft) 55%,var(--lit-far) 100%);
+  --lit-shadow:inset 0 1px 0 var(--lit-edge);--composer-border:1px solid var(--composer-edge);
+}
+
+/* Aura time of day: only the light field moves (the sun rises high and sets low). */
+[data-theme="aura"][data-mode="dark"][data-daypart="morning"]{--aura-core:rgba(255,226,182,.12);--aura-wide:rgba(222,170,118,.05);--aura-y:110px}
+[data-theme="aura"][data-mode="dark"][data-daypart="day"]{--aura-core:rgba(255,244,230,.08);--aura-wide:rgba(232,206,170,.04);--aura-y:150px}
+[data-theme="aura"][data-mode="dark"][data-daypart="night"]{--aura-core:rgba(186,104,62,.12);--aura-wide:rgba(150,82,52,.06);--aura-y:320px}
+[data-theme="aura"][data-mode="light"][data-daypart="day"]{--aura-core:rgba(255,255,255,.9);--aura-wide:rgba(240,214,168,.12);--aura-y:150px}
+[data-theme="aura"][data-mode="light"][data-daypart="evening"]{--aura-core:rgba(255,246,236,.85);--aura-wide:rgba(236,150,80,.18);--aura-y:250px}
+[data-theme="aura"][data-mode="light"][data-daypart="night"]{--aura-core:rgba(255,248,242,.6);--aura-wide:rgba(196,120,72,.14);--aura-y:320px}
+
+/* Aura while watching a VOD: the lights go off and the window turns neutral (no hue)
+   around the footage, in the frame (data-page) and in the shell (data-frame-page). */
+[data-theme="aura"][data-mode="dark"]:is([data-page="vodplayer"],[data-frame-page="vodplayer"]){
+  --bg:#1b1b1b;--side:#161616;--raised:#242424;--hover:rgba(255,255,255,.045);--selected:rgba(255,255,255,.07);
+  --line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.16);--field:#242424;
+  --t1:#efefef;--t2:#cbcbcb;--t3:#9e9e9e;--accent:#efefef;--accent-ink:#1b1b1b;--track:rgba(255,255,255,.14);
+  --raised-shadow:none;--raised-border:1px solid rgba(255,255,255,.08);
+  --primary-rgb:239,239,239;--bg-rgb:27,27,27;
+}
+[data-theme="aura"][data-mode="light"]:is([data-page="vodplayer"],[data-frame-page="vodplayer"]){
+  --bg:#efefee;--side:#e8e8e7;--raised:#f8f8f8;--hover:rgba(0,0,0,.04);--selected:rgba(0,0,0,.06);
+  --line:rgba(0,0,0,.09);--line-strong:rgba(0,0,0,.18);--field:#f8f8f8;
+  --t1:#1a1a1a;--t2:#444444;--t3:#626262;--accent:#1a1a1a;--accent-ink:#f8f8f8;--track:rgba(0,0,0,.15);
+  --raised-shadow:none;--raised-border:1px solid rgba(0,0,0,.09);
+  --primary-rgb:26,26,26;--bg-rgb:239,239,238;
+}
+
+/* Color scheme follows the resolved mode (nav-prepaint.js also sets it inline). */
+:root{color-scheme:dark;font-synthesis-weight:none}
+:root[data-mode="light"]{color-scheme:light}
+
+/* Meaning tones: JS writes data-tone or data-result (ui/meaning-tone.mjs), page CSS reads var(--tone). */
+[data-tone="ok"]{--tone:var(--ok)}
+[data-tone="win"]{--tone:var(--win)}
+[data-tone="loss"]{--tone:var(--loss)}
+[data-tone="danger"]{--tone:var(--danger)}
+[data-tone="pending"]{--tone:var(--pending)}
+[data-tone="gold"]{--tone:var(--gold)}
+[data-tone="calm"]{--tone:var(--calm)}
+[data-tone="neutral"]{--tone:var(--t3)}
+[data-tone="muted"]{--tone:var(--t2)}
+[data-tone="clip"]{--tone:var(--mk-clip)}
+[data-tone="note"]{--tone:var(--mk-note)}
+[data-tone="kill"]{--tone:var(--ev-kill)}
+[data-tone="assist"]{--tone:var(--ev-assist)}
+[data-tone="death"]{--tone:var(--ev-death)}
+[data-tone="dragon"]{--tone:var(--ev-dragon)}
+[data-tone="void"]{--tone:var(--ev-void)}
+[data-tone="structure"]{--tone:var(--ev-structure)}
+[data-tone="fight"]{--tone:var(--ev-fight)}
+[data-tone="recall"]{--tone:var(--ev-recall)}
+[data-tone="summoner"]{--tone:var(--ev-summoner)}
+[data-tone="trade"]{--tone:var(--ev-trade)}
+[data-tone="away"]{--tone:var(--ev-away)}
+[data-tone="proximity"]{--tone:var(--ev-proximity)}
+[data-result="win"]{--tone:var(--win)}
+[data-result="loss"]{--tone:var(--loss)}
+[data-result="remake"]{--tone:var(--t3)}
+
+/* Theme gating. Surfaces for one theme stay in the DOM and are hidden by attribute,
+   never by [hidden]. data-theme-only and data-theme-hide take space-separated theme ids. */
+:root:not([data-theme]) [data-theme-only]:not([data-theme-only~="warm"]),
+:root[data-theme="warm"] [data-theme-only]:not([data-theme-only~="warm"]),
+:root[data-theme="neutral"] [data-theme-only]:not([data-theme-only~="neutral"]),
+:root[data-theme="journal"] [data-theme-only]:not([data-theme-only~="journal"]),
+:root[data-theme="aura"] [data-theme-only]:not([data-theme-only~="aura"]),
+:root:not([data-theme]) [data-theme-hide~="warm"],
+:root[data-theme="warm"] [data-theme-hide~="warm"],
+:root[data-theme="neutral"] [data-theme-hide~="neutral"],
+:root[data-theme="journal"] [data-theme-hide~="journal"],
+:root[data-theme="aura"] [data-theme-hide~="aura"]{display:none!important}
+
+/* Journal: anything the player wrote reads in their own voice. */
+:root[data-theme="journal"] .own-words{font-family:var(--f-voice);color:var(--voice);font-weight:400;font-optical-sizing:auto}
+/* A field's placeholder is Revu speaking, not the player, so it stays in the body face. */
+:root[data-theme="journal"] .own-words::placeholder{font-family:var(--f-body)}

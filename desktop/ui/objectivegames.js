@@ -1,6 +1,7 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { objectiveDisplayText } from './objective-labels.mjs';
+import { polarityTone } from './meaning-tone.mjs';
 
 // Revu desktop — Objective Games page renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_objective_games`
@@ -63,7 +64,11 @@ function renderEvidence(d) {
     const note = el.querySelector('.og-ev-note');
     show(note, !!e.hasDisplayNote && !!e.displayNote);
     if (e.hasDisplayNote && e.displayNote) note.textContent = e.displayNote;
-    el.querySelector('.og-ev-chip').textContent = e.polarityLabel || 'Neutral';
+    // The chip names the polarity; its dot carries the theme's tone for it, never
+    // the snapshot's polarityColorHex.
+    const chip = el.querySelector('.og-ev-chip');
+    chip.textContent = e.polarityLabel || 'Neutral';
+    chip.dataset.tone = polarityTone(e.polarity);
     host.appendChild(el);
   }
 }

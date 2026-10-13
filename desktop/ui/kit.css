@@ -1,0 +1,189 @@
+/* Calm component kit. Every class starts with "ui-".
+   Load order on every page: styles.css, kit.css, page CSS, appearance.css. A page rule
+   with the same specificity therefore overrides a kit rule, and appearance.css supplies
+   every token used here. This file holds tokens only: no color literals and no animations.
+
+   Two styles.css rules shape this file:
+   - "body *" forces box-shadow:none and letter-spacing:normal with !important. Kit rules
+     opt back in with !important on a class selector, using token values only: shadows on
+     .ui-raised, .ui-field focus and the current .ui-row, and tracking on .ui-display and
+     .ui-title.
+   - The button, input, select and textarea resets skip elements whose class contains
+     "ui-". Put the ui- class on the control itself, not only on a wrapper.
+
+   CLASS        MARKUP AND STATES
+   .ui-btn      <button class="ui-btn ui-btn-primary" type="button">Save</button>; an <a> works too.
+                Add one variant. An <svg> child renders at 16px. Disabled: [disabled] or
+                aria-disabled="true".
+     -primary   filled accent. Use it for the one main action in a view.
+     -quiet     outlined, for secondary actions.
+     -ghost     text only, for tertiary actions.
+     -danger    destructive. A quiet outline in the danger color.
+   .ui-iconbtn  <button class="ui-iconbtn" aria-label="Close"><svg></svg></button>, 32px square.
+                .is-accent fills it with the accent.
+   .ui-pill     <button class="ui-pill" aria-pressed="false">Solo</button>. On: aria-pressed="true"
+                or .is-on. An <svg> child renders at 14px.
+   .ui-tag      <span class="ui-tag">Ranked</span>. .is-pending uses the pending tint.
+                data-tone="ok|loss|clip|..." adds a colored dot before the text.
+   .ui-seg      Radios: <div class="ui-seg"><label><input type="radio" name="m" checked>
+                <span>Dark</span></label>...</div>. Links: <nav class="ui-seg"><a href="..."
+                aria-current="page">Review</a>...</nav>. Buttons with aria-pressed or .is-on also
+                work, but each needs its own ui- class (for example class="ui-seg-btn") so the
+                button reset skips it. Every option has a 36px hit area. On a <fieldset> the
+                <legend> is visually hidden; to keep a visible legend, put .ui-seg on a <div>
+                inside the fieldset.
+   .ui-field    <input class="ui-field">, <textarea class="ui-field">, <select class="ui-field">.
+                It fills the width of its container. aria-invalid="true" draws the edge in the
+                danger color.
+   .ui-switch   <label class="ui-switch"><input type="checkbox" role="switch"><i></i>Auto clip</label>
+                or <button class="ui-switch" type="button" role="switch" aria-checked="false"><i></i>
+                Auto clip</button>. The <i> is the track. On: checked, aria-checked="true" or .is-on.
+   .ui-raised   One raised surface, such as a composer or note box: <div class="ui-raised">.
+                Do not combine it with the legacy .card or .glass classes; styles.css flattens those.
+   .ui-display  Greeting-scale heading in the display face: <h1 class="ui-display">Good evening</h1>.
+   .ui-title    Page-title-scale heading in the display face: <h1 class="ui-title">Match library</h1>.
+                Inside a legacy .hero, styles.css keeps its own h1 size for either class.
+   .ui-h        Quiet section heading: <h2 class="ui-h">Ready to review</h2>.
+   .ui-sec      Section header row: <div class="ui-sec"><h2 class="ui-h">Recent</h2>
+                <a class="ui-link" href="...">See all</a></div>.
+   .ui-link     Quiet text action: <a class="ui-link" href="...">See all</a> or <button class="ui-link">.
+   .ui-kbd      Key hint at 11px: <kbd class="ui-kbd">Space</kbd>.
+   .ui-row      List row: <a class="ui-row" href="...">...</a>, <button class="ui-row">, or any
+                element with role="button". It bleeds 10px into the gutter so its text lines up
+                with the section heading. Hover applies to links, buttons and role="button".
+                Current: .is-current, aria-current or aria-selected="true".
+   .ui-dot      <i class="ui-dot" data-tone="kill"></i>, or data-result="win|loss|remake".
+                .is-diamond turns it into a clip or note mark.
+   .ui-num      Tabular numbers: <span class="ui-num">12 / 3 / 8</span>.
+   .ui-empty    <div class="ui-empty"><b>No matches yet</b><span>Play a game and it shows up
+                here.</span><button class="ui-btn ui-btn-quiet" type="button">Add a game</button></div>.
+*/
+
+/* Interactive kit elements start from a clean slate. :where() keeps this reset at zero
+   specificity, so every class rule below wins over it. */
+:where(.ui-btn,.ui-iconbtn,.ui-pill,.ui-link,.ui-switch,.ui-seg > *,button.ui-row){
+  -webkit-appearance:none;appearance:none;margin:0;padding:0;border:0;background:none;
+  color:inherit;font:inherit;text-align:inherit;text-decoration:none;cursor:pointer}
+
+/* Buttons */
+.ui-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;
+  border:1px solid transparent;border-radius:var(--btn-radius);font:500 13.5px/1 var(--f-body);
+  color:var(--t1);white-space:nowrap}
+.ui-btn svg,.ui-iconbtn svg{width:16px;height:16px;flex:none}
+.ui-btn-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.ui-btn-primary:hover:not(:disabled,[aria-disabled="true"]){background:var(--accent-hover);border-color:var(--accent-hover)}
+.ui-btn-quiet{border-color:var(--line-strong);color:var(--t1)}
+.ui-btn-quiet:hover:not(:disabled,[aria-disabled="true"]){background:var(--hover)}
+.ui-btn-ghost{color:var(--t2)}
+.ui-btn-ghost:hover:not(:disabled,[aria-disabled="true"]){background:var(--hover);color:var(--t1)}
+.ui-btn-danger{border-color:var(--line-strong);color:var(--danger)}
+.ui-btn-danger:hover:not(:disabled,[aria-disabled="true"]){background:var(--danger-soft);border-color:var(--danger-line)}
+
+.ui-iconbtn{display:inline-grid;place-items:center;flex:none;width:32px;height:32px;
+  border-radius:var(--btn-radius);color:var(--t2)}
+.ui-iconbtn:hover:not(:disabled,[aria-disabled="true"]){background:var(--hover);color:var(--t1)}
+.ui-iconbtn.is-accent{background:var(--accent);color:var(--accent-ink)}
+.ui-iconbtn.is-accent:hover:not(:disabled,[aria-disabled="true"]){background:var(--accent-hover);color:var(--accent-ink)}
+
+:is(.ui-btn,.ui-iconbtn,.ui-pill,.ui-link,.ui-seg > *):is(:disabled,[aria-disabled="true"]){opacity:.4;cursor:not-allowed}
+
+/* Pills: toggles and suggestions */
+.ui-pill{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;
+  border:1px solid var(--line-strong);border-radius:999px;font:400 12.5px/1 var(--f-body);
+  color:var(--t2);white-space:nowrap}
+.ui-pill svg{width:14px;height:14px;flex:none;color:var(--t3)}
+.ui-pill:not(.is-on,[aria-pressed="true"],:disabled,[aria-disabled="true"]):hover{background:var(--hover);color:var(--t1)}
+.ui-pill:is(.is-on,[aria-pressed="true"]){background:var(--selected);border-color:transparent;color:var(--t1)}
+.ui-pill:is(.is-on,[aria-pressed="true"]) svg{color:var(--t1)}
+
+/* Tags: small read-only labels */
+.ui-tag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:var(--r-sm);
+  background:var(--selected);font:500 12px/1 var(--f-body);color:var(--t2);white-space:nowrap}
+.ui-tag.is-pending{background:var(--pending-soft);color:var(--pending)}
+.ui-tag[data-tone]::before{content:'';flex:none;width:6px;height:6px;border-radius:50%;background:var(--tone,currentColor)}
+
+/* Segmented control. The ::after extends each 30px option to a 36px hit area. */
+.ui-seg{position:relative;display:inline-flex;align-items:center;gap:2px;min-width:0;margin:0;padding:3px;
+  border:0;border-radius:calc(var(--btn-radius) + 3px);background:var(--selected)}
+.ui-seg > legend{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.ui-seg > :is(a,button,label){position:relative;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:30px;padding:0 14px;border:1px solid transparent;border-radius:var(--btn-radius);
+  font:500 13px/1 var(--f-body);color:var(--t2);white-space:nowrap}
+.ui-seg > :is(a,button,label)::after{content:'';position:absolute;inset:-4px -2px}
+.ui-seg > :is(a,button,label):hover{color:var(--t1)}
+.ui-seg > :is(.is-on,[aria-current]:not([aria-current="false"]),[aria-pressed="true"],:has(> input:checked)){
+  background:var(--bg);border-color:var(--line);color:var(--t1)}
+:root[data-theme="aura"] .ui-seg > :is(.is-on,[aria-current]:not([aria-current="false"]),[aria-pressed="true"],:has(> input:checked)){
+  background:var(--raised)}
+.ui-seg > label > input,.ui-switch > input{position:absolute;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}
+.ui-seg > label:has(> input:focus-visible){outline:2px solid var(--focus);outline-offset:2px}
+.ui-seg > label:has(> input:disabled){opacity:.4;cursor:not-allowed}
+
+/* Text fields */
+.ui-field{display:block;width:100%;min-height:40px;padding:8px 13px;border:1px solid var(--field-line);
+  border-radius:var(--r-md);background:var(--field);color:var(--t1);font:400 14px/1.5 var(--f-body);caret-color:var(--t1)}
+textarea.ui-field{min-height:88px;padding:10px 13px;resize:vertical}
+select.ui-field{display:flex;align-items:center;white-space:nowrap;cursor:pointer}
+.ui-field::placeholder{color:var(--t3);opacity:1}
+.ui-field[aria-invalid="true"]{border-color:var(--danger)}
+.ui-field:focus{border-color:var(--focus);box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 25%,transparent)!important}
+/* The border and halo are the one focus treatment. The transparent outline replaces the
+   browser's own ring and turns visible under forced colors, where the halo is dropped. */
+.ui-field:focus-visible{outline:2px solid transparent;outline-offset:-2px}
+.ui-field:disabled{opacity:.5;cursor:not-allowed}
+
+/* Switch */
+.ui-switch{position:relative;display:inline-flex;align-items:center;gap:9px;min-height:32px;
+  font:400 13px/1.3 var(--f-body);color:var(--t2)}
+.ui-switch > i{position:relative;flex:none;width:32px;height:18px;border-radius:9px;background:var(--line-strong)}
+.ui-switch > i::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--t1)}
+.ui-switch:is(.is-on,[aria-checked="true"],:has(> input:checked)) > i{background:var(--accent)}
+.ui-switch:is(.is-on,[aria-checked="true"],:has(> input:checked)) > i::after{left:16px;background:var(--accent-ink)}
+.ui-switch:has(> input:focus-visible) > i{outline:2px solid var(--focus);outline-offset:2px}
+.ui-switch:is(:disabled,[aria-disabled="true"],:has(> input:disabled)){opacity:.4;cursor:not-allowed}
+
+/* Raised surface */
+.ui-raised{padding:16px;border:var(--raised-border);border-radius:var(--r-lg);background:var(--raised);
+  box-shadow:var(--raised-shadow)!important}
+
+/* Type */
+.ui-display,.ui-title{margin:0;font-family:var(--f-display);font-weight:var(--display-weight);font-optical-sizing:auto;
+  color:var(--t1);letter-spacing:var(--display-track)!important;text-wrap:balance}
+.ui-display{font-size:var(--greet-size);line-height:1.1}
+.ui-title{font-size:var(--title-size);line-height:1.2}
+.ui-display *,.ui-title *{letter-spacing:inherit!important}
+.ui-h{margin:0;font:500 13px/1.3 var(--f-body);color:var(--t3)}
+.ui-sec{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}
+.ui-link{display:inline-flex;align-items:center;gap:6px;font:500 13px/1.4 var(--f-body);color:var(--t2)}
+.ui-link:hover:not(:disabled,[aria-disabled="true"]){color:var(--t1);text-decoration:underline;
+  text-decoration-color:var(--line-strong);text-underline-offset:3px}
+.ui-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;padding:3px 5px;
+  border:1px solid var(--line-strong);border-radius:4px;font:500 11px/1 var(--f-data);color:var(--t3);white-space:nowrap}
+.ui-num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+
+/* List rows */
+.ui-row{display:flex;align-items:center;gap:14px;min-height:44px;margin:0 -10px;padding:10px;
+  border-radius:var(--r-md);color:var(--t2);text-decoration:none}
+button.ui-row{width:calc(100% + 20px);text-align:left}
+.ui-row:is(a,button,[role="button"]){cursor:pointer}
+.ui-row:is(a,button,[role="button"]):hover{background:var(--hover)}
+.ui-row:is(.is-current,[aria-current]:not([aria-current="false"]),[aria-selected="true"]){
+  background:var(--lit-fill);box-shadow:var(--lit-shadow)!important}
+
+/* Dots and marks. appearance.css maps data-tone and data-result to --tone. */
+.ui-dot{display:inline-block;flex:none;width:7px;height:7px;border-radius:50%;background:var(--tone,var(--t3))}
+.ui-dot.is-diamond{width:8px;height:8px;border-radius:2px;transform:rotate(45deg)}
+
+/* Empty state */
+.ui-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:32px 16px;text-align:center;
+  font-size:14px;line-height:1.5;color:var(--t3)}
+.ui-empty > :is(b,strong,h2,h3,h4){margin:0;font:500 15px/1.4 var(--f-body);color:var(--t1)}
+.ui-empty > :is(.ui-btn,.ui-link){margin-top:8px}
+
+/* Motion only when the system allows it. styles.css also turns transitions off under reduce. */
+@media (prefers-reduced-motion:no-preference){
+  :is(.ui-btn,.ui-iconbtn,.ui-pill,.ui-link,.ui-row,.ui-seg > *){
+    transition:background-color .15s ease,border-color .15s ease,color .15s ease,box-shadow .25s ease}
+  .ui-field{transition:border-color .15s ease,box-shadow .15s ease}
+  .ui-switch > i,.ui-switch > i::after{transition:background-color .15s ease,left .15s ease}
+}

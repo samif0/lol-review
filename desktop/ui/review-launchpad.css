@@ -1,126 +1,184 @@
-/* Review is the match launchpad; the VOD remains the learning workspace. */
-.review-launchpad-page .rv-journal{margin:22px 0;padding-top:20px;border-top:1px solid var(--border)}
+/* Review is the match launchpad; the VOD remains the learning workspace.
+   Calm kit (kit.css): the title is .ui-title, the launchpad is the one .ui-raised surface,
+   actions are .ui-btn, answer fields are .ui-field, Yes / Partly / No is a .ui-seg, and
+   toggles are .ui-pill and .ui-switch. styles.css and learning-pages.css still carry older
+   .rv-* rules (some with !important) for these same elements, so the "Calm kit" block at
+   the end pins the kit look where those rules would leak through. Everything the player
+   wrote carries .own-words, which Journal sets in its serif voice (appearance.css). */
+.review-launchpad-page .rv-journal{margin:22px 0;padding-top:20px;border-top:1px solid var(--line)}
 .review-launchpad-page .rv-journal[hidden]{display:none}
-.review-launchpad-page .rv-journal-link{font-size:12px;color:var(--muted);text-decoration:none}
-.review-launchpad-page .rv-journal-link:hover{color:var(--text)}
-.review-launchpad-page .rv-journal-prior{font-size:13px;line-height:1.6;color:var(--muted);white-space:pre-wrap}
-.review-launchpad-page .rv-journal-input{display:block;width:100%;box-sizing:border-box;min-height:78px;margin-top:8px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,.12);color:var(--text);font:400 14px/1.6 var(--fb);resize:vertical}
-.review-launchpad-page .rv-journal-input:focus{outline:1px solid var(--accent);outline-offset:1px}
+.review-launchpad-page .rv-journal-link{font-size:13px}
+/* "Before this match:" is Revu's label; the prior note after it is the player's. */
+.review-launchpad-page .rv-journal-prior{margin:6px 0 0;font-size:13px;line-height:1.6;color:var(--t3);white-space:pre-wrap}
+.review-launchpad-page .rv-journal-prior-text{color:var(--t2)}
+.review-launchpad-page .rv-journal-input{min-height:78px;margin-top:8px;padding:12px 14px;line-height:1.6}
 .review-launchpad-page .rv-journal-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:10px}
-.review-launchpad-page #rv-journal-status.err{color:#ffaaaa}
+.review-launchpad-page #rv-journal-status.err{color:var(--error)}
 body.review-launchpad-page .shell{max-width:1200px;padding:24px 32px 48px}
 html.framed body.review-launchpad-page .shell{padding:24px 32px 48px}
-.review-launchpad-page .rv-hero{margin:0;padding:0;border:0;background:none;box-shadow:none}
+.review-launchpad-page .rv-hero{margin:0;padding:0;border:0;background:none}
 .review-launchpad-page .rv-hero-row{align-items:center;gap:20px 28px}
-.review-launchpad-page .rv-page-label{margin-bottom:8px;font-size:13px;line-height:1.5;color:var(--muted)}
-.review-launchpad-page #hero-title{margin:0;font:600 28px/1.3 var(--fb);letter-spacing:-.02em;color:var(--text);overflow-wrap:anywhere}
+.review-launchpad-page .rv-page-label{margin-bottom:6px;font-size:13px;line-height:1.5;color:var(--t3)}
+/* .ui-title sets the display face, weight, size and tracking for the theme. */
+.review-launchpad-page #hero-title{margin:0;overflow-wrap:anywhere}
 .review-launchpad-page .rv-resline{gap:8px 14px;margin-top:10px}
-.review-launchpad-page .rv-resline>span{font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.review-launchpad-page .rv-resline>span{font:400 13px/1.5 var(--f-body);color:var(--t3)}
+/* The result word takes the theme's result color from data-result (appearance.css --tone). */
 .review-launchpad-page .rv-resline>.rv-res{font-weight:500}
+.review-launchpad-page .rv-resline>.rv-res[data-result]{color:var(--tone,var(--t3))}
+.review-launchpad-page .rv-resline>.rv-gdur{font-variant-numeric:tabular-nums}
 /* 3.14.1: the player's own remake verdict (a remake is reviewable but never counted). */
 .review-launchpad-page .rv-remake-line{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:8px}
 .review-launchpad-page .rv-remake-line[hidden]{display:none}
-.review-launchpad-page .rv-remake{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font:400 13px/1.5 var(--fb);color:var(--muted)}
+.review-launchpad-page .rv-remake{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font:400 13px/1.5 var(--f-body);color:var(--t3)}
 .review-launchpad-page .rv-remake input{margin:0;accent-color:var(--accent)}
-.review-launchpad-page .rv-remake-status{font:400 12px/1.5 var(--fb);color:var(--muted)}
-.review-launchpad-page .rv-remake-status.err{color:#ffaaaa}
-.review-launchpad-page .rv-kda{font:500 23px/1.4 var(--fb);letter-spacing:0;color:var(--text);font-variant-numeric:tabular-nums}
-.review-launchpad-page .rv-kdar{font:400 12px/1.5 var(--fb);letter-spacing:0;margin-top:3px;color:var(--muted)}
-.review-launchpad-page .rv-reviewed{display:inline-block;margin-top:9px;font:400 12px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.review-launchpad-page .rv-remake-status{font:400 12px/1.5 var(--f-body);color:var(--t3)}
+.review-launchpad-page .rv-remake-status.err{color:var(--error)}
+/* Numbers use the tabular body face, not the display serif. */
+.review-launchpad-page .rv-kda{font:500 23px/1.4 var(--f-num);color:var(--t1);font-variant-numeric:tabular-nums}
+.review-launchpad-page .rv-kdar{font:400 12px/1.5 var(--f-body);margin-top:3px;color:var(--t3);font-variant-numeric:tabular-nums}
+.review-launchpad-page .rv-reviewed{display:inline-block;margin-top:9px;font:400 12px/1.5 var(--f-body);color:var(--t3)}
 .review-launchpad-page .rv-reviewed[hidden]{display:none}
 
 .review-launchpad-page #rv-body{display:flex;flex-direction:column;align-items:stretch;gap:30px;margin-top:28px}
 .review-launchpad-page #rv-body[hidden]{display:none}
-.review-launchpad-page #rv-body h2{margin:0;font:600 20px/1.4 var(--fb);letter-spacing:-.015em;color:var(--text)}
-.review-launchpad-page #rv-body h3{margin:0;font:500 14px/1.5 var(--fb);letter-spacing:0;color:var(--text)}
-.review-launchpad-page .rv-launchpad{padding:24px;border:1px solid var(--border);border-radius:16px;background:var(--surface)}
+/* Section headings read in the display face one step below the title; tracking opts
+   back in past the shared reset with the theme's token. */
+.review-launchpad-page #rv-body h2{margin:0;font:var(--display-weight) 21px/1.3 var(--f-display);font-optical-sizing:auto;
+  color:var(--t1);letter-spacing:var(--display-track)!important}
+.review-launchpad-page #rv-body h3{margin:0;font:500 14px/1.5 var(--f-body);color:var(--t1)}
+/* The launchpad is the page's one raised surface (.ui-raised supplies fill, edge and shadow). */
+.review-launchpad-page .rv-launchpad{padding:24px}
 .review-launchpad-page .rv-launch-top{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:18px}
-.review-launchpad-page .rv-launch-icon{display:grid;place-items:center;width:48px;height:48px;border:1px solid #525252;border-radius:12px;color:var(--text)}
+.review-launchpad-page .rv-launch-icon{display:grid;place-items:center;width:48px;height:48px;border:1px solid var(--line-strong);border-radius:12px;color:var(--t1)}
 .review-launchpad-page .rv-launch-icon svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round}
-.review-launchpad-page .rv-launch-copy p{max-width:52ch;margin:6px 0 0;color:var(--muted);font-size:14px;line-height:1.6}
-body.review-launchpad-page .rv-open-vod{display:inline-flex;align-items:center;justify-content:center;align-self:center;gap:14px;
-  min-height:46px;margin:0;padding:12px 19px;font:500 15px/1.4 var(--fb);letter-spacing:0;text-transform:none;box-shadow:none}
-.review-launchpad-page #rv-body .rv-deathsec{margin:24px 0 0;padding-top:20px;border-top:1px solid var(--border)}
+.review-launchpad-page .rv-launch-copy p{max-width:52ch;margin:6px 0 0;color:var(--t3);font-size:14px;line-height:1.6}
+body.review-launchpad-page .rv-open-vod{align-self:center;gap:10px;height:auto;min-height:40px;padding:0 18px;font-size:14px}
+.review-launchpad-page #rv-body .rv-deathsec{margin:24px 0 0;padding-top:20px;border-top:1px solid var(--line)}
 .review-launchpad-page .rv-section-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px 16px}
-.review-launchpad-page .rv-count,.review-launchpad-page .rv-section-hint{color:var(--muted);font-size:13px;line-height:1.5}
+.review-launchpad-page .rv-count,.review-launchpad-page .rv-section-hint{color:var(--t3);font-size:13px;line-height:1.5}
 .review-launchpad-page #rv-body .rv-death-help{margin:4px 0 14px;font-size:13px}
 .review-launchpad-page #rv-deaths{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}
 .review-launchpad-page #rv-deaths .rv-death{padding:0;margin:0;background:none!important}
-body.review-launchpad-page #rv-body .rv-death-jump{min-height:66px;height:100%;padding:11px 13px;gap:10px;flex-wrap:nowrap;border-radius:10px!important;background:var(--bg)!important}
+/* Death tiles are quiet outlined jumps inside the raised launchpad. */
+body.review-launchpad-page #rv-body .rv-death-jump{min-height:66px;height:100%;padding:11px 13px;gap:10px;flex-wrap:nowrap;
+  border-radius:var(--r-md)!important;background:transparent!important;border-color:var(--line-strong)!important}
+body.review-launchpad-page #rv-body .rv-death-jump:hover:not(:disabled){background:var(--hover)!important}
 .review-launchpad-page #rv-body .rv-death-identity{flex-direction:column;align-items:flex-start;gap:2px}
-.review-launchpad-page #rv-body .rv-death-number{font-size:12px;font-weight:400;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-death-number{font-size:12px;font-weight:400;color:var(--t3)}
 .review-launchpad-page #rv-body .rv-death-time{font-size:15px;line-height:1.5;font-weight:500}
-.review-launchpad-page #rv-body .rv-death-watch{color:var(--muted)}
+.review-launchpad-page #rv-body .rv-death-watch{color:var(--t3)}
 .review-launchpad-page #rv-body .rv-tosortsec{margin:20px 0 0}
 .review-launchpad-page #rv-body .rv-tosortsec>summary{padding:16px 0 0}
-.review-launchpad-page #rv-tosort{margin-top:16px}
+.review-launchpad-page #rv-tosort{margin-top:0}
 
-.review-launchpad-page .rv-takeaway-section{padding:0 2px}
+.review-launchpad-page .rv-takeaway-section{padding:0}
 .review-launchpad-page .rv-takeaway-section>.rv-section-heading{margin-bottom:18px}
 body.review-launchpad-page #rv-body .rv-review{margin:0 0 16px;padding:0}
 .review-launchpad-page #rv-body .rv-field-in{font-size:15px;line-height:1.65;min-height:112px;margin-top:9px;padding:14px 16px}
-.review-launchpad-page #rv-body .rv-field-k{font-size:14px;font-weight:400;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-field-k{font-size:14px;font-weight:400;color:var(--t3)}
 .review-launchpad-page #rv-body .rv-review .learning-details{margin-top:16px}
-.review-launchpad-page #rv-body .rv-review .learning-details>summary{padding:12px 0;font-size:13px;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-review .learning-details>summary{padding:12px 0;font-size:13px;color:var(--t3)}
+.review-launchpad-page #rv-body .rv-reappraisal-hd{font-size:13px;font-weight:400;color:var(--t3)}
 .review-launchpad-page #rv-body .rv-note-saved{padding:0;margin:0 0 16px;border:0;background:none;font-size:13px;line-height:1.6;flex-wrap:wrap}
 .review-launchpad-page #rv-body .rv-commitbar{gap:12px 18px;margin:0;padding:0;min-height:42px}
-body.review-launchpad-page #rv-body .rv-savebtn{padding:10px 17px;min-height:42px;font-size:14px;line-height:1.5;font-weight:500;letter-spacing:0}
-body.review-launchpad-page #rv-body .rv-nextbtn{margin-left:auto;padding:10px 14px;min-height:42px;background:transparent!important;border:1px solid var(--border)!important;color:var(--text)!important;font-size:14px}
-.review-launchpad-page #rv-body .rv-commit-msg{font:400 13px/1.5 var(--fb);letter-spacing:0;overflow-wrap:anywhere}
-.review-launchpad-page #rv-body .rv-commit-msg.err{color:#ffaaaa}
+body.review-launchpad-page #rv-body .rv-savebtn{height:auto;min-height:40px;padding:0 18px;font-size:14px;line-height:1.4}
+body.review-launchpad-page #rv-body .rv-nextbtn{margin-left:auto;height:auto;min-height:40px;padding:0 16px;font-size:14px;line-height:1.4}
+.review-launchpad-page #rv-body .rv-commit-msg{font:400 13px/1.5 var(--f-body);overflow-wrap:anywhere}
+.review-launchpad-page #rv-body .rv-commit-msg.err{color:var(--error)}
 
-.review-launchpad-page #rv-body .rv-supporting>h2{margin:0 0 12px;font-size:14px;font-weight:500;color:var(--muted)}
-.review-launchpad-page #rv-body .learning-details{margin:0;border:0;border-top:1px solid var(--border);border-radius:0;background:none}
+.review-launchpad-page #rv-body .rv-supporting>h2{margin:0 0 12px;font:500 14px/1.5 var(--f-body);color:var(--t3);letter-spacing:normal!important}
+.review-launchpad-page #rv-body .learning-details{margin:0;border:0;border-top:1px solid var(--line);border-radius:0;background:none}
 .review-launchpad-page #rv-body .learning-details>summary{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;min-height:52px;
-  padding:17px 2px;list-style:none;font:500 15px/1.5 var(--fb);color:var(--text);cursor:pointer}
+  padding:17px 0;list-style:none;font:500 15px/1.5 var(--f-body);color:var(--t1);cursor:pointer}
 .review-launchpad-page #rv-body .learning-details>summary::-webkit-details-marker{display:none}
-.review-launchpad-page #rv-body .learning-details>summary>span{margin:0;color:var(--muted);font-size:13px;font-weight:400}
+.review-launchpad-page #rv-body .learning-details>summary>span{margin:0;color:var(--t3);font-size:13px;font-weight:400}
 .review-launchpad-page #rv-body .learning-details>summary::after{content:'';width:7px;height:7px;margin:0 4px 3px auto;flex-shrink:0;
-  border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg)}
+  border-right:1.5px solid var(--t3);border-bottom:1.5px solid var(--t3);transform:rotate(45deg)}
 .review-launchpad-page #rv-body .learning-details[open]>summary::after{transform:rotate(225deg);margin-bottom:-3px}
-.review-launchpad-page #rv-body .learning-details>summary:hover{color:#fff}
+.review-launchpad-page #rv-body .learning-details>summary:hover{color:var(--t1)}
 .review-launchpad-page #rv-body .learning-details>summary:focus-visible{outline-offset:-2px}
-.review-launchpad-page #rv-body .learning-details-body{padding:10px 2px 24px}
+.review-launchpad-page #rv-body .learning-details-body{padding:10px 0 24px}
+.review-launchpad-page #rv-obj-label{margin:8px 0 12px 0}
 .review-launchpad-page #rv-launchpad #rv-tosortsec{margin-top:18px}
 .review-launchpad-page #rv-launchpad #rv-tosortsec>summary{min-height:38px;padding:14px 0 0;font-size:14px}
-.review-launchpad-page .rv-check-in{display:grid;grid-template-columns:1fr 1fr;gap:20px 32px;margin:0 0 24px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+.review-launchpad-page .rv-check-in{display:grid;grid-template-columns:1fr 1fr;gap:20px 32px;margin:0 0 24px;padding-bottom:24px;border-bottom:1px solid var(--line)}
 body.review-launchpad-page #rv-body .rv-check-in .rv-focus{margin:0;padding:0;border:0!important}
 .review-launchpad-page #rv-body .rv-check-in .rv-mentalrow{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:16px;margin:0;padding:0;border:0}
 .review-launchpad-page #rv-body .rv-mental-ctl{justify-content:flex-start;flex:0;gap:18px}
 .review-launchpad-page #rv-body .rv-range{max-width:220px}
-.review-launchpad-page #rv-body .rv-mental{font-size:22px;min-width:28px;color:var(--text)!important}
+/* The mental number stays monochrome: a number, not a verdict. */
+.review-launchpad-page #rv-body .rv-mental{min-width:28px;font:500 22px/1 var(--f-num);font-variant-numeric:tabular-nums;color:var(--t1)!important}
 .review-launchpad-page #rv-body .rv-focus .field-help{font-size:12px}
 .review-launchpad-page #rv-body .rv-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:24px 16px;margin:0 0 24px}
 .review-launchpad-page #rv-body .rv-strip .stat{padding:0;background:none!important;border:0!important}
-.review-launchpad-page #rv-body .rv-strip .k{font-size:13px;letter-spacing:0;color:var(--muted)}
-.review-launchpad-page #rv-body .rv-strip .v{font-size:22px;font-weight:500;line-height:1.4}
+.review-launchpad-page #rv-body .rv-strip .k{font-size:13px;color:var(--t3)}
+.review-launchpad-page #rv-body .rv-strip .v{font:500 22px/1.4 var(--f-num);font-variant-numeric:tabular-nums}
 .review-launchpad-page #rv-body .rv-strip .s{font-size:12px;line-height:1.5}
-.review-launchpad-page #rv-body .rv-matchup{margin-top:24px;color:var(--text);font-size:15px;font-weight:500;text-shadow:none}
+.review-launchpad-page #rv-body .rv-matchup{margin-top:24px;color:var(--t1);font-size:15px;font-weight:500}
+.review-launchpad-page #rv-body .rv-laning{margin-top:16px;padding:0;border:0;background:none;font:400 13px/1.5 var(--f-body);color:var(--t2)}
 .review-launchpad-page #rv-body .rv-lobby{gap:20px 32px;margin-top:18px}
-.review-launchpad-page #rv-body .rv-lobby-role{font:400 12px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-lobby-role{font:400 12px/1.5 var(--f-body);color:var(--t3)}
 .review-launchpad-page #rv-body .rv-lobby-pair{font-size:14px;line-height:1.6}
 .review-launchpad-page #rv-body .rv-lobby-pair i{font-size:13px}
-.review-launchpad-page #rv-body .rv-fixes{display:block;margin-top:20px;font:400 13px/1.5 var(--fb);letter-spacing:0;text-transform:none;color:var(--muted)}
+.review-launchpad-page #rv-body .rv-fixes{display:block;margin-top:20px;font:400 13px/1.5 var(--f-body);color:var(--t3)}
 .review-launchpad-page #rv-body .rv-fixes[hidden]{display:none}
 .review-launchpad-page #rv-body .rv-matchsec{margin-top:24px}
 .review-launchpad-page #rv-matchlist{margin-top:14px}
 .review-launchpad-page #rv-body .rv-tags-wrap{margin:0;padding:0}
 .review-launchpad-page #rv-body .rv-tagcat{margin-top:22px}
 .review-launchpad-page #rv-body .rv-tagcat-grid{margin-top:12px}
-/* Topic chips are toggle buttons; the tag color is a swatch, selection is aria-pressed. */
-.review-launchpad-page #rv-body .rv-tagcat-chip{display:inline-flex;align-items:center;gap:7px;font:400 13px/1.4 var(--fb);letter-spacing:0;padding:6px 11px}
-.review-launchpad-page .rv-tagcat-swatch{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+/* Topic chips are toggle buttons (.ui-pill); the swatch is the tag's polarity tone. */
+.review-launchpad-page .rv-tagcat-swatch{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--tone,var(--t3))}
 .review-launchpad-page .rv-tagcat-swatch[hidden]{display:none}
 /* The practice check-in sits directly above Save in the takeaway section. */
 .review-launchpad-page #rv-body .rv-takeaway-section>.rv-objsec{margin:0 0 18px}
-.review-launchpad-page #rv-body .rv-draft-status{color:#ffaaaa}
-.review-launchpad-page #rv-body .rv-draft-retry{padding:6px 12px;min-height:34px;font-size:13px}
+.review-launchpad-page #rv-body .rv-draft-status{color:var(--error)}
+.review-launchpad-page #rv-body .rv-draft-retry{height:auto;min-height:34px;padding:0 12px;font-size:13px}
 .review-launchpad-page .rv-secondary-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:24px}
-.review-launchpad-page #rv-body .rv-secondary-actions>button{font-size:14px;padding:9px 14px;min-height:40px}
+.review-launchpad-page #rv-body .rv-secondary-actions>button{height:auto;min-height:36px;padding:0 14px;font-size:13.5px;line-height:1.4}
 .review-launchpad-page #rv-body .rv-secondary-actions .rv-deletebtn{margin-left:0}
+/* Skip's two-tap confirm: the first tap arms it in the danger color. */
+.review-launchpad-page #rv-body .rv-skipbtn.rv-skip-confirm{color:var(--danger);border-color:var(--danger-line)}
 .review-launchpad-page #rv-body .rv-export-msg{margin:10px 0 0}
 .review-launchpad-page #rv-body .rv-evid-save-status{margin:6px 0 0;font-size:12px}
 .review-launchpad-page #rv-body .rv-evid-save-status.is-error{color:var(--error)}
+.review-launchpad-page .rv-empty-p{max-width:52ch}
+
+/* Calm kit: pin the kit look over the older .rv-* rules. */
+.review-launchpad-page #rv-body .rv-objnote{min-height:40px;margin-top:12px;padding:8px 13px;font-size:14px}
+/* Prompt answers start one line tall and grow with their text (review.js autoSize). */
+.review-launchpad-page #rv-body .rv-prompt-input{display:block;width:100%;max-width:none;min-height:40px;margin:10px 0 0;
+  padding:8px 13px;font-size:14px;line-height:1.5;resize:none;overflow:hidden}
+.review-launchpad-page #rv-body .rv-prompt-phase{padding:0 8px;border:0}
+/* Yes / Partly / No: one segmented answer. aria-pressed mirrors the .on choice. */
+.review-launchpad-page #rv-body .rv-focus-btns{gap:2px;margin-top:12px}
+.review-launchpad-page #rv-body .rv-focus-btns>.rv-focus-btn{min-height:0;font-weight:500}
+.review-launchpad-page #rv-body .rv-focus-btns>.rv-focus-btn:not([aria-pressed="true"]){background:none;border-color:transparent}
+/* Practiced switch: the kit switch, with the label beside it. */
+.review-launchpad-page #rv-body .rv-switch{gap:9px;padding:4px 0}
+.review-launchpad-page #rv-body .rv-switch-lbl{min-width:0;font-size:13px;color:var(--t3)}
+.review-launchpad-page #rv-body .rv-obj.is-practiced .rv-switch-lbl{color:var(--t1)}
+.review-launchpad-page #rv-body .rv-obj .pc{font-family:var(--f-num);font-weight:500;font-variant-numeric:tabular-nums}
+/* Clip rows: a quiet hover, a tone dot, pill triage controls and an icon dismiss. */
+.review-launchpad-page #rv-body .rv-evid-clickable:hover{background:var(--hover)!important}
+.review-launchpad-page #rv-body .rv-evid-dot[data-tone]{background:var(--tone)}
+.review-launchpad-page #rv-body .rv-evid-actions{gap:6px}
+.review-launchpad-page #rv-body .rv-evid-actions>.ui-pill{height:30px;min-height:0;padding:0 11px;font:400 12.5px/1 var(--f-body)}
+.review-launchpad-page #rv-body .rv-evid-actions>.ui-pill:hover{border-color:var(--line-strong)}
+.review-launchpad-page #rv-body .rv-evid-actions>.ui-pill[aria-pressed="true"]{border-color:transparent;font-weight:500}
+.review-launchpad-page #rv-body .rv-evid-actions>.ui-iconbtn{min-height:0;padding:0;border:0;background:none}
+.review-launchpad-page #rv-body .rv-evid-actions>.ui-iconbtn:hover:not(:disabled){background:var(--hover)}
+.review-launchpad-page #rv-body .rv-evid-pick{height:30px;min-height:0;padding:0 10px;font-size:12.5px;line-height:1}
+.review-launchpad-page #rv-body .rv-clip-share{min-height:0;padding:0;border:0;background:none;font-size:12.5px}
+.review-launchpad-page #rv-body .rv-clip-share:hover{background:none}
+/* Topic chips (.ui-pill) and free-text topics (calm tags with a remove button). */
+.review-launchpad-page #rv-body .rv-tagcat-chip{height:30px;min-height:0;padding:0 12px;font:400 13px/1 var(--f-body)}
+.review-launchpad-page #rv-body .rv-tagcat-chip:hover{border-color:var(--line-strong)}
+.review-launchpad-page #rv-body .rv-tagcat-chip[aria-pressed="true"]{border-color:transparent}
+.review-launchpad-page #rv-body .rv-taginput{display:block;flex:1;width:auto;min-width:160px;min-height:36px;padding:6px 12px;font-size:14px}
+.review-launchpad-page #rv-body .rv-tag{height:30px;padding:0 4px 0 10px;border:0;border-radius:var(--r-sm);
+  background:var(--selected);font:400 13px/1 var(--f-body);color:var(--t1)}
 
 @media(max-width:760px){
   html.framed body.review-launchpad-page .shell{padding:20px 22px 40px}

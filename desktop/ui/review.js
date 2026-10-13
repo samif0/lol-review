@@ -3,12 +3,15 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { objectiveMetaText, objectivePhaseLabel } from './objective-labels.mjs';
 import { createMatchNavigation } from './match-navigation.mjs';
+import { polarityTone, resultOf } from './meaning-tone.mjs';
 
 // Revu desktop review — data-driven renderer for ONE game's review snapshot.
 // Renders the JSON returned by the Electron command `get_review` (GET /api/review).
 // All server-supplied strings are written via textContent (never innerHTML) to
-// keep the surface XSS-free. Colors arrive as *Hex strings and are applied to
-// style/stroke properties only.
+// keep the surface XSS-free. Meaning colors are never painted from the snapshot's
+// *Hex strings: the page writes data-result / data-tone and appearance.css maps
+// those to the active theme. The one exception is a topic tag whose polarity is
+// unknown, which keeps its own swatch color.
 //
 // EDITABLE: the review form (mental rating / debrief notes / concept tags /
 // objective-practiced toggles) is gathered and committed via invoke('save_review').
@@ -214,7 +217,7 @@ async function restoreReviewState(state) {
       applyTagcatSelected(chip, selectedTags.has(chip.dataset.tagId));
     }
     for (const button of document.querySelectorAll('#rv-focus .rv-focus-btn')) {
-      button.classList.toggle('on', state.focus != null && button.dataset.focus === state.focus);
+      setFocusChoice(button, state.focus != null && button.dataset.focus === state.focus);
     }
     const objectives = new Map((state.objectives || []).map(objective => [objective.id, objective]));
     for (const card of document.querySelectorAll('#rv-objectives [data-objective-id]')) {
@@ -307,7 +310,9 @@ function renderHeader(subject) {
   const res = $('rv-res');
   const result = String(h.resultText || '').trim();
   res.textContent = result ? result[0].toUpperCase() + result.slice(1).toLowerCase() : '';
-  if (h.resultColorHex) res.style.color = h.resultColorHex;
+  // The theme colors the result word (styles.css [data-result]); remakes read neutral.
+  if (result) res.dataset.result = resultOf({ win: h.win, isRemake: h.isRemake });
+  else delete res.dataset.result;
 
   renderRemakeToggle(subject);
 
@@ -350,7 +355,8 @@ function renderHeader(subject) {
   }
 
   $('rv-kda').textContent = h.kdaText || '';
-  $('rv-kdar').textContent = h.kdaRatioText ? `${h.kdaRatioText} KDA` : '';
+  // The sidecar wraps the ratio in parentheses ("(9.5)"); the hero reads "9.5 KDA", like the stat strip.
+  $('rv-kdar').textContent = h.kdaRatioText ? `${String(h.kdaRatioText).replace(/[()]/g, '').trim()} KDA` : '';
 
   // "Already reviewed" marker replaces nothing — it's an inline note beside VOD.
   show($('rv-reviewed'), !!h.hasReview);
@@ -367,13 +373,20 @@ function renderHeader(subject) {
   show($('statusline'), false);
   show($('rv-hero'), true);
 
-  // LANING @10 line — sits under the stat strip; shows only when the timeline
-  // backfill has run (hasLaningAt10).
+  // Laning at 10 minutes: sits under the stat strip; shows only when the timeline
+  // backfill has run (hasLaningAt10). The sidecar sends the legacy HUD wording
+  // ("LANING @10 // CS 84 · GOLD DIFF +210 · CS DIFF +6"); the page reads it in plain words.
   const laning = $('rv-laning');
   if (laning) {
-    laning.textContent = h.laningAt10Line || '';
+    laning.textContent = laningLine(h.laningAt10Line);
     show(laning, !!h.hasLaningAt10 && !!h.laningAt10Line);
   }
+}
+
+function laningLine(value) {
+  const raw = String(value || '').trim();
+  const m = /^LANING @10\s*\/\/\s*(.*)$/i.exec(raw);
+  return m ? `At 10 minutes: ${m[1].replace(/GOLD DIFF/i, 'gold diff').replace(/CS DIFF/i, 'CS diff')}` : raw;
 }
 
 // ── render: stat strip (auto-captured) ──────────────────────────────────────
@@ -433,10 +446,9 @@ function renderObjectives(subject) {
     const progress = Math.max(0, Math.min(1, Number(o.progress) || 0));
     const offset = RING_CIRCUMFERENCE * (1 - progress);
 
-    const track = el.querySelector('.ring-track');
+    // The ring stays monochrome in every theme (styles.css strokes the track and
+    // arc from tokens), so the snapshot's level colors are not painted here.
     const prog = el.querySelector('.ring-prog');
-    track.setAttribute('stroke', o.levelDimColorHex || 'rgba(255,255,255,0.13)');
-    prog.setAttribute('stroke', o.levelColorHex || '#9d8bff');
     // Start empty, then transition to the target on the next frame so the CSS
     // transition on .ring-prog animates the arc filling.
     prog.setAttribute('stroke-dashoffset', String(RING_CIRCUMFERENCE));
@@ -597,8 +609,8 @@ function renderForm(subject) {
   show($('rv-savednote'), !!hdr.hasReview);
   show($('rv-deletebtn'), !!hdr.hasReview);
 
-  // Mental rating — seed the slider + readout (default 5 when unset). Tint the
-  // readout with the server-supplied color when one is provided. `touched`
+  // Mental rating — seed the slider + readout (default 5 when unset). The readout
+  // stays monochrome: a number, not a verdict. `touched`
   // tracks whether the value is a real answer (saved, or moved this session):
   // an untouched slider submits 0 and the backend keeps the stored value (or
   // the neutral default) instead of silently recording a 5/10 the user never
@@ -609,7 +621,6 @@ function renderForm(subject) {
   slider.value = String(savedMental > 0 ? savedMental : 5);
   slider.dataset.touched = savedMental > 0 ? '1' : '';
   readout.textContent = slider.value;
-  if (f.mentalRatingColorHex) readout.style.color = f.mentalRatingColorHex;
 
   // Editable debrief textareas, pre-filled with any saved value.
   const fieldHost = $('rv-fields');
@@ -713,8 +724,15 @@ function renderFocus(subject) {
   let saved = f.focusAdherence;
   saved = (saved === 0 || saved === 1 || saved === 2) ? saved : null;
   for (const btn of card.querySelectorAll('.rv-focus-btn')) {
-    btn.classList.toggle('on', saved != null && Number(btn.dataset.focus) === saved);
+    setFocusChoice(btn, saved != null && Number(btn.dataset.focus) === saved);
   }
+}
+
+// One answer button's selected state: `.on` is what gatherForm and the saved view
+// read; aria-pressed tells assistive tech (and the segmented style) which is chosen.
+function setFocusChoice(btn, on) {
+  btn.classList.toggle('on', !!on);
+  btn.setAttribute('aria-pressed', String(!!on));
 }
 
 // Persist a focus-adherence choice immediately. Re-tapping the selected button
@@ -728,12 +746,12 @@ async function onFocusClick(btn) {
   const value = Number(btn.dataset.focus);
   const wasSelected = btn.classList.contains('on');
 
-  for (const b of card.querySelectorAll('.rv-focus-btn')) b.classList.remove('on');
+  for (const b of card.querySelectorAll('.rv-focus-btn')) setFocusChoice(b, false);
   let payloadValue;
   if (wasSelected) {
     payloadValue = null; // clear
   } else {
-    btn.classList.add('on');
+    setFocusChoice(btn, true);
     payloadValue = value;
   }
   // Persist only — do NOT re-render. The buttons already reflect the new state
@@ -822,7 +840,10 @@ function clipCard(clip, objectiveOptions) {
   // The note is the clip's headline here (clips have no separate title); fall back
   // to a neutral placeholder so an untitled moment still reads as a row.
   const noteEl = el.querySelector('.rv-clip-note');
-  noteEl.textContent = String(clip.note || '').trim() || '(clip)';
+  const noteText = String(clip.note || '').trim();
+  noteEl.textContent = noteText || '(clip)';
+  // Only the player's own note reads in their voice, never the placeholder.
+  noteEl.classList.toggle('own-words', !!noteText);
 
   // Public share link (revu.lol/<id>) when the bookmark was uploaded; hidden until
   // shared. A real href so it opens externally; click is stopped from the card jump.
@@ -923,7 +944,6 @@ function pruneEmptyClipSections() {
 const _evidenceStates = new WeakMap();
 const _evidenceRowWrites = new WeakMap();
 const _evidenceWrites = new Set();
-const EVIDENCE_COLORS = { good: '#8ee7ba', bad: '#f3a3a8', neutral: '#a79ec2' };
 function evidencePolarity(value) { return value === 'good' || value === 'bad' ? value : 'neutral'; }
 
 function applyEvidenceState(row, state) {
@@ -934,7 +954,8 @@ function applyEvidenceState(row, state) {
   }
   const dot = row.querySelector('.rv-evid-dot');
   if (dot) {
-    dot.style.background = EVIDENCE_COLORS[state.polarity];
+    // good, bad, neutral -> ok, loss, neutral; appearance.css maps the tone.
+    dot.dataset.tone = polarityTone(state.polarity);
     dot.title = state.polarity === 'good' ? 'Good example' : state.polarity === 'bad' ? 'Bad example' : 'Neutral';
   }
   const pick = row.querySelector('.rv-evid-pick');
@@ -1019,7 +1040,6 @@ function onEvidenceAction(action, el) {
         if (saved) {
           state.polarity = polarity;
           state.clip.polarity = polarity;
-          state.clip.polarityColorHex = EVIDENCE_COLORS[polarity];
         }
       } else if (action === 'objective') {
         saved = await postWrite('set_evidence_objective', { evidenceId, objectiveId, gameId });
@@ -1053,7 +1073,7 @@ function onEvidenceAction(action, el) {
 // The full tag catalog with the tags selected for THIS game highlighted (.on).
 // Clicking a chip toggles its selection; the chosen tag ids are collected in
 // gatherForm() as selectedTagIds and committed with the batched save_review.
-// Each chip stamps its tag id + its own color so the tint applies when selected.
+// Each chip stamps its tag id; its swatch shows the tag's polarity (see tagTone).
 function renderTagCatalog(subject) {
   const tags = Array.isArray(subject.tagCatalog) ? subject.tagCatalog : [];
   const grid = $('rv-tagcat-grid');
@@ -1066,15 +1086,26 @@ function renderTagCatalog(subject) {
     chip.querySelector('.rv-tagcat-txt').textContent = t.name || '';
     const id = Number(t.id);
     if (Number.isFinite(id)) chip.dataset.tagId = String(id);
-    // The tag's color identifies it as a swatch; it never carries the selection.
+    // The swatch shows the tag's polarity in theme colors; it never carries the
+    // selection. Only a tag with no known polarity keeps its own stored color.
     const swatch = chip.querySelector('.rv-tagcat-swatch');
     if (swatch) {
-      if (t.colorHex) swatch.style.background = t.colorHex;
-      show(swatch, !!t.colorHex);
+      const tone = tagTone(t.polarity);
+      if (tone) swatch.dataset.tone = tone;
+      else if (t.colorHex) swatch.style.background = t.colorHex;
+      show(swatch, !!tone || !!t.colorHex);
     }
     applyTagcatSelected(chip, !!t.isSelected);
     grid.appendChild(chip);
   }
+}
+
+// Concept tags carry good/bad (older rows: positive/negative) or neutral. Anything
+// else is unknown and returns null so the caller can fall back to the tag's color.
+const TAG_POLARITIES = new Set(['good', 'bad', 'positive', 'negative', 'neutral']);
+function tagTone(polarity) {
+  const value = typeof polarity === 'string' ? polarity.trim().toLowerCase() : '';
+  return TAG_POLARITIES.has(value) ? polarityTone(value) : null;
 }
 
 // Selection is the toggle's pressed state (the shared selected style).
@@ -1107,7 +1138,9 @@ function renderMatchupJournal(subject) {
   show($('rv-journal-empty'), !card);
   show($('rv-journal-prepare'), !card);
   $('rv-journal-matchup').textContent = card ? `${card.laneLabel} · ${card.matchupTitle}` : '';
-  $('rv-journal-prior').textContent = card?.prior ? `Before this match: ${card.prior}` : '';
+  // The "Before this match:" prefix is Revu's label (static markup); only the
+  // player's prior note fills the own-words span after it.
+  $('rv-journal-prior-text').textContent = card?.prior || '';
   show($('rv-journal-prior'), !!card?.prior);
   if (!card) {
     _matchupState = null;
@@ -1713,6 +1746,12 @@ document.addEventListener('input', (ev) => {
 
 // ── single delegated action handler ─────────────────────────────────────────
 // review_vod  = primary launch action (resume this match's VOD workspace).
+// The shell's sidebar (recent matches, review count) refreshes when a page changes the
+// match list without loading a new page (shell-recent.mjs).
+function announceGamesChanged() {
+  try { window.top?.dispatchEvent(new CustomEvent('revu:games-changed')); } catch (_) { /* no shell */ }
+}
+
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
 const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed', 'prepare_matchup_note', 'retry_matchup_note', 'retry_draft']);
@@ -1922,7 +1961,7 @@ document.addEventListener('click', async (ev) => {
     // save_review / skip_review take a single `payload` arg in the bridge — wrap the
     // gathered form/body so Electron doesn't reject with "missing required key payload".
     await invoke(action, { payload: args });
-    if (action === 'save_review' || action === 'skip_review') matchNav.invalidate();
+    if (action === 'save_review' || action === 'skip_review') { matchNav.invalidate(); announceGamesChanged(); }
     // RE-FETCH so the UI reflects the committed state (next subject / reviewed
     // mark). Queue the confirmation so it SURVIVES the renderForm() the reload
     // runs — renderForm resets the commit line on every render, so a plain

@@ -16,8 +16,9 @@ import { registerLeaveGuard } from './leave-guard.mjs';
 //   • getInvoke() uses the shared platform boundary and detects browser previews.
 //   • fetchPregame() tries invoke FIRST, then ./sample-pregame.json for a plain-
 //     browser preview.
-//   • Every server string is written via textContent (never innerHTML) — XSS-safe;
-//     colors arrive as *Hex strings applied to style properties only.
+//   • Every server string is written via textContent (never innerHTML), so it stays XSS-safe.
+//     The sidecar's *Hex colors are not painted: a prompt block writes its meaning
+//     as data-tone (priority reads pending) and the theme maps it to a color.
 //   • ONE delegated [data-action] click handler.
 //   • LIVE updates arrive over Electron events ("lcu-event"): the sidecar streams the
 //     LCU messages (champ-select start/update/cancel, game in-progress, game end)
@@ -91,6 +92,32 @@ function render(d) {
 // ── INTEL deck (rotating cards) ───────────────────────────────────────────────
 let _intelIndex = 0;
 let _intelTimer = null;
+// The sidecar sends intel eyebrows in capitals ("LAST GAME · KAI'SA · L",
+// "MATCHUP · KAI'SA VS CAITLYN", "YOUR LAST JINX PRE-GAME", "CAITLYN · KEY COOLDOWNS").
+// Read them in sentence case with champion names spelled normally; anything that is
+// not all capitals is shown as sent.
+const INTEL_PHRASES = { 'FOCUS THIS SESSION': 'Focus this session', 'LAST GAME': 'Last game', MATCHUP: 'Matchup',
+  'KEY COOLDOWNS': 'Key cooldowns', ENEMY: 'Enemy', W: 'Win', L: 'Loss' };
+const CHAMPION_SPELLING = { LEBLANC: 'LeBlanc' };
+function championCase(value) {
+  const text = String(value || '').trim();
+  if (CHAMPION_SPELLING[text]) return CHAMPION_SPELLING[text];
+  return text.split(' ').map((word, i) => (i > 0 && /^[IVX]+$/.test(word) ? word
+    : word.toLowerCase().replace(/(^|['.-])([a-z])/g, (_, lead, ch) => lead + ch.toUpperCase()))).join(' ');
+}
+function intelEyebrow(value) {
+  const text = String(value || '').trim();
+  if (!text || text !== text.toUpperCase()) return text;
+  return text.split(' · ').map((part) => {
+    if (INTEL_PHRASES[part]) return INTEL_PHRASES[part];
+    const last = /^YOUR LAST (.+) PRE-GAME$/.exec(part);
+    if (last) return `Your last ${championCase(last[1])} pre-game`;
+    const versus = /^(.+) VS (.+)$/.exec(part);
+    if (versus) return `${championCase(versus[1])} vs ${championCase(versus[2])}`;
+    return championCase(part);
+  }).join(' · ');
+}
+
 function renderIntelDeck(cards) {
   const host = $('intel-deck');
   const wrap = $('intel-wrap');
@@ -102,7 +129,7 @@ function renderIntelDeck(cards) {
   cards.forEach((c, i) => {
     const el = tpl('tpl-intel');
     if (!el) return;
-    el.querySelector('.intel-eyebrow').textContent = c.eyebrow || '';
+    el.querySelector('.intel-eyebrow').textContent = intelEyebrow(c.eyebrow);
     el.querySelector('.intel-headline').textContent = c.headline || '';
     const body = el.querySelector('.intel-body');
     body.textContent = c.body || '';
@@ -149,7 +176,6 @@ function renderMatchup(m) {
   const card = $('matchup-card');
   if (!card) return;
   show(card, !!m.hasMatchupDetected);
-  if (m.accentHex) card.style.setProperty('--cardbr', m.accentHex);
   setText('matchup-my', m.myChampion || _live.myChampion || '');
   // Prefer the live enemy once it locks; else the snapshot placeholder.
   const enemy = _live.enemyChampion || (m.enemyOrPlaceholder && m.enemyOrPlaceholder !== '…' ? m.enemyOrPlaceholder : '');
@@ -190,7 +216,6 @@ function renderMatchupHistory(mh) {
   if (!card) return;
   show(card, !!mh.has);
   if (!mh.has) return;
-  if (mh.accentHex) card.style.setProperty('--cardbr', mh.accentHex);
   setText('mh-header', mh.headerText || '');
   const host = $('mh-list');
   clear(host);
@@ -202,7 +227,7 @@ function renderMatchupHistory(mh) {
     const flag = el.querySelector('.mh-helpful');
     if (flag) {
       show(flag, !!n.hasHelpfulRating);
-      flag.textContent = n.wasHelpful ? 'HELPED' : 'DIDN’T HELP';
+      flag.textContent = n.wasHelpful ? 'Helped' : 'Didn’t help';
       flag.classList.toggle('good', !!n.wasHelpful);
     }
     host.appendChild(el);
@@ -220,6 +245,14 @@ function isEditingWithin(host) {
     && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT'));
 }
 
+// The sidecar sends the prompt-block eyebrows in capitals; show the two known
+// ones in sentence case and anything else as sent.
+const EYEBROW_LABELS = { PRIORITY: 'Priority', ACTIVE: 'Active' };
+function eyebrowLabel(value) {
+  const text = String(value || '');
+  return EYEBROW_LABELS[text.trim().toUpperCase()] || text;
+}
+
 function renderPromptBlocks(blocks) {
   const card = $('prompts-card');
   if (!card) return;
@@ -233,11 +266,8 @@ function renderPromptBlocks(blocks) {
     const block = tpl('tpl-prompt-block');
     if (!block) return;
     const eyebrow = block.querySelector('.pb-eyebrow');
-    eyebrow.textContent = b.eyebrow || (b.isPriority ? 'PRIORITY' : 'ACTIVE');
-    if (b.accentHex) {
-      eyebrow.style.color = b.accentHex;
-      block.style.setProperty('--pb-accent', b.accentHex);
-    }
+    eyebrow.textContent = eyebrowLabel(b.eyebrow || (b.isPriority ? 'PRIORITY' : 'ACTIVE'));
+    block.dataset.tone = b.isPriority ? 'pending' : 'neutral';
     block.querySelector('.pb-title').textContent = b.objectiveTitle || '';
     const pHost = block.querySelector('.pb-prompts');
     (b.prompts || []).forEach((p) => {
@@ -284,7 +314,6 @@ let _intentCleared = false;
 function renderIntent(intent, activePlan, staged) {
   const card = $('intent-card');
   if (!card) return;
-  if (intent.accentHex) card.style.setProperty('--cardbr', intent.accentHex);
 
   setText('active-plan', activePlan || '');
   show($('active-plan-row'), !!activePlan);
@@ -415,7 +444,9 @@ function renderMood(showIt, staged) {
 }
 function highlightMood() {
   document.querySelectorAll('.mood-btn').forEach((b) => {
-    b.classList.toggle('on', Number(b.dataset.mood) === _mood);
+    const on = Number(b.dataset.mood) === _mood;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
   });
 }
 async function setMood(mood) {
@@ -433,7 +464,6 @@ function renderSessionIntention(si) {
   if (!card) return;
   show(card, !!si.show);
   if (!si.show) return;
-  if (si.accentHex) card.style.setProperty('--cardbr', si.accentHex);
   const box = $('session-input');
   // Same mid-typing guard as the intent box: a champ-select tick re-renders
   // this card every few hundred ms, and overwriting the focused box would wipe
@@ -466,7 +496,6 @@ function renderObjectives(o, staged) {
   if (!card) return;
   show(card, !!o.hasActiveObjective);
   if (!o.hasActiveObjective) return;
-  if (o.accentHex) card.style.setProperty('--cardbr', o.accentHex);
   setText('obj-priority-title', o.priorityTitle || '');
   setText('obj-priority-crit', o.priorityCriteria || '');
   show($('obj-priority-crit'), !!o.priorityCriteria);
@@ -492,20 +521,27 @@ function renderObjectives(o, staged) {
     row.querySelector('.obj-title').textContent = it.title || '';
     const crit = row.querySelector('.obj-crit');
     crit.textContent = it.criteria || '';
-    show(crit, !!it.criteria);
+    // The Priority heading above already shows the priority's criteria; say it once.
+    show(crit, !!it.criteria && !(it.isPriority && it.criteria === o.priorityCriteria));
     const pill = row.querySelector('.obj-pri');
     show(pill, !!it.isPriority);
     const toggle = row.querySelector('.obj-toggle');
     toggle.dataset.objectiveId = String(it.objectiveId);
     toggle.dataset.action = 'toggle_practiced';
-    toggle.classList.toggle('on', _practiced.has(Number(it.objectiveId)));
+    const practiced = _practiced.has(Number(it.objectiveId));
+    toggle.classList.toggle('on', practiced);
+    toggle.setAttribute('aria-pressed', String(practiced));
     host.appendChild(row);
   });
 }
 async function togglePracticed(objectiveId, btn) {
   if (_practiced.has(objectiveId)) _practiced.delete(objectiveId);
   else _practiced.add(objectiveId);
-  if (btn) btn.classList.toggle('on', _practiced.has(objectiveId));
+  if (btn) {
+    const on = _practiced.has(objectiveId);
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+  }
   const invoke = await getInvoke();
   if (!invoke) return;
   try { await invoke('set_pregame_practiced', { payload: { objectiveIds: Array.from(_practiced) } }); }

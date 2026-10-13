@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createMatchNavigation, createMatchViewStore } from '../ui/match-navigation.mjs';
+import { polarityTone, resultOf } from '../ui/meaning-tone.mjs';
 
 // Execute the real page handlers with a small form fixture. Electron smoke owns
 // template/layout coverage; these cases exercise raw draft and write lifecycles.
@@ -180,13 +181,14 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null,
     },
     readSnapshot: snapshot || (async () => ({ subject: null })),
     objectiveMetaText: () => '', objectivePhaseLabel: value => value, requestAnimationFrame: () => 0,
+    polarityTone, resultOf,
     setTimeout, clearTimeout, URLSearchParams, CustomEvent: class {},
     console: { info() {}, warn() {}, error() {} },
   });
   vm.runInContext(`${source}\n globalThis.hooks = { captureReviewState, restoreReviewState, savePromptAnswer, renderDeaths,
     render, renderHeader, renderUnsorted, pruneEmptyClipSections, clipCard, onEvidenceAction, flushEvidenceWrites,
     flushDraft, gatherForm, cancelDraft, markDraftDirty, renderMatchupJournal, flushMatchupNotes, flushReviewWrites,
-    renderObjectives, renderTagCatalog,
+    renderObjectives, renderTagCatalog, renderFocus, renderForm, onFocusClick,
     clearMatchupTimers() { for (const state of _matchupNotes.values()) clearTimeout(state.timer); },
     setSubject(value) { _subject = value; },
     get dirty() { return _draftDirty; } };`, context, { filename: 'review.js' });
@@ -283,7 +285,8 @@ test('matchup note appears for a linked card or opted-in preparation, without cr
   assert.equal(f.$('rv-journal').hidden, false);
   assert.equal(f.$('rv-journal-editor').hidden, false);
   assert.equal(f.$('rv-journal-prepare').hidden, true);
-  assert.equal(f.$('rv-journal-prior').textContent, 'Before this match: Respect her range');
+  assert.equal(f.$('rv-journal-prior-text').textContent, 'Respect her range');
+  assert.equal(f.$('rv-journal-prior').hidden, false);
   assert.equal(f.$('rv-journal-link').href, 'matchups.html?gameId=42');
   assert.deepEqual(f.calls, []);
 });
@@ -625,6 +628,8 @@ function assertPolarity(row, polarity) {
   assert.equal(good.getAttribute('aria-pressed'), String(polarity === 'good'));
   assert.equal(bad.getAttribute('aria-pressed'), String(polarity === 'bad'));
   assert.match(dot.title, new RegExp(polarity, 'i'));
+  assert.equal(dot.dataset.tone, { good: 'ok', bad: 'loss', neutral: 'neutral' }[polarity]);
+  assert.equal(dot.style.background, undefined, 'the dot color comes from the theme, never an inline hex');
 }
 // A failed write names the failure; a success word such as "Saved" must never pass.
 function assertFailureWording(status) {
@@ -656,17 +661,16 @@ test('evidence rating stays confirmed while saving and updates its dot and butto
   f.fields[1].value = 'Keep this unsaved takeaway';
   const row = f.hooks.clipCard(evidenceClip(), evidenceOptions);
   const { good, bad, pick, dot } = evidenceControls(row);
-  const neutralColor = dot.style.background;
   const change = f.hooks.onEvidenceAction('good', good);
   await started.promise;
   assertPolarity(row, 'neutral');
-  assert.equal(dot.style.background, neutralColor);
+  assert.equal(dot.dataset.tone, 'neutral');
   assert.equal(good.disabled, true); assert.equal(bad.disabled, true); assert.equal(pick.disabled, true);
   const duplicate = f.hooks.onEvidenceAction('good', good);
   assert.equal(f.calls.length, 1, 'a repeated click must not enqueue a second toggle');
   saved.resolve({ ok: true }); await Promise.all([change, duplicate]);
   assertPolarity(row, 'good');
-  assert.notEqual(dot.style.background, neutralColor);
+  assert.equal(dot.dataset.tone, 'ok');
   assert.equal(good.disabled, false); assert.equal(bad.disabled, false); assert.equal(pick.disabled, false);
   assert.equal(f.fields[1].value, 'Keep this unsaved takeaway', 'rating evidence must not re-render the review form');
   assert.deepEqual(f.calls, [['set_evidence_polarity', { payload: { evidenceId: 301, polarity: 'good' } }]]);
@@ -680,10 +684,9 @@ test('a rejected evidence rating keeps the saved Good state and can be retried s
   });
   const row = f.hooks.clipCard(evidenceClip({ polarity: 'good' }), evidenceOptions);
   const { bad, dot } = evidenceControls(row);
-  const goodColor = dot.style.background;
   await f.hooks.onEvidenceAction('bad', bad);
   assertPolarity(row, 'good');
-  assert.equal(dot.style.background, goodColor);
+  assert.equal(dot.dataset.tone, 'ok');
   assert.equal(bad.disabled, false);
   const status = row.querySelector('.rv-evid-save-status');
   assert.ok(status && !status.hidden, 'the affected row must explain that the write failed');
@@ -692,7 +695,7 @@ test('a rejected evidence rating keeps the saved Good state and can be retried s
   rejectWrite = false;
   await f.hooks.onEvidenceAction('bad', bad);
   assertPolarity(row, 'bad');
-  assert.notEqual(dot.style.background, goodColor);
+  assert.equal(dot.dataset.tone, 'loss');
   assert.equal(f.calls.length, 2);
 });
 
@@ -1188,7 +1191,7 @@ test('topic chips are toggle buttons whose pressed state is the selection, with 
   assert.equal(wave.getAttribute('aria-pressed'), 'false');
   assert.equal(f.hooks.dirty, true);
   const html = await readFile(new URL('../ui/review.html', import.meta.url), 'utf8');
-  assert.match(html, /<template id="tpl-tagcat">\s*<button type="button" class="rv-tagcat-chip" aria-pressed="false">/);
+  assert.match(html, /<template id="tpl-tagcat">\s*<button type="button" class="rv-tagcat-chip ui-pill" aria-pressed="false">/);
 });
 
 test('the practice check-in sits above Save and opens when the match has active objectives', async t => {
@@ -1209,4 +1212,113 @@ test('the practice check-in sits above Save and opens when the match has active 
   g.hooks.renderObjectives({ objectives: [], hasObjectives: false });
   assert.equal(g.$('rv-objsec').open, false, 'without objectives the check-in stays compact');
   assert.equal(g.$('rv-objsec').hidden, false);
+});
+
+// Appearance: meaning colors come from the theme (data-result / data-tone), never
+// from the snapshot's legacy hex, and the player's own words carry .own-words.
+test('the result word carries data-result for the theme and never an inline color', t => {
+  const f = fixture(t);
+  const res = f.$('rv-res');
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Jinx', win: true, resultText: 'VICTORY', resultColorHex: '#8ee7ba' } });
+  assert.equal(res.textContent, 'Victory');
+  assert.equal(res.dataset.result, 'win');
+  assert.equal(res.style.color, undefined, 'the snapshot hex is not painted');
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Jinx', win: false, resultText: 'DEFEAT', resultColorHex: '#f3a3a8' } });
+  assert.equal(res.dataset.result, 'loss');
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Jinx', win: true, isRemake: true, resultText: 'REMAKE' } });
+  assert.equal(res.dataset.result, 'remake', 'a remake reads neutral even when the score says win');
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Jinx' } });
+  assert.equal(res.textContent, '');
+  assert.equal(res.dataset.result, undefined, 'no result word, no result color');
+  assert.equal(res.style.color, undefined);
+});
+
+test('objective rings and the mental number stay monochrome', t => {
+  const f = fixture(t);
+  f.hooks.renderObjectives({ objectives: [{ id: 9, title: 'Tempo', progress: 0.4,
+    levelColorHex: '#D4A44E', levelDimColorHex: '#1E1810' }] });
+  const card = f.$('rv-objectives').children[0];
+  assert.equal(card.querySelector('.ring-prog').stroke, undefined, 'the arc color comes from the theme');
+  assert.equal(card.querySelector('.ring-track').stroke, undefined, 'the track color comes from the theme');
+  assert.equal(card.querySelector('.ring-prog')['stroke-dashoffset'], '150.8', 'the arc still starts empty and animates');
+
+  f.hooks.render({ subject: { gameId: 42, header: { championName: 'Jinx' },
+    form: { mentalRating: 2, mentalRatingColorHex: '#f3a3a8' }, objectives: [] } });
+  assert.equal(f.$('rv-mental').textContent, '2');
+  assert.equal(f.$('rv-mental').style.color, undefined);
+});
+
+test('a clip note reads in the player voice only when the player wrote one', t => {
+  const f = fixture(t);
+  const written = f.hooks.clipCard(evidenceClip({ note: '  Move after pushing the wave ' }), evidenceOptions);
+  const note = written.querySelector('.rv-clip-note');
+  assert.equal(note.textContent, 'Move after pushing the wave');
+  assert.equal(note.classList.contains('own-words'), true);
+  const untitled = f.hooks.clipCard(evidenceClip({ note: '   ' }), evidenceOptions);
+  assert.equal(untitled.querySelector('.rv-clip-note').textContent, '(clip)');
+  assert.equal(untitled.querySelector('.rv-clip-note').classList.contains('own-words'), false, 'the placeholder is Revu, not the player');
+});
+
+test('a confirmed rating updates the dot tone without writing a hex back into the clip', async t => {
+  const f = fixture(t, () => ({ ok: true }));
+  const clip = evidenceClip({ polarity: 'neutral', polarityColorHex: '#9d8bff' });
+  const row = f.hooks.clipCard(clip, evidenceOptions);
+  await f.hooks.onEvidenceAction('bad', evidenceControls(row).bad);
+  assertPolarity(row, 'bad');
+  assert.equal(clip.polarity, 'bad');
+  assert.equal(clip.polarityColorHex, '#9d8bff', 'the snapshot value is left as the server sent it');
+});
+
+test('topic swatches use the polarity tone; only a tag with no known polarity keeps its own color', t => {
+  const f = fixture(t);
+  f.hooks.renderTagCatalog({ tagCatalog: [
+    { id: 1, name: 'Dominated lane', polarity: 'good', colorHex: '#8ee7ba' },
+    { id: 2, name: 'Tilted', polarity: 'negative', colorHex: '#ef4444' },
+    { id: 3, name: 'Forced fights', polarity: 'Bad', colorHex: '#f3a3a8' },
+    { id: 4, name: 'Good vision', polarity: 'neutral', colorHex: '#9d8bff' },
+    { id: 5, name: 'Custom', polarity: 'spicy', colorHex: '#123456' },
+    { id: 6, name: 'Plain' },
+  ] });
+  const swatches = f.$('rv-tagcat-grid').children.map(chip => chip.querySelector('.rv-tagcat-swatch'));
+  assert.deepEqual(swatches.map(swatch => swatch.dataset.tone), ['ok', 'loss', 'loss', 'neutral', undefined, undefined]);
+  assert.deepEqual(swatches.map(swatch => swatch.style.background), [undefined, undefined, undefined, undefined, '#123456', undefined]);
+  assert.deepEqual(swatches.map(swatch => swatch.hidden), [false, false, false, false, false, true]);
+});
+
+test('Yes / Partly / No keep .on and aria-pressed together through render, tap and clear', async t => {
+  const f = fixture(t, () => ({ ok: true }));
+  f.$('rv-focus').selectors.set('.rv-focus-btn', f.focus);
+  const pressed = () => f.focus.map(button => button.getAttribute('aria-pressed'));
+  f.hooks.renderFocus({ form: { focusAdherence: 1 } });
+  assert.deepEqual(pressed(), ['false', 'true', 'false']);
+  assert.equal(f.hooks.gatherForm().focusAdherence, 1);
+
+  await f.hooks.onFocusClick(f.focus[1]);
+  assert.deepEqual(pressed(), ['false', 'false', 'false'], 'a second tap clears the answer');
+  assert.equal(f.hooks.gatherForm().focusAdherence, null);
+  await f.hooks.onFocusClick(f.focus[2]);
+  assert.deepEqual(pressed(), ['false', 'false', 'true']);
+  assert.equal(f.focus[2].classList.contains('on'), true);
+  assert.deepEqual(f.calls.map(call => call[1].payload.value), [null, 2]);
+  assert.deepEqual(f.calls.map(call => call[0]), ['set_focus_adherence', 'set_focus_adherence']);
+});
+
+test('the page marks the player text for the Journal voice and keeps Revu labels separate', async t => {
+  const html = await readFile(new URL('../ui/review.html', import.meta.url), 'utf8');
+  const classesOf = pattern => (html.match(pattern) || [, ''])[1].split(/\s+/);
+  assert.ok(classesOf(/<h1 class="([^"]*)" id="hero-title">/).includes('ui-title'), 'the page title uses the kit title');
+  for (const [name, pattern] of [
+    ['debrief field', /<textarea class="([^"]*rv-field-in[^"]*)"/],
+    ['objective note', /<input type="text" class="([^"]*rv-objnote[^"]*)"/],
+    ['prompt answer', /<textarea class="([^"]*rv-prompt-input[^"]*)"/],
+    ['matchup observation', /<textarea class="([^"]*)" id="rv-journal-observed"/],
+    ['matchup history note', /<div class="([^"]*rv-match-note[^"]*)"/],
+    ['session intention', /<div class="([^"]*)" id="rv-focus-intent"/],
+    ['prior matchup note', /<span class="([^"]*)" id="rv-journal-prior-text"/],
+  ]) assert.ok(classesOf(pattern).includes('own-words'), `${name} reads in the player voice`);
+  assert.match(html, /<p class="rv-journal-prior" id="rv-journal-prior" hidden><span class="rv-journal-prior-k">Before this match:<\/span> <span/,
+    'the prefix is Revu wording in its own span, outside the player voice');
+  assert.doesNotMatch(html, /class="(?:cta|review)[ "]/, 'page actions use the kit buttons');
+  assert.match(html, /<div class="rv-focus-btns ui-seg" id="rv-focus-btns" role="group" aria-labelledby="rv-focus-lbl">/);
+  assert.equal((html.match(/class="rv-focus-btn ui-seg-btn" data-focus="[012]" aria-pressed="false"/g) || []).length, 3);
 });

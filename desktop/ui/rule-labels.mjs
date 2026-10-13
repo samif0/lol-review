@@ -28,6 +28,14 @@ export function recordLabel(text, now = new Date()) {
     .replace(/(\d+W)\s*[\u2013\u2014]\s*(\d+L)/g, '$1-$2');
 }
 
+/** The type badge's data-tone. Rules Revu checks for you (loss streak, max games
+ *  and so on) read in the secondary text color; a custom rule, which only you can
+ *  check, reads quieter. The sidecar's accentHex is never painted. */
+export function ruleBadgeTone(rule) {
+  const type = String(rule?.ruleType ?? '').trim().toLowerCase();
+  return type && type !== 'custom' ? 'muted' : 'neutral';
+}
+
 /** The rule-check banner prints its own "Then" label, so a plan written as
  *  "Then I will..." must not read "Then Then I will...". */
 export function planWithoutThen(plan) {

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import asar from '@electron/asar';
 import builderConfig from '../../electron-builder.config.mjs';
-import { activatePackage, isAppFile, readFuseWire, requiredFuses, stageApp, verifyFuses, verifyPackage } from '../../scripts/package.mjs';
+import { activatePackage, bundledFonts, isAppFile, readFuseWire, requiredFuses, stageApp, verifyFuses, verifyPackage } from '../../scripts/package.mjs';
 
 async function scratch(t) {
   const base = path.resolve(os.tmpdir());
@@ -27,10 +27,11 @@ function fusedExecutable(states = '00001100') {
   return Buffer.concat([Buffer.from('MZ fixture '), Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX', 'latin1'),
     Buffer.from([1, states.length]), Buffer.from(states, 'latin1'), Buffer.from(' trailer')]);
 }
+const FONT_FILES = [...bundledFonts, 'ui/fonts/OFL-SourceSerif4.txt', 'ui/fonts/OFL-Geist.txt'];
 async function fixture(root) {
   for (const name of ['electron/main.mjs', 'electron/preload.cjs', 'electron/branding/revu.ico',
-    'runtime/overwolf.mjs', 'ui/index.html', 'ui/app.js', 'ui/platform/index.mjs',
-    'ui/sample-dashboard.json']) await file(root, name);
+    'runtime/overwolf.mjs', 'ui/index.html', 'ui/app.js', 'ui/appearance.css', 'ui/platform/index.mjs',
+    'ui/sample-dashboard.json', ...FONT_FILES]) await file(root, name);
   await file(root, 'package.json', JSON.stringify({ name: 'revu-desktop', version: '3.10.1',
     main: 'electron/main.mjs', type: 'module', overwolf: { packages: [] } }));
 }
@@ -40,11 +41,14 @@ test('staging copies the canonical app and rejects tests, output, private files 
   await fixture(source);
   for (const name of ['electron/test/host.test.mjs', 'electron/host.test.mjs', 'electron/private.local.mjs',
     'electron/.local/credentials.json', 'electron/package.json', 'ui/dist/index.html', 'ui/.env',
-    'ui/private.json', 'ui/node_modules/test.js', 'ui/fonts/Inter.ttf', 'runtime/test/host.test.mjs',
+    'ui/private.json', 'ui/node_modules/test.js', 'ui/fonts/Inter.ttf', 'ui/fonts/notes.md', 'ui/fonts/Inter.woff',
+    'ui/fonts/extra/x.woff2', 'runtime/test/host.test.mjs',
     'overwolf-probes/src/main.ts', 'node_modules/dependency/index.js']) await file(source, name, 'must not ship');
   const copied = await stageApp(source, stage);
-  // The app renders the Windows UI font; a leftover font folder is not part of the app.
-  assert.equal(copied.some(name => name.startsWith('ui/fonts/')), false);
+  // The font folder ships exactly the bundled woff2 faces and their license texts.
+  assert.deepEqual(copied.filter(name => name.startsWith('ui/fonts/')).sort(), [...FONT_FILES].sort());
+  assert.deepEqual((await readdir(path.join(stage, 'ui/fonts'))).sort(), FONT_FILES.map(name => name.slice(9)).sort());
+  assert.ok(copied.includes('ui/appearance.css'));
   assert.ok(copied.includes('ui/sample-dashboard.json'));
   assert.equal(copied.some(name => /test|private|credentials|node_modules|dist|overwolf-probes/.test(name)), false);
   assert.deepEqual((await readdir(path.join(stage, 'electron'))).sort(), ['branding', 'main.mjs', 'preload.cjs']);
@@ -58,6 +62,15 @@ test('missing entry files and package activation fail staging', async t => {
   await assert.rejects(stageApp(source, path.join(root, 'bad-package')), /gaming package activation/);
   await rm(path.join(source, 'electron/main.mjs'));
   await assert.rejects(stageApp(source, path.join(root, 'missing-main')), /Missing required app file/);
+});
+
+test('a build without a bundled face or the font folder fails staging', async t => {
+  const root = await scratch(t), source = path.join(root, 'source');
+  await fixture(source);
+  await rm(path.join(source, 'ui/fonts/geist.woff2'));
+  await assert.rejects(stageApp(source, path.join(root, 'missing-face')), /Missing required app file: ui\/fonts\/geist\.woff2/);
+  await rm(path.join(source, 'ui/fonts'), { recursive: true });
+  await assert.rejects(stageApp(source, path.join(root, 'missing-folder')), /ENOENT/);
 });
 
 test('a junction inside an otherwise allowed source directory cannot escape staging', async t => {
@@ -137,5 +150,9 @@ test('the builder config requests every fuse state the package check enforces', 
 
 test('file policy excludes traversal and alternate separators', () => {
   for (const name of ['../ui/index.html', 'ui/../package.json', 'ui\\index.html',
-    'ui//index.html', 'ui/.local.js', 'electron/bridge.spec.mjs']) assert.equal(isAppFile(name), false, name);
+    'ui//index.html', 'ui/.local.js', 'electron/bridge.spec.mjs', 'ui/fonts/x.ttf', 'ui/fonts/a/b.woff2',
+    'ui/fonts/x.md', 'ui/fonts/Geist.woff2', 'ui/fonts/OFL.txt', 'ui/fonts/OFL-a.b.txt', 'ui/fonts/.x.woff2',
+    'ui/platform/OFL-Geist.txt']) assert.equal(isAppFile(name), false, name);
+  for (const name of ['ui/fonts/geist-mono.woff2', 'ui/fonts/OFL-GeistMono.txt', 'ui/appearance.css'])
+    assert.equal(isAppFile(name), true, name);
 });

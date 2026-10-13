@@ -29,17 +29,27 @@ async function subscribe(file, page) {
     recover: () => callback({ payload: { type: 'gamesRecovered', payload: { gameIds: [42] } } }) };
 }
 
-test('recovery refreshes listing pages after leaving Settings but preserves editors', async () => {
+test('recovery refreshes listing pages after leaving Settings but preserves editors and the library search', async () => {
   for (const shell of ['shell-outer.js']) {
   for (const page of ['dashboard.html', 'games.html', 'settings.html', 'review.html', 'vodplayer.html']) {
     const f = await subscribe(shell, page);
+    const linkedEvents = f.events.length;
     f.recover();
-    assert.deepEqual(f.navigations, ['dashboard.html', 'games.html'].includes(page) ? ['reload'] : []);
+    assert.deepEqual(f.navigations, page === 'dashboard.html' ? ['reload'] : [], page);
+    const recovered = f.events.slice(linkedEvents);
+    assert.deepEqual(recovered.map(event => event.type), page === 'games.html' ? ['revu:games-recovered'] : [], page);
+    if (recovered.length) assert.deepEqual(recovered[0].detail, { gameIds: [42] });
   }
   const editing = await subscribe(shell, 'dashboard.html');
   editing.scope.__revuActiveWork = true;
   editing.recover();
   assert.deepEqual(editing.navigations, []);
+  // The library refreshes in place, so it never reloads, even with work in progress.
+  const searching = await subscribe(shell, 'games.html');
+  searching.scope.__revuActiveWork = true;
+  searching.recover();
+  assert.deepEqual(searching.navigations, []);
+  assert.equal(searching.events.at(-1).type, 'revu:games-recovered');
   }
 });
 

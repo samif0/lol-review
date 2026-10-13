@@ -7,49 +7,65 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./learning-pages.css">
 <link rel="stylesheet" href="./games-page.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body class="games-page">
-  <div class="shell">
-    <div class="eyebrow">Review</div>
-    <!-- Hero row: title on the left, Manual Entry action on the right (moved off the
-         nav rail — manual entry is a Games-page action, not a daily-loop destination). -->
-    <div class="games-hero">
-      <div class="hero"><h1>Match library</h1></div>
-      <button class="review games-manual-btn" id="manual-entry" data-action="manual_entry" type="button">Add a game manually</button>
-    </div>
-    <p class="page-intro">Choose a game to review your practice, save a takeaway, or watch its recording.</p>
-    <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+  <div class="shell lib">
+    <!-- Header: the page title and the one page action. -->
+    <header class="lib-head">
+      <h1 class="ui-title">Match library</h1>
+      <button class="ui-btn ui-btn-quiet" id="manual-entry" data-action="manual_entry" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add a game</button>
+    </header>
+    <p class="lib-loading" id="statusline" role="status"><b id="status-text">Loading your games…</b></p>
 
-    <!-- PRIMARY: Review-Queue command bar (the one loud element) + filter segment.
-         Carries the live unreviewed count and switches the list below. -->
-    <div class="glass primary games-bar" id="queue-bar">
-      <div class="games-bar-lead">
-        <div class="k" id="queue-k">Your games</div>
-        <h2 id="queue-h">Review Queue</h2>
-        <div class="games-bar-cnt" id="queue-cnt"><span class="pdot"></span> <span id="queue-cnt-text">…</span></div>
-      </div>
-      <div class="seg" id="seg" role="tablist" aria-label="Switch games view">
-        <button class="on" data-action="view" data-view="queue" role="tab" aria-selected="true">To review</button>
-        <button data-action="view" data-view="today" role="tab" aria-selected="false">Today</button>
-        <button data-action="view" data-view="history" role="tab" aria-selected="false">History</button>
-        <button data-action="view" data-view="vod" role="tab" aria-selected="false">With recordings</button>
-        <button data-action="view" data-view="removed" role="tab" aria-selected="false">Removed</button>
-      </div>
+    <!-- Search filters the rows already loaded, by champion or enemy. -->
+    <div class="lib-search" role="search">
+      <svg class="lib-search-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+      <input class="ui-field lib-search-input" id="lib-search" type="search" placeholder="Search by champion" aria-label="Search by champion or enemy" autocomplete="off" spellcheck="false">
+      <button class="ui-iconbtn lib-search-clear" id="lib-search-clear" type="button" data-action="clear_search" aria-label="Clear search" title="Clear search" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
     </div>
 
-    <!-- AT-A-GLANCE — reuse the dashboard stat strip. -->
-    <div class="strip" id="strip"></div>
+    <!-- Filters (server-side views) and the summary of the selected one. Today has no
+         pill of its own; it appears while ?view=today is selected. -->
+    <div class="lib-filters">
+      <div class="lib-pills" id="seg" role="tablist" aria-label="Show matches">
+        <button class="ui-pill lib-filter" type="button" data-action="view" data-view="history" role="tab" aria-selected="false">All</button>
+        <button class="ui-pill lib-filter is-on on" type="button" data-action="view" data-view="queue" role="tab" aria-selected="true">To review <b class="lib-filter-n" id="queue-count" hidden></b></button>
+        <button class="ui-pill lib-filter" type="button" data-action="view" data-view="vod" role="tab" aria-selected="false">With recordings</button>
+        <button class="ui-pill lib-filter" type="button" data-action="view" data-view="removed" role="tab" aria-selected="false">Removed</button>
+        <button class="ui-pill lib-filter" type="button" data-action="view" data-view="today" role="tab" aria-selected="false" hidden>Today</button>
+      </div>
+      <p class="lib-summary" id="strip" title="Remakes are listed but not counted." hidden></p>
+    </div>
+    <p class="lib-search-status" id="lib-search-status" role="status" aria-live="polite" hidden></p>
 
-    <!-- THE LIST — clickable game rows. The most prominent section. -->
-    <div class="games-list-heading" id="games-label"><h2>Matches</h2><span id="games-sub"></span></div>
-    <div id="games-list"></div>
+    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
+    <div class="lib-error errpanel" id="errpanel" role="alert" hidden>
+      <div class="vline" id="err-line">Couldn't load your games.</div>
+      <div class="vsmall" id="err-detail"></div>
+    </div>
 
-    <!-- Empty / filtered-empty state. -->
-    <div class="games-empty" id="games-empty" hidden>
-      <div class="games-empty-h" id="games-empty-h">No games recorded yet.</div>
-      <div class="games-empty-p" id="games-empty-p">Keep Revu open during a Ranked Solo/Duo game, or add a game manually.</div>
+    <!-- THE LIST: day headings and clickable match rows, siblings in one list. -->
+    <div class="lib-list" id="games-list"></div>
+
+    <!-- Empty state for the selected view, and for a search with no match. -->
+    <div class="ui-empty lib-empty" id="games-empty" hidden>
+      <b id="games-empty-h">No games recorded yet.</b>
+      <span id="games-empty-p">Keep Revu open during a Ranked Solo/Duo game, or use Add a game.</span>
+    </div>
+    <div class="ui-empty lib-empty" id="lib-search-empty" hidden>
+      <b>Nothing here matches your search.</b>
+      <span>Search looks at champion and enemy names.</span>
+      <button class="ui-btn ui-btn-quiet" type="button" data-action="clear_search">Clear search</button>
+    </div>
+
+    <!-- History pages: how many are loaded, and Load more while the server has more. -->
+    <div class="lib-foot">
+      <span class="lib-count" id="lib-count" hidden></span>
+      <span class="loadwrap" id="loadwrap" hidden><button class="ui-btn ui-btn-quiet" id="loadmore" type="button" data-action="load_more">Load more</button></span>
     </div>
 
     <!-- Remove from history is a soft hide: the game and its notes stay saved, Undo
@@ -57,59 +73,46 @@
          reports a removal or restore that failed (without Undo). -->
     <div class="games-undo" id="games-undo" role="status" aria-live="polite" hidden>
       <span id="games-undo-text"></span>
-      <button class="games-undo-btn" id="games-undo-btn" type="button" data-action="undo_hide">Undo</button>
-    </div>
-
-    <!-- Load more — only when the server has more pages. Small, calm glass. -->
-    <div class="loadwrap" id="loadwrap" hidden>
-      <button class="loadmore" id="loadmore" data-action="load_more">Load More</button>
-    </div>
-
-    <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
-    <div class="card errpanel" id="errpanel" hidden>
-      <div class="crow">
-        <div>
-          <div class="vline" id="err-line">Couldn't load your games.</div>
-          <div class="vsmall" id="err-detail"></div>
-        </div>
-      </div>
+      <button class="ui-btn ui-btn-quiet games-undo-btn" id="games-undo-btn" type="button" data-action="undo_hide">Undo</button>
     </div>
   </div>
 
   <!-- ── REPEATING-CELL TEMPLATES ── -->
   <template id="tpl-stat">
-    <div class="stat">
-      <div class="k"></div>
-      <div class="v"></div>
-      <div class="s"></div>
-    </div>
+    <span class="lib-stat"><b class="v"></b> <span class="k"></span></span>
   </template>
 
-  <!-- One match, one primary action. Result, matchup and the action each have
-       a clear position; supporting status text remains part of the same row. -->
+  <template id="tpl-day">
+    <h2 class="lib-day"></h2>
+  </template>
+
+  <!-- One match, one primary action: the whole row opens it. Result, matchup, KDA,
+       status, Remove and the action keep fixed columns; Remove shows on hover or focus. In
+       Journal, the takeaway from this game's review sits under the matchup. -->
   <template id="tpl-gamerow">
-    <div class="card gamerow gamerow-game" data-action="open_review" tabindex="0" role="button">
-      <div class="crow">
-        <span class="grow-wl"></span>
-        <div class="grow-main">
-          <div class="grow-top">
-            <span class="vline grow-champ"></span>
-          </div>
-          <div class="vsmall grow-meta"></div>
-          <div class="grow-tokens"></div>
-        </div>
-        <div class="grow-right">
-          <div class="grow-kda"><span class="grow-kda-n"></span><span class="grow-kda-r"></span></div>
-          <div class="gamerow-cue">Review <span class="arr" aria-hidden="true">→</span></div>
-          <button class="gamerow-remove" type="button" data-action="hide_game">Remove from history</button>
-        </div>
-      </div>
+    <div class="lib-row" data-action="open_review" tabindex="0" role="button">
+      <span class="grow-wl"></span>
+      <span class="lib-champ" aria-hidden="true"></span>
+      <span class="lib-m"><b class="lib-name"></b><span class="lib-meta"></span></span>
+      <span class="lib-kda"><span class="lib-kda-n"></span><span class="lib-kda-r"></span></span>
+      <span class="lib-st"></span>
+      <button class="ui-iconbtn lib-remove" type="button" data-action="hide_game" title="Remove from history" aria-label="Remove from history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+      <span class="lib-go">Review</span>
+      <p class="lib-take own-words" data-theme-only="journal" hidden></p>
     </div>
   </template>
 
-  <!-- Compact status text; unavailable objective tagging adds no extra badge. -->
-  <template id="tpl-token">
-    <span class="gtoken"></span>
+  <template id="tpl-tag">
+    <span class="ui-tag lib-tag" aria-hidden="true"></span>
+  </template>
+  <template id="tpl-mark-video">
+    <span class="lib-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10 5-3v10l-5-3"/></svg></span>
+  </template>
+  <template id="tpl-mark-objective">
+    <span class="lib-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></svg></span>
+  </template>
+  <template id="tpl-sr">
+    <span class="sr-only"></span>
   </template>
 
   <script type="module" src="./games.js"></script>

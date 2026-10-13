@@ -5,12 +5,13 @@ body .shell :is(.obj-field-k,.rv-field-k){
   color:var(--text);font-size:14px;font-weight:500;line-height:1.55;letter-spacing:0;text-transform:none;
 }
 body .shell .obj-field-hint{color:var(--muted);font-size:13px;font-weight:400;line-height:1.55;letter-spacing:0}
-body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput){
+/* Kit fields (.ui-field, kit.css) keep their own fill, edge and focus. */
+body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput):where(:not(.ui-field)){
   background:var(--surface-raised)!important;color:var(--text)!important;
   border:1px solid var(--border)!important;border-radius:12px!important;
   min-height:44px;padding:12px 14px;font-size:14px;line-height:1.6;box-shadow:none;
 }
-body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput):focus{
+body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput):where(:not(.ui-field)):focus{
   border-color:var(--muted)!important;outline:2px solid var(--border);outline-offset:2px;box-shadow:none;
 }
 body .shell :is(.obj-input,.rv-field-in,.rv-objnote,.rv-prompt-input,.rv-taginput,.pat-noteinput)::placeholder{
@@ -25,7 +26,7 @@ body .shell :is(.obj-textarea,.rv-field-in){min-height:100px}
 }
 .learning-details>summary::marker{color:var(--muted);font-size:12px}
 .learning-details>summary>span{margin-left:10px;color:var(--muted);font-size:13px;font-weight:400}
-.learning-details>summary:focus-visible{outline:2px solid var(--primary);outline-offset:4px;border-radius:8px}
+.learning-details>summary:focus-visible{outline:2px solid var(--focus);outline-offset:4px;border-radius:8px}
 .learning-details[open]>summary{border-bottom:0}
 .learning-details-body{display:flex;flex-direction:column;gap:22px;padding:4px 0 24px}
 .learning-details .rv-field:last-child{margin-bottom:0}
@@ -37,44 +38,119 @@ body .shell #obj-form{
   border:0!important;border-top:1px solid var(--border)!important;border-radius:0!important;box-shadow:none;
 }
 #obj-form .obj-form-head{margin-bottom:24px}
-#obj-form .obj-form-title{font-size:20px;font-weight:600;letter-spacing:-.02em}
 #obj-form .obj-form-grid{gap:24px}
 #obj-form .obj-field{gap:9px}
 #obj-form .obj-field-row2{gap:20px}
-#obj-form .obj-checks{gap:16px;flex-wrap:wrap}
-#obj-form .obj-check{font-size:14px;line-height:1.5}
+#obj-form .obj-checks{gap:8px;flex-wrap:wrap}
 #obj-form .obj-form-act{gap:12px;margin-top:4px}
-/* Each objective keeps its progress and actions inside one clear boundary. */
-.objectives-shell #active-list{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;margin:0}
-.objectives-shell :is(#focus-list,#completed-list){gap:16px}
-body .objectives-shell :is(.obj-card,.obj-mini,.obj-done){
-  background:var(--surface)!important;border:1px solid var(--border)!important;
-  border-radius:16px!important;padding:24px;margin:0;box-shadow:none;
+body #obj-form .obj-ghost{min-height:38px;padding:8px 16px;font-size:14px}
+#obj-form .obj-form-title{font-family:var(--f-body);font-size:18px;font-weight:500;letter-spacing:normal}
+/* Form toggles share the calm pill: outlined at rest, quietly filled when chosen. */
+#obj-form .obj-check{min-height:32px;padding:0 14px;border:1px solid var(--line-strong);border-radius:999px;
+  background:transparent;color:var(--t2);font-size:13.5px;line-height:1.5}
+#obj-form .obj-check:hover{background:var(--hover);border-color:var(--line-strong);color:var(--t1)}
+#obj-form .obj-check:has(input:checked){background:var(--selected);border-color:transparent;color:var(--t1)}
+#obj-form .obj-check:has(input:focus-visible){outline:2px solid var(--focus);outline-offset:2px}
+#obj-form .obj-evtgroup-k{font-size:12px;color:var(--t3);padding-left:0}
+/* Each tracked event's dot uses the tone the VOD timeline gives that event. */
+.obj-evtpill[data-tone]{--evt:var(--tone)}
+body #obj-form .obj-evtpill{height:30px;padding:0 12px 0 10px;border-radius:999px!important;font-size:13px;font-weight:400}
+body #obj-form .obj-evtpill.on{border-color:transparent!important}
+#obj-form .obj-evtpill::before{opacity:.7}
+#obj-form .obj-evtpill.on::before{opacity:1}
+#obj-form .obj-subadd{font-size:13.5px}
+/* A reminder question is one line to start; the phase name never wraps. */
+#obj-form .obj-prompt-row{grid-template-columns:140px minmax(0,1fr) 44px;gap:10px}
+body #obj-form .obj-prompt-label{min-height:44px}
+#obj-form .obj-prompt-x{width:44px;height:44px}
+/* Learning objectives, calm: each objective keeps its progress and actions inside
+   one quiet outline (no fill), the priority objective is the one lit surface, and
+   color appears only where it means something (a met or missed target, Done). */
+.objectives-shell #active-list{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin:0}
+.objectives-shell #focus-list{gap:12px}
+.objectives-shell #completed-list{gap:0;margin-top:8px}
+body .objectives-shell :is(.obj-card,.obj-mini){
+  background:transparent!important;border:1px solid var(--line)!important;
+  border-radius:var(--r-lg)!important;padding:24px;margin:0;opacity:1;
 }
+body .objectives-shell .obj-card.obj-card-priority{
+  background:var(--lit-fill)!important;border-color:transparent!important;box-shadow:var(--lit-shadow)!important;
+}
+/* Completed objectives read as a quiet list, one hairline between rows. */
+body .objectives-shell .obj-done{
+  background:transparent!important;border:0!important;border-bottom:1px solid var(--line)!important;
+  border-radius:0!important;padding:14px 0;margin:0;opacity:1;gap:6px 16px;
+}
+body .objectives-shell .obj-done:last-child{border-bottom:0!important}
 body .objectives-shell :is(#active-label,#focus-label){
-  color:var(--text);font-size:16px;font-weight:600;line-height:1.5;margin:0 0 16px;
+  color:var(--t3);font-size:13px;font-weight:500;line-height:1.5;margin:0 0 12px;
 }
 body .objectives-shell #focus-label{
-  flex-direction:column;align-items:flex-start;gap:4px;margin-top:36px;
+  flex-direction:row;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin-top:40px;
 }
-.objectives-shell #focus-label .n{font-size:13px;font-weight:400;opacity:1}
-.objectives-shell .obj-completed-toggle{margin-top:36px}
+.objectives-shell #focus-label .n{font-size:13px;font-weight:400;opacity:1;color:var(--t3)}
+.objectives-shell .obj-completed-toggle{margin-top:32px}
 .objectives-shell .obj-card-mastery{margin-top:16px;padding-top:0;border-top:0}
-.objectives-shell :is(.obj-card-actrow,.obj-mini-actrow,.obj-done-actrow){margin-top:20px;padding-top:16px}
 body .shell .obj-card-top{gap:20px;align-items:flex-start}
-.obj-card-top .ringwrap{margin-top:4px}
-body .shell .obj-card-name{margin-top:10px}
-body .shell .obj-card-meta{margin-top:6px}
-body .shell .obj-badges :is(.pill,.obj-tag){
-  display:inline-flex;align-items:center;min-height:26px;padding:3px 9px;margin:0;
-  color:var(--t2);background:var(--surface-raised);border:0;border-radius:6px;
+.obj-card-top .ringwrap{margin-top:2px}
+body .shell .obj-card-name{margin-top:8px}
+body .objectives-shell :is(.obj-card-name,.obj-mini-name){font-weight:500;color:var(--t1)}
+body .objectives-shell .obj-done-name{font-size:15px;font-weight:500;color:var(--t2)}
+body .shell .obj-card-meta{margin-top:4px;color:var(--t3)}
+/* Type, priority and drill tags share the calm tag shape. */
+body .objectives-shell :is(.obj-badges .pill,.obj-tag){
+  display:inline-flex;align-items:center;height:22px;min-height:0;padding:0 8px;margin:0;
+  border:0;border-radius:var(--r-sm);background:var(--selected);color:var(--t2);
+  font-size:12px;font-weight:500;line-height:1;white-space:nowrap;
 }
+body .objectives-shell .obj-badges .obj-card-pri{color:var(--t1)}
 body .shell .obj-card .ladder{gap:8px 24px;margin-top:20px}
 body .shell .obj-card .ladder span{font-size:13px}
 .obj-mastery-gate{white-space:normal}
+/* The success line sits under the title; only the hit rate carries a tone. */
+body .objectives-shell .obj-card-crit{margin-top:16px;padding-top:0;border-top:0}
+body .objectives-shell .obj-crit-text{font-size:14px;line-height:1.5;color:var(--t2)}
+body .objectives-shell .obj-crit-hit{font-size:13px;font-weight:500;color:var(--t3);font-variant-numeric:tabular-nums}
+body .objectives-shell .obj-crit-hit[data-tone]{color:var(--tone)}
+/* Ring: tabular points in the body face (the ring itself stays monochrome). */
+.objectives-shell .ringwrap .pc{font-family:var(--f-body)}
+.objectives-shell .obj-points-value{font-variant-numeric:tabular-nums}
+/* Champion gate: a plain label and value, no divider. */
+body .objectives-shell .obj-gate{margin-top:12px;padding-top:0;border-top:0;gap:10px}
+body .objectives-shell .obj-gate-k{font-size:13px;color:var(--t3)}
+body .objectives-shell .obj-gate-v{font-size:13px;color:var(--t2)}
+/* Focus drills: monochrome progress, like every other progress bar. */
+body .objectives-shell .obj-mini{padding:18px 24px}
+body .objectives-shell .obj-mini-prog{color:var(--t3);margin-top:4px;font-variant-numeric:tabular-nums}
+body .objectives-shell .obj-mini-track{width:120px;height:4px;border-radius:2px;background:var(--selected)}
+body .objectives-shell .obj-mini-fill{border-radius:2px;background:var(--t2)}
+body .objectives-shell .obj-done-phase{color:var(--t3)}
+body .objectives-shell .obj-done-sum{color:var(--t3);font-variant-numeric:tabular-nums}
+body .objectives-shell .obj-done-badge{
+  display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--r-sm);
+  background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok);font-size:12px;font-weight:500;line-height:1;
+}
+/* Card actions: the commitments (priority, completion) keep a quiet outline; the
+   rest are text buttons, so a row of five actions does not read as five boxes. */
+.objectives-shell :is(.obj-card-actrow,.obj-mini-actrow,.obj-done-actrow){gap:4px;margin-top:16px;padding-top:0;border-top:0}
+.objectives-shell .obj-done-actrow{margin-top:2px}
+body .objectives-shell .obj-act{min-height:34px;padding:7px 12px;font-size:13.5px}
+body .objectives-shell .obj-act:not(.obj-act-gold,.obj-act-early,.obj-act-win){border-color:transparent!important}
+body .objectives-shell .obj-toggle{border-color:transparent!important;padding-inline:10px;margin-left:-10px;color:var(--t3)!important}
+body .objectives-shell .obj-toggle:hover{color:var(--t1)!important}
+.objectives-shell .obj-toggle .arr{font-size:13px}
 body .shell .obj-empty{padding:56px 20px}
 body .shell .obj-empty-h{color:var(--text);font-size:22px;line-height:1.4;letter-spacing:-.02em}
 body .shell .obj-empty-p{color:var(--muted);font-size:15px;line-height:1.7;max-width:48ch;margin-top:12px}
+/* The milestone card is a raised dialog over the scrim in every theme and mode. */
+body .obj-celebrate .obj-celebrate-card{
+  background:var(--raised)!important;border:var(--raised-border)!important;border-radius:var(--r-lg)!important;
+  box-shadow:var(--pop-shadow)!important;
+}
+body .obj-celebrate .obj-celebrate-head{font-family:var(--f-display);font-weight:var(--display-weight);letter-spacing:var(--display-track)!important}
+body .obj-celebrate .obj-celebrate-eyebrow{font-size:13px}
+body .obj-celebrate .obj-celebrate-stats{font-size:13px;color:var(--t3);font-variant-numeric:tabular-nums}
+body .obj-celebrate .obj-celebrate-line{font-size:14px}
 
 .pat-empty-action{
   display:inline-flex;align-items:center;justify-content:center;margin-top:20px;min-height:40px;padding:9px 16px;
@@ -82,7 +158,7 @@ body .shell .obj-empty-p{color:var(--muted);font-size:15px;line-height:1.7;max-w
   font-family:var(--fb);font-size:14px;font-weight:500;line-height:1.5;text-decoration:none;
 }
 .pat-empty-action:hover{background:var(--surface-raised);border-color:var(--muted)}
-.pat-empty-action:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+.pat-empty-action:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 
 /* Review remains first in both reading and keyboard order. */
 #rv-body{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:36px;margin-top:32px}
@@ -123,7 +199,7 @@ body #rv-body :is(.rv-death,.rv-evid){border:0!important;border-radius:12px!impo
 body #rv-body .rv-death-jump{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;
   width:100%;min-height:60px;padding:14px 16px;text-align:left;
   background:var(--surface)!important;border:1px solid var(--border)!important;color:var(--text)!important}
-body #rv-body .rv-death-jump:hover:not(:disabled){background:var(--surface-raised)!important;border-color:#626262!important}
+body #rv-body .rv-death-jump:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--line-strong)!important}
 #rv-body .rv-death-identity{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;min-width:0}
 #rv-body .rv-death-number{font-size:14px;font-weight:500;color:var(--t2)}
 #rv-body .rv-death-time{font-family:var(--fb);font-size:16px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--text);letter-spacing:0}
@@ -139,82 +215,104 @@ body .shell.onb-shell{
 }
 html.framed body .shell.onb-shell{max-width:760px;width:100%;margin-left:auto;margin-right:auto}
 .onb-shell .onb-hero{margin:24px 0 32px}
-body .onb-shell .onb-hero h1{font-size:36px;font-weight:600;line-height:1.25;letter-spacing:-.03em}
-body .onb-shell .onb-subt{margin-top:12px;font-size:15px;letter-spacing:0;text-transform:none;line-height:1.6;color:var(--muted)}
-.onb-shell .onb-step{margin:0 0 16px;text-align:center;color:var(--muted);font-size:14px;line-height:1.6}
+body .onb-shell .onb-hero h1{font-size:var(--greet-size);font-weight:var(--display-weight);line-height:1.15}
+body .onb-shell .onb-subt{margin-top:12px;font-size:15px;letter-spacing:0;text-transform:none;line-height:1.6;color:var(--t3)}
+.onb-shell .onb-step{margin:0 0 16px;text-align:center;color:var(--t3);font-size:14px;line-height:1.6}
 body .onb-shell .onb-card{
-  width:100%;max-width:576px;align-self:center;gap:22px;padding:16px 8px 24px;
+  width:100%;max-width:576px;align-self:center;gap:18px;padding:16px 8px 24px;
   /* Leave room for focus borders on full-width fields and buttons. This plain
      form no longer needs the decorative clipping inherited from .card. */
   overflow:visible;
   background:transparent!important;border:0!important;border-radius:0!important;box-shadow:none;
 }
 .onb-shell .onb-card::before,.onb-shell .onb-card::after{display:none}
-body .onb-shell .onb-sectitle{color:var(--text);font-size:18px;font-weight:600;line-height:1.5;letter-spacing:-.01em}
+body .onb-shell .onb-sectitle{margin:0;color:var(--t1);font-size:18px;font-weight:500;line-height:1.5}
 .onb-shell .onb-how{gap:22px;margin:6px 0}
 .onb-shell .onb-how-dot{display:none}
 .onb-shell .onb-how-h{font-size:15px;font-weight:500}
-.onb-shell .onb-how-p{margin-top:5px;color:var(--muted);font-size:14px;line-height:1.65}
-.onb-shell .onb-body{margin:0;color:var(--muted);font-size:15px;line-height:1.7}
+.onb-shell .onb-how-p{margin-top:4px;color:var(--t3);font-size:14px;line-height:1.65}
+.onb-shell .onb-body{margin:0;color:var(--t2);font-size:15px;line-height:1.7}
 .onb-shell .onb-field{gap:9px;margin-top:0}
 .onb-shell .onb-roles{gap:10px}
 body .onb-shell .onb-role{min-height:48px;font-size:13px;letter-spacing:0}
 body .onb-shell .onb-cta{min-height:46px;font-size:14px;margin-top:4px}
 body .onb-shell .onb-link{font-size:14px;line-height:1.5}
+/* Account and rank lines are plain text; the signed-in dot is the one ok mark. */
+.onb-shell .onb-acct{margin:0 0 8px}
+body .onb-shell .onb-acct-h{font-weight:500}
+body .onb-shell .onb-acct-p{font-family:var(--f-body);font-size:13px;color:var(--t3)}
+body .onb-shell .onb-acct-dot{background:var(--ok)}
+body .onb-shell .onb-rank{font-family:var(--f-body);font-size:13px;color:var(--t2)}
+body .onb-shell .onb-input-mono{font-family:var(--f-body)}
+body .onb-shell .onb-input-code{font-family:var(--f-data)}
 
-/* Learning objective games and notes share the objectives page look: plain cards,
-   sentence-case headings and the shared tokens instead of page-local colors. */
+/* Learning objective games and notes, calm: the page title in the display face,
+   evidence, games and notes as quiet lists with a hairline between items (no box
+   per item), and color only for a result (W or L) or an evidence tone. */
 body .shell :is(.og-head,.on-head){display:flex;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-4)}
-body .shell :is(.og-back,.on-back){flex-shrink:0;width:36px;height:36px;padding:0;font-size:18px;line-height:1}
+body .shell :is(.og-back,.on-back){flex-shrink:0;width:36px;height:36px;margin-top:2px;padding:0;font-size:18px;line-height:1}
 body .shell :is(.og-titles,.on-titles){min-width:0}
-body .shell :is(.og-title,.on-title){margin:0;color:var(--text);font-size:24px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+body .shell :is(.og-title,.on-title){margin:0;color:var(--t1);font-family:var(--f-display);font-size:var(--title-size);
+  font-weight:var(--display-weight);line-height:1.25;letter-spacing:var(--display-track)!important;overflow-wrap:anywhere}
 body .shell .og-sub{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-3);margin-top:var(--space-1)}
-body .shell :is(.og-status,.og-counter,.on-status){color:var(--muted);font-size:var(--font-small)}
+body .shell :is(.og-status,.og-counter,.on-status){color:var(--t3);font-size:var(--font-small);font-variant-numeric:tabular-nums}
 body .shell .on-status{margin-top:var(--space-1)}
-body .shell .og-ledger{padding:var(--space-5)}
-body .shell .og-ledger-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3)}
-body .shell :is(.og-ledger-eyebrow,.on-eyebrow){margin:0;color:var(--text);font-size:var(--font-control);font-weight:600;line-height:1.5}
-body .shell .og-ledger-sum{color:var(--muted);font-size:var(--font-caption);text-align:right}
-body .shell .og-ev-list{display:flex;flex-direction:column;gap:var(--space-2)}
+body .shell .og-ledger{padding:0;margin:0 0 var(--space-6);background:transparent!important;border:0!important;border-radius:0!important}
+body .shell .og-ledger-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-1)}
+body .shell :is(.og-ledger-eyebrow,.on-eyebrow){margin:0;color:var(--t3);font-size:var(--font-small);font-weight:500;line-height:1.5}
+body .shell .og-ledger-sum{color:var(--t3);font-size:var(--font-caption);text-align:right;font-variant-numeric:tabular-nums}
+body .shell .og-ev-list{display:flex;flex-direction:column;gap:0}
 body .shell .og-ev{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);
-  padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:12px;background:var(--surface-raised)}
+  padding:var(--space-3) 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+body .shell .og-ev:last-child{border-bottom:0}
 body .shell :is(.og-ev-main,.og-grow-main,.on-card-main){min-width:0}
-body .shell .og-ev-title{color:var(--text);font-size:var(--font-control);font-weight:500;line-height:1.4}
-body .shell :is(.og-ev-meta,.on-clip-tags){margin-top:var(--space-1);color:var(--muted);font-size:var(--font-caption)}
-body .shell .og-ev-note{margin-top:var(--space-2);color:var(--t2);font-size:var(--font-small);line-height:1.5}
-body .shell :is(.og-ev-chip,.og-badge,.on-clip-time){flex-shrink:0;padding:2px var(--space-2);border-radius:6px;
-  background:var(--surface);color:var(--t2);font-size:var(--font-caption);line-height:1.5;white-space:nowrap}
+body .shell .og-ev-title{color:var(--t1);font-size:15px;font-weight:500;line-height:1.4}
+body .shell :is(.og-ev-meta,.on-clip-tags){margin-top:2px;color:var(--t3);font-size:var(--font-caption);font-variant-numeric:tabular-nums}
+body .shell .og-ev-note{margin-top:var(--space-1);color:var(--t2);font-size:14px;line-height:1.55}
+/* Tags share the calm tag shape; the evidence chip adds a tone dot. */
+body .shell :is(.og-ev-chip,.og-badge,.on-clip-time){display:inline-flex;align-items:center;gap:6px;flex-shrink:0;height:22px;
+  padding:0 8px;border-radius:var(--r-sm);background:var(--selected);color:var(--t2);font-size:var(--font-caption);
+  font-weight:500;line-height:1;white-space:nowrap}
+body .shell .og-ev-chip[data-tone]::before{content:'';flex:none;width:6px;height:6px;border-radius:50%;background:var(--tone)}
 body .shell .og-grow{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
-  gap:var(--space-3) var(--space-5);padding:var(--space-4) var(--space-5);margin-bottom:var(--space-3)}
+  gap:var(--space-2) var(--space-5);padding:var(--space-4) 0;margin:0;
+  background:transparent!important;border:0!important;border-bottom:1px solid var(--line)!important;border-radius:0!important}
+body .shell .og-grow:last-child{border-bottom:0!important}
 body .shell .og-grow-main{flex:1}
 body .shell .og-grow-top{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-1) var(--space-3)}
 body .shell .og-grow-wl{font-size:var(--font-small);font-weight:600}
+body .shell #games-label{margin:0 0 var(--space-1);font-size:var(--font-small);font-weight:500;color:var(--t3)}
 body .shell .sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
   clip-path:inset(50%);white-space:nowrap;border:0}
-body .shell .og-grow-champ{color:var(--text);font-size:16px;font-weight:600}
-body .shell :is(.og-grow-kda,.og-grow-date,.on-clip-game){color:var(--muted);font-size:var(--font-small)}
-body .shell .og-badge{background:var(--surface-raised)}
-body .shell .og-grow-exec{margin-top:var(--space-2);color:var(--t2);font-size:var(--font-small);font-style:italic;line-height:1.5}
-body .shell .og-grow-acts{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);flex-shrink:0}
-body .shell :is(.og-empty,.on-empty){padding:var(--space-6) var(--space-5);text-align:center}
+body .shell .og-grow-champ{color:var(--t1);font-size:15px;font-weight:500}
+body .shell :is(.og-grow-kda,.og-grow-date,.on-clip-game){color:var(--t3);font-size:var(--font-small);font-variant-numeric:tabular-nums}
+body .shell .og-grow-exec{margin-top:var(--space-1);color:var(--t2);font-size:14px;font-style:italic;line-height:1.55}
+body .shell .og-grow-acts{display:flex;align-items:center;flex-wrap:wrap;gap:2px;flex-shrink:0}
+body .shell :is(.og-act,.on-jump){min-height:34px;padding:7px 12px;font-size:13.5px}
+body .shell .og-act{border-color:transparent!important}
+body .shell :is(.og-empty,.on-empty){padding:var(--space-6) var(--space-5);text-align:center;background:transparent!important;border:0!important}
 body .shell :is(.og-empty-h,.on-empty-h){max-width:440px;margin:0 auto;color:var(--t2);font-size:16px;font-weight:500;line-height:1.5}
-body .shell .on-sec{margin-bottom:var(--space-5)}
-body .shell .on-sec .on-eyebrow{margin-bottom:var(--space-3)}
-body .shell .on-list{display:flex;flex-direction:column;gap:var(--space-2)}
-body .shell .on-group{margin-bottom:var(--space-3)}
-body .shell .on-group-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-2);margin:0 0 var(--space-2)}
-body .shell .on-group-label{color:var(--text);font-size:var(--font-control);font-weight:500}
-body .shell .on-group-phase{color:var(--muted);font-size:var(--font-caption)}
-body .shell .on-card{padding:var(--space-4);border:1px solid var(--border);border-radius:12px;background:var(--surface)}
-body .shell .on-card-clickable{cursor:pointer}
-body .shell .on-card-clickable:hover{background:var(--surface-raised)}
+body .shell .on-sec{margin-bottom:var(--space-6)}
+body .shell .on-sec .on-eyebrow{margin-bottom:var(--space-1)}
+body .shell .on-list{display:flex;flex-direction:column;gap:0}
+body .shell .on-group{margin:var(--space-3) 0 var(--space-4)}
+body .shell .on-group-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-2);margin:0}
+body .shell .on-group-label{color:var(--t1);font-size:15px;font-weight:500}
+body .shell .on-group-phase{color:var(--t3);font-size:var(--font-caption)}
+body .shell .on-card{padding:var(--space-3) 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+body .shell .on-card:last-child{border-bottom:0}
+/* A clickable note bleeds its hover into the gutter, like a list row. */
+body .shell .on-card-clickable{position:relative;cursor:pointer;margin:0 -12px;padding-inline:12px;border-bottom-color:transparent;border-radius:var(--r-md)}
+body .shell .on-card-clickable::after{content:'';position:absolute;left:12px;right:12px;bottom:-1px;height:1px;background:var(--line)}
+body .shell .on-card-clickable:last-child::after{content:none}
+body .shell .on-card-clickable:hover{background:var(--hover);border-color:transparent!important}
 body .shell .on-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3)}
-body .shell .on-card-header{color:var(--muted);font-size:var(--font-caption);font-weight:500}
-body .shell .on-card-body{margin-top:var(--space-1);color:var(--text);font-size:var(--font-small);line-height:1.6;white-space:pre-wrap}
+body .shell .on-card-header{color:var(--t3);font-size:var(--font-caption);font-weight:500;font-variant-numeric:tabular-nums}
+body .shell .on-card-body{margin-top:var(--space-1);color:var(--t1);font-size:15px;line-height:1.6;white-space:pre-wrap}
 body .shell .on-card-body.italic{color:var(--t2);font-style:italic}
-body .shell .on-jump{flex-shrink:0;align-self:flex-start;white-space:nowrap}
+body .shell .on-jump{flex-shrink:0;align-self:flex-start;white-space:nowrap;border-color:transparent!important}
 body .shell .on-clip-top{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2) var(--space-3)}
-body .shell .on-clip-time{background:var(--surface-raised);color:var(--text);font-variant-numeric:tabular-nums}
+body .shell .on-clip-time{color:var(--t1);font-family:var(--f-num);font-variant-numeric:tabular-nums}
 
 @media(max-width:1050px){
   #rv-body{grid-template-columns:minmax(0,1fr);gap:32px}

@@ -1,141 +1,338 @@
-/* Keep the recording central and the next review action close to it. */
+/* VOD review page, calm layout: the recording and its timeline on the left, a quiet
+   290px side column on the right (focus picker, events to watch, the Journal thread,
+   the note card, saved moments). Tokens only; meaning colors come from data-tone and
+   data-result (appearance.css). Shadows and tracking opt back in past the styles.css
+   reset with !important and token values only. */
+
+/* Page frame */
 .vod-review-page .shell{max-width:1900px;padding-bottom:40px}
-html.framed .vod-review-page .shell{padding:24px 32px 40px}
-.vod-review-page .vp-context{margin-bottom:24px}
-.vod-review-page .vp-section-label{font:500 13px/1.5 var(--fb);color:var(--muted);letter-spacing:0}
-.vod-review-page #vp-objective-heading{margin:0 0 10px}
-.vod-review-page .vp-objbar{gap:10px;padding:2px;margin:0 0 24px;scroll-padding:2px}
-.vod-review-page .vp-objbar .vp-objtab{flex:1 0 230px;min-height:96px;height:auto;padding:15px 18px;gap:8px;
-  border:1px solid var(--border)!important;border-radius:12px!important;background:transparent!important;
-  color:var(--text)!important;opacity:1;box-shadow:none;text-align:left;white-space:normal}
-.vod-review-page .vp-objbar .vp-objtab.is-active{flex:1 0 230px;background:var(--surface-raised)!important;border-color:#858585!important;cursor:pointer}
-.vod-review-page .vp-objbar .vp-objtab:hover{background:var(--surface)!important}
-.vod-review-page .vp-objbar .vp-objtab:focus-visible{outline-offset:-2px}
-.vod-review-page .vp-objbar .vp-objtab .vp-objtab-top{width:100%;gap:12px;min-height:20px;flex-wrap:wrap}
-.vod-review-page .vp-objbar .vp-objtab .vp-objtab-type{font:400 12px/1.5 var(--fb);color:var(--muted);letter-spacing:0}
-.vod-review-page .vp-objbar .vp-objtab .vp-objtab-count{font:400 12px/1.5 var(--fb);color:var(--muted);padding:0;min-width:0;background:none}
-.vod-review-page .vp-objbar .vp-objtab .vp-objtab-name{font:500 16px/1.5 var(--fb);color:var(--text);letter-spacing:0;-webkit-line-clamp:2;overflow-wrap:anywhere}
+html.framed .vod-review-page .shell{padding:20px 28px 40px}
+.vod-review-page .vp-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* Header: matchup in the display face, then result, queue, length and KDA */
+.vod-review-page .vp-context{align-items:flex-end;margin-bottom:18px}
+.vod-review-page .vp-context #vp-title{font-family:var(--f-display);font-weight:var(--display-weight);font-optical-sizing:auto;
+  line-height:1.2;letter-spacing:var(--display-track)!important}
+.vod-review-page .vp-ctx-details{display:flex;flex-wrap:wrap;align-items:baseline;margin-top:6px;color:var(--t3)}
+.vod-review-page .vp-ctx-details>span+span::before{content:'\00B7';margin:0 7px;color:var(--t3)}
+.vod-review-page .vp-ctx-details .vp-result{font-weight:500}
+.vod-review-page .vp-ctx-num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.vod-review-page .vp-cinema-btn{min-height:34px;padding:0 12px;gap:8px;font-size:13.5px;border-radius:var(--btn-radius)!important}
+.vod-review-page .vp-cinema-btn kbd{min-width:18px;height:18px;font:500 11px/1 var(--f-data);color:var(--t3);background:transparent}
+
+/* Layout: player column and the side column */
 .vod-review-page .vp-wrap{margin-top:0}
-.vod-review-page .cols{grid-template-columns:minmax(0,1fr) 340px;gap:28px;align-items:start}
-.vod-review-page .stack{min-width:0;gap:14px}
-.vod-review-page .vp-watch-column>.seclabel{font:500 13px/1.5 var(--fb);color:var(--muted);letter-spacing:0;margin:0}
-.vod-review-page .vp-video-card{padding:0;border:0!important;border-radius:14px!important;background:#000!important;overflow:hidden}
-.vod-review-page .vp-stage{border:0;min-height:0;border-radius:14px;background:#000}
-.vod-review-page .vp-video{max-height:72vh;aspect-ratio:16/9;object-fit:contain;border-radius:0;background:#000}
-.vod-review-page .vp-transport-card{padding:12px 0;border:0!important;border-radius:0!important;background:transparent!important}
-.vod-review-page .vp-transport{gap:10px 14px}
+.vod-review-page .cols{grid-template-columns:minmax(0,1fr) 290px;gap:24px;align-items:start}
+.vod-review-page .stack{min-width:0;gap:12px}
+.vod-review-page .vp-video-card{padding:0;border:0!important;border-radius:var(--r-lg)!important;background:var(--well)!important;overflow:hidden}
+.vod-review-page .vp-stage{border:0;min-height:0;border-radius:var(--r-lg);background:var(--well)}
+.vod-review-page .vp-video{max-height:72vh;aspect-ratio:16/9;object-fit:contain;border-radius:0;background:var(--well)}
+
+/* Transport: quiet icon buttons; key hints stay visible but low */
+.vod-review-page .vp-transport-card{padding:4px 0 0;border:0!important;border-radius:0!important;background:transparent!important}
+.vod-review-page .vp-transport{gap:8px 12px}
+.vod-review-page .vp-transport .tbtn{min-width:0;height:34px;padding:0 8px;gap:6px;color:var(--t2);
+  border-color:transparent!important;border-radius:var(--btn-radius)!important}
+.vod-review-page .vp-transport .tbtn.play{min-width:38px;color:var(--t1)}
 .vod-review-page .vp-transport .tbtn-icon{display:inline-flex}
 .vod-review-page .vp-transport .tbtn-icon svg{display:block}
-.vod-review-page .transport-options{gap:8px}
-.vod-review-page .vp-timeline-card{padding:16px;border-radius:14px!important;background:var(--surface)!important}
+.vod-review-page .vp-transport kbd{min-width:18px;height:18px;padding:0 4px;font:500 11px/1 var(--f-data);color:var(--t3);background:transparent}
+.vod-review-page .vp-transport .ttime{font:500 13px/1.4 var(--f-num);font-variant-numeric:tabular-nums;color:var(--t1)}
+.vod-review-page .vp-transport .ttime .step{color:var(--t3);font-weight:400}
+.vod-review-page .vp-transport .tlabel{font-size:13px;color:var(--t3)}
+.vod-review-page .vp-transport .vp-rate-sel{height:34px;min-width:68px;font-size:13px}
+.vod-review-page .transport-options{gap:6px}
+
+/* Timeline head: title and a legend of the colors this timeline draws */
+.vod-review-page .vp-watch-column>.vp-tl-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+  gap:6px 16px;margin:8px 0 0;font:500 13px/1.3 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-tl-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font:400 12px/1.4 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-legend-item{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.vod-review-page .vp-legend-item::before{content:'';flex:none;width:7px;height:7px;border-radius:50%;background:var(--tone,var(--t3))}
+.vod-review-page .vp-legend-item:is([data-tone="clip"],[data-tone="note"])::before{border-radius:2px;transform:rotate(45deg)}
+
+/* Timeline: thin stems in their event color, codes as plain colored text, bands as
+   6px pills on the track, clock ticks under it. Hit-testing classes are unchanged.
+   Codes mix their event color into --t1 by --ev-code-mix (less in light modes), so
+   pale event colors such as recall still read as 11px text. */
+.vod-review-page .vp-timeline-card{padding:0;border:0!important;border-radius:0!important;background:transparent!important}
 .vod-review-page .vp-tl-row{gap:16px}
-.vod-review-page .vp-timeline{min-width:0;height:144px}
-/* Keep thin stems, but make their labels and the nearby hover target usable. */
-.vod-review-page .evbar-code{pointer-events:auto;cursor:pointer}
+.vod-review-page .vp-timeline{min-width:0;height:124px;border:0;border-radius:0}
+.vod-review-page .vp-timeline .prog{background:var(--t3)}
+.vod-review-page .vp-timeline .evbar[data-tone]{--evc:var(--tone)}
+.vod-review-page .vp-timeline .evbar:not(.evbar-dim,.evbar-ghost){background:var(--evc);border-radius:1px}
+.vod-review-page .vp-timeline .evbar-code{padding:0;border:0;border-radius:0;background:none;
+  font:600 11px/1 var(--f-num);color:color-mix(in srgb,var(--evc) var(--ev-code-mix),var(--t1));pointer-events:auto;cursor:pointer}
+.vod-review-page .vp-timeline .evbar-objective .evbar-code-alt{bottom:calc(var(--evh) + 23px)}
+.vod-review-page .vp-timeline .evbar-nolabel::after{padding:2px 4px;border:0;border-radius:4px;background:var(--bg);
+  font:600 11px/1 var(--f-num);color:color-mix(in srgb,var(--evc) var(--ev-code-mix),var(--t1))}
+.vod-review-page .vp-timeline .evtf{top:calc(72% - 3px);bottom:auto;height:6px;border:0;border-radius:3px;
+  background:var(--tone,var(--ev-fight));opacity:.85}
+.vod-review-page .vp-timeline .evtf-dim{background:var(--ev-away);opacity:.35}
+.vod-review-page .vp-timeline .vp-clipband{top:calc(72% - 3px);bottom:auto;height:6px;border:0;border-radius:3px;
+  background:var(--mk-clip);opacity:.85}
+.vod-review-page .vp-timeline .vp-clipflag{bottom:22px}
+.vod-review-page .vp-timeline .vp-clipflag>span{font:500 11px/1.4 var(--f-body);padding:1px 5px}
+.vod-review-page .vp-timeline .play{top:6px;bottom:22px;margin-left:-1px;transform:none;border-radius:1px;background:var(--playhead)}
+.vod-review-page .vp-timeline .play::after{content:'';position:absolute;top:-3px;left:50%;width:8px;height:8px;
+  border-radius:50%;background:var(--playhead);transform:translateX(-50%)}
+.vod-review-page .vp-tl-axis{position:absolute;left:0;right:0;bottom:2px;height:14px;pointer-events:none}
+.vod-review-page .vp-tl-tick{position:absolute;bottom:0;transform:translateX(-50%);white-space:nowrap;
+  font:500 11px/14px var(--f-num);font-variant-numeric:tabular-nums;color:var(--t3)}
+.vod-review-page .vp-tl-tick.is-start{transform:none}
+.vod-review-page .vp-tl-tick.is-end{transform:translateX(-100%)}
+.vod-review-page .vp-tl-zoombadge{border-color:var(--line-strong);border-radius:var(--r-sm);font:500 11px/1 var(--f-num)}
 .vod-review-page .vp-timeline.is-event-hover{cursor:pointer}
 .vod-review-page .evbar.evbar-hit-hover{opacity:1;outline:1px solid var(--evc);outline-offset:3px}
-.vod-review-page .evbar-hit-hover .evbar-code{border-color:var(--text)}
 .vod-review-page .evbar-nolabel.evbar-hit-hover::after{opacity:1}
-.vod-review-page .vp-timeline .vp-clipflag>span{font:500 10px/1.4 var(--fb);letter-spacing:0;padding:2px 5px}
-.vod-review-page .vp-timeline .ph{font:400 11px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
-.vod-review-page .vp-mkstep{min-width:112px}
-.vod-review-page .vp-mkstep-lbl{font:400 12px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
-.vod-review-page .vp-mkstep-count{font:400 12px/1.5 var(--fb);letter-spacing:0;color:var(--muted)}
-.vod-review-page .vp-mkstep-count b{font:500 12px/1.5 var(--fb);color:var(--text)}
-.vod-review-page .vp-mkstep-btn{min-width:32px;min-height:32px}
+.vod-review-page .vp-timeline .evbar-sel{outline:2px solid var(--t1);outline-offset:2px}
+/* Aura: one soft pool of light under the playhead, behind every mark (the content
+   layer is the stacking context, so z-index -1 sits beneath the track and stems). */
+:root[data-theme="aura"] .vod-review-page .vp-timeline .play::before{content:'';position:absolute;z-index:-1;left:50%;
+  top:-6px;bottom:-22px;width:min(240px,calc(var(--edge,0) * 9.6px));transform:translateX(-50%);pointer-events:none;
+  background:radial-gradient(50% 46% at 50% 76%,var(--glow) 0%,color-mix(in srgb,var(--glow) 60%,transparent) 32%,
+    color-mix(in srgb,var(--glow) 24%,transparent) 62%,transparent 100%)}
 
-.vod-review-page .vp-review-column{padding:22px;border:1px solid var(--border);border-radius:16px;background:var(--surface);gap:24px}
-.vod-review-page #vp-review-objective{margin:7px 0 24px;font:500 19px/1.45 var(--fb);letter-spacing:-.01em;color:var(--text);overflow-wrap:anywhere}
-.vod-review-page .vp-event-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.vod-review-page .vp-event-heading h3{margin:0;font:500 14px/1.5 var(--fb);color:var(--text)}
-.vod-review-page #vp-event-count{font:400 13px/1.5 var(--fb);color:var(--muted)}
-.vod-review-page .vp-event-help{margin:7px 0 16px;font:400 13px/1.6 var(--fb);color:var(--muted)}
-.vod-review-page .vp-event-list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto;padding:2px;scroll-padding:4px}
-.vod-review-page .vp-event-list:empty{display:none}
-.vod-review-page .vp-review-event{display:flex;align-items:center;gap:12px;width:100%;min-height:66px;padding:12px;
-  border:1px solid var(--border);border-radius:10px!important;background:var(--bg)!important;text-align:left}
-.vod-review-page .vp-review-event:hover{background:var(--surface-raised)!important;border-color:#666!important}
-.vod-review-page .vp-review-event[aria-current="true"],.vod-review-page .vp-review-event.is-current{background:var(--surface-raised)!important;border-color:#858585!important}
-.vod-review-page .vp-review-event:focus-visible{outline-offset:-2px}
-.vod-review-page .vp-event-number{flex-shrink:0;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
-.vod-review-page .vp-event-info{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
-.vod-review-page .vp-event-title{font:500 14px/1.5 var(--fb);color:var(--text);overflow-wrap:anywhere}
-.vod-review-page .vp-event-time{font:400 13px/1.5 var(--fb);color:var(--muted);font-variant-numeric:tabular-nums}
-.vod-review-page .vp-event-play{display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;color:var(--muted)}
-.vod-review-page .vp-event-empty{margin:10px 0 0;font:400 14px/1.65 var(--fb);color:var(--muted)}
-.vod-review-page .vp-review-note{border-top:1px solid var(--border);padding-top:22px}
-.vod-review-page .vp-review-note-label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;font:500 14px/1.5 var(--fb);color:var(--text)}
-.vod-review-page .vp-review-note .inp{width:100%;font:400 14px/1.6 var(--fb);padding:12px 14px;border-radius:10px!important;background:var(--bg)!important}
-.vod-review-page #vp-bm-note{min-height:112px;resize:vertical;display:block;margin-bottom:12px}
-.vod-review-page #vp-bm-obj{margin-bottom:12px;min-height:44px;text-overflow:ellipsis}
-.vod-review-page .vp-note-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 14px}
-.vod-review-page #vp-note-help{font:400 12px/1.6 var(--fb);color:var(--muted);max-width:140px}
-.vod-review-page #vp-bm-add{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:9px 14px;font:500 13px/1.5 var(--fb);background:var(--primary)!important;color:var(--primary-ink)!important;border-color:var(--primary)!important;white-space:nowrap}
-.vod-review-page #vp-bm-add kbd{background:transparent;border-color:#aaa;color:var(--primary-ink);font-size:11px;min-width:18px;height:18px;padding:0 3px}
-.vod-review-page #vp-bm-add:hover:not(:disabled){background:#dedede!important;color:var(--primary-ink)!important}
-.vod-review-page #vp-bm-hint{font:400 13px/1.6 var(--fb);margin-top:10px}
+/* Marker stepper beside the timeline */
+.vod-review-page .vp-mkstep{min-width:104px;gap:6px}
+.vod-review-page .vp-mkstep-lbl{font:400 12px/1.4 var(--f-body);color:var(--t3);text-transform:none}
+.vod-review-page .vp-mkstep-count{font:400 12px/1.4 var(--f-num);color:var(--t3)}
+.vod-review-page .vp-mkstep-count b{font-weight:500;color:var(--t1)}
+.vod-review-page .vp-mkstep-btn{min-width:32px;min-height:32px;border-color:var(--line-strong)!important;border-radius:var(--btn-radius)!important}
 
-.vod-review-page .vp-tools-disclosure{border:1px solid var(--border);border-radius:12px;background:transparent}
-.vod-review-page .vp-tools-disclosure>summary{display:flex;align-items:center;gap:12px;min-height:52px;padding:14px 18px;
-  list-style:none;cursor:pointer;border-radius:11px;font:500 14px/1.5 var(--fb);color:var(--t2)}
+/* Tool disclosures under the timeline: quiet rows with a hairline */
+.vod-review-page .vp-tools-disclosure{border:0;border-top:1px solid var(--line);border-radius:0;background:transparent}
+.vod-review-page .vp-tools-disclosure>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px 4px;
+  list-style:none;cursor:pointer;border-radius:var(--r-md);font:500 13.5px/1.4 var(--f-body);color:var(--t2)}
 .vod-review-page .vp-tools-disclosure>summary::-webkit-details-marker{display:none}
-.vod-review-page .vp-tools-disclosure>summary::before{content:'›';font-size:22px;font-weight:400;line-height:1;color:var(--muted);transform-origin:center}
+.vod-review-page .vp-tools-disclosure>summary::before{content:'\203A';width:10px;font-size:18px;font-weight:400;line-height:1;color:var(--t3);text-align:center}
 .vod-review-page .vp-tools-disclosure[open]>summary::before{transform:rotate(90deg)}
 .vod-review-page .vp-tools-disclosure>summary>span:first-of-type{flex:1;min-width:0}
-.vod-review-page .vp-tools-disclosure>summary:hover{background:var(--surface)}
-.vod-review-page .vp-tools-disclosure>summary:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+.vod-review-page .vp-tools-disclosure>summary:hover{background:var(--hover);color:var(--t1)}
+.vod-review-page .vp-tools-disclosure>summary:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .vod-review-page .vp-tool-keys{display:flex;gap:5px}
-.vod-review-page :is(.vp-tools-disclosure,.vp-review-note) kbd{display:inline-flex;align-items:center;justify-content:center;
-  min-width:21px;height:21px;padding:0 5px;background:var(--bg);color:var(--muted);border:1px solid #515151;border-radius:4px;font:400 12px/1 var(--fb)}
-.vod-review-page .vp-tools-disclosure>.mini{padding:8px 18px 20px;border:0!important;background:transparent!important;border-radius:0!important}
-.vod-review-page .vp-tools-disclosure .mtitle{font-size:14px;margin-bottom:14px;letter-spacing:0}
-.vod-review-page .vp-tools-disclosure :is(.inp,.vp-fix-form label){font-size:14px;line-height:1.6;letter-spacing:0}
-.vod-review-page .vp-tools-disclosure .inp{padding:10px 12px}
-/* Use one spacing rhythm for clip fields instead of unrelated field margins. */
+.vod-review-page .vp-tools-disclosure>summary kbd{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;
+  padding:0 5px;background:transparent;color:var(--t3);border:1px solid var(--line-strong);border-radius:4px;font:500 11px/1 var(--f-data)}
+.vod-review-page .vp-tools-disclosure>.mini{padding:4px 4px 18px 24px;border:0!important;background:transparent!important;border-radius:0!important}
+.vod-review-page .vp-tools-disclosure .mtitle{font-size:13px;margin-bottom:12px}
+.vod-review-page .vp-tools-disclosure :is(.inp,.vp-fix-form label){font-size:14px;line-height:1.6}
+.vod-review-page .vp-tools-disclosure .inp{padding:9px 12px}
 .vod-review-page .vp-clip{display:flex;flex-direction:column;gap:12px}
+.vod-review-page .vp-clip>label{margin:0 0 -6px;font:500 13px/1.4 var(--f-body);color:var(--t2)}
 .vod-review-page .vp-clip>:is(.mtitle,.row,.inp,.qual,.savebtn,.vp-clip-hint){margin:0}
 .vod-review-page #vp-clip-qual{flex-wrap:wrap;gap:8px}
-.vod-review-page #vp-clip-qual .q{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 12px;font-size:13px;line-height:1.5}
-.vod-review-page .vp-fix-keys{font:400 13px/1.7 var(--fb);letter-spacing:0;margin-bottom:16px}
-.vod-review-page .vp-fix-sel{font-size:14px;line-height:1.6;margin-bottom:14px}
-.vod-review-page .vp-fix-list-title{font:500 13px/1.6 var(--fb);letter-spacing:0;text-transform:none}
-.vod-review-page .vp-review-column .vp-saved-moments{border:0;border-top:1px solid var(--border);border-radius:0;padding-top:8px}
-.vod-review-page .vp-saved-moments>summary{padding:12px 0}
-.vod-review-page #vp-open-count{font:400 12px/1.5 var(--fb);color:var(--muted);white-space:nowrap}
-.vod-review-page .vp-moments-card{padding:10px 0 0}
-.vod-review-page #vp-tabs{display:flex;gap:4px;padding:3px;margin:0 0 14px;border-radius:9px;background:var(--bg)}
-.vod-review-page #vp-tabs .tab{flex:1;min-width:0;padding:8px 4px;font:400 12px/1.5 var(--fb);letter-spacing:0;border:0;border-radius:7px!important;text-align:center}
-.vod-review-page #vp-tabs .tab.on{background:var(--surface-raised)!important;color:var(--text)!important;box-shadow:none}
-.vod-review-page #vp-tabs .c{font:inherit;opacity:.75}
-.vod-review-page .vp-moments-empty{font:400 13px/1.65 var(--fb);padding:8px 0;letter-spacing:0}
-.vod-review-page #vp-bookmarks{max-height:480px;overflow-y:auto;padding:2px}
-.vod-review-page #vp-bookmarks .moment{padding:14px;gap:8px;min-width:0;border-radius:10px;background:var(--bg)}
-/* Rows are plain containers; the Watch button and the row controls act on their own. */
-.vod-review-page #vp-bookmarks .moment,.vod-review-page .vp-fix-row{cursor:default}
-.vod-review-page #vp-bookmarks .moment:hover,.vod-review-page .vp-fix-row:hover{transform:none;border-color:var(--gline2)}
-.vod-review-page #vp-bookmarks .ricon{padding:0;min-width:0;cursor:pointer}
+.vod-review-page #vp-clip-qual .q{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:6px 12px;font-size:13px;line-height:1.5}
+.vod-review-page .vp-fix-keys{font:400 13px/1.7 var(--f-body);margin-bottom:14px}
+.vod-review-page .vp-fix-sel{font-size:14px;line-height:1.6;margin-bottom:12px}
+.vod-review-page .vp-fix-list-title{font:500 13px/1.6 var(--f-body);text-transform:none}
+
+/* Side column: no card, one rhythm */
+.vod-review-page .vp-review-column{padding:0;border:0;border-radius:0;background:transparent;gap:18px}
+
+/* Focus picker: the summary names the focus; the menu lists the objectives */
+.vod-review-page .vp-focus-picker{border-radius:var(--r-md)}
+.vod-review-page .vp-focus-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;
+  list-style:none;cursor:pointer;border-radius:var(--r-md);background:var(--lit-fill);box-shadow:var(--lit-shadow)!important}
+.vod-review-page .vp-focus-summary::-webkit-details-marker{display:none}
+.vod-review-page .vp-focus-summary:focus-visible{outline-offset:2px!important}
+.vod-review-page .vp-focus-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.vod-review-page #vp-review-objective{margin:0;font:500 14px/1.3 var(--f-body);color:var(--t1);overflow-wrap:anywhere}
+.vod-review-page .vp-focus-sub{font:400 12px/1.4 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-focus-chev{flex:none;width:16px;height:16px;fill:none;stroke:var(--t3);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.vod-review-page .vp-focus-picker[open] .vp-focus-chev{transform:rotate(180deg)}
+.vod-review-page .vp-focus-picker.is-static .vp-focus-summary{cursor:default}
+.vod-review-page .vp-focus-picker.is-static .vp-focus-chev{display:none}
+.vod-review-page .vp-focus-menu{padding:8px 0 0}
+.vod-review-page .vp-focus-menu #vp-objective-heading{margin:0 0 4px;font:400 12px/1.4 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-focus-menu .vp-objbar{flex-direction:column;align-items:stretch;gap:1px;margin:0;padding:0;overflow:visible}
+.vod-review-page .vp-objbar .vp-objtab{flex:none;display:flex;flex-direction:column;align-items:stretch;gap:2px;width:100%;
+  height:auto;min-height:0;margin:0;padding:8px 10px;border:0;border-radius:var(--r-md);background:transparent;
+  color:var(--t2);opacity:1;text-align:left;white-space:normal}
+.vod-review-page .vp-objbar .vp-objtab:hover{background:var(--hover)}
+.vod-review-page .vp-objbar .vp-objtab.is-active{flex:none;background:var(--lit-fill);box-shadow:var(--lit-shadow)!important}
+.vod-review-page .vp-objbar .vp-objtab:focus-visible{outline-offset:-2px!important}
+.vod-review-page .vp-objbar .vp-objtab .vp-objtab-top{display:flex;justify-content:space-between;gap:10px;width:100%;min-height:0}
+.vod-review-page .vp-objbar .vp-objtab :is(.vp-objtab-type,.vp-objtab-count){min-width:0;padding:0;border-radius:0;
+  background:none;font:400 12px/1.4 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-objbar .vp-objtab .vp-objtab-count{flex:none;font-family:var(--f-num)}
+.vod-review-page .vp-objbar .vp-objtab .vp-objtab-name{font:500 16px/1.35 var(--f-body);color:var(--t1);
+  -webkit-line-clamp:2;overflow-wrap:anywhere}
+.vod-review-page .vp-objbar .vp-objtab.is-empty .vp-objtab-name{color:var(--t2)}
+
+/* Events to watch: a 38px row of time, name and its color */
+.vod-review-page .vp-event-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px}
+.vod-review-page .vp-event-heading h3{margin:0;font:500 13px/1.3 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-event-help{margin:0 0 6px;font:400 12px/1.5 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-event-list{display:flex;flex-direction:column;gap:1px;margin:0 -10px;padding:0;max-height:320px;overflow-y:auto;scroll-padding:4px}
+.vod-review-page .vp-event-list:empty{display:none}
+.vod-review-page .vp-review-event.ui-row{display:grid;grid-template-columns:44px minmax(0,1fr) 10px;gap:10px;align-items:center;
+  width:100%;min-height:38px;margin:0;padding:0 10px;font:400 13.5px/1.35 var(--f-body);color:var(--t2)}
+.vod-review-page .vp-review-event:focus-visible{outline-offset:-2px!important}
+.vod-review-page .vp-event-time{font:500 12.5px/1 var(--f-num);font-variant-numeric:tabular-nums;color:var(--t3)}
+.vod-review-page .vp-event-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)}
+.vod-review-page .vp-event-dot{justify-self:center;width:7px;height:7px;border-radius:50%;background:var(--tone,var(--t3))}
+.vod-review-page .vp-review-event:is(.is-current,[aria-current="true"]) :is(.vp-event-time,.vp-event-title){color:var(--t1)}
+.vod-review-page .vp-event-empty{margin:4px 0 0;font:400 13px/1.6 var(--f-body);color:var(--t3)}
+
+/* Journal thread: one spine in game time, your words in your voice */
+.vod-review-page .vp-thread-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px}
+.vod-review-page .vp-thread-head h3{margin:0;font:500 13px/1.3 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-thread-count{font:400 12px/1.3 var(--f-body);color:var(--t3);white-space:nowrap}
+.vod-review-page .vp-thread-list{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.vod-review-page .vp-th-item{position:relative}
+.vod-review-page .vp-th-item:not(.vp-th-empty)::before{content:'';position:absolute;left:55px;top:0;bottom:0;width:1px;background:var(--spine,var(--line))}
+.vod-review-page .vp-th-item:first-child::before{top:15px}
+.vod-review-page .vp-th-item:last-child::before{bottom:auto;height:15px}
+.vod-review-page :is(.vp-th-item:only-child,.vp-th-empty+.vp-th-item)::before{content:none}
+.vod-review-page .vp-th-row{display:grid;grid-template-columns:38px 14px minmax(0,1fr);column-gap:10px;align-items:start;
+  width:100%;min-height:0;margin:0;padding:7px 0;border:0;border-radius:var(--r-sm)!important;text-align:left;font-weight:400}
+.vod-review-page button.vp-th-row:focus-visible{outline-offset:-2px!important}
+.vod-review-page .vp-th-t{font:500 12px/18px var(--f-num);font-variant-numeric:tabular-nums;color:var(--t3);text-align:right}
+.vod-review-page .vp-th-dot{position:relative;z-index:1;justify-self:center;width:7px;height:7px;margin-top:5.5px;border-radius:50%;
+  background:var(--tone,var(--t3));outline:3px solid var(--bg)}
+.vod-review-page :is(.vp-th-note,.vp-th-clip) .vp-th-dot{border-radius:1.5px;transform:rotate(45deg)}
+.vod-review-page .vp-th-body{display:flex;flex-direction:column;min-width:0}
+.vod-review-page .vp-th-kind{font:400 12px/18px var(--f-body);color:var(--t3)}
+.vod-review-page .vp-th-text{margin-top:1px;font-size:15.5px;line-height:1.35;color:var(--t1);overflow-wrap:anywhere}
+.vod-review-page .vp-th-event .vp-th-text{margin:0;font-size:13px;line-height:18px;color:var(--t2)}
+.vod-review-page .vp-th-row.is-on :is(.vp-th-t,.vp-th-text){color:var(--t1)}
+.vod-review-page .vp-th-row.is-on .vp-th-text{font-weight:500}
+.vod-review-page .vp-th-now .vp-th-t{color:var(--t1)}
+.vod-review-page .vp-th-now .vp-th-dot{width:9px;height:9px;margin-top:4.5px;background:var(--playhead)}
+.vod-review-page .vp-th-nowline{display:flex;align-items:center;gap:8px;font:400 12px/18px var(--f-body);color:var(--t3)}
+.vod-review-page .vp-th-nowline::after{content:'';flex:1;height:1px;background:var(--line-strong)}
+.vod-review-page .vp-th-takeaway{margin-top:4px}
+.vod-review-page .vp-th-takeaway .vp-th-dot{width:9px;height:9px;margin-top:4.5px;background:transparent;border:1.5px solid var(--t2)}
+.vod-review-page .vp-th-takeaway .vp-th-text{font-style:italic}
+.vod-review-page .vp-th-link{justify-self:start;min-height:0;padding:0;border:0;font-size:13px;font-weight:500;line-height:1.5;
+  text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:3px}
+.vod-review-page .vp-th-empty{padding:4px 0;font-size:13px;line-height:1.5;color:var(--t3)}
+
+/* Note card: one raised surface; the field is the card */
+.vod-review-page .vp-review-note.ui-raised{display:flex;flex-direction:column;gap:6px;padding:12px 12px 10px}
+.vod-review-page .vp-review-note.ui-raised:has(#vp-bm-note:focus){border-color:var(--focus);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 25%,transparent)!important}
+.vod-review-page .vp-review-note .vp-note-input{display:block;width:100%;min-height:40px;max-height:240px;margin:0;padding:2px 2px 0;
+  border:0;border-radius:0;background:transparent;font-size:14px;line-height:1.5;resize:none;field-sizing:content}
+.vod-review-page .vp-review-note .vp-note-input:focus{box-shadow:none!important}
+.vod-review-page .vp-note-input::placeholder{font-family:var(--f-body);font-style:normal}
+/* Transparent, so the card's border and halo are the ring; forced colors turn it visible. */
+.vod-review-page .vp-review-note .vp-note-input:focus-visible{outline:2px solid transparent!important;outline-offset:-2px}
+.vod-review-page .vp-note-footer{display:flex;align-items:center;gap:10px;min-height:32px}
+.vod-review-page .vp-note-when{font:500 12px/1 var(--f-num);font-variant-numeric:tabular-nums;color:var(--t3)}
+.vod-review-page .vp-note-when.is-pinned{color:var(--t1)}
+.vod-review-page .vp-note-help{flex:1;min-width:0;text-align:right;font:400 12px/1.3 var(--f-body);color:var(--t3);visibility:hidden}
+.vod-review-page .vp-review-note:has(#vp-bm-note:focus) .vp-note-help{visibility:visible}
+.vod-review-page .vp-note-save{margin-left:auto}
+.vod-review-page .vp-note-help+.vp-note-save{margin-left:0}
+.vod-review-page .vp-note-save svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.vod-review-page .vp-review-note #vp-bm-hint{margin:0;font:400 12.5px/1.5 var(--f-body)}
+.vod-review-page .vp-note-options>summary{width:max-content;padding:2px 0;cursor:pointer;font:400 12px/1.5 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-note-options>summary:hover{color:var(--t1)}
+.vod-review-page .vp-review-column .vp-note-options>:not(summary){margin-top:8px}
+.vod-review-page #vp-bm-obj{min-height:38px;margin:0;font-size:13px;text-overflow:ellipsis}
+
+/* Saved moments: quiet segments and plain rows with their clip or note diamond */
+.vod-review-page .vp-review-column .vp-saved-moments{border:0;border-radius:0;background:transparent}
+.vod-review-page .vp-saved-moments>summary{min-height:36px;padding:6px 0;font:500 13px/1.3 var(--f-body);color:var(--t3)}
+.vod-review-page .vp-saved-moments>summary:hover{background:transparent}
+.vod-review-page .vp-saved-label{flex:1;min-width:0}
+.vod-review-page #vp-open-count{font:400 12px/1.3 var(--f-body);color:var(--t3);white-space:nowrap}
+.vod-review-page .vp-moments-card{padding:6px 0 0}
+.vod-review-page #vp-tabs{display:flex;gap:2px;padding:3px;margin:0 0 8px;border:0;border-radius:calc(var(--btn-radius) + 3px);background:var(--selected)}
+.vod-review-page #vp-tabs .tab{flex:1;min-width:0;min-height:30px;margin:0;padding:4px 6px;border:1px solid transparent;
+  border-color:transparent!important;border-radius:var(--btn-radius)!important;font:500 12.5px/1.3 var(--f-body);
+  text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vod-review-page #vp-tabs .tab.on{background:var(--bg)!important;color:var(--t1)!important;border-color:var(--line)!important}
+:root[data-theme="aura"] .vod-review-page #vp-tabs .tab.on{background:var(--raised)!important}
+.vod-review-page #vp-tabs .c{margin-left:3px;font:inherit;font-family:var(--f-num);color:var(--t3);opacity:1}
+.vod-review-page .vp-moments-empty{padding:8px 0;font:400 13px/1.6 var(--f-body);color:var(--t3)}
+.vod-review-page #vp-bookmarks{gap:0;margin:0;max-height:480px;overflow-y:auto;padding:0 2px 2px 0}
+.vod-review-page #vp-bookmarks .moment{display:grid;grid-template-columns:10px minmax(0,1fr);column-gap:10px;row-gap:0;
+  padding:12px 40px 12px 0;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;cursor:default}
+.vod-review-page #vp-bookmarks .moment:first-child{border-top:0}
+.vod-review-page #vp-bookmarks .moment:hover{transform:none;background:transparent}
+.vod-review-page #vp-bookmarks .moment>:not(.vp-bm-mark,.ricon){grid-column:2;min-width:0}
+.vod-review-page #vp-bookmarks .vp-bm-mark{order:-2;grid-column:1;align-self:start;display:block;width:7px;height:7px;margin-top:7px;
+  border-radius:50%;background:var(--tone,var(--t3))}
+.vod-review-page #vp-bookmarks .vp-bm-mark[data-shape="diamond"]{width:8px;height:8px;border-radius:2px;transform:rotate(45deg)}
+.vod-review-page #vp-bookmarks .mtl{order:-1;padding:0;font-size:14px;font-weight:500;line-height:1.45;color:var(--t1);overflow-wrap:anywhere}
+.vod-review-page #vp-bookmarks .ricon{top:9px;right:2px;min-width:0;padding:0;cursor:pointer}
 .vod-review-page #vp-bookmarks .ricon svg{display:block}
-.vod-review-page .vp-fix-when{cursor:pointer}
-.vod-review-page .vp-moment-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-top:10px;font:400 13px/1.5 var(--fb);color:#ffaaaa}
+.vod-review-page #vp-bookmarks .mbadges{display:flex;flex-wrap:wrap;gap:0;margin:2px 0 0}
+.vod-review-page #vp-bookmarks .b{padding:0;border:0;border-radius:0;background:none;font:400 12px/1.5 var(--f-body);color:var(--t3);
+  max-width:none;white-space:normal}
+.vod-review-page #vp-bookmarks .b.time{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.vod-review-page #vp-bookmarks .vp-bm-clip{display:none}
+.vod-review-page #vp-bookmarks .b:not([hidden],.vp-bm-clip)~.b:not([hidden],.vp-bm-clip)::before{content:'\00B7';margin:0 6px;color:var(--t3)}
+.vod-review-page #vp-bookmarks .vp-bm-src[data-tone]{color:var(--tone)}
+.vod-review-page #vp-bookmarks :is(.vp-bm-edit,.vp-ev-edit,.vp-bm-share){margin-top:8px;padding-right:0}
+.vod-review-page #vp-bookmarks :is(.vp-bm-share,.vp-bm-edit)>button{display:inline-flex;align-items:center;gap:6px;width:auto;height:auto;
+  min-height:30px;padding:4px 10px;font:500 12.5px/1.4 var(--f-body);border-radius:var(--btn-radius)!important;white-space:nowrap}
+.vod-review-page #vp-bookmarks .vp-bm-share{gap:6px}
+.vod-review-page #vp-bookmarks .inp{min-height:32px;margin:0;padding:5px 10px;font-size:13px;font-weight:400;line-height:1.5}
+.vod-review-page #vp-bookmarks select.inp{padding-right:28px}
+.vod-review-page .vp-moment-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin-top:8px;font:400 13px/1.5 var(--f-body);color:var(--error)}
 .vod-review-page .vp-moment-status[hidden]{display:none}
 .vod-review-page .vp-moment-retry{padding:4px 10px;font-size:13px}
-.vod-review-page #vp-bookmarks :is(.mtl,.inp){font-size:14px;line-height:1.55}
-.vod-review-page #vp-bookmarks .b{font-size:12px;line-height:1.4;letter-spacing:0;text-transform:none}
+.vod-review-page .vp-fix-row{cursor:default}
+.vod-review-page .vp-fix-row:hover{transform:none;border-color:var(--line-strong)}
+.vod-review-page .vp-fix-when{cursor:pointer}
+
+/* Cinema hides the side column; the video takes the room */
 .vod-review-page .vp-wrap.vp-expanded .cols{grid-template-columns:minmax(0,1fr)}
 .vod-review-page .vp-wrap.vp-expanded .vp-review-column{display:none}
 .vod-review-page .vp-wrap.vp-expanded .vp-video{max-height:78vh}
 
 @media(max-width:1100px){
-  .vod-review-page .cols{grid-template-columns:minmax(0,1fr) 310px;gap:20px}
-  .vod-review-page .vp-review-column{padding:18px}
-  .vod-review-page .vp-objbar .vp-objtab{flex-basis:210px;padding:14px;min-height:96px}
+  .vod-review-page .cols{grid-template-columns:minmax(0,1fr) 270px;gap:20px}
   .vod-review-page .vp-tl-row{flex-wrap:wrap}
   .vod-review-page .vp-mkstep{flex-direction:row;align-items:center;justify-content:space-between;width:100%;gap:12px}
 }
 @media(max-width:860px){
   .vod-review-page .cols{grid-template-columns:minmax(0,1fr)}
-  .vod-review-page .vp-objbar .vp-objtab{flex:1 0 210px;max-width:310px}
-  .vod-review-page .vp-review-column{padding:22px}
   .vod-review-page .vp-event-list{max-height:280px}
-  .vod-review-page #vp-note-help{max-width:none}
 }
+
+/* Timeline corrections: kit buttons, quiet list rows and a plain state label */
+.vod-review-page .vp-fix-form .row>.ui-btn{align-self:flex-end}
+.vod-review-page #vp-fix-save{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500;transform:none;filter:none}
+.vod-review-page #vp-fix-save:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover)}
+.vod-review-page #vp-fix-save:disabled{opacity:.5}
+.vod-review-page #vp-fix-export:hover{border-color:var(--line-strong)}
+.vod-review-page .vp-fix-list{gap:0}
+.vod-review-page .vp-fix-row{padding:10px 0;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent}
+.vod-review-page .vp-fix-row :is(.vp-fix-what,.vp-fix-reason,.vp-fix-when){font-size:13px}
+.vod-review-page .vp-fix-state{border:0;border-radius:var(--r-sm);background:var(--selected);color:var(--t2);font:400 12px/1.5 var(--f-body);letter-spacing:0;padding:2px 8px}
+.vod-review-page .vp-fix-state.is-absorbed{color:var(--ok)}
+.vod-review-page .vp-fix-state.is-orphaned{color:var(--loss)}
+
+/* Clip quality: no choice until one is picked; a tone dot carries Good and Bad, as on Review */
+.vod-review-page #vp-clip-qual .q{gap:7px;color:var(--t2);background:transparent;border-color:var(--line-strong);border-radius:var(--btn-radius)}
+.vod-review-page #vp-clip-qual .q:hover{transform:none;color:var(--t1);background:var(--hover)}
+.vod-review-page #vp-clip-qual .q.on{color:var(--t1);background:var(--selected);border-color:var(--t2)}
+.vod-review-page #vp-clip-qual .q::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--t3)}
+.vod-review-page #vp-clip-qual .q[data-q="good"]::before{background:var(--ok)}
+.vod-review-page #vp-clip-qual .q[data-q="bad"]::before{background:var(--loss)}
+
+/* One disclosure marker on the page: the thin chevron the tool rows use */
+.vod-review-page .vp-composer-options>summary{display:inline-flex;align-items:center;gap:6px;list-style:none}
+.vod-review-page .vp-composer-options>summary::-webkit-details-marker{display:none}
+.vod-review-page .vp-composer-options>summary::before{content:'\203A';width:10px;font-size:16px;line-height:1;color:var(--t3);text-align:center}
+.vod-review-page .vp-composer-options[open]>summary::before{transform:rotate(90deg)}
+/* Key hints are outlined, like every other kbd on the page */
+.vod-review-page .vp-clip .keycap{padding:0 5px;border:1px solid var(--line-strong);border-radius:4px;background:transparent;color:var(--t3);font:500 11px/18px var(--f-data)}
+.vod-review-page .vp-clip .vp-iobtn{font-size:13px}
+.vod-review-page .vp-clip .vp-iobtn.is-set{background:var(--selected)!important;color:var(--t1)!important;border-color:var(--t2)!important}
+.vod-review-page .vp-clip .vp-iobtn.is-set .keycap{border-color:var(--t2);color:var(--t1)}
+
+/* Sign-in hint and share progress: quiet rows, the dot is the only color */
+.vod-review-page :is(.vp-signin-hint,.vp-sharebar){padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+.vod-review-page .vp-signin-hint:hover{background:var(--hover)}
+.vod-review-page .vp-signin-dot{box-shadow:none}
+.vod-review-page .vp-signin-txt{font-size:13px;color:var(--t3)}
+.vod-review-page .vp-sharebar-txt{font-size:13px;color:var(--t2)}
+.vod-review-page .vp-signin-txt b{color:var(--t1);font-weight:500}
+.vod-review-page .vp-sharebar.is-error .vp-sharebar-txt{color:var(--error)}
+.vod-review-page :is(.vp-signin-cta,.vp-sharebar-retry){display:inline-flex;align-items:center;min-height:30px;padding:4px 12px;
+  border-radius:var(--btn-radius)!important;font:500 13px/1.4 var(--f-body);letter-spacing:0;text-transform:none;box-shadow:none}

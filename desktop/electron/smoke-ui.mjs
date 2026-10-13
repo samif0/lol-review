@@ -28,13 +28,18 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
     captures.push(file);
   }
   async function layout(child, name) {
-    const state = await child.executeJavaScript(`({
-      font:getComputedStyle(document.body).fontFamily,
-      overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,
-      title:document.querySelector('h1')?.textContent,
-      oldTour:!!document.querySelector('.frt-panel')
-    })`);
-    assert.match(state.font, /Segoe UI/);
+    // document.fonts.check() is also true for a family no @font-face declares, so the
+    // bundled faces must load (non-empty) before the check counts.
+    const state = await child.executeJavaScript(`(async()=>{
+      const loaded=async family=>(await document.fonts.load('16px "'+family+'"')).length>0&&document.fonts.check('16px "'+family+'"');
+      return {font:getComputedStyle(document.body).fontFamily,
+        overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,
+        title:document.querySelector('h1')?.textContent,
+        oldTour:!!document.querySelector('.frt-panel'),
+        fonts:{body:await loaded('Instrument Sans'),display:await loaded('Source Serif 4')}};
+    })()`);
+    assert.match(state.font, /Instrument Sans/);
+    assert.deepEqual(state.fonts, {body:true,display:true}, `${name} must load the bundled default faces from revu-app://`);
     assert.ok(state.overflow <= 1, `${name} horizontal overflow: ${state.overflow}`);
     assert.equal(state.oldTour, false);
     return state;
@@ -330,7 +335,11 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
         await delay(200);
         const shortcuts=await checkTransportShortcuts(frame,'vp',{exercise:size==='full',label:`vod-${size}`});
         await frame.executeJavaScript(`scrollTo({top:0,behavior:'instant'})`);
+        // The objective tabs live in the closed focus picker; measure them open, then restore it.
         const state=await frame.executeJavaScript(`(()=>{
+          const picker=document.querySelector('.vp-focus-picker'),wasOpen=picker?.open;
+          if(picker)picker.open=true;
+          try {
           const title=document.querySelector('#vp-title'),metadata=document.querySelector('#vp-ctx-details');
           const rect=element=>{const r=element.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
           const tabs=[...document.querySelectorAll('.vp-objtab')].map(tab=>{
@@ -342,6 +351,7 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
           return {tag:title?.tagName,title:title?.textContent?.trim(),titleSize:parseFloat(getComputedStyle(title).fontSize),
             metadata:metadata?.textContent?.trim(),metadataSize:parseFloat(getComputedStyle(metadata).fontSize),tabs,
             overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth};
+          } finally { if(picker)picker.open=wasOpen; }
         })()`);
         result[size]={...state,shortcuts};
         await writeFile(path.join(dataRoot,`ui-sample-vod-heading-${size}.json`),JSON.stringify(state,null,2));
@@ -375,7 +385,7 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
   const guide = await child.executeJavaScript(`(async()=>{
     document.querySelector('#nextstep-cta').click();
     const input=document.querySelector('.intent-input');
-    if(!input) throw new Error('Session editor did not open');
+    if(!input) throw new Error('The session composer is missing');
     input.value='Keep my unfinished focus';
     const original=location.href;
     await window.RevuFirstReviewTutorial.start();
@@ -401,6 +411,36 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
   await capture('coach-selected');
   await child.executeJavaScript(`document.querySelector('.intent-coach').click()`);
   await capture('coach-unselected');
+  // The native window paints what the shell shows (set_window_appearance, electron/appearance.mjs),
+  // and dropping a preview override returns to the saved choice. The scratch profile keeps the last one.
+  // A canvas normalizes the computed colors to #rrggbb, as appearance-native.mjs reports them.
+  const shown = () => contents.executeJavaScript(`(()=>{
+    const body=getComputedStyle(document.body),paint=document.createElement('canvas').getContext('2d');
+    const hex=color=>{paint.fillStyle='#000000';paint.fillStyle=color;return paint.fillStyle;};
+    return {mode:document.documentElement.dataset.mode,background:hex(body.backgroundColor),text:hex(body.color)};
+  })()`);
+  const windowBackground = async expected => {
+    for (let i = 0; i < 60 && window.getBackgroundColor().toLowerCase() !== expected; i++) await delay(50);
+    return window.getBackgroundColor().toLowerCase();
+  };
+  const startShown = await shown();
+  assert.match(startShown?.background || '', /^#[0-9a-f]{6}$/, 'The shell shows a solid background');
+  const direct = await contents.executeJavaScript(`window.revuDesktop.invoke('set_window_appearance',
+    {payload:${JSON.stringify({ mode: startShown.mode, background: startShown.background, text: startShown.text })}})`);
+  assert.equal(direct?.ok, true, 'set_window_appearance answers ok');
+  const nativeAppearance = { direct, start: startShown, startWindow: await windowBackground(startShown.background) };
+  assert.equal(nativeAppearance.startWindow, startShown.background);
+  await contents.executeJavaScript(`window.__revuAppearance.reapply({theme:'neutral',mode:'light'})`);
+  nativeAppearance.override = await shown();
+  assert.equal(nativeAppearance.override.mode, 'light');
+  assert.notEqual(nativeAppearance.override.background, startShown.background, 'Neutral light changes the shell background');
+  nativeAppearance.overrideWindow = await windowBackground(nativeAppearance.override.background);
+  assert.equal(nativeAppearance.overrideWindow, nativeAppearance.override.background, 'The window follows the shell into Neutral light');
+  await contents.executeJavaScript(`window.__revuAppearance.reapply()`);
+  nativeAppearance.restored = await shown();
+  assert.equal(nativeAppearance.restored.background, startShown.background, 'Dropping the override restores the saved appearance');
+  nativeAppearance.restoredWindow = await windowBackground(startShown.background);
+  assert.equal(nativeAppearance.restoredWindow, startShown.background);
   child = await navigate('settings.html');
   const settings = await child.executeJavaScript(`(async()=>{
     const deadline=Date.now()+10000;
@@ -436,6 +476,15 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
   await layout(child,'Settings');
   await child.executeJavaScript(`document.querySelector('[data-settings-category="appearance"]').click()`);
   await capture('settings-appearance');
+  // Theme radios save to this profile's local storage and apply through the shell at once.
+  const pickTheme = value => child.executeJavaScript(`(()=>{
+    document.querySelector('input[name="appearanceTheme"][value=${JSON.stringify(value)}]').click();
+    return window.top.document.documentElement.dataset.theme;
+  })()`);
+  const themeSwitch = { neutral: await pickTheme('neutral') };
+  await capture('settings-appearance-neutral');
+  themeSwitch.warm = await pickTheme('warm');
+  assert.deepEqual(themeSwitch, { neutral: 'neutral', warm: 'warm' }, 'Settings applies a theme to the whole app');
   await child.executeJavaScript(`const s=document.querySelector('#settings-search');s.value='backup';s.dispatchEvent(new Event('input',{bubbles:true}))`);
   await capture('settings-search');
   const pages = {};
@@ -445,13 +494,15 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
     if(page==='objectives') {
       await child.executeJavaScript(`document.querySelector('[data-action="new_objective"]')?.click()`);
       const picker = await child.executeJavaScript(`(() => {
+        const probe=document.createElement('div');probe.style.backgroundColor='var(--raised)';document.body.appendChild(probe);
+        const raised=getComputedStyle(probe).backgroundColor;probe.remove();
         const select=document.querySelector('#f-type');
         select.focus(); select.showPicker();
         return {open:select.matches(':open'),appearance:getComputedStyle(select).appearance,
-          background:getComputedStyle(select,'::picker(select)').backgroundColor};
+          background:getComputedStyle(select,'::picker(select)').backgroundColor,raised};
       })()`,true);
       assert.equal(picker.open,true); assert.equal(picker.appearance,'base-select');
-      assert.equal(picker.background,'rgb(43, 43, 43)');
+      assert.equal(picker.background,picker.raised,'The open picker uses the theme raised surface');
       await capture('dropdown-open');
       contents.sendInputEvent({type:'keyDown',keyCode:'Down'});
       contents.sendInputEvent({type:'keyUp',keyCode:'Down'});
@@ -575,7 +626,7 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
     }
     matchWorkspace = await checkMatchWorkspace(preview, dataRoot, await grantFixture());
   } finally { preview.destroy(); }
-  return {home,guide,settings,pages,navigation,captures,samplePages,matchWorkspace,
+  return {home,guide,nativeAppearance,settings,themeSwitch,pages,navigation,captures,samplePages,matchWorkspace,
     limitations:['Guide persistence and settings saves blocked by isolated host policy; search, drafts, discard and guide presentation exercised.',
       'Populated screenshots use existing browser sample snapshots; they do not verify real match capture or review persistence.',
       'Patterns expanded-player checks use synthetic in-memory video to verify layout, keyboard focus and restoration; native capture and file decoding are not exercised.']};

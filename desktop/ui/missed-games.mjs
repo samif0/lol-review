@@ -56,30 +56,37 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
     return el;
   }
 
+  // A calm list row, like Home's Ready to review rows: initials, the matchup over its
+  // result and details, then Save and Dismiss.
   function row(game) {
     const { title, detail, result } = describeMissedGame(game);
     const el = doc.createElement('div');
-    el.className = 'home-review-match';
+    el.className = 'home-review-match ui-row';
     el.dataset.gameId = String(game.gameId);
+
+    const initials = doc.createElement('span');
+    initials.className = 'home-champ';
+    initials.setAttribute('aria-hidden', 'true');
+    initials.textContent = String(game?.championName || 'Game').replace(/[^\p{L}]/gu, '').slice(0, 2);
 
     const info = doc.createElement('div');
     info.className = 'home-review-match-info';
-    const head = doc.createElement('div');
-    head.className = 'home-review-match-title';
     const name = doc.createElement('h3');
     name.className = 'vline';
     name.textContent = title;
+    const sub = doc.createElement('p');
+    sub.className = 'home-review-sub';
     const outcome = doc.createElement('span');
     outcome.className = 'home-review-result';
     outcome.textContent = result;
     outcome.dataset.result = game.win ? 'win' : 'loss';
-    head.appendChild(name);
-    head.appendChild(outcome);
-    const meta = doc.createElement('p');
+    const meta = doc.createElement('span');
     meta.className = 'vsmall';
     meta.textContent = detail;
-    info.appendChild(head);
-    info.appendChild(meta);
+    sub.appendChild(outcome);
+    sub.appendChild(meta);
+    info.appendChild(name);
+    info.appendChild(sub);
 
     const actions = doc.createElement('div');
     actions.className = 'home-review-actions';
@@ -91,6 +98,7 @@ export function createMissedGamesCard({ section, list, heading, status, invoke, 
     actions.appendChild(save);
     actions.appendChild(dismiss);
 
+    el.appendChild(initials);
     el.appendChild(info);
     el.appendChild(actions);
     return el;

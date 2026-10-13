@@ -63,9 +63,13 @@ function fixture(t, modalExpand = true) {
       return null;
     }
     closest(selector) {
+      // Tag lists ("select", "button, summary") match by tag; anything else asks for a
+      // hidden or inert ancestor.
+      const tags = selector.split(',').map(part => part.trim());
+      const byTag = tags.every(tag => /^[a-z]+$/.test(tag));
       for (let node = this; node; node = node.parentElement) {
-        if (selector === 'select' || selector === 'button') {
-          if (node.tagName === selector.toUpperCase()) return node;
+        if (byTag) {
+          if (tags.includes(node.tagName.toLowerCase())) return node;
         } else if (node.hasAttribute('hidden') || node.inert) return node;
       }
       return null;
@@ -366,6 +370,16 @@ test('transport shortcuts preserve consumed, chorded, composing and editable key
     const event = shortcutEvent(key, f.play);
     assert.equal(f.transport.handleShortcut(event), false);
     assert.equal(event.defaultPrevented, false, 'native button activation must remain available');
+  }
+  // The VOD focus picker and the tool disclosures open with Space and Enter too.
+  const picker = new f.Element('details'), summary = new f.Element('summary', picker);
+  const summaryText = new f.Element('span', summary);
+  for (const key of [' ', 'Enter']) {
+    for (const target of [summary, summaryText]) {
+      const event = shortcutEvent(key, target);
+      assert.equal(f.transport.handleShortcut(event), false);
+      assert.equal(event.defaultPrevented, false, 'native disclosure toggling must remain available');
+    }
   }
   assert.equal(f.video.muted, false);
   assert.equal(f.video.playbackRate, 1);

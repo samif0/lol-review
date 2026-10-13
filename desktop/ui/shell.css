@@ -1,0 +1,176 @@
+/* Persistent shell chrome, linked only by index.html: the full-height sidebar (brand,
+   Start a session, the rail, recent matches, the account footer), the main column's
+   title bar and window controls, the content frame, the update and lock banners and
+   the hard-stop dialog. The window document never navigates; only the frame reloads.
+   Geometry and token references only: every color comes from appearance.css. The
+   styles.css kill layer still applies, so a shadow or tracking here opts back in with
+   !important on a class selector and a token value. */
+html.app-root,html.app-root body{height:100%;overflow:hidden;padding:0}
+
+/* Sidebar. Full height on the left; it scrolls on its own on very short windows. It is
+   static markup that never reloads, so it takes no transform, will-change or contain. */
+.side{position:fixed;left:0;top:0;bottom:0;z-index:30;display:flex;flex-direction:column;
+  width:var(--sidebar-width);padding:14px 10px 12px;overflow-x:hidden;overflow-y:auto;scrollbar-width:none;
+  background:var(--side);border-right:1px solid var(--line);color:var(--t2);font-family:var(--f-body);line-height:1.3}
+.side::-webkit-scrollbar{width:0;height:0}
+.side svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.side-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/* Brand row: a window drag area (data-window-drag) with nothing interactive in it. */
+.side-top{display:flex;align-items:center;flex:none;min-height:34px;padding:0 8px 10px}
+.side-brand{display:flex;align-items:center;gap:9px;font-family:var(--f-display);font-size:17px;font-weight:500;line-height:1;
+  color:var(--t1);letter-spacing:var(--display-track)!important}
+body .side-brand .side-mark{width:20px;height:17px;stroke:none;color:var(--t1)}
+
+/* Start a session: the one filled mark in the sidebar. */
+.side-new{display:flex;align-items:center;gap:10px;flex:none;height:36px;padding:0 8px;border-radius:var(--r-md);
+  color:var(--t1);font-size:14px;font-weight:500;line-height:1;text-decoration:none}
+.side-new:hover{background:var(--hover)}
+.side-new i{display:grid;place-items:center;flex:none;width:22px;height:22px;border-radius:50%;
+  background:var(--accent);color:var(--accent-ink)}
+body .side-new svg{width:12px;height:12px;stroke-width:2.2}
+
+/* The rail. Every item keeps .nav-i, data-nav, aria-label and its visible .tip label. */
+.nav{display:flex;flex-direction:column;gap:1px;flex:none;margin-top:6px}
+.nav-i{position:relative;display:flex;align-items:center;gap:10px;height:34px;padding:0 8px;border-radius:var(--r-md);
+  color:var(--t2);font-size:13.5px;text-decoration:none;cursor:pointer}
+body .side .nav-i svg{width:16px;height:16px;color:var(--t3)}
+.nav-i:hover{background:var(--hover);color:var(--t1)}
+body .side .nav-i:hover svg{color:var(--t2)}
+/* The current page: the selected surface, or Aura's lit gradient with its lit edge. */
+.side .nav-i:is(.active,[aria-current="page"]){background:var(--lit-fill);color:var(--t1);box-shadow:var(--lit-shadow)!important}
+body .side .nav-i:is(.active,[aria-current="page"]) svg{color:var(--t1)}
+.nav .nav-i .tip{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.nav-count{margin-left:auto;padding-left:8px;font-family:var(--f-num);font-size:12px;font-weight:500;line-height:1;
+  font-variant-numeric:tabular-nums;color:var(--pending)}
+
+/* Recent matches: six rows, a result dot, and a pending dot while a match waits for review. */
+.side-recent{display:flex;flex-direction:column;flex:none;margin-top:22px;margin-bottom:12px}
+body .side .side-h{padding:0 8px 8px;font-family:var(--f-body);font-size:12px;font-weight:500;line-height:1.2;color:var(--t3)}
+.side-rec-list{display:flex;flex-direction:column;gap:1px;margin:0;padding:0;list-style:none}
+.side-rec{display:flex;align-items:center;gap:9px;height:32px;padding:0 8px;border-radius:var(--r-md);
+  color:var(--t2);font-size:13px;white-space:nowrap;text-decoration:none;overflow:hidden}
+.side-rec:hover{background:var(--hover);color:var(--t1)}
+.side-rec[aria-current="true"]{background:var(--lit-fill);color:var(--t1);box-shadow:var(--lit-shadow)!important}
+.side-rec-r,.side-rec-todo{flex:none;width:6px;height:6px;border-radius:50%}
+.side-rec-r{background:var(--tone,var(--t3))}
+.side-rec-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.side-rec-todo{margin-left:auto;background:var(--pending)}
+
+/* Footer: who you are, League Client status, then Account and Settings as icons with a
+   label that shows on hover and keyboard focus. */
+.side-foot{display:flex;align-items:center;gap:8px;flex:none;margin-top:auto;padding:10px 0 0 8px;border-top:1px solid var(--line)}
+.side-avatar{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;
+  background:var(--raised);border:1px solid var(--line);color:var(--t1);font-size:12.5px;font-weight:600;line-height:1}
+.side-avatar > *{grid-area:1/1}
+body .side-avatar svg{width:16px;height:16px;color:var(--t3)}
+.side-avatar.has-initial svg,.side-avatar:not(.has-initial) > span{display:none}
+.side-who{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;padding-left:2px}
+.side-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:500;color:var(--t1)}
+.appbar-lcu{display:flex;align-items:center;gap:6px;min-width:0;font-size:11.5px;color:var(--t3);white-space:nowrap}
+.appbar-lcu-txt{overflow:hidden;text-overflow:ellipsis}
+.appbar-lcu-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--t3)}
+.appbar-lcu.on .appbar-lcu-dot{background:var(--ok)}
+.side-foot .nav-i{justify-content:center;flex:none;width:32px;height:32px;padding:0}
+.side-foot .nav-i .tip{position:absolute;right:0;bottom:calc(100% + 6px);z-index:2;padding:5px 8px;border-radius:var(--r-sm);
+  background:var(--raised);border:1px solid var(--line-strong);color:var(--t1);font-size:12px;line-height:1.2;
+  white-space:nowrap;pointer-events:none;opacity:0;visibility:hidden}
+.side-foot .nav-i:is(:hover,:focus-visible) .tip{opacity:1;visibility:visible}
+
+/* Title bar of the main column (the window is frameless). The bar drags the window;
+   the crumb is plain text and the window buttons opt out of the drag (DRAG_CSS). */
+.appbar{position:fixed;top:0;right:0;left:var(--sidebar-width);z-index:50;display:flex;align-items:center;gap:12px;
+  height:var(--titlebar-height);padding:0 0 0 20px;background:var(--bg);color:var(--t3)}
+.appbar-crumb{display:flex;align-items:center;gap:8px;min-width:0;font-family:var(--f-body);font-size:13px;line-height:1;
+  white-space:nowrap;pointer-events:none}
+.appbar-parent{color:var(--t3)}
+.appbar-sep{color:var(--t3)}
+.appbar-parent[hidden],.appbar-sep[hidden]{display:none}
+.appbar-context{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--t1);font-weight:500}
+.appbar-ver{display:none}
+.appbar-spring{flex:1;align-self:stretch}
+.appbar-controls{display:flex;align-items:stretch;height:100%}
+.winbtn{display:flex;align-items:center;justify-content:center;height:100%;cursor:pointer}
+body .appbar .winbtn{width:46px;padding:0;border:0!important;border-radius:0!important;background:transparent!important;
+  color:var(--t3)!important;font-size:13px}
+body .appbar .winbtn:hover{background:var(--hover)!important;color:var(--t1)!important}
+body .appbar .winbtn.winbtn-close:hover{background:#aa3441!important;color:#fff!important} /* literal-ok: Windows close-button red and its white glyph in every theme */
+
+/* Content frame: everything right of the sidebar and below the title bar. */
+.app-frame{position:fixed;right:0;bottom:0;z-index:2;display:block;margin:0;padding:0;border:0}
+body .app-frame{left:var(--sidebar-width);top:var(--titlebar-height);width:calc(100vw - var(--sidebar-width));
+  height:calc(100vh - var(--titlebar-height));background:var(--bg)}
+
+/* Update banner and the hard-stop lock bar share the slot below the title bar, in the
+   main column beside the sidebar. */
+.updbar,.hardbar{position:fixed;left:var(--sidebar-width);right:0;display:flex;align-items:center}
+.updbar{z-index:49}
+.hardbar{z-index:48}
+.updbar[hidden],.hardbar[hidden]{display:none}
+body .updbar,body .hardbar{top:var(--titlebar-height);height:var(--banner-height);gap:10px;padding:0 16px 0 20px;
+  background:var(--raised);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.updbar-dot,.hardbar-dot{flex:none;width:7px;height:7px;border-radius:50%}
+.updbar-dot{background:var(--accent)}
+.hardbar-dot{background:var(--pending)}
+.updbar-txt,.hardbar-txt{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--f-body)}
+body .updbar-txt,body .hardbar-txt{font-size:13px;color:var(--t2)}
+/* The update button takes the shared primary treatment from styles.css. */
+body .updbar-btn{flex:none;min-height:28px;padding:5px 13px;border:none;font-family:var(--f-body);font-size:12.5px;line-height:1.2;cursor:pointer}
+.updbar-btn:disabled{opacity:.6;cursor:default}
+.updbar-x{display:flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:none;line-height:1;cursor:pointer}
+body .updbar .updbar-x{padding:0;border:0!important;background:transparent!important;color:var(--t3)!important;font-size:20px}
+body .updbar .updbar-x:hover{background:var(--hover)!important;color:var(--t1)!important}
+.hardbar-btn{flex:none;min-height:28px;padding:5px 12px;font-family:var(--f-body);font-size:12.5px;line-height:1.2;cursor:pointer}
+body .hardbar .hardbar-btn{background:var(--hover)!important;border:1px solid var(--line-strong)!important;border-radius:var(--btn-radius)!important;
+  color:var(--t1)!important}
+/* Move the frame down while a banner is up so nothing is covered. Every offset rule
+   starts at html.app-root so it outranks the base frame position above, and the
+   two-banner rules outrank the one-banner rules. The sidebar stays full height. */
+html.app-root body.has-updbar .app-frame,html.app-root body:has(.hardbar:not([hidden])) .app-frame{
+  top:calc(var(--titlebar-height) + var(--banner-height));height:calc(100vh - var(--titlebar-height) - var(--banner-height))}
+html.app-root body.has-updbar:has(.hardbar:not([hidden])) .hardbar{top:calc(var(--titlebar-height) + var(--banner-height))}
+html.app-root body.has-updbar:has(.hardbar:not([hidden])) .app-frame{
+  top:calc(var(--titlebar-height) + 2 * var(--banner-height));height:calc(100vh - var(--titlebar-height) - 2 * var(--banner-height))}
+
+/* Hard stop: shown when the sidecar cancelled the queue for an enforced rule. One raised
+   card over a scrim; the rest of the app stays reachable after OK, and the lock bar
+   keeps the countdown in view. */
+.hardstop{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;
+  padding:40px 24px;background:var(--scrim)}
+.hardstop[hidden]{display:none}
+.hardstop-card{position:relative;overflow:hidden;width:min(560px,100%);padding:28px;
+  background:var(--raised);border:var(--raised-border);border-radius:var(--r-lg);box-shadow:var(--pop-shadow)!important}
+.hardstop-k{font-family:var(--f-body);font-size:13px;font-weight:500;color:var(--danger)}
+.hardstop-h{margin-top:8px;font-family:var(--f-display);font-size:26px;font-weight:var(--display-weight);line-height:1.25;
+  color:var(--t1);letter-spacing:var(--display-track)!important}
+.hardstop-rule{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin-top:12px;font-size:14px;line-height:1.5}
+.hardstop-rule-name{font-weight:600;color:var(--t1)}
+.hardstop-reason{color:var(--t3)}
+.hardstop-plan{margin-top:16px;padding:12px 14px;border:0;border-radius:var(--r-md);background:var(--hover)}
+.hardstop-plan[hidden]{display:none}
+.hardstop-plan-k{font-family:var(--f-body);font-size:12px;font-weight:500;color:var(--t3)}
+.hardstop-plan-t{margin-top:5px;font-size:15px;line-height:1.5;color:var(--t1)}
+.hardstop-count{margin-top:16px;font-family:var(--f-num);font-size:13px;font-variant-numeric:tabular-nums;color:var(--pending)}
+.hardstop-count[hidden]{display:none}
+.hardstop-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:18px}
+.hardstop-ok{margin-top:0}
+body .hardstop .hardstop-override{padding:9px 16px;min-height:38px;border:1px solid var(--line-strong)!important;border-radius:var(--btn-radius)!important;
+  background:transparent!important;color:var(--t2)!important;font-family:var(--f-body);font-size:14px;white-space:nowrap;cursor:pointer}
+body .hardstop .hardstop-override:hover:not(:disabled){border-color:var(--danger-line)!important;background:var(--danger-soft)!important;color:var(--danger)!important}
+.hardstop-override:disabled{opacity:.45;cursor:default}
+.hardstop-foot{margin-top:14px;font-size:12.5px;line-height:1.5;color:var(--t3)}
+
+@media(prefers-reduced-motion:no-preference){
+  .side :is(.nav-i,.side-new,.side-rec){transition:background-color .15s ease,color .15s ease,box-shadow .25s ease}
+  .side .nav-i svg{transition:color .15s ease}
+  .side-foot .nav-i .tip{transition:opacity .1s ease,visibility 0s linear .1s}
+  .side-foot .nav-i:is(:hover,:focus-visible) .tip{transition:opacity .12s ease .3s,visibility 0s linear .3s}
+  .winbtn{transition:background-color .12s ease,color .12s ease}
+}
+/* Short windows (the minimum is 640px tall): fewer recent matches, so the footer never
+   has to scroll out of view. */
+@media(max-height:700px){
+  .side-recent{margin-top:16px}
+  .side-rec-list > li:nth-child(n+6){display:none}
+}
+@media(max-height:600px){.side-rec-list > li:nth-child(n+4){display:none}}

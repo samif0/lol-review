@@ -1,80 +1,168 @@
-/* Home centers one starting point; supporting information stays quiet below it. */
-html.framed body .shell.home-page { max-width:960px; padding:72px 48px 40px; }
-.home-header { text-align:center; margin-bottom:32px; }
-.home-header .hero { margin:0 0 10px; }
-body .home-header .hero h1 { font-size:32px; font-weight:500; line-height:1.3; }
-.home-intro { color:var(--muted); font-size:15px; line-height:1.6; margin:0; }
-.home-review-inbox { padding:24px; margin:0 0 20px; border:1px solid #62605b; border-radius:20px; background:var(--surface-raised); }
-.home-review-inbox[hidden] { display:none; }
-.home-review-eyebrow { display:flex; align-items:center; gap:8px; color:#e8cb9f; font-size:13px; font-weight:500; margin-bottom:8px; }
-.home-review-eyebrow span { width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
-.home-review-heading h2 { margin:0; font-size:24px; font-weight:600; line-height:1.35; }
-.home-review-heading p { margin:6px 0 0; color:var(--muted); font-size:14px; }
-.home-review-match { display:flex; justify-content:space-between; align-items:center; gap:24px; margin-top:20px; padding-top:20px; border-top:1px solid #454545; }
-.home-review-match-info { min-width:0; }
-.home-review-match-title { display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; }
-.home-page .home-review-match-title .vline { margin:0; color:var(--text); font-size:18px; font-weight:600; line-height:1.4; overflow-wrap:anywhere; }
-.home-review-result { font-size:12px; line-height:1.5; color:var(--t2); }
-.home-review-result[data-result="win"] { color:#9ed7b9; }
-.home-review-result[data-result="loss"] { color:#e6a5a8; }
-.home-page .home-review-match .vsmall { margin:8px 0 0; color:var(--muted); font-size:13px; line-height:1.7; }
-.home-review-actions { display:flex; flex-direction:column; align-items:stretch; gap:6px; flex:none; }
-body .home-review-open { display:inline-flex; justify-content:center; align-items:center; gap:12px; padding:11px 18px; min-height:44px; margin:0; font-size:14px; line-height:1.5; text-decoration:none; white-space:nowrap; }
-body .home-review-open:hover { background:#dedede!important; }
-body .home-review-skip { padding:6px 12px; min-height:32px; border:1px solid transparent!important; color:var(--muted)!important; background:transparent!important; font-size:12px; cursor:pointer; }
-.home-review-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin-top:16px; padding-top:16px; border-top:1px solid #454545; color:var(--muted); font-size:13px; }
-.home-review-footer[hidden] { display:none; }
-.home-review-status { margin:-12px 0 24px; font-size:13px; color:var(--muted); }
-.home-review-status:not(:has(> :not([hidden]))) { display:none; }
-.home-review-status p { margin:0; }
-.home-review-status .hint { margin:8px 0 0; }
-.home-review-inbox :is(a,button):focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
-.home-link { color:var(--t2); text-decoration:none; font-size:13px; font-weight:400; white-space:nowrap; }
-.home-link:hover { color:var(--text); text-decoration:underline; text-underline-offset:3px; }
-.home-page .toprow { display:block; margin:0; }
-body .home-page #nextstep { padding:0; min-height:0; background:var(--surface-raised)!important; border:1px solid #3c3c3c!important; border-radius:24px!important; }
-body .home-page.has-pending-review #nextstep { background:transparent!important; border-color:var(--border)!important; }
-body .home-page.has-pending-review #nextstep-cta { background:transparent!important; color:var(--text)!important; border-color:#555!important; }
-.home-page #nextstep .body { padding:24px; display:grid; grid-template-columns:1fr auto; align-items:center; column-gap:24px; }
-.home-page #nextstep-k { display:none; }
-body .home-page #nextstep h2 { font-size:18px; font-weight:500; line-height:1.4; margin:0 0 6px; }
-.home-page #nextstep p { grid-column:1; font-size:14px; line-height:1.6; color:var(--muted); margin:0; }
-.home-page #nextstep-cta { grid-column:2; grid-row:1 / 3; margin:0; white-space:nowrap; min-height:42px; }
-.home-page #nextstep-stint { grid-column:1 / -1; }
-body .home-page .nextstep-stint-end { margin-left:10px; padding:0; min-height:0; border:0!important; background:none!important; color:var(--muted)!important; font:inherit; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
-body .home-page .nextstep-stint-end:hover { color:var(--text)!important; }
-.home-page #nextstep .intent-edit { grid-column:1 / -1; margin-top:18px; }
-.home-page .intent-input { width:100%; padding:14px 16px; }
-.home-page .intent-actions { margin-top:8px; }
-.home-page .home-orientation { display:flex; justify-content:center; align-items:center; flex-wrap:wrap; gap:10px; border:0; background:none; padding:0; margin:20px 0 36px; }
-.has-pending-review .home-orientation a[href="games.html"] { display:none; }
-body .home-page .home-shortcut { display:inline-flex; align-items:center; gap:8px; padding:9px 15px; min-height:40px; border:1px solid #454545!important; border-radius:999px!important; background:transparent!important; color:var(--t2)!important; font:400 13px var(--fb); text-decoration:none; }
-body .home-page .home-shortcut:hover { background:#303030!important; color:var(--text)!important; }
-.home-shortcut svg { width:16px; height:16px; stroke:currentColor; stroke-width:1.5; fill:none; }
-.home-secondary { display:block; padding-bottom:32px; }
-.home-page .objpane { display:block; min-width:0; }
-.home-section-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px 12px; margin:0 0 20px; }
-.home-page .home-section-head .seclabel { font-size:14px; font-weight:500; color:var(--muted); margin:0; }
-.home-page .home-section-head .home-link { font-size:12px; color:var(--muted); }
-.home-page #objectives { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 32px; }
-.home-page #objectives:empty { display:none; }
-body .home-page #objectives .card { padding:0 0 16px; margin:0; border:0!important; border-bottom:1px solid var(--border)!important; border-radius:0!important; background:transparent!important; }
-.home-empty { padding:0; border:0; background:none; }
-.home-empty h3 { margin:0 0 8px; font-size:15px; font-weight:400; color:var(--text); }
-.home-empty p { margin:0 0 12px; color:var(--muted); font-size:13px; line-height:1.7; max-width:36ch; }
-.home-page .vline { font-size:14px; }
-.home-page .vsmall { font-size:12px; }
-.home-page .home-stats { padding-top:24px; border-top:1px solid var(--border); }
-.home-caption { color:var(--muted); font-size:12px; }
-body .home-page .strip { margin:0; background:none; border:0; gap:0; }
-body .home-page .stat { background:transparent; border:0; border-right:1px solid var(--border); border-radius:0; padding:0 18px; }
-body .home-page .stat:first-child { padding-left:0; }
-body .home-page .stat:last-child { border:0; }
-.home-page .stat .v { font-size:24px; font-weight:500; }
-.home-page .stat .k { font-size:12px; color:var(--muted); }
-.home-page .stat .s { font-size:10px; color:var(--muted); }
-.home-page .statusline { font-size:11px; color:var(--muted); margin:20px 0 0; }
-.home-page .statusline .dot { display:none; }
-.home-page .statusline b { font-weight:400; }
-@media(max-width:900px) { html.framed body .shell.home-page { padding:48px 32px 32px; } .home-page .strip { grid-template-columns:repeat(5,minmax(0,1fr)); } .home-page .stat { padding:0 12px; } .home-caption { max-width:160px; text-align:right; } }
-@media(max-width:650px) { .home-page #objectives { grid-template-columns:1fr; } .home-page #nextstep .body { display:block; } .home-page #nextstep-cta { margin-top:18px; } .home-review-inbox { padding:20px; } .home-review-heading h2 { font-size:22px; } .home-review-match { align-items:stretch; flex-direction:column; gap:16px; } .home-review-actions { flex-direction:row; align-items:center; } .home-review-open { flex:1; } }
+/* Home, calm: a greeting, one composer, a few suggestions, then quiet lists. Tokens only
+   (appearance.css); the shared components are in kit.css. Several legacy classes stay on
+   purpose because tests and the smoke run look for them (.intent-input, .intent-coach,
+   .cta, .home-review-*, .vline, .vsmall), so the rules below restyle them. */
+
+/* Column */
+html.framed body .shell.home-page{max-width:816px;padding:64px 48px 48px}
+.home-page{text-align:left}
+
+/* Aura: one soft light field behind the greeting. The daypart tokens move it; the
+   mask fades it out before the box ends, so a low evening or night sun has no edge. */
+.home-aura{position:absolute;left:0;right:0;top:0;height:720px;z-index:0;pointer-events:none;
+  -webkit-mask-image:linear-gradient(to bottom,black 55%,transparent);mask-image:linear-gradient(to bottom,black 55%,transparent);
+  background:
+    radial-gradient(ellipse var(--aura-rx) var(--aura-ry) at 50% var(--aura-y),
+      var(--aura-core) 0%,color-mix(in srgb,var(--aura-core) 82%,transparent) 16%,color-mix(in srgb,var(--aura-core) 55%,transparent) 36%,
+      color-mix(in srgb,var(--aura-core) 28%,transparent) 56%,color-mix(in srgb,var(--aura-core) 10%,transparent) 76%,transparent 100%),
+    radial-gradient(ellipse calc(var(--aura-rx) * 1.7) calc(var(--aura-ry) * 1.5) at 50% calc(var(--aura-y) + 30px),
+      var(--aura-wide) 0%,color-mix(in srgb,var(--aura-wide) 70%,transparent) 30%,color-mix(in srgb,var(--aura-wide) 34%,transparent) 58%,
+      color-mix(in srgb,var(--aura-wide) 10%,transparent) 80%,transparent 100%)}
+
+/* Greeting */
+.home-header{text-align:center}
+.home-greet{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 14px}
+.home-mark{flex:none;width:32px;height:27px;color:var(--t1)}
+.home-intro{margin:10px 0 0;font-size:14.5px;line-height:1.5;color:var(--t3)}
+.home-account{margin:10px 0 0;font-size:14px}
+
+/* Journal: the last takeaway as a pull-quote, in the player's own voice. */
+:root[data-theme="journal"] .home-last{margin:30px 0 0;text-align:center}
+:root[data-theme="journal"] .home-last-cap{font-size:13px;line-height:1.5;color:var(--t3)}
+:root[data-theme="journal"] .home-last-link{color:var(--t2);font-weight:500;text-decoration:underline;
+  text-decoration-color:var(--line-strong);text-underline-offset:3px}
+:root[data-theme="journal"] .home-last-link:hover{color:var(--t1)}
+:root[data-theme="journal"] .home-last-quote{max-width:640px;margin:8px auto 0;font-size:26px;line-height:1.3;
+  font-style:italic;text-wrap:balance;overflow-wrap:anywhere}
+:root[data-theme="journal"] .home-last-quote::before{content:'\201C'}
+:root[data-theme="journal"] .home-last-quote::after{content:'\201D'}
+:root[data-theme="journal"] .home-check{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;margin-top:14px}
+:root[data-theme="journal"] .home-check-q{margin-right:6px;font-size:13px;color:var(--t3)}
+:root[data-theme="journal"] .home-ans{height:28px;padding:0 12px;font-weight:500}
+:root[data-theme="journal"] .home-ans svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+:root[data-theme="journal"] .home-ans[aria-pressed="true"] svg{color:var(--ok)}
+:root[data-theme="journal"] .home-last-empty{margin:0;font-size:14px;line-height:1.5;color:var(--t3)}
+
+/* Composer: the one raised surface. Aura lights it through the composer tokens. */
+.home-composer{position:relative;margin-top:30px;padding:16px 16px 12px;text-align:left;
+  border:var(--composer-border);border-radius:var(--r-lg);
+  background:radial-gradient(80% 110% at 50% 0%,var(--composer-sky),transparent 72%),var(--composer-bg);
+  box-shadow:var(--composer-shadow)!important}
+.home-composer:has(.home-composer-input:focus-visible){border-color:var(--focus);
+  box-shadow:var(--composer-shadow),0 0 0 3px color-mix(in srgb,var(--focus) 25%,transparent)!important}
+.home-composer .ui-field.home-composer-input{display:block;width:100%;min-height:52px;padding:2px 4px 12px;border:0;border-radius:0;
+  background:transparent;color:var(--t1);font:400 15.5px/1.5 var(--f-body)}
+.home-composer .ui-field.home-composer-input:focus{border:0;box-shadow:none!important}
+/* Transparent, so the composer's border and halo are the ring; forced colors turn it visible. */
+.home-composer .home-composer-input:focus-visible{outline:2px solid transparent!important;outline-offset:-2px}
+.home-composer-k{margin:0 0 6px;font-size:13px;line-height:1.4;color:var(--t3)}
+.home-focus{margin:0;font:500 17px/1.4 var(--f-body);color:var(--t1);overflow-wrap:anywhere}
+.home-focus-p{margin:4px 0 14px;font-size:13.5px;line-height:1.5;color:var(--t3)}
+.home-composer:not(.is-active) :is(.home-composer-k,.home-composer-now),
+.home-composer.is-active :is(.home-composer-idle,.home-composer-tools),
+.home-composer.is-finishing .home-cta{display:none}
+.home-composer-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.home-composer-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+.home-cta{margin-left:auto}
+.home-obj{position:relative;min-width:0}
+.home-obj-btn{max-width:340px}
+.home-obj-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.home-composer .ui-pill svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.home-composer .intent-coach{align-self:auto;height:30px;min-height:0;padding:0 11px;background:transparent;font:400 12.5px/1 var(--f-body)}
+.home-composer .intent-coach.is-on{background:var(--selected)}
+
+/* The objective list under its pill: choosing one fills in the intention text only. */
+.home-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:20;width:320px;max-width:calc(100vw - 48px);padding:6px;
+  border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--raised);box-shadow:var(--pop-shadow)!important}
+.home-menu-h{margin:0;padding:6px 10px 8px;font-size:12px;line-height:1.4;color:var(--t3)}
+.home-menu-empty{margin:0;padding:2px 10px 6px;font-size:13px;color:var(--t2)}
+.home-menu .home-menu-item{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;
+  width:100%;min-height:36px;margin:0;padding:8px 10px;border-radius:var(--r-sm);color:var(--t1);font:400 13.5px/1.35 var(--f-body)}
+.home-menu-m{font-size:12px;color:var(--t3)}
+.home-menu .home-menu-link{margin-top:4px;color:var(--t2);text-decoration:none}
+.home-menu-item + .home-menu-link{border-top:1px solid var(--line);border-radius:0 0 var(--r-sm) var(--r-sm)}
+
+/* Finish session: a 1 to 10 rating and an optional note, inside the composer. */
+.home-finish{margin-top:2px;padding-top:12px;border-top:1px solid var(--line)}
+.home-finish-set{min-width:0;margin:0;padding:0;border:0}
+.home-finish-q{margin:0 0 10px;padding:0;font-size:13px;font-weight:500;color:var(--t2)}
+.home-rate{flex-wrap:wrap;max-width:100%}
+.home-rate > label{min-width:36px;padding:0 10px}
+.home-rate-hint{margin:6px 0 0;font-size:12.5px;color:var(--pending)}
+.home-rate-hint:empty{display:none}
+.home-note{margin-top:12px}
+.home-finish-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+
+/* An old coaching stint, at the foot of the composer. */
+.home-stint{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-top:12px;padding-top:10px;
+  border-top:1px solid var(--line);font-size:12px;line-height:1.5;color:var(--t3)}
+body .home-page .nextstep-stint-end{padding:0;min-height:0;border:0!important;background:none!important;color:var(--t2)!important;
+  font:inherit;text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:3px;cursor:pointer}
+body .home-page .nextstep-stint-end:hover{color:var(--t1)!important}
+
+/* Errors */
+.home-errpanel{margin-top:16px;padding:12px 14px;border:1px solid var(--danger-line);border-radius:var(--r-md);background:var(--danger-soft)}
+.home-errpanel .vline{margin:0;font-size:14px;font-weight:500}
+.home-errpanel .vsmall{margin:4px 0 0;font:400 13px/1.5 var(--f-body);color:var(--t2)}
+
+/* Suggestions (the quick guide opens below them) */
+.home-orientation{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;margin:16px 0 0}
+.home-orientation .ui-pill{border-color:var(--line)}
+:root[data-theme="aura"] .home-orientation .ui-pill{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+:root[data-theme="aura"] .home-orientation .ui-pill:hover{background:var(--hover)}
+
+/* Sections and rows */
+.home-block{margin-top:44px}
+.home-block-p{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--t3)}
+.home-missed-error{margin:8px 0 0;font-size:13px;color:var(--error)}
+.home-more{margin:6px 0 0}
+.home-caught-up{margin:40px 0 0;font-size:13px;color:var(--t3);text-align:center}
+.home-rows{display:flex;flex-direction:column;gap:1px}
+.home-review-match{position:relative;min-height:58px}
+.home-champ{display:grid;place-items:center;flex:none;width:30px;height:30px;border-radius:50%;background:var(--selected);
+  color:var(--t2);font:600 11.5px/1 var(--f-body)}
+.home-review-match-info{flex:1;min-width:0}
+.home-page .home-review-match .vline{margin:0;overflow:hidden;font:500 14px/1.35 var(--f-body);color:var(--t1);
+  text-overflow:ellipsis;white-space:nowrap}
+.home-review-sub{margin:2px 0 0;overflow:hidden;font-size:12.5px;line-height:1.4;color:var(--t3);text-overflow:ellipsis;white-space:nowrap}
+.home-review-result{font-weight:500}
+.home-review-sub .vsmall{margin:0;font:inherit;color:inherit}
+.home-review-result:not([hidden]) + .vsmall:not(:empty)::before{content:' \00B7  '}
+.home-kda{flex:none;font:500 12.5px/1 var(--f-num);color:var(--t2);white-space:nowrap}
+.home-review-actions{display:flex;flex:none;align-items:center;gap:6px}
+.home-review-open{min-width:62px;font-size:13px;font-weight:500;color:var(--t3);text-align:right;text-decoration:none;white-space:nowrap}
+.home-review-open::after{content:'';position:absolute;inset:0;border-radius:inherit}
+.home-review-match:has(.home-review-open):hover{background:var(--hover)}
+.home-review-match:hover .home-review-open,.home-review-open:focus-visible{color:var(--t1)}
+body .home-page .home-review-skip{position:relative;z-index:1;height:30px;min-height:0;padding:0 10px;
+  border:1px solid transparent!important;border-radius:var(--btn-radius)!important;background:transparent!important;
+  color:var(--t3)!important;font:500 12.5px/1 var(--f-body)}
+body .home-page .home-review-skip:hover:not(:disabled){background:var(--hover)!important;color:var(--t1)!important}
+/* Skip waits quietly until the row is pointed at or focused; Tab still reaches it. */
+.home-review-match:has(.home-review-open):not(:hover,:focus-within) .home-review-skip{opacity:0}
+body .home-page .home-review-actions .cta{align-self:center;height:30px;min-height:0;margin:0;padding:0 12px;font:500 12.5px/1 var(--f-body)}
+
+/* The last 30 days. The adherence streak stays gold: it is a retention mechanic. */
+.home-caption{margin:0;font-size:12.5px;line-height:1.4;color:var(--t3)}
+.home-caption b{font-weight:400}
+.home-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:8px}
+.home-stat-v{margin:0;font:var(--display-weight) 24px/1.15 var(--f-display);color:var(--t1);
+  font-variant-numeric:tabular-nums;letter-spacing:var(--display-track)!important}
+.home-stat-v b{font-weight:inherit}
+.home-stat-v small{margin-left:3px;font:400 13px/1 var(--f-body);color:var(--t3);letter-spacing:normal!important}
+.home-stat .k{display:block;margin-top:2px;font-size:12.5px;line-height:1.4;color:var(--t3)}
+.home-stat.is-streak .home-stat-v b{color:var(--gold)}
+.home-stat.is-empty .home-stat-v{font:400 15px/1.6 var(--f-body);color:var(--t3);letter-spacing:normal!important}
+
+@media (prefers-reduced-motion:no-preference){
+  .home-composer{transition:border-color .15s ease,box-shadow .15s ease}
+  .home-review-open{transition:color .15s ease}
+}
+@media (max-width:900px){
+  html.framed body .shell.home-page{padding:40px 24px 32px}
+}
+@media (max-width:640px){
+  .home-stats{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:16px}
+  .home-kda{display:none}
+  .home-obj-btn{max-width:220px}
+}
