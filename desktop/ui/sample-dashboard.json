@@ -1,17 +1,17 @@
 {
   "generatedAt": "2026-06-14T09:12:00",
   "today": "2026-06-14",
-  "greeting": "Good morning. Lock in.",
+  "greeting": "Good morning, bye.",
   "stats": {
-    "totalGames": 0,
-    "wins": 0,
-    "losses": 0,
-    "winratePercent": "—",
-    "winRateSub": "30D · 56%",
-    "avgMental": 7.3,
-    "avgMentalSub": "30D · 7.3",
+    "totalGames": 2,
+    "wins": 1,
+    "losses": 1,
+    "winratePercent": "50%",
+    "winRateSub": "1W // 1L  ·  30-day 56%",
+    "avgMental": 7.0,
+    "avgMentalSub": "30-day avg 7.3",
     "adherenceStreak": 53,
-    "adherenceSub": "DAYS CLEAN",
+    "adherenceSub": "Days without rule trips",
     "reviewedPatternCount": 2,
     "patternsReviewedSub": "CROSS-GAME"
   },
@@ -44,13 +44,13 @@
     "sample": 11
   },
   "vodPending": {
-    "show": true,
-    "gameId": 48213,
-    "text": "Sivir has a VOD but no objective-tagged evidence yet."
+    "show": false,
+    "gameId": 0,
+    "text": ""
   },
   "unreviewed": {
-    "count": 2,
-    "countText": "2 games",
+    "count": 5,
+    "countText": "5 games",
     "allReviewed": false,
     "items": [
       {
@@ -71,7 +71,10 @@
         "borderColorHex": "#8ee7ba",
         "hasReview": false,
         "statsLine": "CS 269 (9.2/m) · 32.4k dmg",
-        "metaLine": "RANKED SOLO/DUO · JUN 14, 12:32 · 29:05"
+        "metaLine": "RANKED SOLO/DUO · JUN 14, 12:32 · 29:05",
+        "kills": 4,
+        "deaths": 2,
+        "assists": 12
       },
       {
         "gameId": 5581655110,
@@ -91,14 +94,40 @@
         "borderColorHex": "#f3a3a8",
         "hasReview": false,
         "statsLine": "CS 184 (6.1/m) · 18.4k dmg",
-        "metaLine": "RANKED SOLO/DUO · JUN 14, 11:58 · 27:48"
+        "metaLine": "RANKED SOLO/DUO · JUN 14, 11:58 · 27:48",
+        "kills": 3,
+        "deaths": 7,
+        "assists": 5
+      },
+      {
+        "gameId": 5581590412,
+        "championName": "Ashe",
+        "enemyChampion": "Lucian",
+        "gameRole": "BOTTOM",
+        "win": false,
+        "winLossText": "L",
+        "kdaText": "2/5/14",
+        "csPerMin": 7.4,
+        "visionScore": 21,
+        "totalDamageToChampions": 15120,
+        "duration": "29:18",
+        "datePlayed": "Jun 14, 10:41",
+        "gameMode": "Ranked Solo/Duo",
+        "winLossColorHex": "#f3a3a8",
+        "borderColorHex": "#f3a3a8",
+        "hasReview": false,
+        "statsLine": "CS 217 (7.4/m) · 15.1k dmg",
+        "metaLine": "RANKED SOLO/DUO · JUN 14, 10:41 · 29:18",
+        "kills": 2,
+        "deaths": 5,
+        "assists": 14
       }
     ]
   },
   "activeObjectives": [
     {
       "id": 7,
-      "title": "Planning",
+      "title": "Plan every recall around an objective",
       "phaseLabel": "Pre-game",
       "isMini": false,
       "targetGameCount": 10,
@@ -112,6 +141,23 @@
       "isPriority": true,
       "progressLabel": "80%",
       "metaText": "INGRAINING · PRE-GAME · 40 PTS"
+    },
+    {
+      "id": 9,
+      "title": "Ward the river before crossing",
+      "phaseLabel": "In-game",
+      "isMini": false,
+      "targetGameCount": 10,
+      "levelName": "Exploring",
+      "score": 12,
+      "gameCount": 3,
+      "progress": 0.3,
+      "levelColorHex": "#9d8bff",
+      "levelDimColorHex": "rgba(255,255,255,0.13)",
+      "infoText": "EXPLORING · IN-GAME · 12 PTS",
+      "isPriority": false,
+      "progressLabel": "30%",
+      "metaText": "EXPLORING · IN-GAME · 12 PTS"
     }
   ],
   "patterns": {

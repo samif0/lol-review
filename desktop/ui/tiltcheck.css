@@ -1,0 +1,101 @@
+/* Tilt check page styles (tokens only; see appearance.css).
+   Calm look: the reset card is the page's one raised surface; resets read as a quiet
+   list. Color only carries meaning: the tilt emotion in the loss tone, and the calm
+   tone for what settles you (the slider, the progress dots, the breathing ring and
+   the intensity after a reset). Selectors start at body so they beat the shared
+   flattening and button resets in styles.css. */
+
+/* The reset card. */
+body .shell .tc-primary{padding:24px 26px;background:var(--raised)!important;border:var(--raised-border)!important;
+  border-radius:var(--r-lg)!important;box-shadow:var(--raised-shadow)!important}
+body .tc-primary .tc-primary-lead .k{color:var(--t3);font-size:13px;font-weight:500}
+body .tc-primary .tc-primary-lead h2{margin:6px 0 8px;font-family:var(--f-display);font-size:24px;font-weight:var(--display-weight);
+  line-height:1.25;color:var(--t1);letter-spacing:var(--display-track)!important}
+body .tc-primary .tc-primary-lead p{max-width:560px;font-size:14px;line-height:1.6;color:var(--t3)}
+body .tc-primary .tc-runbtn{margin-top:18px}
+
+/* Stats: display-face numbers like the Home stats; the average drop reads calm. */
+body .tc-strip .stat .v{font-weight:var(--display-weight);font-variant-numeric:tabular-nums;letter-spacing:var(--display-track)!important}
+body .tc-strip .stat.flag .v{color:var(--calm)}
+body .tc-strip .stat .k{font-size:13px;color:var(--t3)}
+body .tc-strip .stat .s{font-size:12px;color:var(--t3)}
+
+/* What tends to tilt you: quiet read-only tags with a loss-tone dot. */
+body .tc-emotions .tc-emo{gap:8px;height:30px;padding:0 12px;border:1px solid var(--line);border-radius:999px;
+  background:transparent;font-family:var(--f-body);font-size:13px;color:var(--t2)}
+body .tc-emotions .tc-emo-dot{width:7px;height:7px;background:var(--tone,var(--loss))}
+body .tc-emotions .tc-emo-name{font-weight:500;color:var(--t1)}
+body .tc-emotions .tc-emo-n{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+
+/* Latest plan, in your own words. */
+body .shell .tc-plan{padding:18px 20px;border-radius:var(--r-lg)!important}
+body .tc-plan .tc-plan-k{font-size:13px;font-weight:500;color:var(--t3)}
+body .tc-plan .tc-plan-v{margin-top:6px;font-size:15px;line-height:1.6;color:var(--t1);font-weight:500}
+
+/* Recent resets: a list, not cards. The edge carries the emotion's loss tone. */
+body .shell .tc-row{margin:0;padding:14px 6px 14px 20px;background:transparent!important;border:0!important;
+  border-bottom:1px solid var(--line)!important;border-radius:0!important;overflow:visible}
+body .tc-row .tc-row-edge{left:4px;width:2px;height:60%;background:var(--tone,var(--loss));opacity:1}
+body .tc-row .tc-row-emo{font-family:var(--f-body);font-size:14px;font-weight:500;color:var(--t1)}
+body .tc-row .tc-row-when{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+body .tc-row .tc-row-plan{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--r-sm);
+  background:var(--selected);color:var(--t2);font-size:12px;font-weight:500;line-height:1}
+body .tc-row .tc-row-text{margin-top:6px;font-size:14px;line-height:1.55;color:var(--t2)}
+body .tc-row :is(.tc-row-before,.tc-row-after){font-family:var(--f-num);font-size:18px;font-weight:500;font-variant-numeric:tabular-nums}
+body .tc-row .tc-row-arr{font-family:var(--f-body);font-size:14px;color:var(--t3)}
+body .tc-row .tc-row-drop{display:inline-flex;align-items:center;height:22px;padding:0 7px;border:0;border-radius:var(--r-sm);
+  background:var(--selected);color:var(--t2);font-size:12px;font-variant-numeric:tabular-nums;line-height:1}
+body .tc-row .tc-row-drop.good{background:color-mix(in srgb,var(--ok) 14%,transparent);color:color-mix(in srgb,var(--ok) 80%,var(--t1))}
+body .tc-row .tc-row-drop.bad{background:color-mix(in srgb,var(--loss) 14%,transparent);color:color-mix(in srgb,var(--loss) 80%,var(--t1))}
+
+/* The ritual opens inside the reset card, divided by a line instead of a second card. */
+body .tc-primary .tc-ritual{margin-top:20px;padding:22px 0 0;background:transparent!important;border:0!important;
+  border-top:1px solid var(--line)!important;border-radius:0!important}
+body .tc-ritual .tc-step-k{font-size:14px;font-weight:500;color:var(--t1)}
+body .tc-ritual .tc-step-intro{font-size:14px;line-height:1.55;color:var(--t3)}
+body .tc-ritual .tc-pdot{background:var(--line-strong)}
+body .tc-ritual .tc-pdot.done{background:color-mix(in srgb,var(--calm) 55%,transparent)}
+body .tc-ritual .tc-pdot.on{background:var(--calm)}
+/* Emotion chips are pills; a chosen one fills quietly. */
+body .tc-chips .tc-chip{min-height:34px;padding:6px 14px;border-radius:999px!important;font-family:var(--f-body);font-size:13px;font-weight:500}
+body .tc-chips .tc-chip.on{background:var(--selected)!important;border-color:var(--t2)!important;color:var(--t1)!important}
+body .tc-ritual .tc-selreadout{font-size:14px;color:var(--t2)}
+body .tc-ritual .tc-range{background:linear-gradient(90deg,color-mix(in srgb,var(--calm) 70%,transparent),color-mix(in srgb,var(--calm) 22%,transparent))}
+body .tc-ritual .tc-range::-webkit-slider-thumb{background:var(--calm);border:2px solid var(--raised)}
+body .tc-ritual .tc-range::-moz-range-thumb{background:var(--calm);border:2px solid var(--raised)}
+body .tc-ritual .tc-slval{font-weight:var(--display-weight);font-variant-numeric:tabular-nums}
+body .tc-ritual .tc-slval.win{color:var(--calm)}
+body .tc-ritual .tc-result.bad{color:var(--pending)}
+/* If and Then read like the rules page: the trigger pending, the response ok. */
+body .tc-ritual .tc-menu-lbl{font-size:13px;font-weight:500}
+body .tc-ritual .tc-menu-lbl.tc-if{color:var(--pending)}
+body .tc-ritual .tc-menu-lbl.tc-then{color:var(--ok)}
+body .tc-menu .tc-menuopt{padding:12px 14px;background:transparent!important;border:1px solid var(--line-strong)!important;
+  border-radius:var(--r-md)!important;font-size:14px;color:var(--t2)}
+body .tc-menu .tc-menuopt:hover:not(:disabled){background:var(--hover)!important}
+body .tc-menu .tc-menuopt.on{background:var(--lit-fill)!important;border-color:var(--t2)!important;color:var(--t1)!important;
+  box-shadow:var(--lit-shadow)!important}
+/* Breathing pacer: the ring, the count and the fill share the calm tone. */
+body .tc-breathe .tc-ring{border:3px solid color-mix(in srgb,var(--calm) 30%,transparent);background:color-mix(in srgb,var(--calm) 7%,transparent)}
+body .tc-breathe .tc-ring.inhale{border-color:color-mix(in srgb,var(--calm) 60%,transparent)}
+body .tc-breathe .tc-ring.exhale{border-color:color-mix(in srgb,var(--calm) 35%,transparent)}
+body .tc-breathe .tc-ring-count{font-weight:var(--display-weight);color:var(--calm);font-variant-numeric:tabular-nums}
+body .tc-breathe .tc-breathe-phase{font-family:var(--f-body);font-size:16px;font-weight:500;color:var(--t1)}
+body .tc-breathe .tc-breathe-hint{font-size:13px;color:var(--t3)}
+body .tc-breathe .tc-breathe-track{background:var(--track)}
+body .tc-breathe .tc-breathe-fill{background:var(--calm)}
+body .tc-breathe .tc-breathe-cycle{font-size:12px;color:var(--t3);font-variant-numeric:tabular-nums}
+/* Done step. */
+body .tc-ritual :is(.tc-ba-before,.tc-ba-after){font-weight:var(--display-weight);font-variant-numeric:tabular-nums}
+body .tc-ritual .tc-ba-arr{font-family:var(--f-body);font-size:20px;color:var(--t3)}
+body .tc-ritual .tc-why{font-size:13px;color:var(--t3)}
+body .tc-ritual .tc-ritual-bar{border-top:1px solid var(--line)}
+body .tc-ritual .tc-ritual-msg{font-family:var(--f-body);font-size:13px}
+
+/* Empty state, in the kit's empty-state voice. */
+body .tc-empty .tc-empty-h{font-family:var(--f-body);font-size:15px;font-weight:500;line-height:1.4;color:var(--t1)}
+body .tc-empty .tc-empty-p{font-size:14px;color:var(--t3)}
+
+@media(prefers-reduced-motion:no-preference){
+  body .tc-menu .tc-menuopt,body .tc-chips .tc-chip{transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+}

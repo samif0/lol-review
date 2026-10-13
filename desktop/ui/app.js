@@ -3,35 +3,36 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { objectiveMetaText } from './objective-labels.mjs';
 import { mountMissedGames } from './missed-games.mjs';
+import { registerLeaveGuard } from './leave-guard.mjs';
+import { mountJournalTakeaway, relativeDay } from './journal-takeaway.mjs';
 
-// Revu desktop dashboard — data-driven renderer for the glass-aurora layout.
-// Renders the JSON returned by the Electron command `get_dashboard`.
-// All server-supplied strings are written via textContent (never innerHTML)
-// to keep the surface XSS-free. Colors arrive as *Hex strings and are applied
-// to style/stroke properties only.
+// Revu Home: a greeting, one composer that starts or finishes a session, a few
+// suggestions, the matches ready to review and the last 30 days. Renders the JSON
+// returned by the desktop command `get_dashboard`. Every server string is written
+// with textContent (never innerHTML). Meaning colors come from data-result and the
+// theme tokens, never from the snapshot's hex fields.
 
-// ── invoke resolver ────────────────────────────────────────────────────────
-// Platform commands are available only in an active desktop host. Browser
-// previews use the existing sample JSON.
-
-
-
-// ── small DOM helpers ───────────────────────────────────────────────────────
-
-const RING_CIRCUMFERENCE = 150.8; // 2·π·r, r=24
+const REVIEW_ROWS = 3;
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 async function fetchDashboard() {
   return readSnapshot('get_dashboard', 'sample-dashboard.json');
 }
 
-// ── render: header ──────────────────────────────────────────────────────────
+// ── render: greeting ────────────────────────────────────────────────────────
+// The server personalizes the greeting with the player's Riot name ("Good evening,
+// bye."), so it is rendered as-is apart from its closing period: a salutation.
+// The signed-in-but-unlinked variant moves its request into a link under it.
+const ACCOUNT_NOTE = /\.?\s*Link your Riot account\.?$/i;
 function renderHeader(d) {
   const stats = d.stats || {};
-  // Greeting comes from the server, which ALREADY personalizes it with the signed-in
-  // player's Riot IGN (e.g. "Good afternoon, bye.") — so we just render it as-is.
-  // (An earlier client-side insert double-added the name → "…, bye, bye."; removed.)
-  if (d.greeting) $('hero-title').textContent = d.greeting.replace(/\. Lock in\.?$/i, '.');
+  if (d.greeting) {
+    let greeting = String(d.greeting).replace(/\. Lock in\.?$/i, '.');
+    const unlinked = ACCOUNT_NOTE.test(greeting);
+    if (unlinked) greeting = greeting.replace(ACCOUNT_NOTE, '.');
+    $('hero-title').textContent = greeting.replace(/\.$/, '');
+    show($('hero-account'), unlinked);
+  }
 
   const total = stats.totalGames || 0;
   const statusB = document.querySelector('#statusline b');
@@ -41,38 +42,43 @@ function renderHeader(d) {
   while (line.lastChild && line.lastChild !== statusB) line.removeChild(line.lastChild);
 }
 
-// ── render: next step ───────────────────────────────────────────────────────
-// A session block is ACTIVE when Start Block set an intention (intent.sessionIntention)
-// but End Block hasn't recorded a debrief yet (intent.debriefRating == null). In that
-// state the card flips to "End Block" (the close-out ritual) over the active intention.
+// ── render: the composer ────────────────────────────────────────────────────
+// A session block is ACTIVE when Start session set an intention (intent.sessionIntention)
+// but Finish session has not recorded a debrief yet (intent.debriefRating == null). Then
+// the composer shows that focus and its one action is Finish session.
+let _blockActive = false;
+// Coach tag: seeded from the day's current tag so a same-day restart keeps it (a silent
+// reset would retro-untag the day and flood coach games back into the review queue).
+// The snapshot keeps intent.withCoach even after the session ends.
+let _coachSeed = false;
+let _withCoach = false;
+let _coachTouched = false;
+
 function renderNextStep(d) {
-  const ns = d.nextStep || {};
   const intent = d.intent || {};
   const blockActive = !!intent.sessionIntention && (intent.debriefRating == null);
+  _blockActive = blockActive;
   const cta = $('nextstep-cta');
-  // Stash the day's current coach tag so a same-day re-lock opens the intent
-  // editor with WITH COACH pre-lit instead of silently defaulting it off
-  // (which would retro-untag the day and flood coach games back into the
-  // review queue). The snapshot keeps intent.withCoach even after End Block.
-  _lastIntentWithCoach = !!intent.withCoach;
+  $('nextstep').classList.toggle('is-active', blockActive);
+  _coachSeed = !!intent.withCoach;
+  if (!_coachTouched) setCoach(_coachSeed);
   renderStintLine(d);
 
   if (blockActive) {
-    // A block carried over from a prior day (started, never ended) still gets End
-    // Block so it can be closed — nudge the user to wrap it. Stash the block's own
-    // date on the button so end_block targets the right row, not just today.
+    // A session carried over from a prior day (started, never finished) still gets
+    // Finish session so it can be closed. Its own date rides on the button so
+    // end_block targets that row, not just today.
     const carried = !!intent.carriedOver;
-    // v3.3: surface the block's stint number + coach tag in the kicker.
     const blockTag = [
       intent.stintBlockNumber != null ? `Block #${intent.stintBlockNumber}` : '',
       intent.withCoach ? 'With coach' : '',
     ].filter(Boolean).join(' · ');
     const baseKicker = carried ? 'Previous session' : 'Session in progress';
     $('nextstep-k').textContent = blockTag ? `${baseKicker} · ${blockTag}` : baseKicker;
-    $('nextstep-h').textContent = carried ? 'Finish your last session.' : 'Keep your focus in view.';
+    $('nextstep-h').textContent = String(intent.sessionIntention);
     $('nextstep-p').textContent = carried
-      ? `Your focus was: ${intent.sessionIntention}. Take a moment to reflect on how it went.`
-      : `Your focus: ${intent.sessionIntention}. When you're done playing, close the session with a quick reflection.`;
+      ? 'Finish your last session. Take a moment to reflect on how it went.'
+      : "When you're done playing, close the session with a quick reflection.";
     cta.textContent = 'Finish session';
     cta.dataset.action = 'end_block';
     if (intent.blockDate) cta.dataset.blockDate = String(intent.blockDate);
@@ -80,20 +86,17 @@ function renderNextStep(d) {
     return;
   }
   delete cta.dataset.blockDate;
-
-  // Server may override the card copy; defaults match the mockup.
-  const start = !ns.action || ns.action === 'start_block';
-  $('nextstep-k').textContent = start ? 'Your next step' : (ns.kicker || 'Your next step');
-  $('nextstep-h').textContent = start ? 'What will you practice today?' : (ns.title || 'Choose your next step.');
-  $('nextstep-p').textContent = start ? 'Set a focus for your next matches.' : (ns.detail || '');
-  cta.textContent = start ? 'Start a session' : (ns.ctaLabel || 'Continue');
-  cta.dataset.action = ns.action || 'start_block';
+  if (_finishOpen) closeFinishEditor({ restoreFocus: false });
+  $('nextstep-k').textContent = '';
+  $('nextstep-h').textContent = '';
+  $('nextstep-p').textContent = '';
+  cta.textContent = 'Start session';
+  cta.dataset.action = 'start_block';
 }
 
-// v3.3: active coaching stint context under the intent copy — stint name,
-// blocks so far, and the with-coach / solo split. Hidden when no stint runs.
-// Starting a stint left the app in v3.3.3, so End stint is the only way out of
-// an old one (its blocks keep their stint history).
+// v3.3: an old coaching stint in the composer footer: name, blocks so far and the
+// with-coach / solo split. Starting a stint left the app in v3.3.3, so End stint is
+// the only way out of one (its blocks keep their stint history).
 function renderStintLine(d) {
   const el = $('nextstep-stint');
   const text = $('nextstep-stint-text');
@@ -112,44 +115,300 @@ function renderStintLine(d) {
   el.hidden = false;
 }
 
-// ── render: stat strip (fixed order) ────────────────────────────────────────
-function renderStrip(d) {
-  const s = d.stats || {};
-  const strip = $('strip');
-  clear(strip);
+function setCoach(on) {
+  _withCoach = !!on;
+  const pill = $('nextstep-coach');
+  if (pill) {
+    pill.setAttribute('aria-checked', String(_withCoach));
+    pill.classList.toggle('is-on', _withCoach);
+  }
+  const label = $('nextstep-coach-text');
+  if (label) label.textContent = _withCoach ? 'With coach' : 'Solo';
+}
+function toggleCoach() {
+  _coachTouched = true;
+  setCoach(!_withCoach);
+  syncActiveWork();
+}
 
-  const cells = [
-    { k: 'Games',      v: String(s.totalGames ?? 0),        sub: 'TODAY',          flag: false },
-    { k: 'Win Rate',   v: s.winratePercent ?? '—',          sub: s.winRateSub ?? '', flag: false },
-    { k: 'Avg Mental', v: s.avgMental != null ? String(s.avgMental) : '—', sub: s.avgMentalSub ?? '', flag: false },
-    { k: 'Adherence',  v: s.adherenceStreak != null ? String(s.adherenceStreak) : '—', sub: s.adherenceSub ?? 'DAYS CLEAN', flag: true },
-    { k: 'Patterns',   v: s.reviewedPatternCount != null ? String(s.reviewedPatternCount) : '0', sub: s.patternsReviewedSub ?? 'CROSS-GAME', flag: false },
-  ];
+// ── the objective pill (D5: choosing one only fills in the intention) ─────────
+let _objectives = [];
+let _chosenObjective = '';
+function renderObjectivePill(d) {
+  _objectives = (Array.isArray(d.activeObjectives) ? d.activeObjectives : []).filter(o => o && o.title);
+  const label = $('nextstep-objective-label');
+  if (!label) return;
+  const priority = _objectives.find(o => o.isPriority) || _objectives[0];
+  label.textContent = _chosenObjective || (priority ? priority.title : 'Learning objectives');
+  if (_menuOpen) buildObjectiveMenu();
+}
 
-  for (const c of cells) {
-    const el = tpl('tpl-stat');
-    if (c.flag) el.classList.add('flag');
-    el.querySelector('.k').textContent = c.k;
-    el.querySelector('.v').textContent = c.v;
-    el.querySelector('.s').textContent = c.sub;
-    strip.appendChild(el);
+let _menuOpen = false;
+function menuElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+function buildObjectiveMenu() {
+  const menu = $('nextstep-objective-menu');
+  clear(menu);
+  menu.appendChild(menuElement('p', 'home-menu-h', 'Practice a learning objective'));
+  if (_objectives.length === 0) {
+    menu.appendChild(menuElement('p', 'home-menu-empty', 'No learning objectives yet.'));
+    const add = menuElement('a', 'ui-row home-menu-item home-menu-link', 'Add a learning objective');
+    add.href = 'objectives.html';
+    menu.appendChild(add);
+    return;
+  }
+  for (const objective of _objectives) {
+    const item = menuElement('button', 'ui-row home-menu-item');
+    item.type = 'button';
+    item.appendChild(menuElement('span', 'home-menu-t', objective.title));
+    const meta = [objective.isPriority ? 'Priority' : '', objectiveMetaText(objective)].filter(Boolean).join(' · ');
+    if (meta) item.appendChild(menuElement('span', 'home-menu-m', meta));
+    item.addEventListener('click', () => chooseObjective(objective));
+    menu.appendChild(item);
+  }
+  const manage = menuElement('a', 'ui-row home-menu-item home-menu-link', 'Manage learning objectives');
+  manage.href = 'objectives.html';
+  menu.appendChild(manage);
+}
+function menuItems() {
+  return [...($('nextstep-objective-menu')?.querySelectorAll('.home-menu-item') || [])];
+}
+function openObjectiveMenu() {
+  if (_menuOpen || _blockActive) return;
+  _menuOpen = true;
+  buildObjectiveMenu();
+  show($('nextstep-objective-menu'), true);
+  $('nextstep-objective').setAttribute('aria-expanded', 'true');
+  menuItems()[0]?.focus();
+}
+function closeObjectiveMenu({ restoreFocus = false } = {}) {
+  if (!_menuOpen) return;
+  _menuOpen = false;
+  show($('nextstep-objective-menu'), false);
+  $('nextstep-objective').setAttribute('aria-expanded', 'false');
+  if (restoreFocus) $('nextstep-objective').focus();
+}
+function chooseObjective(objective) {
+  const input = $('nextstep-input');
+  const title = String(objective?.title || '').slice(0, 120);
+  if (!input || !title) return;
+  input.value = title;
+  _chosenObjective = title;
+  $('nextstep-objective-label').textContent = title;
+  closeObjectiveMenu();
+  input.focus();
+  syncActiveWork();
+}
+
+// ── active work (P-035 guard for the composer) ──────────────────────────────
+// The shell reads window.__revuActiveWork before an LCU auto-show or a recovered-games
+// reload replaces this page, and Home reads it before its own refetches. The composer
+// is always on screen, so the flag follows what the player has put into it.
+function setActiveWork(on) {
+  try { window.__revuActiveWork = !!on; } catch (_) { /* non-window host */ }
+}
+function composerText() {
+  return String($('nextstep-input')?.value || '').trim();
+}
+function selectedRating() {
+  const checked = document.querySelector('#nextstep-rate input:checked');
+  const value = Number(checked?.value);
+  return Number.isInteger(value) && value >= 1 && value <= 10 ? value : 0;
+}
+/** Words or a rating the player would lose by leaving. */
+function composerDirty() {
+  if (composerText()) return true;
+  return _finishOpen && (selectedRating() > 0 || String($('nextstep-note')?.value || '').trim() !== '');
+}
+function hasActiveWork() {
+  return _finishOpen || !!composerText() || (_coachTouched && _withCoach !== _coachSeed);
+}
+function syncActiveWork() { setActiveWork(hasActiveWork()); }
+
+function resetComposer() {
+  const input = $('nextstep-input');
+  if (input) input.value = '';
+  _chosenObjective = '';
+  _coachTouched = false;
+  setCoach(_coachSeed);
+  renderObjectivePill(_snapshot || {});
+  syncActiveWork();
+}
+
+function setComposerBusy(on) {
+  for (const id of ['nextstep-input', 'nextstep-cta', 'nextstep-coach', 'nextstep-objective']) {
+    const el = $(id);
+    if (el) el.disabled = !!on;
   }
 }
 
-// ── render: VOD pending (small inline hint, not a section) ──────────────────
-function renderVod(d) {
-  const v = d.vodPending || {};
-  const showIt = !!v.show;
-  show($('vod-hint'), showIt);
-  if (!showIt) return;
-  $('vod-line').textContent = v.text || '';
-  const btn = $('vod-btn');
-  if (v.gameId != null) btn.dataset.gameId = String(v.gameId);
+// ── Start session ───────────────────────────────────────────────────────────
+let _starting = false;
+async function submitIntent() {
+  if (_blockActive || _starting) return;
+  const input = $('nextstep-input');
+  const intention = composerText();
+  if (!intention) { input?.focus(); return; }
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info('[dashboard] (preview) start_block, no desktop host.');
+    return;
+  }
+  _starting = true;
+  setComposerBusy(true);
+  let started = false;
+  try {
+    await invoke('start_block', { payload: { intention, withCoach: _withCoach } });
+    started = true;
+    window.dispatchEvent(new CustomEvent('revu:first-review-block-started', {
+      detail: { intention },
+    }));
+    input.value = '';
+    _chosenObjective = '';
+    _coachTouched = false;
+    syncActiveWork();
+    await loadDashboard();
+  } catch (err) {
+    renderError(err);
+    console.error('[dashboard] action "start_block" failed:', err);
+  } finally {
+    _starting = false;
+    setComposerBusy(false);
+  }
+  // The field hides once the session runs; keep focus in the composer either way.
+  if (started && _blockActive) $('nextstep-cta')?.focus();
+  else input?.focus();
 }
 
-// ── render: pending review ─────────────────────────────────────────────────
-// Lead with the newest pending match. The count covers the full recent queue;
-// the snapshot's item list is capped, so its length is not the pending count.
+// ── Finish session (rating 1-10 and an optional note) ───────────────────────
+let _finishOpen = false;
+function openFinishEditor() {
+  if (!_blockActive || _finishOpen) return;
+  _finishOpen = true;
+  for (const radio of document.querySelectorAll('#nextstep-rate input')) radio.checked = false;
+  const note = $('nextstep-note');
+  if (note) note.value = '';
+  $('nextstep-rate-hint').textContent = '';
+  $('nextstep').classList.add('is-finishing');
+  show($('nextstep-finish'), true);
+  syncActiveWork();
+  document.querySelector('#nextstep-rate input')?.focus();
+}
+function closeFinishEditor({ restoreFocus = true } = {}) {
+  _finishOpen = false;
+  $('nextstep').classList.remove('is-finishing');
+  show($('nextstep-finish'), false);
+  syncActiveWork();
+  if (restoreFocus) $('nextstep-cta')?.focus();
+}
+let _finishing = false;
+async function submitFinish() {
+  if (!_finishOpen || _finishing) return;
+  const rating = selectedRating();
+  if (!rating) {
+    $('nextstep-rate-hint').textContent = 'Pick a rating from 1 to 10.';
+    document.querySelector('#nextstep-rate input')?.focus();
+    return;
+  }
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info('[dashboard] (preview) end_block, no desktop host.');
+    closeFinishEditor();
+    return;
+  }
+  _finishing = true;
+  const save = $('nextstep-save');
+  if (save) save.disabled = true;
+  try {
+    // Carry the open block's own date so a carried-over (prior-day) session closes
+    // the right row; omitted when it is today's session.
+    const payload = { rating, note: String($('nextstep-note')?.value || '').trim() };
+    const cta = $('nextstep-cta');
+    if (cta.dataset.blockDate) payload.date = cta.dataset.blockDate;
+    await invoke('end_block', { payload });
+    closeFinishEditor({ restoreFocus: false });
+    await loadDashboard();
+    $('nextstep-input')?.focus();
+  } catch (err) {
+    renderError(err);
+    console.error('[dashboard] action "end_block" failed:', err);
+  } finally {
+    _finishing = false;
+    if (save) save.disabled = false;
+  }
+}
+
+// ── the sidebar's Start a session (window.__revuStartSession) ───────────────
+// Focuses the composer: the intention field, or Finish session while a session runs.
+// With the Finish editor open, Finish session is hidden, so focus goes to the rating
+// (the chosen one, else the first) or Save reflection instead.
+// It never reloads the page, so nothing typed is lost.
+function startSession() {
+  if (_finishOpen) {
+    (document.querySelector('#nextstep-rate input:checked')
+      || document.querySelector('#nextstep-rate input')
+      || $('nextstep-save'))?.focus();
+  } else if (_blockActive) $('nextstep-cta')?.focus();
+  else $('nextstep-input')?.focus();
+  return true;
+}
+try { window.__revuStartSession = startSession; } catch (_) { /* non-window host */ }
+
+// ── render: suggestions and the matches ready to review ─────────────────────
+const matchupOf = g => {
+  const champ = g.championName || 'Game';
+  return g.enemyChampion ? `${champ} vs ${g.enemyChampion}` : champ;
+};
+const initialsOf = name => String(name || '').replace(/[^\p{L}]/gu, '').slice(0, 2);
+function kdaOf(g) {
+  if ([g.kills, g.deaths, g.assists].every(Number.isFinite)) return `${g.kills} / ${g.deaths} / ${g.assists}`;
+  return g.kdaText ? String(g.kdaText).split('/').map(part => part.trim()).join(' / ') : '';
+}
+function setText(root, selector, value) {
+  const el = root.querySelector(selector);
+  if (el) el.textContent = value;
+  return el;
+}
+
+function renderSuggestion(g) {
+  const pill = $('home-suggest-review');
+  if (!pill) return;
+  show(pill, !!g);
+  if (!g) return;
+  pill.href = `review.html?gameId=${encodeURIComponent(g.gameId)}`;
+  $('home-suggest-review-text').textContent = `Review ${matchupOf(g)}`;
+}
+
+function reviewRow(g, today) {
+  const el = tpl('tpl-gamerow');
+  const matchup = matchupOf(g);
+  setText(el, '.vline', matchup);
+  setText(el, '.home-champ', initialsOf(g.championName || 'Game'));
+  const outcome = g.isRemake ? 'remake' : typeof g.win === 'boolean' ? (g.win ? 'win' : 'loss') : '';
+  const result = el.querySelector('.home-review-result');
+  result.textContent = outcome === 'remake' ? 'Remake' : outcome ? (g.win ? 'Victory' : 'Defeat') : (g.winLossText || '');
+  show(result, !!result.textContent);
+  if (outcome) result.dataset.result = outcome;
+  const day = relativeDay(g.datePlayed, today);
+  const when = day ? day[0].toUpperCase() + day.slice(1) : g.datePlayed;
+  const meta = [g.gameMode, g.duration, when].filter(Boolean);
+  setText(el, '.home-review-meta', meta.length ? meta.join(' · ') : (g.metaLine || ''));
+  setText(el, '.home-kda', kdaOf(g));
+  const open = el.querySelector('.home-review-open');
+  open.href = `review.html?gameId=${encodeURIComponent(g.gameId)}`;
+  open.setAttribute('aria-label', `Review ${matchup}`);
+  const skip = el.querySelector('.home-review-skip');
+  skip.dataset.gameId = String(g.gameId);
+  skip.setAttribute('aria-label', `Skip review for ${matchup}`);
+  return el;
+}
+
+// The count covers the whole recent queue; the snapshot's item list is capped, so its
+// length is not the pending count. Home shows the newest few and links to the rest.
 function renderUnreviewed(d) {
   const u = d.unreviewed || {};
   const host = $('unreviewed');
@@ -161,92 +420,43 @@ function renderUnreviewed(d) {
   const pending = count > 0;
   show($('review-inbox'), pending);
   show($('unreviewed-empty'), !pending);
-  document.querySelector('.home-page').classList.toggle('has-pending-review', pending);
-  $('unreviewed-label').textContent = `${count} ${count === 1 ? 'match' : 'matches'} ready to review`;
+  document.querySelector('.home-page')?.classList.toggle('has-pending-review', pending);
 
-  const g = items.find(item => item.gameId != null && !item.hasReview);
-  const remaining = Math.max(0, count - (g ? 1 : 0));
+  const rows = pending ? items.filter(item => item && item.gameId != null && !item.hasReview).slice(0, REVIEW_ROWS) : [];
+  const remaining = Math.max(0, count - rows.length);
   show($('review-queue-footer'), pending && remaining > 0);
-  $('review-queue-more').textContent = `${remaining} ${g ? 'more ' : ''}recent ${remaining === 1 ? 'match' : 'matches'} waiting`;
-  if (!pending || !g) return;
-
-  const el = tpl('tpl-gamerow');
-  const vline = el.querySelector('.vline');
-  const vsmall = el.querySelector('.vsmall');
-  const champ = g.championName || 'Game';
-  const matchup = g.enemyChampion ? `${champ} vs ${g.enemyChampion}` : champ;
-  vline.textContent = matchup;
-  const result = el.querySelector('.home-review-result');
-  result.textContent = typeof g.win === 'boolean' ? (g.win ? 'Victory' : 'Defeat') : (g.winLossText || '');
-  show(result, !!result.textContent);
-  if (typeof g.win === 'boolean') result.dataset.result = g.win ? 'win' : 'loss';
-  const metadata = [g.gameMode, g.datePlayed, g.duration].filter(Boolean);
-  vsmall.textContent = [metadata.length ? metadata.join(' · ') : g.metaLine, g.kdaText ? `${g.kdaText} KDA` : ''].filter(Boolean).join(' · ');
-  const open = el.querySelector('.home-review-open');
-  open.href = `review.html?gameId=${encodeURIComponent(g.gameId)}`;
-  open.setAttribute('aria-label', `Review ${matchup}`);
-  const skip = el.querySelector('.home-review-skip');
-  skip.dataset.gameId = String(g.gameId);
-  skip.setAttribute('aria-label', `Skip review for ${matchup}`);
-
-  host.appendChild(el);
+  $('review-queue-more').textContent = `${remaining} ${rows.length ? 'more ' : ''}waiting`;
+  renderSuggestion(rows[0] || null);
+  for (const g of rows) host.appendChild(reviewRow(g, d.today));
 }
 
-// ── render: active objectives (SVG rings) ───────────────────────────────────
-function renderObjectives(d) {
-  const objs = Array.isArray(d.activeObjectives) ? d.activeObjectives : [];
-  const host = $('objectives');
-  clear(host);
-
-  if (objs.length === 0) {
-    show($('objectives-empty'), true);
-    return;
-  }
-  show($('objectives-empty'), false);
-
-  for (const o of objs) {
-    const el = tpl('tpl-objective');
-    const progress = Math.max(0, Math.min(1, Number(o.progress) || 0));
-    const offset = RING_CIRCUMFERENCE * (1 - progress);
-
-    const track = el.querySelector('.ring-track');
-    const prog = el.querySelector('.ring-prog');
-    track.setAttribute('stroke', o.levelDimColorHex || 'rgba(255,255,255,0.13)');
-    prog.setAttribute('stroke', 'var(--accent)');
-    // Start empty (full offset = 0% drawn), then transition to the target on the
-    // next frame so the CSS transition on .ring-prog animates the arc filling.
-    prog.setAttribute('stroke-dashoffset', String(RING_CIRCUMFERENCE));
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      prog.setAttribute('stroke-dashoffset', String(offset));
-    }));
-
-    el.querySelector('.pc').textContent =
-      o.progressLabel || `${Math.round(progress * 100)}%`;
-
-    const pill = el.querySelector('.pill');
-    if (pill) pill.textContent = 'Priority';
-    show(pill, !!o.isPriority);
-
-    el.querySelector('.oname').textContent = o.title || '';
-    el.querySelector('.ometa').textContent = objectiveMetaText(o);
-
-    // Make the whole objective card a button into its detail page (games + stats
-    // + the per-objective notes/VOD flow). Keyboard-accessible; the shell's
-    // frame.load re-syncs the Objectives nav item once we land there. NOTE: tpl()
-    // returns the template's root, which IS the .card — so wire `el` itself, not a
-    // descendant query (the card is not a child of the clone).
-    if (o.id != null) {
-      el.classList.add('obj-clickable');
-      el.setAttribute('role', 'button');
-      el.tabIndex = 0;
-      const go = () => { window.location.href = `objectivegames.html?id=${encodeURIComponent(o.id)}`; };
-      el.addEventListener('click', go);
-      el.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); }
-      });
-    }
-
-    host.appendChild(el);
+// ── render: the last 30 days ────────────────────────────────────────────────
+// The snapshot carries 30-day baselines only inside its subtitle strings
+// ("2W // 1L  ·  30-day 56%", "30-day avg 7.3"); both are empty under five games.
+// The adherence streak stays in gold: it is a retention mechanic, never removed.
+function renderStats(d) {
+  const s = d.stats || {};
+  const strip = $('strip');
+  clear(strip);
+  const winRate = /30-day (\d+)%/.exec(String(s.winRateSub || ''));
+  const mental = /30-day avg ([\d.,]+)/.exec(String(s.avgMentalSub || ''));
+  const streak = Number(s.adherenceStreak);
+  const days = Number.isFinite(streak) ? Math.max(0, Math.trunc(streak)) : null;
+  const cells = [
+    { k: 'Win rate', v: winRate ? winRate[1] : '', unit: '%' },
+    { k: 'Average mental', v: mental ? mental[1] : '' },
+    // Not a 30-day figure: the sidecar counts every cross-game pattern ever marked reviewed.
+    { k: 'Patterns reviewed, all time', v: String(Math.max(0, Math.trunc(Number(s.reviewedPatternCount) || 0))) },
+    { k: 'Rules kept', v: days != null ? String(days) : '', unit: days === 1 ? 'day' : 'days', streak: true },
+  ];
+  for (const c of cells) {
+    const el = tpl('tpl-stat');
+    if (c.streak) el.classList.add('is-streak');
+    if (!c.v) el.classList.add('is-empty');
+    el.querySelector('.v').textContent = c.v || 'Not yet';
+    el.querySelector('.s').textContent = c.v && c.unit ? c.unit : '';
+    el.querySelector('.k').textContent = c.k;
+    strip.appendChild(el);
   }
 }
 
@@ -258,42 +468,24 @@ function renderError(err) {
 }
 function clearError() { show($('errpanel'), false); }
 
-// ── entrance: stagger the main sections rising in on load ───────────────────
-// Only on the FIRST render of a page load (not on every refresh) so re-polling
-// the dashboard doesn't re-animate everything.
-let _entranceDone = false;
-function playEntrance() {
-  if (_entranceDone) return;
-  _entranceDone = true;
-  const order = [
-    $('nextstep')?.closest('.toprow'),
-    $('strip'),
-    $('unreviewed'),
-    $('vod-hint'),
-  ].filter(Boolean);
-  order.forEach((el, i) => {
-    el.classList.add('anim-rise', `anim-d${Math.min(i + 1, 5)}`);
-  });
-}
-
 // ── top-level render ────────────────────────────────────────────────────────
+let _snapshot = null;
+let _takeaway = null;
 function render(d) {
+  _snapshot = d;
   clearError();
   renderHeader(d);
   renderNextStep(d);
-  renderObjectives(d);
-  renderStrip(d);
+  renderObjectivePill(d);
+  renderStats(d);
   renderUnreviewed(d);
-  renderVod(d);
-  playEntrance();
+  _takeaway?.update(d);
   honorIntentDeepLink(d);
 }
 
-// ?intent=startblock — the Tilt Check ritual's closing CTA ("SAVE → SET INTENT")
-// navigates here promising the Start Block intent editor opens. Honor it once
-// per page load, only when no block is already active (renderNextStep computed
-// that above; an active block's CTA is End Block, where auto-opening an editor
-// would be wrong).
+// ?intent=startblock: the Tilt Check ritual's closing step, the quick guide and the
+// sidebar's Start a session land here promising the composer. Honor it once per page
+// load, and never while a session is running (its action is Finish session).
 let _intentDeepLinkDone = false;
 function honorIntentDeepLink(d) {
   if (_intentDeepLinkDone) return;
@@ -303,8 +495,7 @@ function honorIntentDeepLink(d) {
   const intent = (d && d.intent) || {};
   const blockActive = !!intent.sessionIntention && (intent.debriefRating == null);
   if (blockActive) return;
-  const cta = $('nextstep-cta');
-  if (cta) openIntentEditor(cta);
+  $('nextstep-input')?.focus();
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
@@ -325,241 +516,21 @@ async function loadDashboard() {
 }
 
 // A remake verdict changed (3.14.1): today's games, the review inbox and the
-// streak re-base. Refetch, but never while an inline editor is open.
+// streak re-base. Refetch, but never while the player is mid-edit.
 window.addEventListener('revu:remake-updated', () => {
   let editing = false;
   try { editing = !!window.__revuActiveWork; } catch (_) { editing = false; }
   if (!editing) void loadDashboard();
 });
 
-// ── active-work flag (P-035 guard for the dashboard's inline editors) ─────────
-// The Start/End-Block editors are active-work surfaces: while one is open the
-// user is mid-edit and an LCU auto-show that reloads the content iframe would
-// wipe the half-typed focus (looks like "the page refreshed and nothing saved").
-// dashboard.html isn't in shell-outer.js's ACTIVE_WORK_PAGES list (those are
-// whole-page forms), so we expose a per-editor flag the shell reads before it
-// reloads us. Mirrors the ACTIVE_WORK_PAGES intent at editor granularity.
-function setActiveWork(on) {
-  try { window.__revuActiveWork = !!on; } catch (_) { /* non-window host — ignore */ }
-}
-
-// ── inline intention editor (START BLOCK) ───────────────────────────────────
-// Clicking START BLOCK swaps the button for a glass text field in place. The
-// user names one focus, then we invoke('start_block',{intention}) and reload —
-// the reload re-renders the next-step card, which restores the button. Escape
-// or Cancel aborts back to the button without touching the backend.
-let _intentOpen = false;
-let _lastIntentWithCoach = false;
-function openIntentEditor(cta) {
-  if (_intentOpen) return;
-  _intentOpen = true;
-  setActiveWork(true);
-  const body = cta.closest('.body') || cta.parentElement;
-
-  const wrap = document.createElement('div');
-  wrap.className = 'intent-edit';
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'intent-input';
-  input.maxLength = 120;
-  input.placeholder = 'For example: check the map before a trade';
-  input.setAttribute('aria-label', 'Session intention');
-
-  const actions = document.createElement('div');
-  actions.className = 'intent-actions';
-
-  const confirm = document.createElement('button');
-  confirm.type = 'button';
-  confirm.className = 'cta cta-sm';
-  confirm.textContent = 'Start session';
-
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'intent-cancel';
-  cancel.textContent = 'Cancel';
-
-  // v3.3: WITH COACH toggle — tags the block so its games are reviewed with
-  // the coach outside Revu (they leave the in-app review queue; mental stats
-  // are untouched). Lives inside the editor, so the active-work guard covers it.
-  // Seeded from the day's current tag: a re-lock preserves it (visibly, the
-  // pill opens pre-lit) unless the user explicitly turns it off.
-  let withCoach = _lastIntentWithCoach;
-  const coach = document.createElement('button');
-  coach.type = 'button';
-  coach.className = 'intent-coach';
-  coach.textContent = 'Playing with a coach';
-  coach.setAttribute('role', 'switch');
-  coach.classList.toggle('on', withCoach);
-  coach.setAttribute('aria-checked', String(withCoach));
-  coach.addEventListener('click', () => {
-    withCoach = !withCoach;
-    coach.classList.toggle('on', withCoach);
-    coach.setAttribute('aria-checked', String(withCoach));
-  });
-
-  actions.append(confirm, cancel);
-  wrap.append(input, coach, actions);
-
-  // Swap the button out for the editor, then focus the field.
-  cta.hidden = true;
-  body.appendChild(wrap);
-  input.focus();
-
-  function close(restoreButton) {
-    _intentOpen = false;
-    setActiveWork(false);
-    wrap.remove();
-    // If the backend write succeeded, loadDashboard() re-renders the card and a
-    // fresh button arrives; only restore the original when we abort locally.
-    if (restoreButton) cta.hidden = false;
-  }
-
-  async function submit() {
-    const intention = input.value.trim();
-    if (!intention) { input.focus(); return; }
-    const invoke = await getInvoke();
-    if (!invoke) {
-      console.info('[dashboard] (preview) start_block — no Electron backend.');
-      close(true);
-      return;
-    }
-    input.disabled = true;
-    confirm.disabled = true;
-    coach.disabled = true;
-    try {
-      await invoke('start_block', { payload: { intention, withCoach } });
-      window.dispatchEvent(new CustomEvent('revu:first-review-block-started', {
-        detail: { intention },
-      }));
-      close(false);
-      await loadDashboard();
-    } catch (err) {
-      renderError(err);
-      console.error('[dashboard] action "start_block" failed:', err);
-      input.disabled = false;
-      confirm.disabled = false;
-      coach.disabled = false;
-      input.focus();
-    }
-  }
-
-  confirm.addEventListener('click', submit);
-  cancel.addEventListener('click', () => close(true));
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') { ev.preventDefault(); submit(); }
-    else if (ev.key === 'Escape') { ev.preventDefault(); close(true); }
-  });
-}
-
-// ── inline End Block editor ──────────────────────────────────────────────────
-// Clicking END BLOCK swaps the button for a small close-out ritual in place: rate
-// the block 1-10 (required) + an optional note, then invoke('end_block') and reload.
-// Mirrors the Start Block editor. Escape / Cancel aborts without touching the backend.
-let _endBlockOpen = false;
-function openEndBlockEditor(cta) {
-  if (_endBlockOpen) return;
-  _endBlockOpen = true;
-  setActiveWork(true);
-  const body = cta.closest('.body') || cta.parentElement;
-
-  const wrap = document.createElement('div');
-  wrap.className = 'intent-edit';
-
-  const ratingRow = document.createElement('div');
-  ratingRow.className = 'endblock-rating';
-  const ratingLabel = document.createElement('span');
-  ratingLabel.className = 'endblock-rating-k';
-  ratingLabel.textContent = 'How did your session go?';
-  ratingRow.appendChild(ratingLabel);
-  const chips = document.createElement('div');
-  chips.className = 'endblock-chips';
-  let _rating = 0;
-  for (let n = 1; n <= 10; n++) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'endblock-chip';
-    chip.textContent = String(n);
-    chip.addEventListener('click', () => {
-      _rating = n;
-      chips.querySelectorAll('.endblock-chip').forEach((c, i) => c.classList.toggle('on', i + 1 === n));
-    });
-    chips.appendChild(chip);
-  }
-  ratingRow.appendChild(chips);
-
-  const note = document.createElement('input');
-  note.type = 'text';
-  note.className = 'intent-input';
-  note.maxLength = 240;
-  note.placeholder = 'Optional: a note on how it went…';
-  note.setAttribute('aria-label', 'Block note');
-
-  const actions = document.createElement('div');
-  actions.className = 'intent-actions';
-  const confirm = document.createElement('button');
-  confirm.type = 'button';
-  confirm.className = 'cta cta-sm';
-  confirm.textContent = 'Save reflection';
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'intent-cancel';
-  cancel.textContent = 'Cancel';
-  actions.append(confirm, cancel);
-
-  wrap.append(ratingRow, note, actions);
-  cta.hidden = true;
-  body.appendChild(wrap);
-
-  function close(restoreButton) {
-    _endBlockOpen = false;
-    setActiveWork(false);
-    wrap.remove();
-    if (restoreButton) cta.hidden = false;
-  }
-
-  async function submit() {
-    if (_rating < 1) { chips.classList.add('endblock-chips-need'); return; }
-    const invoke = await getInvoke();
-    if (!invoke) {
-      console.info('[dashboard] (preview) end_block — no Electron backend.');
-      close(true);
-      return;
-    }
-    confirm.disabled = true;
-    note.disabled = true;
-    try {
-      // Carry the open block's own date so a carried-over (prior-day) block closes
-      // the right row; omitted when it's just today's block.
-      const payload = { rating: _rating, note: note.value.trim() };
-      if (cta.dataset.blockDate) payload.date = cta.dataset.blockDate;
-      await invoke('end_block', { payload });
-      close(false);
-      await loadDashboard();
-    } catch (err) {
-      renderError(err);
-      console.error('[dashboard] action "end_block" failed:', err);
-      confirm.disabled = false;
-      note.disabled = false;
-    }
-  }
-
-  confirm.addEventListener('click', submit);
-  cancel.addEventListener('click', () => close(true));
-  note.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') { ev.preventDefault(); submit(); }
-    else if (ev.key === 'Escape') { ev.preventDefault(); close(true); }
-  });
-}
-
 // ── single delegated action handler ─────────────────────────────────────────
-// start_block  = opens the inline intention editor → invoke('start_block').
-// skip_review  = the per-row SKIP chip → invoke('skip_review',{gameId}), reload.
+// start_block  = Start session: invoke('start_block') with the composer's intention.
+// end_block    = Finish session: opens the rating and note inside the composer.
+// skip_review  = the per-row Skip → invoke('skip_review',{gameId}), reload.
 // run_reset    = minimal mid-session reset → invoke('run_reset',{…}); the full
-//                ritual lives on the Tilt page. Only fires if such a control is
-//                rendered on the dashboard.
-// open_review  = clicking a whole unreviewed row (→ review page, deferred).
-// review_vod   = the separate VOD-evidence hint (→ vod viewer, deferred).
+//                ritual lives on the Tilt page. Only fires if such a control is rendered.
+// open_review  = a whole game row → that game's review page.
+// review_vod   = a VOD hint → the VOD viewer.
 // end_stint    = End stint beside the coaching stint line → invoke('end_stint'), reload.
 const ACTIONS = new Set(['start_block', 'end_block', 'run_reset', 'skip_review', 'review_vod', 'take_next_step', 'open_review', 'end_stint']);
 
@@ -582,15 +553,12 @@ document.addEventListener('click', async (ev) => {
   if (!ACTIONS.has(action)) return;
   ev.preventDefault();
 
-  // START BLOCK is interactive: collect the intention inline before writing.
   if (action === 'start_block') {
-    openIntentEditor(target);
+    await submitIntent();
     return;
   }
-
-  // END BLOCK is interactive too: the close-out ritual (rating + note) inline.
   if (action === 'end_block') {
-    openEndBlockEditor(target);
+    openFinishEditor();
     return;
   }
 
@@ -608,9 +576,9 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  // Deferred nav targets have no backend command yet — don't invoke (would throw).
+  // Deferred nav targets have no backend command yet; don't invoke (would throw).
   if (DEFERRED.has(action)) {
-    console.info(`[dashboard] action "${action}" — page not ported yet (deferred).`);
+    console.info(`[dashboard] action "${action}": page not ported yet (deferred).`);
     return;
   }
 
@@ -619,20 +587,20 @@ document.addEventListener('click', async (ev) => {
   const invoke = await getInvoke();
   if (!invoke) {
     // Browser preview: no backend to talk to. Acknowledge the click in console.
-    console.info(`[dashboard] (preview) action "${action}" — no Electron backend.`);
+    console.info(`[dashboard] (preview) action "${action}", no desktop host.`);
     return;
   }
 
   const args = payloadFor(action, target);
 
-  // `disabled` only exists on form controls; the game row is a <div>, so guard.
+  // `disabled` only exists on form controls; a game row is a <div>, so guard.
   const canDisable = 'disabled' in target;
   if (canDisable) target.disabled = true;
   try {
-    // Only GROUP A write commands (run_reset, skip_review, end_stint) reach this
-    // dynamic site — start_block / open_review / review_vod / deferred return earlier —
-    // so every command here takes a single `payload` arg. Wrap accordingly.
+    // Only write commands (run_reset, skip_review, end_stint) reach this dynamic
+    // site; every command here takes a single `payload` arg. Wrap accordingly.
     await invoke(action, { payload: args });
+    if (action === 'skip_review') announceGamesChanged();
     await loadDashboard();
   } catch (err) {
     renderError(err);
@@ -642,11 +610,17 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
-// Keyboard activation for the role="button" game rows (Enter / Space).
+// The shell's sidebar (recent matches, review count) refreshes when a page changes the
+// match list without loading a new page (shell-recent.mjs).
+function announceGamesChanged() {
+  try { window.top?.dispatchEvent(new CustomEvent('revu:games-changed')); } catch (_) { /* no shell */ }
+}
+
+// Keyboard activation for role="button" game rows (Enter / Space).
 document.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
-  // A real <button> (the per-row SKIP chip) handles its own Enter/Space natively;
-  // don't also bubble up to the row's open_review, or a SKIP keypress fires both.
+  // A real <button> (the per-row Skip) handles its own Enter/Space natively;
+  // don't also bubble up to the row's open_review, or a Skip keypress fires both.
   if (ev.target.closest('button')) return;
   const target = ev.target.closest('[data-action][role="button"]');
   if (!target) return;
@@ -654,16 +628,88 @@ document.addEventListener('keydown', (ev) => {
   target.click();
 });
 
-// ── boot ────────────────────────────────────────────────────────────────────
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', loadDashboard);
-} else {
-  loadDashboard();
+// ── composer wiring (real DOM only) ─────────────────────────────────────────
+function wireComposer() {
+  const input = $('nextstep-input');
+  input?.addEventListener('input', () => {
+    // The pill names the objective while its words are still in the field.
+    if (_chosenObjective && !input.value.includes(_chosenObjective)) {
+      _chosenObjective = '';
+      renderObjectivePill(_snapshot || {});
+    }
+    syncActiveWork();
+  });
+  input?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); void submitIntent(); }
+    else if (ev.key === 'Escape' && hasActiveWork()) { ev.preventDefault(); resetComposer(); }
+  });
+  $('nextstep-coach')?.addEventListener('click', toggleCoach);
+
+  const pill = $('nextstep-objective');
+  const menu = $('nextstep-objective-menu');
+  pill?.addEventListener('click', () => (_menuOpen ? closeObjectiveMenu() : openObjectiveMenu()));
+  pill?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown' && !_menuOpen) { ev.preventDefault(); openObjectiveMenu(); }
+  });
+  menu?.addEventListener('keydown', (ev) => {
+    const items = menuItems();
+    const at = items.indexOf(document.activeElement);
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeObjectiveMenu({ restoreFocus: true }); }
+    else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const step = ev.key === 'ArrowDown' ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    } else if (ev.key === 'Home' || ev.key === 'End') {
+      ev.preventDefault();
+      (ev.key === 'Home' ? items[0] : items.at(-1))?.focus();
+    }
+  });
+  menu?.addEventListener('focusout', (ev) => {
+    const next = ev.relatedTarget;
+    if (next && !menu.contains(next) && next !== pill) closeObjectiveMenu();
+  });
+  document.addEventListener('click', (ev) => {
+    if (_menuOpen && !ev.target.closest('.home-obj')) closeObjectiveMenu();
+  });
+
+  $('nextstep-save')?.addEventListener('click', () => { void submitFinish(); });
+  $('nextstep-cancel')?.addEventListener('click', () => closeFinishEditor());
+  $('nextstep-rate')?.addEventListener('change', () => {
+    $('nextstep-rate-hint').textContent = '';
+    syncActiveWork();
+  });
+  $('nextstep-finish')?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') { ev.preventDefault(); closeFinishEditor(); }
+    else if (ev.key === 'Enter' && ev.target.id === 'nextstep-note' && !ev.isComposing) { ev.preventDefault(); void submitFinish(); }
+  });
 }
 
+// Words in the composer are unsaved work. The shell asks before its sidebar replaces
+// Home (leave-guard.mjs); a link inside Home asks the same question. The quick guide's
+// own "Go to Home" link focuses the composer instead of reloading the page.
+let _leaveGuard = null;
+function wireLeaving() {
+  _leaveGuard = registerLeaveGuard({ isDirty: composerDirty });
+  document.addEventListener('click', async (ev) => {
+    const link = ev.target.closest('a[href]');
+    if (!link || ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    if (link.target && link.target !== '_self') return;
+    const url = new URL(link.href, window.location.href);
+    if (/(^|\/)dashboard(\.html)?$/.test(url.pathname) && url.searchParams.get('intent') === 'startblock') {
+      ev.preventDefault();
+      startSession();
+      return;
+    }
+    if (!composerDirty()) return;
+    ev.preventDefault();
+    if (await _leaveGuard.beforeNavigate()) window.location.href = url.href;
+  });
+}
+
+// ── boot ────────────────────────────────────────────────────────────────────
 // Finished games Revu did not save: Home lists them with Save and Dismiss. A saved game
-// joins the review inbox and today's games, so Home refetches them, but never while an
-// inline editor is open.
+// joins the review inbox and today's games, so Home refetches them, but never while
+// the player is mid-edit.
 const missedGamesOptions = {
   onSaved: () => {
     let editing = false;
@@ -671,8 +717,17 @@ const missedGamesOptions = {
     if (!editing) void loadDashboard();
   },
 };
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => { void mountMissedGames(document, missedGamesOptions); });
-} else {
+
+function boot() {
+  wireComposer();
+  wireLeaving();
+  _takeaway = mountJournalTakeaway(document, { readSnapshot });
+  void loadDashboard();
   void mountMissedGames(document, missedGamesOptions);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
 }

@@ -2,7 +2,7 @@ import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
-import { recordLabel, planWithoutThen } from './rule-labels.mjs';
+import { recordLabel, planWithoutThen, ruleBadgeTone } from './rule-labels.mjs';
 
 // Revu desktop — Rules (session protocols) page renderer for the glass-aurora
 // layout. Renders the JSON returned by the Electron command `get_rules`
@@ -13,8 +13,8 @@ import { recordLabel, planWithoutThen } from './rule-labels.mjs';
 //   • Outside Electron it fetches ./sample-rules.json so the page previews in a
 //     plain browser (writes no-op with a console note).
 //   • Every server string is written via textContent (never innerHTML) so the
-//     surface stays XSS-free; colors arrive as *Hex strings applied to style
-//     properties only.
+//     surface stays XSS-free. The sidecar's *Hex colors are never painted: the
+//     type badge carries a data-tone the theme maps (rule-labels.mjs).
 //   • ONE delegated [data-action] click handler.
 //   • After every write we refetch get_rules (no message bus — manual invalidation).
 
@@ -168,10 +168,7 @@ function buildRule(r, opts) {
 
   // Known type labels use sentence case; unknown server labels stay intact.
   badge.textContent = TYPE_LABELS[r.ruleType] || r.typeBadge || 'Rule';
-  if (r.accentHex) {
-    badge.style.color = r.accentHex;
-    badge.style.borderColor = r.accentHex;
-  }
+  badge.dataset.tone = ruleBadgeTone(r);
 
   name.textContent = r.name || '';
 

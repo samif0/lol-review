@@ -1,20 +1,21 @@
 import { getInvoke, getListen, getWindow } from './platform/index.mjs';
 import { createMatchViewStore } from './match-navigation.mjs';
+import { createShellSidebar, crumbFor, pageOf } from './shell-recent.mjs';
 
 // Own the snapshot store in the persistent shell's realm, so its methods never
 // retain a discarded content window. Entries contain cloned plain data only.
 window.__revuMatchViewsV1 = createMatchViewStore();
 
-// Persistent app-shell controller (index.html). Owns the ONE nav rail (static
-// markup that never reloads) and the content <iframe>. Nav clicks reload ONLY the
-// iframe, so the rail can never move on navigation. This module also runs the two
-// app-wide live-state concerns ONCE here, retargeting auto-show at the iframe.
+// Persistent app-shell controller (index.html). Owns the ONE sidebar (static
+// markup that never reloads) and the content <iframe>. Sidebar clicks reload ONLY
+// the iframe, so the sidebar can never move on navigation. This module also runs the
+// two app-wide live-state concerns ONCE here, retargeting auto-show at the iframe.
 //
 // This is the only navigation definition: content pages ship no rail of their
 // own, and framed.js reopens a content page loaded on its own inside this shell.
 
 const frame = document.getElementById('app-frame');
-const nav = document.querySelector('.nav');
+const side = document.querySelector('.side');
 const pageLabels = { dashboard: 'Home', games: 'Match library', objectives: 'Learning objectives',
   patterns: 'Patterns', matchups: 'Matchup notes', tiltcheck: 'Tilt check', rules: 'Rules',
   settings: 'Settings', onboarding: 'Account', review: 'Match review', vodplayer: 'VOD review',
@@ -33,16 +34,27 @@ function fileToNav(pathname) {
   return file.replace(/\.html$/, ''); // games.html → games, etc.
 }
 
+// Title-bar crumb: "Match library / Match review" under the library, the page name
+// elsewhere, nothing on Home (see crumbFor in shell-recent.mjs).
+function setCrumb(page, navId) {
+  const { parent, current } = crumbFor(page, navId, pageLabels);
+  const parentEl = document.getElementById('appbar-parent');
+  const sep = document.getElementById('appbar-sep');
+  const context = document.getElementById('appbar-context');
+  if (parentEl) { parentEl.textContent = parent; parentEl.hidden = !parent; }
+  if (sep) sep.hidden = !parent;
+  if (context) context.textContent = current;
+}
+
+// The rail items live in the nav and in the sidebar footer (Settings, Account).
 function markActive(navId) {
-  if (!nav) return;
-  nav.querySelectorAll('.nav-i').forEach((a) => {
+  (side || document).querySelectorAll('.nav-i').forEach((a) => {
     const active = a.dataset.nav === navId;
     a.classList.toggle('active', active);
     if (active) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
-  const context = document.getElementById('appbar-context');
-  if (context) context.textContent = pageLabels[navId] || 'Revu';
+  setCrumb(navId, navId);
 }
 
 // Navigate the iframe (NOT the top document). Accepts a bare file or file?query.
@@ -79,34 +91,70 @@ function frameFile() {
 }
 function frameHas(file) { return frameFile().toLowerCase() === file.toLowerCase(); }
 
-// ── Nav clicks → reload only the iframe ──────────────────────────────────────
-// One delegated handler on the persistent rail. preventDefault the anchor's own
-// top-level navigation and point the iframe at it after pending page writes.
-// The rail changes selection once navigation succeeds; iframe load also syncs
-// the selection for in-page navigations.
-nav?.addEventListener('click', (ev) => {
-  const a = ev.target.closest('.nav-i');
+// The frame's page key ('review'); a clean preview URL (/review) reads the same.
+function framePage() {
+  try {
+    const shown = frame.contentDocument?.documentElement?.getAttribute('data-page');
+    return shown || pageOf(frame.contentWindow.location.pathname);
+  } catch (_) { return ''; }
+}
+
+// "Start a session": Home opens its composer in place (window.__revuStartSession),
+// never reloading over an open editor; any other page opens Home's Start Block.
+function startSession(href) {
+  if (framePage() === 'dashboard') {
+    let start = null, busy = false;
+    try {
+      start = frame.contentWindow.__revuStartSession;
+      busy = !!frame.contentWindow.__revuActiveWork;
+    } catch (_) { /* cross-origin (shouldn't happen in-app) */ }
+    if (typeof start === 'function') {
+      try { start(); } catch (err) { console.warn('[shell] could not open the session composer:', err); }
+      return;
+    }
+    if (busy) return; // an open editor keeps its text; Home's own Start a session is in view
+  }
+  frameGoto(href);
+}
+
+// ── Sidebar clicks → reload only the iframe ──────────────────────────────────
+// One delegated handler for the persistent shell: rail items (.nav-i), recent
+// matches, the crumb and "Start a session" ([data-shell-goto]). preventDefault the
+// anchor's own top-level navigation (it would replace this shell) and point the
+// iframe at it after pending page writes. The rail changes selection once
+// navigation succeeds; iframe load also syncs the selection for in-page navigations.
+document.addEventListener('click', (ev) => {
+  const a = ev.target instanceof Element ? ev.target.closest('.nav-i,[data-shell-goto]') : null;
   if (!a) return;
   ev.preventDefault();
   const href = a.getAttribute('href');
   if (!href) return;
+  if (a.hasAttribute('data-start-session')) { startSession(href); return; }
   frameGoto(href);
 });
+
+// The shell's sidebar data: recent matches, the review count and the account name.
+const sidebar = createShellSidebar();
 
 // ── Sync active item whenever the iframe finishes loading a page ─────────────
 // Covers in-page navigations (a page doing location.href=... inside the iframe,
 // e.g. open_review → review.html) so the rail reflects wherever the iframe landed.
+// The shell root mirrors the frame's page as data-frame-page (Aura turns the lights
+// off around the VOD player; the native window background follows the shell).
 frame?.addEventListener('load', () => {
   try {
-    const pathname = frame.contentWindow.location.pathname;
-    markActive(fileToNav(pathname));
-    const page = pathname.split('/').pop().replace(/\.html$/, '');
-    const context = document.getElementById('appbar-context');
-    if (context && pageLabels[page]) context.textContent = pageLabels[page];
-    frame.title = pageLabels[page] || pageLabels[fileToNav(pathname)] || 'Revu';
+    const { pathname, search } = frame.contentWindow.location;
+    const page = framePage() || pageOf(pathname);
+    const navId = fileToNav(`${page}.html`);
+    document.documentElement.setAttribute('data-frame-page', page);
+    markActive(navId);
+    setCrumb(page, navId);
+    frame.title = pageLabels[page] || pageLabels[navId] || 'Revu';
+    sidebar.frameLoaded(pathname, search);
   }
-  catch (_) { /* cross-origin (shouldn't happen in-app) — leave as-is */ }
+  catch (_) { /* cross-origin (shouldn't happen in-app); leave as-is */ }
 });
+sidebar.start();
 
 // ── Deep-link support on the shell URL ───────────────────────────────────────
 // index.html#vodplayer.html?gameId=5 opens that page in the iframe at startup, and
@@ -536,10 +584,16 @@ async function wireLiveAutoShow() {
         break;
       case 'champSelectCancelled': leaveLiveSurface(); break;
       case 'gamesRecovered':
-        // Recovery can finish after the user leaves Settings. Refresh listing
-        // pages, while preserving all editors and in-progress session forms.
-        if (!inActiveEdit() && (frameHas('games.html') || frameHas('dashboard.html')))
+        // Recovery can finish after the user leaves Settings. The Match library
+        // refreshes its rows in place, so a typed search survives. Home reloads,
+        // while preserving all editors and in-progress session forms.
+        if (frameHas('games.html')) {
+          try {
+            frame?.contentWindow?.dispatchEvent(new CustomEvent('revu:games-recovered', { detail: p }));
+          } catch (_) { /* a fresh navigation reads the recovered games itself */ }
+        } else if (!inActiveEdit() && frameHas('dashboard.html')) {
           frame?.contentWindow?.location.reload();
+        }
         break;
       case 'vodLinked':
         // Recording discovery never navigates or reloads a working page.

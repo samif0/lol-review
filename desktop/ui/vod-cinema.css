@@ -83,7 +83,7 @@ html.framed .vod-review-page #vp-wrap.vp-expanded {
 
 .vod-review-page #vp-wrap .vp-cinema-exit:hover {
   background: var(--surface-raised);
-  border-color: #666;
+  border-color: var(--line-strong);
 }
 
 .vod-review-page #vp-wrap .vp-cinema-exit kbd {

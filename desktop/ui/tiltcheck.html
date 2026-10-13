@@ -7,10 +7,12 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
+<link rel="stylesheet" href="./tiltcheck.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell">
-    <div class="eyebrow">Mental recovery</div>
     <div class="hero"><h1 id="hero-title">Tilt check</h1></div>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
@@ -40,7 +42,7 @@
     <!-- LATEST PLAN — the most recent if-then implementation intention. -->
     <div class="glass card tc-plan" id="tc-plan" hidden>
       <div class="tc-plan-k">Your latest plan</div>
-      <div class="tc-plan-v" id="tc-plan-v"></div>
+      <div class="tc-plan-v own-words" id="tc-plan-v"></div>
     </div>
 
     <!-- RECENT LOG — past resets, newest first. Each row shows the emotion,
@@ -74,10 +76,10 @@
     </div>
   </template>
 
-  <!-- One top-emotion chip — label + count, tinted by the emotion color. -->
+  <!-- One top-emotion chip: label and count. A tilt emotion reads in the loss tone. -->
   <template id="tpl-emotion">
     <span class="tc-emo">
-      <span class="tc-emo-dot" aria-hidden="true"></span>
+      <span class="tc-emo-dot" data-tone="loss" aria-hidden="true"></span>
       <span class="tc-emo-name"></span>
       <span class="tc-emo-n"></span>
     </span>
@@ -86,7 +88,7 @@
   <!-- One recent-reset row — emotion + before→after duo + reframe response. -->
   <template id="tpl-recent">
     <div class="card tc-row">
-      <span class="tc-row-edge" aria-hidden="true"></span>
+      <span class="tc-row-edge" data-tone="loss" aria-hidden="true"></span>
       <div class="tc-row-main">
         <div class="tc-row-top">
           <span class="tc-row-emo"></span>

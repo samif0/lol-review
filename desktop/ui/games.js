@@ -2,106 +2,96 @@ import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 
-// Revu desktop — Match library page renderer.
+// Revu desktop: Match library page renderer.
 // Renders the JSON returned by the Electron command `get_games`
 // (see Revu.Sidecar GET /api/games). Mirrors app.js conventions exactly:
 //   • getInvoke() uses the shared platform boundary and detects browser previews.
-//   • Outside Electron it fetches ./sample-games.json so the page previews in a
-//     plain browser.
-//   • Every server string is written via textContent (never innerHTML) so the
-//     surface stays XSS-free; colors arrive as *Hex strings applied to style
-//     properties only.
+//   • Outside Electron it fetches ./sample-games.json (./sample-games-queue.json for
+//     To review) so the page previews in a plain browser.
+//   • Every server string is written via textContent (never innerHTML), and
+//     server colors are ignored: results and states read theme tokens in CSS.
 //   • ONE delegated [data-action] click handler.
 //
-// VIEWS: a SERVER-SIDE segmented control mirroring the WinUI GamesPage —
-// Queue (unreviewed, 14d) / Today / History (paged) / VOD (on-disk recordings),
-// plus Removed (games removed from history, each with Restore).
-// Switching a view refetches from the backend (the server owns each view's data
-// source); History additionally supports append-mode "Load More" paging
-// (?page=N). Recording-link notifications update existing rows in place.
-
-// ── small DOM helpers ───────────────────────────────────────────────────────
+// VIEWS: server-side filters. All = History (paged), To review = Queue
+// (unreviewed, 14 days), With recordings = VOD, Removed (each with Restore).
+// Today stays callable (?view=today) and shows its own pill while selected.
+// The page opens on ?view= when given, otherwise on To review. Switching a view
+// refetches from the backend; History additionally supports "Load more" paging
+// (?page=N). Search filters the loaded rows by champion or enemy, in the page.
+// Rows are grouped by day. Recording-link notifications update rows in place.
 
 // ── module state ────────────────────────────────────────────────────────────
 // _data    : the last loaded snapshot (server-owned per view).
-// _view    : active view key — 'queue' | 'today' | 'history' | 'vod' | 'removed'.
+// _view    : active view key: 'queue' | 'today' | 'history' | 'vod' | 'removed'.
 // _page    : current History page (0-based); only History paginates.
-// _rows    : accumulated rows across appended pages (History Load More).
+// _rows    : accumulated rows across appended pages (History Load more).
 const VIEWS = ['queue', 'today', 'history', 'vod', 'removed'];
+const DEFAULT_VIEW = 'queue';
 let _data = null;
-let _view = 'queue';
+let _view = DEFAULT_VIEW;
 let _page = 0;
 let _rows = [];
 const _linkedRecordingGames = new Set();
 let _loadVersion = 0;
 let _vodListRefreshRequested = false;
 let _vodListRefreshing = false;
+// Game ids in the last loaded To review list (the pill's count), or null while unknown.
+let _queueIds = null;
+let _now = () => new Date();
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 // Prefer the REAL backend (Electron invoke → sidecar → your DB); fall back to the
-// bundled sample only when invoke is genuinely unavailable (browser preview).
+// bundled sample only when invoke is genuinely unavailable (browser preview). The
+// To review sample is its own queue snapshot, so the preview opens on To review too.
 async function fetchGames(view, page) {
-  return readSnapshot('get_games', 'sample-games.json', { view, page });
+  return readSnapshot('get_games', view === 'queue' ? 'sample-games-queue.json' : 'sample-games.json', { view, page });
+}
+
+// games.html?view=queue|history|vod|removed|today opens that filter ("all" is History).
+function viewFromSearch(search) {
+  const match = /[?&]view=([^&#]*)/.exec(String(search || ''));
+  let value = '';
+  try { value = match ? decodeURIComponent(match[1]).trim().toLowerCase() : ''; } catch (_) { value = ''; }
+  if (value === 'all') value = 'history';
+  return VIEWS.includes(value) ? value : DEFAULT_VIEW;
 }
 
 // ── render: header status line ──────────────────────────────────────────────
-// Only says "Loading…" until the first answer; after that the command bar and
-// the stat strip carry the view, so the line would just repeat them.
+// Only says "Loading" until the first answer; after that the filters and the
+// summary carry the view, so the line would just repeat them.
 function renderHeader() {
   show($('statusline'), false);
 }
 
-// ── render: workspace command bar (heading + count nudge) ────────────────────
-// The count nudge stays "urgent gold" for the review Queue (games waiting), and
-// goes calm green when the queue is clear; for the other views it's a neutral
-// count of what's on screen.
-function renderQueueBar(d) {
-  const k = $('queue-k');
-  const h = $('queue-h');
-  const cnt = $('queue-cnt-text');
-  const bar = $('queue-bar');
-  const heading = d.heading || 'Games';
-
-  if (k) k.textContent = 'Your games';
-  if (h) h.textContent = heading;
-
-  const shown = _rows.length;
-
-  if (_view === 'queue') {
-    if (shown === 0) {
-      if (cnt) cnt.textContent = 'No games waiting for review';
-      if (bar) bar.classList.add('queue-clear');
-    } else {
-      if (cnt) cnt.textContent = `${shown} game${shown === 1 ? '' : 's'} ready to review`;
-      if (bar) bar.classList.remove('queue-clear');
-    }
-    return;
-  }
-
-  // Non-queue views: calm count of what's listed (History pages through all
-  // of it; the rest show their whole list at once).
-  if (bar) bar.classList.add('queue-clear');
-  if (cnt) {
-    if (_view === 'history') {
-      const total = d.totalCount ?? shown;
-      cnt.textContent = `Showing ${shown} of ${total}`;
-    } else if (_view === 'removed') {
-      cnt.textContent = shown === 0 ? 'No removed games' : `${shown} removed game${shown === 1 ? '' : 's'}`;
-    } else if (shown === 0) {
-      cnt.textContent = 'Nothing here yet';
-    } else {
-      cnt.textContent = `${shown} game${shown === 1 ? '' : 's'}`;
-    }
-  }
+// ── render: filter pills ────────────────────────────────────────────────────
+// The To review count is the last loaded queue, kept current while games are
+// removed or brought back here; it hides when this page can no longer know it.
+function syncQueue() {
+  if (_view === 'queue' && _data && !_data.errorText) _queueIds = new Set(_rows.map((g) => String(g.gameId)));
 }
 
-// ── render: stat strip (the whole selected view, from the server) ───────────
+function renderSeg() {
+  const seg = $('seg');
+  if (!seg) return;
+  for (const btn of seg.querySelectorAll('button')) {
+    const on = btn.dataset.view === _view;
+    btn.classList.toggle('is-on', on);
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (btn.dataset.view === 'today') show(btn, on);
+  }
+  const count = $('queue-count');
+  const n = _queueIds ? _queueIds.size : 0;
+  if (count) { count.textContent = n ? String(n) : ''; show(count, n > 0); }
+}
+
+// ── render: summary (the whole selected view, from the server) ──────────────
 // The sidecar counts the entire view (History: every visible game, not just
 // the pages loaded), and a remake (League early surrender) is listed but never
 // counted, like every other count.
 const REMAKE_TITLE = 'Ended early. Does not count toward your rules, stats or review queue.';
 const isRemake = (g) => g?.isRemake === true;
-const STRIP_SCOPE = { queue: 'Last 14 days', today: 'Today', history: 'All history', vod: 'With recordings' };
+const SUMMARY_SCOPE = { queue: 'Last 14 days', today: 'Today' };
 
 function renderStrip(d) {
   const strip = $('strip');
@@ -113,66 +103,147 @@ function renderStrip(d) {
   const games = Math.max(0, Number(totals.games) || 0);
   const wins = Math.max(0, Number(totals.wins) || 0);
   const reviewed = Math.max(0, Number(totals.reviewed) || 0);
-  const scope = STRIP_SCOPE[_view] || '';
-  const cells = [
-    { k: 'Games',    v: String(games),                                         sub: scope },
-    { k: 'Win rate', v: games ? `${Math.round((wins / games) * 100)}%` : 'None', sub: `${wins} won` },
-    { k: 'Reviewed', v: `${reviewed}/${games}`,                                sub: scope },
-  ];
+  const parts = [];
+  if (SUMMARY_SCOPE[_view]) parts.push({ v: '', k: SUMMARY_SCOPE[_view] });
+  parts.push({ v: String(games), k: games === 1 ? 'game' : 'games' });
+  if (games) parts.push({ v: `${Math.round((wins / games) * 100)}%`, k: 'won' });
+  // Every game waiting for review is unreviewed by definition.
+  if (_view !== 'queue') parts.push({ v: String(reviewed), k: 'reviewed' });
 
-  for (const c of cells) {
+  for (const part of parts) {
     const el = tpl('tpl-stat');
-    el.title = 'Remakes are listed but not counted.';
-    el.querySelector('.k').textContent = c.k;
-    el.querySelector('.v').textContent = c.v;
-    el.querySelector('.s').textContent = c.sub;
+    el.querySelector('.v').textContent = part.v;
+    el.querySelector('.k').textContent = part.k;
     strip.appendChild(el);
   }
 }
 
+// ── days: group rows under Today, Yesterday or the date played ───────────────
+// A row's day is its local date when the server sends a timestamp, otherwise the
+// date part of datePlayed ("Jun 14, 12:32"). Without a timestamp that text has
+// no year, so Today and Yesterday are said only when they can be proven: the
+// date matches the clock and, in the long views (newest first, years deep), the
+// group is the newest one. To review (14 days) and Today cannot repeat a date.
+const DAY_FORMAT = new Intl.DateTimeFormat('en-US', { month: 'short', day: '2-digit' });
+const titleMonths = (text) => text.replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/gi,
+  (month) => month[0].toUpperCase() + month.slice(1).toLowerCase());
+
+function playedParts(g) {
+  const text = typeof g?.datePlayed === 'string' ? g.datePlayed.trim() : '';
+  const at = text.indexOf(', ');
+  return at > 0 ? { day: text.slice(0, at), time: text.slice(at + 2).trim() } : { day: text, time: '' };
+}
+
+function stampOf(g) {
+  const value = Number(g?.timestamp);
+  if (g?.timestamp == null || !Number.isFinite(value) || value <= 0) return null;
+  const date = new Date(value < 1e11 ? value * 1000 : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const startOfDay = (date, offset = 0) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset);
+
+function dayGroups(rows, { now = new Date(), view = '' } = {}) {
+  const groups = [];
+  for (const row of rows) {
+    const stamp = stampOf(row);
+    const day = stamp ? startOfDay(stamp) : null;
+    const raw = stamp ? '' : playedParts(row).day;
+    const key = day ? `d:${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}` : raw.toLowerCase();
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.rows.push(row);
+    else groups.push({ key, day, raw: titleMonths(raw), label: '', rows: [row] });
+  }
+  const today = startOfDay(now), yesterday = startOfDay(now, -1);
+  const todayKey = DAY_FORMAT.format(today).toLowerCase(), yesterdayKey = DAY_FORMAT.format(yesterday).toLowerCase();
+  const anywhere = view === 'queue' || view === 'today';
+  groups.forEach((group, index) => {
+    if (group.day) {
+      const at = group.day.getTime();
+      group.label = at === today.getTime() ? 'Today' : at === yesterday.getTime() ? 'Yesterday'
+        : DAY_FORMAT.format(group.day) + (group.day.getFullYear() !== today.getFullYear() ? `, ${group.day.getFullYear()}` : '');
+      return;
+    }
+    const newest = index === 0, afterToday = index === 1 && groups[0].label === 'Today';
+    if (group.key && group.key === todayKey && (anywhere || newest)) group.label = 'Today';
+    else if (group.key && group.key === yesterdayKey && (anywhere || newest || afterToday)) group.label = 'Yesterday';
+    else group.label = group.raw;
+  });
+  return groups;
+}
+
+// ── search: champion or enemy, across the rows this page has loaded ─────────
+// Case, accents and punctuation are ignored (kaisa finds Kai'Sa); every word
+// must match one of the two names, and "vs" is ignored.
+const fold = (text) => String(text ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+const compact = (text) => fold(text).replace(/[^\p{L}\p{N}]/gu, '');
+
+function searchTerms(value) {
+  return fold(value).split(/\s+/).map(compact).filter((term) => term && term !== 'vs');
+}
+
+function matchesSearch(g, terms) {
+  if (!terms.length) return true;
+  const names = [g.championName, g.enemyChampion].map(compact);
+  return terms.every((term) => names.some((name) => name.includes(term)));
+}
+
 // ── render: one game row ────────────────────────────────────────────────────
 // The whole row retains its server-selected primary action and keyboard behavior.
-// Plain status text adds only confirmed review/recording/objective information.
+// The status column shows at most one tag (Remake or To review) and small marks
+// for a recording and objective evidence; every status stays in the row's text.
+function initials(name) {
+  const letters = String(name || '').replace(/[^\p{L}\p{N}]/gu, '');
+  return letters ? letters[0].toUpperCase() + (letters[1] || '').toLowerCase() : '';
+}
+
 function buildRow(g) {
   const el = tpl('tpl-gamerow');
   const wl = el.querySelector('.grow-wl');
-  const champ = el.querySelector('.grow-champ');
-  const meta = el.querySelector('.grow-meta');
-  const kdaN = el.querySelector('.grow-kda-n');
-  const kdaR = el.querySelector('.grow-kda-r');
+  const name = el.querySelector('.lib-name');
+  const kdaN = el.querySelector('.lib-kda-n');
+  const kdaR = el.querySelector('.lib-kda-r');
 
   // A remake is checked before the stored result: its win flag is not a result.
   const remake = isRemake(g);
   const win = remake ? null : knownBoolean(g.win, g.winLossText, ['w', 'win', 'victory'], ['l', 'loss', 'defeat']);
-  wl.textContent = remake ? 'Remake' : win === true ? 'W' : win === false ? 'L' : g.winLossText || '—';
+  wl.textContent = win === true ? 'W' : win === false ? 'L' : '';
   wl.title = remake ? REMAKE_TITLE : win === true ? 'Win' : win === false ? 'Loss' : '';
   if (wl.title) wl.setAttribute('aria-label', remake ? 'Remake' : wl.title);
   el.dataset.result = wl.dataset.result = remake ? 'remake' : win === true ? 'win' : win === false ? 'loss' : 'unknown';
-  const enemy = g.enemyChampion ? ` vs ${g.enemyChampion}` : '';
-  champ.textContent = g.championName ? `${g.championName}${enemy}` : 'Match';
-
-  meta.textContent = gameMetadata(g);
+  name.textContent = matchName(g, 'Match');
+  const champ = el.querySelector('.lib-champ');
+  if (champ) champ.textContent = initials(g.championName);
+  el.querySelector('.lib-meta').textContent = gameMetadata(g);
 
   // KDA in its own right-aligned column so the numbers read fast.
   const numericKda = [g.kills, g.deaths, g.assists];
   const textKda = String(g.kdaText || '').match(/^\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*$/);
   kdaN.textContent = numericKda.every(n => Number.isSafeInteger(n) && n >= 0)
-    ? numericKda.join(' / ') : textKda ? textKda.slice(1).join(' / ') : g.kdaText || '—';
+    ? numericKda.join(' / ') : textKda ? textKda.slice(1).join(' / ') : g.kdaText || '';
   const ratioText = String(g.kdaRatioText || '').trim();
   const parsedRatio = ratioText.match(/^\(?\s*(\d+(?:\.\d+)?)\s*\)?\s*(?:KDA)?$/i);
   const ratio = typeof g.kdaRatio === 'number' ? g.kdaRatio : parsedRatio ? Number(parsedRatio[1]) : null;
   kdaR.textContent = Number.isFinite(ratio) && ratio >= 0 ? `${Number(ratio.toFixed(2))} KDA` : ratioText;
 
+  // Journal: the takeaway written in this game's review, when the server sends it.
+  const take = el.querySelector('.lib-take');
+  const notes = typeof g.reviewNotes === 'string' ? g.reviewNotes.trim() : '';
+  if (take) { take.textContent = notes; take.title = notes; show(take, !!notes); }
+
   // History rows offer Remove from history; the Removed view offers Restore.
-  const remove = el.querySelector('.gamerow-remove');
+  const remove = el.querySelector('.lib-remove');
   if (remove) {
     remove.dataset.gameId = String(g.gameId ?? '');
     if (_view === 'removed') {
       remove.dataset.action = 'restore_game';
       remove.textContent = 'Restore';
-      remove.setAttribute('aria-label', `Restore ${champ.textContent} to history`);
+      remove.title = '';
+      remove.classList.remove('ui-iconbtn');
+      remove.classList.add('ui-btn', 'ui-btn-quiet', 'is-restore');
+      remove.setAttribute('aria-label', `Restore ${name.textContent} to history`);
     } else {
-      remove.setAttribute('aria-label', `Remove ${champ.textContent} from history`);
+      remove.setAttribute('aria-label', `Remove ${name.textContent} from history`);
     }
   }
   updateRowRecording(el, g);
@@ -180,26 +251,38 @@ function buildRow(g) {
 }
 
 function updateRowRecording(el, g) {
-  const tokens = el.querySelector('.grow-tokens');
-  const cue = el.querySelector('.gamerow-cue');
-  clear(tokens);
-  for (const spec of gameStatuses(g)) {
-    const t = tpl('tpl-token');
-    t.textContent = spec.text;
-    t.dataset.status = spec.kind;
-    if (spec.title) t.title = spec.title;
-    tokens.appendChild(t);
+  const cell = el.querySelector('.lib-st');
+  const cue = el.querySelector('.lib-go');
+  const statuses = gameStatuses(g);
+  clear(cell);
+  const tag = statuses.find((s) => s.kind === 'remake') || statuses.find((s) => s.kind === 'review' && s.text === 'To review');
+  if (tag) {
+    const t = tpl('tpl-tag');
+    t.textContent = tag.text;
+    t.dataset.status = tag.kind;
+    if (tag.kind === 'review') t.classList.add('is-pending');
+    if (tag.title) t.title = tag.title;
+    cell.appendChild(t);
   }
+  for (const [kind, template] of [['recording', 'tpl-mark-video'], ['objective', 'tpl-mark-objective']]) {
+    const spec = statuses.find((s) => s.kind === kind && s.text !== 'No recording');
+    if (!spec) continue;
+    const mark = tpl(template);
+    mark.dataset.status = kind;
+    mark.title = spec.title || spec.text;
+    cell.appendChild(mark);
+  }
+  const label = tpl('tpl-sr');
+  label.textContent = statuses.map((s) => s.text).join(', ');
+  cell.appendChild(label);
 
   // The whole row carries the gameId + a re-review/open/VOD cue label.
   if (g.gameId != null) el.dataset.gameId = String(g.gameId);
   if (g.action) el.dataset.action = g.action;
   const reviewed = reviewedState(g);
-  const cueText = el.dataset.action === 'watch_vod' ? 'Watch VOD'
+  if (cue) cue.textContent = el.dataset.action === 'watch_vod' ? 'Watch'
     : el.dataset.action === 'open_review' ? (reviewed === true || String(g.primaryAction || '').toLowerCase() === 'open' ? 'Open' : 'Review')
-    : 'Open';
-  if (cue) cue.firstChild.textContent = `${cueText} `;
-
+      : 'Open';
 }
 
 function withLinkedRecording(game) {
@@ -225,8 +308,17 @@ window.addEventListener('revu:vod-linked', event => {
 });
 
 // A remake verdict changed (startup check, Match-V5, or the Review toggle): the
-// server owns labels and the queue, so refetch the current view.
+// server owns labels and the queue, so refetch the current view. The queue may
+// have changed too, so its count waits for the next queue load.
 window.addEventListener('revu:remake-updated', () => {
+  if (_view !== 'queue') { _queueIds = null; renderSeg(); }
+  if (!_loading) void loadView(_view);
+});
+
+// Recovery added games while the library is open. Refetch the current view in place
+// instead of reloading the page, so a typed search and its filtered list survive.
+window.addEventListener('revu:games-recovered', () => {
+  if (_view !== 'queue') { _queueIds = null; renderSeg(); }
   if (!_loading) void loadView(_view);
 });
 
@@ -260,12 +352,12 @@ async function refreshLinkedVodList() {
 
 // ── Remove from history (soft hide with Undo) and Restore ──────────────────
 // set_game_hidden keeps the game and everything tied to it; a hidden game
-// leaves every list, count, streak and the review queue. The list and strip
+// leaves every list, count, streak and the review queue. The list and summary
 // update in place (History pages and scroll stay put), and Undo restores it.
 // Later, the Removed view lists it again with Restore. A failed write is told
 // in the toast, never as the page's "Couldn't load your games" panel.
 const UNDO_MS = 10_000;
-let _undo = null;       // { game, index, view } for the latest removal while Undo is offered
+let _undo = null;       // { game, index, view, inQueue } for the latest removal while Undo is offered
 let _toastTimer = 0;
 let _shiftedRows = 0;   // History rows removed since the last page fetch
 
@@ -280,7 +372,8 @@ function adjustTotals(game, sign) {
 }
 
 function renderRows() {
-  renderQueueBar(_data);
+  syncQueue();
+  renderSeg();
   renderStrip(_data);
   renderList(_data);
 }
@@ -291,8 +384,9 @@ function errText(err) {
   return s.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^(?:\w*Error:\s*)+/, '');
 }
 
-const matchName = (game) => game.championName
-  ? `${game.championName}${game.enemyChampion ? ` vs ${game.enemyChampion}` : ''}` : 'The match';
+function matchName(game, fallback = 'The match') {
+  return game.championName ? `${game.championName}${game.enemyChampion ? ` vs ${game.enemyChampion}` : ''}` : fallback;
+}
 
 function showToast(text, undo = null) {
   clearTimeout(_toastTimer);
@@ -310,19 +404,32 @@ function dismissUndo() {
   show($('games-undo'), false);
 }
 
+// The match rows, without the day headings between them ([data-game-id]).
+function rowElements() {
+  return [...$('games-list').children].filter((el) => el.dataset && 'gameId' in el.dataset);
+}
+
 // Rebuilding the list drops the focused button: keep keyboard focus in the
 // list, on the row that took its place (or Undo when the list is now empty).
 function focusAfterRemoval(index) {
-  const rows = $('games-list').children;
-  const target = rows.length ? rows[Math.min(index, rows.length - 1)]
-    : _undo ? $('games-undo-btn') : $('seg')?.querySelector('button.on');
+  const rows = rowElements();
+  const pill = [...($('seg')?.querySelectorAll('button') || [])].find((b) => b.getAttribute('aria-selected') === 'true');
+  const target = rows.length ? rows[Math.min(Math.max(index, 0), rows.length - 1)]
+    : _undo ? $('games-undo-btn') : pill;
   target?.focus?.({ preventScroll: true });
+}
+
+// The shell's sidebar (recent matches, review count) refreshes when a page changes the
+// match list without loading a new page (shell-recent.mjs).
+function announceGamesChanged() {
+  try { window.top?.dispatchEvent(new CustomEvent('revu:games-changed')); } catch (_) { /* no shell */ }
 }
 
 async function setHidden(gameId, hidden) {
   const invoke = await getInvoke();
   if (!invoke) { console.info(`[games] (preview) set_game_hidden ${gameId} ${hidden}`); return false; }
   await invoke('set_game_hidden', { payload: { gameId: Number(gameId), hidden } });
+  announceGamesChanged();
   return true;
 }
 
@@ -330,6 +437,7 @@ async function hideGame(button) {
   const gameId = button.dataset.gameId;
   const index = _rows.findIndex((g) => String(g.gameId) === gameId);
   if (!gameId || index < 0 || _loading || button.disabled) return;
+  const shownAt = rowElements().findIndex((row) => row.dataset.gameId === gameId);
   button.disabled = true;
   try {
     if (!await setHidden(gameId, true)) { button.disabled = false; return; }
@@ -341,10 +449,12 @@ async function hideGame(button) {
   }
   const [game] = _rows.splice(index, 1);
   if (_view === 'history') _shiftedRows++;
+  // A removed game leaves To review too; Undo puts it back in the count.
+  const inQueue = !!_queueIds?.delete(String(game.gameId));
   adjustTotals(game, -1);
-  showToast(`${matchName(game)} was removed from history. You can restore it from Removed.`, { game, index, view: _view });
+  showToast(`${matchName(game)} was removed from history. You can restore it from Removed.`, { game, index, view: _view, inQueue });
   renderRows();
-  focusAfterRemoval(index);
+  focusAfterRemoval(shownAt);
 }
 
 async function undoHide() {
@@ -359,7 +469,8 @@ async function undoHide() {
     return;
   }
   dismissUndo();
-  if (undo.view !== _view) { if (!_loading) void loadView(_view); return; }
+  if (undo.inQueue && _queueIds) _queueIds.add(String(undo.game.gameId));
+  if (undo.view !== _view) { renderSeg(); if (!_loading) void loadView(_view); return; }
   if (_rows.some((g) => String(g.gameId) === String(undo.game.gameId))) return;
   _rows.splice(Math.min(undo.index, _rows.length), 0, undo.game);
   if (_view === 'history') _shiftedRows = Math.max(0, _shiftedRows - 1);
@@ -372,6 +483,7 @@ async function restoreGame(button) {
   const gameId = button.dataset.gameId;
   const index = _rows.findIndex((g) => String(g.gameId) === gameId);
   if (!gameId || index < 0 || _loading || button.disabled || _view !== 'removed') return;
+  const shownAt = rowElements().findIndex((row) => row.dataset.gameId === gameId);
   button.disabled = true;
   try {
     if (!await setHidden(gameId, false)) { button.disabled = false; return; }
@@ -382,10 +494,12 @@ async function restoreGame(button) {
     return;
   }
   const [game] = _rows.splice(index, 1);
+  // A restored game may rejoin To review; the count waits for the next queue load.
+  if (reviewedState(game) !== true && !isRemake(game)) _queueIds = null;
   adjustTotals(game, -1);
   showToast(`${matchName(game)} is back in your history.`);
   renderRows();
-  focusAfterRemoval(index);
+  focusAfterRemoval(shownAt);
 }
 
 function knownBoolean(value, label, yes, no) {
@@ -422,71 +536,89 @@ function gameStatuses(g) {
   return states;
 }
 
+// Mode · time · duration. The day heading above the row carries the date.
 function gameMetadata(g) {
-  const modes = { 'ranked solo/duo': 'Ranked solo/duo', 'ranked flex': 'Ranked flex',
-    'normal draft': 'Normal draft', 'normal blind': 'Normal blind', quickplay: 'Quickplay', aram: 'ARAM', arena: 'Arena' };
+  // The official queue names, spelled as Home and the empty states spell them.
+  const modes = { 'ranked solo/duo': 'Ranked Solo/Duo', 'ranked flex': 'Ranked Flex',
+    'normal draft': 'Normal Draft', 'normal blind': 'Normal Blind', quickplay: 'Quickplay', aram: 'ARAM', arena: 'Arena' };
   const readable = value => {
     const text = typeof value === 'string' ? value.trim() : '';
     return modes[text.toLowerCase()] || text.replace(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b/g,
       month => month[0] + month.slice(1).toLowerCase());
   };
-  const parts = [g.gameMode, g.datePlayed, g.duration].map(readable).filter(Boolean);
+  const stamp = stampOf(g);
+  const pad = (n) => String(n).padStart(2, '0');
+  const time = playedParts(g).time || (stamp && !g.datePlayed ? `${pad(stamp.getHours())}:${pad(stamp.getMinutes())}` : '');
+  const parts = [g.gameMode, time, g.duration].map(readable).filter(Boolean);
   if (parts.length) return parts.join(' · ');
   return String(g.metaLine || g.statsLine || '').split(/\s*·\s*/).map(readable).join(' · ');
 }
 
 // ── render: the game list ────────────────────────────────────────────────────
-// Renders the accumulated _rows (History Load More appends; the others replace).
+// Renders the accumulated _rows (History Load more appends; the others replace),
+// grouped by day, filtered by the search field.
 function renderList(d) {
   const host = $('games-list');
   clear(host);
-  const items = _rows;
-
-  const sub = $('games-sub');
-  if (sub) sub.textContent = `${items.length} shown`;
+  host.dataset.view = _view;
+  const terms = searchTerms($('lib-search')?.value);
+  let shown = 0;
+  for (const group of dayGroups(_rows, { now: _now(), view: _view })) {
+    const rows = group.rows.filter((g) => matchesSearch(g, terms));
+    if (!rows.length) continue;
+    if (group.label) {
+      const heading = tpl('tpl-day');
+      heading.textContent = group.label;
+      heading.dataset.day = group.key;
+      host.appendChild(heading);
+    }
+    for (const g of rows) host.appendChild(buildRow(g));
+    shown += rows.length;
+  }
 
   // Every loaded History row was removed but later pages still hold games:
-  // offer Load More, never "No games recorded yet".
+  // offer Load more, never "No games recorded yet".
   const morePages = _view === 'history' && !!(d && d.hasMore);
-  if (items.length === 0) {
-    show($('games-label'), false);
+  renderSearchStatus(terms, shown, morePages);
+  const count = $('lib-count');
+  if (count) {
+    count.textContent = `Showing ${_rows.length} of ${d?.totalCount ?? _rows.length}`;
+    show(count, _view === 'history' && _rows.length > 0);
+  }
+  show($('loadwrap'), morePages);
+  if (_rows.length === 0) {
+    show($('lib-search-empty'), false);
     // A failed read shows the error panel, never "no games yet".
     show($('games-empty'), !d?.errorText && !morePages);
     const emptyH = $('games-empty-h');
     const emptyP = $('games-empty-p');
     if (emptyH) emptyH.textContent = (d && d.emptyMessage) || 'No games recorded yet.';
     if (emptyP) emptyP.textContent = emptyHint(_view);
-    show($('loadwrap'), morePages);
     return;
   }
-
   show($('games-empty'), false);
-  show($('games-label'), true);
-  for (const g of items) host.appendChild(buildRow(g));
+  show($('lib-search-empty'), shown === 0);
+}
 
-  // Load More only on History when the server says there's another page.
-  show($('loadwrap'), morePages);
+function renderSearchStatus(terms, shown, morePages) {
+  syncSearchClear();
+  const status = $('lib-search-status');
+  if (!status) return;
+  show(status, terms.length > 0 && _rows.length > 0);
+  if (!terms.length) { status.textContent = ''; return; }
+  const loaded = _view === 'history' ? `${_rows.length} loaded` : `${_rows.length}`;
+  status.textContent = (shown ? `${shown} of ${loaded} games match.` : `No match in ${loaded} games.`)
+    + (morePages ? ' Load more to search older games.' : '');
 }
 
 function emptyHint(view) {
   switch (view) {
-    case 'queue':   return 'New Ranked Solo/Duo games appear here while Revu is open. Find older games in History, or add one manually.';
+    case 'queue':   return 'New Ranked Solo/Duo games appear here while Revu is open. Find older games under All, or add one.';
     case 'today':   return 'Games you play today show up here for a same-day review.';
     case 'vod':     return 'Games with an available recording appear here. Connect your Ascent recordings folder in Settings → Recording, then scan to link existing videos.';
     case 'removed': return 'Games you remove from history are listed here, so you can restore them.';
     case 'history':
-    default:        return 'Keep Revu open during a Ranked Solo/Duo game, or use Add a game manually.';
-  }
-}
-
-// ── render: active view segment ──────────────────────────────────────────────
-function renderSeg() {
-  const seg = $('seg');
-  if (!seg) return;
-  for (const btn of seg.querySelectorAll('button')) {
-    const on = btn.dataset.view === _view;
-    btn.classList.toggle('on', on);
-    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    default:        return 'Keep Revu open during a Ranked Solo/Duo game, or use Add a game.';
   }
 }
 
@@ -498,43 +630,23 @@ function renderError(err) {
 }
 function clearError() { show($('errpanel'), false); }
 
-// ── entrance: stagger the main sections rising in on first load ─────────────
-let _entranceDone = false;
-function playEntrance() {
-  if (_entranceDone) return;
-  _entranceDone = true;
-  const order = [
-    $('queue-bar'),
-    $('strip'),
-    $('games-list'),
-    $('loadwrap'),
-  ].filter(Boolean);
-  order.forEach((el, i) => {
-    el.classList.add('anim-rise', `anim-d${Math.min(i + 1, 5)}`);
-  });
-}
-
 // ── top-level render ────────────────────────────────────────────────────────
 function render(d) {
   _data = d;
   if (d?.errorText) renderError(new Error(d.errorText));
   else clearError();
   renderHeader();
-  renderQueueBar(d);
-  renderStrip(d);
-  renderSeg();
-  renderList(d);
-  playEntrance();
+  renderRows();
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
-// loadView(view): switch to a view — resets page 0, REPLACES rows.
-// loadMore():     History only — increments page, APPENDS rows.
+// loadView(view): switch to a view: resets page 0, REPLACES rows.
+// loadMore():     History only: increments page, APPENDS rows.
 let _loading = false;
 
 async function loadView(view) {
   if (_loading) return;
-  if (!VIEWS.includes(view)) view = 'queue';
+  if (!VIEWS.includes(view)) view = DEFAULT_VIEW;
   _loading = true;
   ++_loadVersion;
   const prevView = _view;
@@ -543,7 +655,7 @@ async function loadView(view) {
   _shiftedRows = 0;
   try {
     const data = await fetchGames(_view, _page);
-    // Trust the server's echoed view if present (keeps seg honest if it
+    // Trust the server's echoed view if present (keeps the pills honest if it
     // coerced an unknown view to queue).
     if (data && typeof data.view === 'string' && VIEWS.includes(data.view)) {
       _view = data.view;
@@ -551,8 +663,8 @@ async function loadView(view) {
     _rows = (Array.isArray(data?.items) ? data.items : []).map(withLinkedRecording);
     render(data);
   } catch (err) {
-    // The switch failed — roll _view back to the view whose rows are still on
-    // screen and re-highlight its tab, so the seg, stat strip and list agree
+    // The switch failed: roll _view back to the view whose rows are still on
+    // screen and re-highlight its pill, so the pills, summary and list agree
     // under the error panel instead of asserting a view that never loaded.
     _view = prevView;
     renderSeg();
@@ -596,12 +708,27 @@ async function loadMore() {
 }
 
 // ── single delegated action handler ─────────────────────────────────────────
-// view        = the segmented control (server-side view switch, page reset).
-// open_review = clicking a whole game row (→ review page).
-// load_more   = History pagination (append next page).
-// hide_game   = Remove from history on a row; undo_hide = its Undo.
+// view         = a filter pill (server-side view switch, page reset).
+// open_review  = clicking a whole game row (→ review page); watch_vod (→ VOD).
+// load_more    = History pagination (append next page).
+// hide_game    = Remove from history on a row; undo_hide = its Undo.
 // restore_game = Restore on a row in the Removed view.
-const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo_hide', 'restore_game']);
+// clear_search = empty the search field.
+const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo_hide',
+  'restore_game', 'clear_search']);
+
+// The field's own clear button shows while it holds text.
+function syncSearchClear() {
+  show($('lib-search-clear'), !!String($('lib-search')?.value || ''));
+}
+
+function clearSearch() {
+  const field = $('lib-search');
+  if (field) field.value = '';
+  syncSearchClear();
+  if (_data) renderList(_data);
+  field?.focus?.();
+}
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -610,9 +737,9 @@ document.addEventListener('click', async (ev) => {
   if (!ACTIONS.has(action)) return;
   ev.preventDefault();
 
-  // Switch the active view — server-side fetch of that view's data source.
+  // Switch the active view: server-side fetch of that view's data source.
   if (action === 'view') {
-    const v = target.dataset.view || 'queue';
+    const v = target.dataset.view || DEFAULT_VIEW;
     if (v !== _view) await loadView(v);
     return;
   }
@@ -624,7 +751,7 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  // A row whose cue reads "WATCH VOD →" opens the VOD player — the cue and the
+  // A row whose cue reads "Watch" opens the VOD player: the cue and the
   // click must agree (rows without a recording keep open_review).
   if (action === 'watch_vod') {
     const gid = target.dataset.gameId;
@@ -632,7 +759,7 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  // History pagination — append the next page.
+  // History pagination: append the next page.
   if (action === 'load_more') {
     await loadMore();
     return;
@@ -641,16 +768,30 @@ document.addEventListener('click', async (ev) => {
   if (action === 'hide_game') { await hideGame(target); return; }
   if (action === 'undo_hide') { await undoHide(); return; }
   if (action === 'restore_game') { await restoreGame(target); return; }
+  if (action === 'clear_search') { clearSearch(); return; }
 
-  // Manual Entry — log a game by hand (moved here from the nav rail).
+  // Add a game: log a game by hand.
   if (action === 'manual_entry') {
     window.location.href = 'manualentry.html';
     return;
   }
 });
 
-// Keyboard activation for the role="button" game rows (Enter / Space).
+// Search filters as you type; nothing is sent to the sidecar.
+document.addEventListener('input', (ev) => {
+  if (ev.target?.id !== 'lib-search') return;
+  syncSearchClear();
+  if (_data) renderList(_data);
+});
+
 document.addEventListener('keydown', (ev) => {
+  // Escape empties a non-empty search field.
+  if (ev.key === 'Escape' && ev.target?.id === 'lib-search' && ev.target.value) {
+    ev.preventDefault();
+    clearSearch();
+    return;
+  }
+  // Keyboard activation for the role="button" game rows (Enter / Space).
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   // A real button inside a row (Remove from history, Restore) handles its own keys.
   if (ev.target.tagName === 'BUTTON') return;
@@ -661,7 +802,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────
-function boot() { loadView('queue'); }
+function boot() { loadView(viewFromSearch(window.location?.search)); }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
 } else {

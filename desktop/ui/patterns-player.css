@@ -76,6 +76,12 @@ body .pat-stage.pat-expanded .pat-surface {
   box-shadow: none;
 }
 
+/* A playing clip sits in the dark video well; the overlay itself stays on the
+   page background (electron/smoke-ui.mjs compares it with the body). */
+body .pat-stage.pat-expanded .pat-surface.pat-surface-playing {
+  background: var(--well) !important;
+}
+
 body .pat-stage.pat-expanded .pat-video {
   position: absolute;
   inset: 0;

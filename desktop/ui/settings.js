@@ -5,12 +5,15 @@ import { initializeRecordingSettings } from './recording-settings.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
 import { registerLeaveGuard } from './leave-guard.mjs';
 import { initializeAudioSettings } from './audio-settings.mjs';
+import { initializeAppearanceSettings } from './appearance-settings.mjs';
+import { toneFromHex } from './meaning-tone.mjs';
 
 // Each editable card saves only its own fields through the existing platform
 // boundary. Refreshes preserve drafts in other categories. Recording and startup
-// remain independently owned by their native settings handlers. Audio devices are
-// renderer-local preferences that save on change (audio-settings.mjs), so they never
-// mark a card dirty or reach the leave guard.
+// remain independently owned by their native settings handlers. Audio devices and
+// the look (theme and mode) are renderer-local preferences that save on change
+// (audio-settings.mjs, appearance-settings.mjs), so they never mark a card dirty or
+// reach the leave guard.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
 
@@ -225,9 +228,14 @@ function applyStatusText(el, status, fallbackText) {
   if (!el) return;
   const text = status && status.text != null ? status.text : (fallbackText || '');
   el.textContent = text;
-  // Server-provided hex applied to style only (never trusted as markup).
-  const hex = status && status.colorHex ? status.colorHex : '';
-  el.style.color = hex || '';
+  // The sidecar still names a legacy hex. Show its meaning (ok, pending, danger) in
+  // the active theme's color through data-tone, never the hex itself.
+  const hex = status && status.colorHex ? String(status.colorHex) : '';
+  if (el.style) el.style.color = '';
+  if (el.dataset) {
+    if (hex) el.dataset.tone = toneFromHex(hex);
+    else delete el.dataset.tone;
+  }
 }
 
 function renderStatus(s) {
@@ -803,6 +811,7 @@ function boot() {
     }).observe($(id), { childList: true, characterData: true, subtree: true });
   }
   loadConfig(); loadAppVersion(); loadAscentAccess();
+  try { initializeAppearanceSettings(); } catch (err) { console.warn('[settings] appearance unavailable:', err); }
   try { initializeAudioSettings(); } catch (err) { console.warn('[settings] audio devices unavailable:', err); }
   initializeRecordingSettings().then(() => {
     for (const group of document.querySelectorAll('[data-native-group]')) {

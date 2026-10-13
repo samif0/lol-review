@@ -447,3 +447,20 @@ test('selecting another recent match cannot replace an unfinished form', async (
   assert.equal(f.$('from-last').disabled, false);
   assert.equal(f.$('recent-match').value, '200');
 });
+
+test('the journal keeps its two voices and the notes read as the player\'s own words', async () => {
+  const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
+  const card = (await read('matchups.html')).match(/<template id="tpl-card">([\s\S]*?)<\/template>/)[1];
+  for (const field of ['prior', 'observed']) {
+    assert.match(card, new RegExp(`<textarea class="mj-note-in own-words" data-field="${field}"`), field);
+  }
+  const css = await read('matchups-page.css');
+  // Plan (written before the game) and What I learned (after) keep their meaning colors.
+  assert.match(css, /\.matchups-page \.mj-note-prior \.mj-note-k\{color:var\(--pending\)\}/);
+  assert.match(css, /\.matchups-page \.mj-note-observed \.mj-note-k\{color:var\(--ok\)\}/);
+  assert.match(css, /\.mj-k-prior\{color:var\(--pending\)\}/);
+  assert.match(css, /\.mj-k-observed\{color:var\(--ok\)\}/);
+  // The page class sits on <body> itself, so a descendant selector would never match.
+  assert.doesNotMatch(css, /body \.matchups-page/);
+  assert.match(await read('matchups.html'), /<body class="matchups-page">/);
+});

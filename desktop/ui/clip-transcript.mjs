@@ -84,7 +84,8 @@ export function renderClipTranscript(container, narration, { onSeek, onRetry, on
         row.dataset.t = String(start);
         row.dataset.bmId = String(bookmarkId);
         row.appendChild(element(doc, 'span', 'vp-clip-transcript-time', formatTranscriptTime(start)));
-        row.appendChild(element(doc, 'span', 'vp-clip-transcript-text', segment.text.trim()));
+        // The player's narration, so Journal sets it in their own voice.
+        row.appendChild(element(doc, 'span', 'vp-clip-transcript-text own-words', segment.text.trim()));
         if (typeof onSeek === 'function') row.addEventListener('click', event => {
           event.preventDefault(); event.stopPropagation(); onSeek(start, bookmarkId);
         });

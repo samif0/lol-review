@@ -7,12 +7,14 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./settings.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body class="settings-page">
 <main class="shell settings-shell">
   <header class="settings-header">
-    <div><h1>Settings</h1><p>Make Revu work the way you play and review.</p></div>
+    <div><h1 class="ui-title">Settings</h1><p>Make Revu work the way you play and review.</p></div>
     <div class="statusline" id="statusline"><b id="status-text">Loading your preferences…</b></div>
   </header>
   <div id="errpanel" role="alert" hidden><div id="err-line">Settings need your attention.</div><div id="err-detail"></div></div>
@@ -86,7 +88,20 @@
       </section>
 
       <section class="settings-section" id="settings-appearance" data-settings-section="appearance" aria-labelledby="appearance-heading" hidden>
-        <header class="settings-section-header"><h2 id="appearance-heading" tabindex="-1">Appearance &amp; startup</h2><p>Set up your window and decide when Revu runs in the background.</p></header>
+        <header class="settings-section-header"><h2 id="appearance-heading" tabindex="-1">Appearance &amp; startup</h2><p>Choose how Revu looks, set your window size, and decide when Revu runs in the background.</p></header>
+        <div class="set-card" id="theme-settings" data-settings-card data-search="theme appearance look color colour dark light mode system warm neutral journal aura serif">
+          <div><h3>Look and feel</h3><p class="settings-card-description">Changes apply right away on this computer.</p></div>
+          <fieldset class="settings-appearance-field" role="radiogroup" aria-labelledby="appearance-theme-label"><legend class="settings-appearance-legend" id="appearance-theme-label">Theme</legend>
+            <div class="settings-theme-grid">
+              <label class="settings-theme-option"><input class="settings-theme-input" type="radio" name="appearanceTheme" value="warm" aria-labelledby="appearance-theme-warm" aria-describedby="appearance-theme-warm-desc" checked><span class="settings-theme-preview" data-theme="warm" data-mode="dark" aria-hidden="true"><span class="stp-side"><i></i><i class="is-on"></i><i></i><i></i></span><span class="stp-main"><span class="stp-face" data-sample="Aa"></span><span class="stp-note" data-sample="Ward at 3:15"></span><span class="stp-card"><i class="stp-dot" data-result="win"></i><i class="stp-dot" data-result="loss"></i><i class="stp-line"></i></span></span></span><span class="settings-theme-text"><span class="settings-theme-mark" aria-hidden="true"></span><span class="settings-theme-name" id="appearance-theme-warm">Warm</span><span class="settings-theme-desc" id="appearance-theme-warm-desc">Warm neutrals with a serif for titles.</span></span></label>
+              <label class="settings-theme-option"><input class="settings-theme-input" type="radio" name="appearanceTheme" value="neutral" aria-labelledby="appearance-theme-neutral" aria-describedby="appearance-theme-neutral-desc"><span class="settings-theme-preview" data-theme="neutral" data-mode="dark" aria-hidden="true"><span class="stp-side"><i></i><i class="is-on"></i><i></i><i></i></span><span class="stp-main"><span class="stp-face" data-sample="Aa"></span><span class="stp-note" data-sample="Ward at 3:15"></span><span class="stp-card"><i class="stp-dot" data-result="win"></i><i class="stp-dot" data-result="loss"></i><i class="stp-line"></i></span></span></span><span class="settings-theme-text"><span class="settings-theme-mark" aria-hidden="true"></span><span class="settings-theme-name" id="appearance-theme-neutral">Neutral</span><span class="settings-theme-desc" id="appearance-theme-neutral-desc">Cool greys and one clean sans.</span></span></label>
+              <label class="settings-theme-option"><input class="settings-theme-input" type="radio" name="appearanceTheme" value="journal" aria-labelledby="appearance-theme-journal" aria-describedby="appearance-theme-journal-desc"><span class="settings-theme-preview" data-theme="journal" data-mode="dark" aria-hidden="true"><span class="stp-side"><i></i><i class="is-on"></i><i></i><i></i></span><span class="stp-main"><span class="stp-face" data-sample="Aa"></span><span class="stp-note" data-sample="Ward at 3:15"></span><span class="stp-card"><i class="stp-dot" data-result="win"></i><i class="stp-dot" data-result="loss"></i><i class="stp-line"></i></span></span></span><span class="settings-theme-text"><span class="settings-theme-mark" aria-hidden="true"></span><span class="settings-theme-name" id="appearance-theme-journal">Journal</span><span class="settings-theme-desc" id="appearance-theme-journal-desc">Warm, with your own notes set in a serif.</span></span></label>
+              <label class="settings-theme-option"><input class="settings-theme-input" type="radio" name="appearanceTheme" value="aura" aria-labelledby="appearance-theme-aura" aria-describedby="appearance-theme-aura-desc"><span class="settings-theme-preview" data-theme="aura" data-mode="dark" aria-hidden="true"><span class="stp-side"><i></i><i class="is-on"></i><i></i><i></i></span><span class="stp-main"><span class="stp-face" data-sample="Aa"></span><span class="stp-note" data-sample="Ward at 3:15"></span><span class="stp-card"><i class="stp-dot" data-result="win"></i><i class="stp-dot" data-result="loss"></i><i class="stp-line"></i></span></span></span><span class="settings-theme-text"><span class="settings-theme-mark" aria-hidden="true"></span><span class="settings-theme-name" id="appearance-theme-aura">Aura</span><span class="settings-theme-desc" id="appearance-theme-aura-desc">Warm, with a soft light that follows the time of day.</span></span></label>
+            </div>
+          </fieldset>
+          <fieldset class="settings-appearance-field" role="radiogroup" aria-labelledby="appearance-mode-label"><legend class="settings-appearance-legend" id="appearance-mode-label">Mode</legend><div class="ui-seg settings-mode-seg"><label><input type="radio" name="appearanceMode" value="system"><span>Match Windows</span></label><label><input type="radio" name="appearanceMode" value="dark" checked><span>Dark</span></label><label><input type="radio" name="appearanceMode" value="light"><span>Light</span></label></div></fieldset>
+          <div class="set-status" id="appearance-status" role="status" aria-live="polite"></div>
+        </div>
         <div class="set-card" id="window-settings" data-settings-card data-config-group="window" data-search="window size resolution maximize screen display minimize game">
           <h3>Window &amp; display</h3>
           <div class="obj-field"><label class="obj-field-k" for="windowResolution">Window size</label><select class="obj-input obj-select" id="windowResolution"><option value="default">Default (1600 × 1000)</option><option value="1280x800">1280 × 800</option><option value="1920x1080">1920 × 1080</option><option value="2560x1440">2560 × 1440</option><option value="maximized">Maximized</option></select><p class="settings-field-help">Applied when saved and on your next launch.</p></div>

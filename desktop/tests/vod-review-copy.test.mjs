@@ -8,7 +8,7 @@ import ts from 'typescript';
 // Comments are free to use either; only string and template literals are read.
 const SCRIPTS = ['vodplayer.js', 'vodtransport.js', 'vodcorrections.js', 'vodcorrections-panel.js', 'review.js',
   'clip-narration.mjs', 'narration-capture.mjs', 'narration-mic.mjs', 'clip-share-wait.mjs', 'clip-transcript.mjs',
-  'timeline-event-hit.mjs', 'vod-view-state.mjs', 'video-timeline.mjs'];
+  'timeline-event-hit.mjs', 'vod-view-state.mjs', 'video-timeline.mjs', 'vod-thread.mjs', 'meaning-tone.mjs', 'match-navigation.mjs'];
 const PAGES = ['vodplayer.html', 'review.html'];
 const TRANSPORT_GLYPHS = /[⏮⏭⛶❚]|\u{1F50A}|\u{1F507}|\u{1F5D7}|\p{Emoji_Presentation}/u;
 
@@ -32,6 +32,13 @@ function stringLiterals(fileName, text) {
 test('Review and VOD scripts never put an em dash in a string', async () => {
   for (const name of SCRIPTS) {
     const offenders = stringLiterals(name, await read(name)).filter(literal => literal.text.includes('—'));
+    assert.deepEqual(offenders.map(literal => `${name}:${literal.line} ${literal.text}`), []);
+  }
+});
+
+test('VOD scripts write ranges with "to", never an en dash', async () => {
+  for (const name of SCRIPTS.filter(script => !/^(review\.js|narration-)/.test(script))) {
+    const offenders = stringLiterals(name, await read(name)).filter(literal => literal.text.includes('–'));
     assert.deepEqual(offenders.map(literal => `${name}:${literal.line} ${literal.text}`), []);
   }
 });

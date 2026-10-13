@@ -8,8 +8,12 @@ import config from '../electron-builder.config.mjs';
 import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime/overwolf.mjs';
 
 const uiExtensions = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.jpg', '.webp', '.ico', '.woff', '.woff2', '.ttf']);
+// The bundled faces and the stylesheet that declares them ship in every build.
+export const bundledFonts = Object.freeze(['source-serif-4-roman', 'source-serif-4-italic', 'instrument-sans',
+  'geist', 'geist-mono'].map(name => `ui/fonts/${name}.woff2`));
 const requiredAppFiles = ['package.json', 'electron/main.mjs', 'electron/preload.cjs',
-  'electron/branding/revu.ico', 'ui/index.html', 'ui/platform/index.mjs', 'runtime/overwolf.mjs'];
+  'electron/branding/revu.ico', 'ui/index.html', 'ui/platform/index.mjs', 'runtime/overwolf.mjs',
+  'ui/appearance.css', ...bundledFonts];
 // Electron fuse wire v1 (@electron/fuses): sentinel, version byte, length byte, then one
 // ASCII '0'/'1' per fuse. Each packaged build must carry the states electron-builder.config.mjs sets.
 const fuseSentinel = Buffer.from('dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX', 'latin1');
@@ -23,7 +27,9 @@ export function isAppFile(relative) {
   if (relative === 'package.json' || relative === 'runtime/overwolf.mjs'
       || relative === 'electron/branding/revu.ico') return true;
   if (/^electron\/[^/]+\.(mjs|cjs)$/.test(relative)) return true;
-  if (!/^ui\/(?:[^/]+|platform\/[^/]+)$/.test(relative)) return false;
+  if (!/^ui\/(?:[^/]+|(?:fonts|platform)\/[^/]+)$/.test(relative)) return false;
+  // The font folder holds only the bundled woff2 faces and their license texts.
+  if (relative.startsWith('ui/fonts/')) return /^ui\/fonts\/(?:[a-z0-9-]+\.woff2|OFL-[A-Za-z0-9]+\.txt)$/.test(relative);
   return uiExtensions.has(path.posix.extname(relative)) || /^ui\/sample-[^/]+\.json$/.test(relative);
 }
 
@@ -36,7 +42,7 @@ async function copyRegular(source, destination) {
 
 export async function stageApp(root, destination) {
   const files = ['package.json', 'runtime/overwolf.mjs', 'electron/branding/revu.ico'];
-  for (const directory of ['electron', 'ui', 'ui/platform']) {
+  for (const directory of ['electron', 'ui', 'ui/fonts', 'ui/platform']) {
     const source = path.join(root, directory);
     if (!(await lstat(source)).isDirectory()) throw new Error(`Packaging requires a real directory: ${source}`);
     for (const entry of await readdir(source, { withFileTypes: true })) {
@@ -97,7 +103,7 @@ export async function verifyPackage(directory) {
     const metadata = asar.statFile(archive, path.normalize(item), false);
     if (metadata.link || metadata.unpacked) throw new Error(`Aliased or unpacked app entry: ${item}`);
     if (metadata.files) {
-      if (!['electron', 'electron/branding', 'runtime', 'ui', 'ui/platform'].includes(item))
+      if (!['electron', 'electron/branding', 'runtime', 'ui', 'ui/fonts', 'ui/platform'].includes(item))
         throw new Error(`Unexpected packaged app directory: ${item}`);
     } else {
       if (!isAppFile(item)) throw new Error(`Unexpected packaged app file: ${item}`);

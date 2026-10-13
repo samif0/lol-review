@@ -7,6 +7,9 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
+<link rel="stylesheet" href="./rules.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell">
@@ -14,7 +17,6 @@
          the create form. -->
     <div class="rules-hero">
       <div class="hero">
-        <div class="eyebrow">Session protocols</div>
         <h1>Session rules</h1>
         <div class="rules-subt" id="rules-subt">Stop-losses, time limits and mindset checks</div>
       </div>
@@ -131,22 +133,22 @@
     <div class="rule-card" data-rule-id="">
       <div class="rule-top">
         <span class="rule-badge"></span>
-        <span class="rule-name"></span>
+        <span class="rule-name own-words"></span>
         <span class="rule-status" hidden></span>
         <!-- v3.7: this rule is ENFORCED — Revu cancels the queue while it is tripped. -->
         <span class="rule-enforced" hidden>Enforced</span>
       </div>
       <!-- Live violation reason — only on tripped rules. -->
       <div class="rule-vreason" hidden></div>
-      <div class="rule-desc" hidden></div>
+      <div class="rule-desc own-words" hidden></div>
       <div class="rule-cond" hidden></div>
       <div class="rule-plan" hidden>
         <div class="rule-plan-k">Your plan instead</div>
-        <div class="rule-plan-t"></div>
+        <div class="rule-plan-t own-words"></div>
       </div>
-      <!-- P2b behavioral record (mono, teal). Empty for custom rules. -->
+      <!-- P2b behavioral record. Empty for custom rules. -->
       <div class="rule-evid" hidden></div>
-      <!-- v3.7 hard-stop record (mono, gold): "HELD 3× THIS WEEK · OVERRIDDEN 1×". -->
+      <!-- v3.7 hard-stop record: "HELD 3× THIS WEEK · OVERRIDDEN 1×". -->
       <div class="rule-hardstop" hidden></div>
       <!-- Per-card actions: Edit / Enable-or-Disable / Hard stop / Delete. -->
       <div class="rule-actrow">
@@ -184,7 +186,7 @@
   <template id="tpl-vbanner-plan">
     <div class="rule-check-item rule-check-item-plan">
       <div class="rule-check-if"><span class="rule-check-leg rcl-if">If</span> <span class="rule-check-cue"></span></div>
-      <div class="rule-check-then"><span class="rule-check-leg rcl-then">Then</span> <span class="rule-check-plan"></span></div>
+      <div class="rule-check-then"><span class="rule-check-leg rcl-then">Then</span> <span class="rule-check-plan own-words"></span></div>
       <div class="rule-check-by"><span class="rule-check-by-k">Triggered by</span> <span class="rule-check-by-name"></span></div>
     </div>
   </template>

@@ -1,6 +1,8 @@
 // A minimal startup window, shown while the sidecar starts or prepares data, so a
 // cold start never looks like a click that did nothing. Static markup in its own
-// in-memory session; no script, no preload, no network.
+// in-memory session; no script, no preload, no network. It opens in the colors the
+// shell last reported (electron/appearance.mjs), or the app default before there are any.
+import { splashPalettes, validateWindowAppearance, windowPalette } from './appearance.mjs';
 
 export const SPLASH_TEXT = Object.freeze({
   starting: 'Starting Revu…',
@@ -9,26 +11,37 @@ export const SPLASH_TEXT = Object.freeze({
 
 const escapeHtml = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 
-export function splashPage(status) {
+// Only validated #rrggbb values reach the stylesheet; anything else means the defaults.
+const appearanceOf = value => { try { return value ? validateWindowAppearance(value) : null; } catch { return null; } };
+const colors = p => `html,body{background:${p.background};color:${p.text}}p{color:${p.muted}}`;
+
+export function splashPage(status, appearance = null) {
+  const { base, light } = splashPalettes(appearanceOf(appearance));
   return 'data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><html lang="en"><head><meta charset="utf-8">'
     + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
-    + '<title>Revu</title><style>html,body{margin:0;height:100%;background:#0d101b;color:#e8eaf2;'
+    + '<title>Revu</title><style>html,body{margin:0;height:100%;'
     + 'font:14px/1.45 "Segoe UI",system-ui,sans-serif;-webkit-app-region:drag;user-select:none;cursor:default}'
     + 'main{height:100%;box-sizing:border-box;padding:24px;display:flex;flex-direction:column;align-items:center;'
     + 'justify-content:center;gap:10px;text-align:center}h1{margin:0;font-size:26px;font-weight:600}'
-    + `p{margin:0;color:#a3abc0;max-width:320px}</style></head><body><main><h1>Revu</h1><p role="status">${escapeHtml(status)}</p>`
+    + `p{margin:0;max-width:320px}${colors(base)}${light ? `@media (prefers-color-scheme:light){${colors(light)}}` : ''}`
+    + `</style></head><body><main><h1>Revu</h1><p role="status">${escapeHtml(status)}</p>`
     + '</main></body></html>');
 }
 
-export function createSplash({ BrowserWindow, iconPath }) {
+// `dark` is the current Windows app mode (nativeTheme.shouldUseDarkColors), only to
+// match the native backdrop to what the page will paint.
+export function createSplash({ BrowserWindow, iconPath, appearance = null, dark = true }) {
   let window = null, status = SPLASH_TEXT.starting, preparing = false;
+  const saved = appearanceOf(appearance);
+  // Nothing saved yet: the app default, the same color the main window and the pages open in.
+  const backgroundColor = windowPalette(saved, { dark }).background;
   const alive = () => !!window && !window.isDestroyed();
-  const render = () => { if (alive()) window.loadURL(splashPage(status)).catch(() => {}); };
+  const render = () => { if (alive()) window.loadURL(splashPage(status, saved)).catch(() => {}); };
   return {
     show() {
       if (alive()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); return; }
       window = new BrowserWindow({ width: 400, height: 220, frame: false, resizable: false, maximizable: false,
-        fullscreenable: false, show: false, center: true, title: 'Revu', icon: iconPath, backgroundColor: '#0d101b',
+        fullscreenable: false, show: false, center: true, title: 'Revu', icon: iconPath, backgroundColor,
         webPreferences: { partition: 'revu-splash', sandbox: true, contextIsolation: true, nodeIntegration: false,
           javascript: false, devTools: false, spellcheck: false } });
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

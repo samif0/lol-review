@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, screen, shell, session, systemPreferences, Tray, Menu } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, protocol, screen, shell, session, systemPreferences, Tray, Menu } from 'electron';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Sidecar } from './sidecar.mjs';
@@ -11,6 +11,7 @@ import { createCommandGate, createQuitHandler, shutdownOwnedApp } from './shutdo
 import { RecordingService } from './recording-service.mjs';
 import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createBackgroundController } from './background.mjs';
+import { createAppearanceController, readWindowAppearance, windowPalette } from './appearance.mjs';
 import { saveNarration } from './narration.mjs';
 import { createRollingLog, logDirectory, runtimeLogDirectory } from './logging.mjs';
 import { askRecovery, askSlowStart, backendExitAction, createClosingNotice, createRendererRecovery, readLaunchConfig, relaunchArgs, shellPage, shellUrl,
@@ -19,7 +20,7 @@ import { createSplash, createStartupProgress } from './splash.mjs';
 
 app.setName('Revu');
 let window, backend, eventAbort, configuration, native, afterShutdown, splash, progress;
-let recording, background, recorderReady = false, recorderAttached = false, recordingPrepared = false;
+let recording, background, appearance, recorderReady = false, recorderAttached = false, recordingPrepared = false;
 let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
 // abandonedWork: quit cancelled a long job, so its backend may need to be ended.
@@ -38,7 +39,9 @@ const rendererRecovery = createRendererRecovery();
 const closingNotice = createClosingNotice(dialog);
 // Ordinary writes time out within 30 s, so this bound only stops waiting on long jobs.
 const QUIT_DRAIN_MS = 35_000;
-const DRAG_CSS = '[data-window-drag]{-webkit-app-region:drag}.appbar-controls,.appbar-controls *{-webkit-app-region:no-drag}';
+// Controls inside a drag region stay clickable; the title bar buttons never drag.
+const DRAG_CSS = '[data-window-drag]{-webkit-app-region:drag}[data-window-drag] :is(a,button,input,select,textarea,[role="button"]),'
+  + '.appbar-controls,.appbar-controls *{-webkit-app-region:no-drag}';
 
 process.on('uncaughtException', error => hostLog.error('Uncaught exception in the main process', error));
 process.on('unhandledRejection', reason => hostLog.error('Unhandled promise rejection in the main process', reason));
@@ -158,6 +161,7 @@ async function executeCommand(command, args) {
     else if (command === 'save_recording_settings') value = await recording.saveSettings(args.payload);
     else if (command === 'get_background_settings') value = background.getSettings();
     else if (command === 'save_background_settings') value = await background.saveSettings(args.payload);
+    else if (command === 'set_window_appearance') value = await appearance.apply(args.payload);
     else if (command === 'open_recordings_folder') {
       const error = await shell.openPath(recording.root);
       if (error) throw new Error('The recordings folder could not be opened');
@@ -244,7 +248,10 @@ async function start() {
   await app.whenReady();
   // Packaged builds have no menu, so no reload, zoom or DevTools accelerators.
   if (app.isPackaged) Menu.setApplicationMenu(null);
-  splash = createSplash({ BrowserWindow, iconPath });
+  // The colors the shell last showed, so the splash and window open in the user's theme.
+  // nativeTheme is only read: themeSource stays 'system' so pages follow Windows.
+  const savedAppearance = await readWindowAppearance(profile);
+  splash = createSplash({ BrowserWindow, iconPath, appearance: savedAppearance, dark: nativeTheme.shouldUseDarkColors });
   if (!smoke && !login) splash.show();
   progress = createStartupProgress({ splash, login, askSlow: async signal => {
     hostLog.warn('The data update is taking longer than expected');
@@ -282,11 +289,13 @@ async function start() {
   const appSession = session.fromPartition('persist:revu-ui');
   registerProtocols({ protocol: appSession.protocol, session: appSession, uiDirectory, media });
   window = new BrowserWindow({ width: 1600, height: 1000, minWidth: 980, minHeight: 640,
-    frame: false, show: false, title: isolated ? 'Revu (isolated preview)' : 'Revu', icon: iconPath, backgroundColor: '#0d101b',
+    frame: false, show: false, title: isolated ? 'Revu (isolated preview)' : 'Revu', icon: iconPath,
+    backgroundColor: windowPalette(savedAppearance, { dark: nativeTheme.shouldUseDarkColors }).background,
     webPreferences: { session: appSession, preload: path.join(app.getAppPath(), 'electron/preload.cjs'), contextIsolation: true,
       additionalArguments: isolated ? ['--revu-isolated'] : [], sandbox: true, devTools: !app.isPackaged,
       nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false, webSecurity: true } });
   if (process.platform === 'win32') window.setAppDetails({ appId: windowsAppId, appIconPath: iconPath, appIconIndex: 0 });
+  appearance = createAppearanceController({ window, profile, saved: savedAppearance });
   background = await createBackgroundController({ app, window, Tray, Menu, iconPath, profile, isolated, smoke });
   window.on('close', background.onClose);
   sessionEnding = watchSessionEnd({ window });

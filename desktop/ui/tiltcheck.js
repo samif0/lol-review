@@ -9,8 +9,8 @@ import { getInvoke } from './platform/index.mjs';
 //   • Outside Electron it fetches ./sample-tiltcheck.json so the page previews in a
 //     plain browser.
 //   • Every server string is written via textContent (never innerHTML) so the
-//     surface stays XSS-free; colors arrive as *Hex strings applied to style
-//     properties only.
+//     surface stays XSS-free. The sidecar's emotion *Hex is not painted: emotions
+//     read in the theme's loss tone (data-tone="loss" in the templates).
 //   • ONE delegated [data-action] click handler.
 //   • The reset RITUAL is a WRITE: it collects {emotion, intensityBefore,
 //     intensityAfter?, reframeThought?, reframeResponse?, ifThenPlan?} and
@@ -91,8 +91,8 @@ function renderHeader(d) {
   const s = d.stats || {};
   const parts = [];
   const total = s.total || 0;
-  parts.push(total === 0 ? 'No resets yet.' : `${total} reset${total === 1 ? '' : 's'} logged.`);
-  if (total > 0 && s.avgReductionText) parts.push(s.avgReductionText);
+  // No full stop before the separators; the average drop is the stat directly below, so it is not repeated here.
+  parts.push(total === 0 ? 'No resets yet.' : `${total} reset${total === 1 ? '' : 's'} logged`);
   if (total > 0 && s.avgBefore != null && s.avgAfter != null) {
     parts.push(`${s.avgBefore} → ${s.avgAfter} typical`);
   }
@@ -150,11 +150,6 @@ function renderEmotions(d) {
 
   for (const e of list) {
     const el = tpl('tpl-emotion');
-    const dot = el.querySelector('.tc-emo-dot');
-    if (e.emotionColorHex) {
-      dot.style.background = e.emotionColorHex;
-      dot.style.boxShadow = `0 0 8px ${e.emotionColorHex}`;
-    }
     el.querySelector('.tc-emo-name').textContent = cap(e.emotion || '');
     el.querySelector('.tc-emo-n').textContent = `${e.count ?? 0}×`;
     host.appendChild(el);
@@ -199,13 +194,8 @@ function buildRecentRow(r) {
   const arr = el.querySelector('.tc-row-arr');
   const after = el.querySelector('.tc-row-after');
   const drop = el.querySelector('.tc-row-drop');
-  const edge = el.querySelector('.tc-row-edge');
 
   emo.textContent = cap(r.emotion || '');
-  if (r.emotionColorHex) {
-    emo.style.color = r.emotionColorHex;
-    el.style.setProperty('--emo', r.emotionColorHex);
-  }
   when.textContent = r.createdAtText || '';
   show(planTag, !!r.hasPlan);
 

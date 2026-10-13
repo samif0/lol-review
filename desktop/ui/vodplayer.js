@@ -20,6 +20,9 @@ import { createVodViewRestorer, createVodWriteBarrier, sameVodDraft, vodRestoreP
 import { clipRowNarrationContext, openNarrationStudio } from './clip-narration.mjs';
 import { noteTranscriptProgress, renderClipTranscript } from './clip-transcript.mjs';
 import { shareProgressLabel, waitForShareJob } from './clip-share-wait.mjs';
+import { eventTone, polarityTone, resultOf } from './meaning-tone.mjs';
+import { buildThread, renderThread, moveNow } from './vod-thread.mjs';
+import { takeawayText } from './journal-takeaway.mjs';
 import { platform } from './platform/index.mjs';
 
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
@@ -27,6 +30,7 @@ function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s 
 let _vod = null;       // the loaded VOD snapshot
 let _core = null;      // cached platform media interface ({invoke, resolveMedia}) or null
 let _gameId = 0;       // the game id from ?gameId=N
+let _signInHint = null; // show the sign-in hint (signed out); null until the auth status is known
 let _objectives = [];  // active objectives (with prompts) for the objective/prompt pickers
 let _autoClipEnabled = false; // config.autoClipObjectivesEnabled — gates the auto-clip button
 let _autoClipBusy = false;    // true while an auto-clip run is in flight
@@ -58,6 +62,9 @@ let _clipObjUserSet = false;
 let _pendingMediaTime = null; // Keep the same-file position when media is temporarily unavailable.
 let _savedVideoSize = null;
 let _selectedReviewEvent = '';
+// The review read for this game (get_review, best-effort): the KDA for the header and
+// the takeaway that closes the Journal thread. null until it arrives or when it fails.
+let _reviewSummary = null;
 let _revealRestoredClipDraft = false;
 let _revealLinkedMoment = false;
 const video = () => $('vp-video');
@@ -164,6 +171,7 @@ async function restoreVodViewState(state) {
   if (!plan.explicit) _T?.pause();
   _T?.refreshReadout();
   renderMarkerStepper();
+  renderNoteWhen();
 }
 
 function restoreMatchView() {
@@ -216,7 +224,14 @@ function reviewableEvents() {
 
 function reviewMarker(e) {
   return { seconds: e.gameTimeSeconds, label: e.label || '', kind: e.kind || '',
-    key: e.eventKey || '', id: e.id, type: e.eventType };
+    key: e.eventKey || '', id: e.id, type: e.eventType,
+    summary: e.summary || '', shortLabel: e.shortLabel || '', teamfight: e.teamfight || null, colorHex: e.colorHex || '' };
+}
+
+// The meaning tone of an event row or bar (ui/meaning-tone.mjs). CSS maps it to the theme.
+function markTone(mark) {
+  return eventTone({ eventType: mark.type, kind: mark.kind, shortLabel: mark.shortLabel,
+    teamfight: mark.teamfight, colorHex: mark.colorHex });
 }
 
 function reviewEvents() {
@@ -235,13 +250,42 @@ function reviewEventLabel(mark) {
   return words ? words[0].toUpperCase() + words.slice(1) : 'Game event';
 }
 
+// The selected event reads as current in the event list and in the Journal thread.
 function highlightReviewEvent() {
-  document.querySelectorAll('#vp-event-list .vp-review-event').forEach(row => {
-    const selected = row.dataset.reviewKey === _selectedReviewEvent;
-    row.classList.toggle('is-current', selected);
+  const mark = (row, selected, onClass) => {
+    row.classList.toggle(onClass, selected);
     if (selected) row.setAttribute('aria-current', 'true');
     else row.removeAttribute('aria-current');
+  };
+  document.querySelectorAll('#vp-event-list .vp-review-event').forEach(row => {
+    mark(row, row.dataset.reviewKey === _selectedReviewEvent, 'is-current');
   });
+  document.querySelectorAll('#vp-thread-list [data-review-key]').forEach(row => {
+    mark(row, !!_selectedReviewEvent && row.dataset.reviewKey === _selectedReviewEvent, 'is-on');
+  });
+}
+
+// The event's name for lists: its label, then the sidecar's summary ("Death · Lee Sin").
+function reviewEventName(mark) {
+  const label = reviewEventLabel(mark), summary = String(mark.summary || '').trim();
+  return summary ? `${label} · ${summary}` : label;
+}
+
+// The focus picker names the frame. With no objectives it is a plain heading.
+function renderFocusPicker(count) {
+  const heading = $('vp-review-objective');
+  if (heading) heading.textContent = _framed ? objectiveTitle(_focusedObjId) : 'Match events';
+  const kind = $('vp-focus-kind');
+  if (kind) kind.textContent = _framed ? 'Your focus' : 'Whole match';
+  const total = $('vp-event-count');
+  if (total) total.textContent = `${count} ${count === 1 ? 'event' : 'events'}`;
+  const picker = document.querySelector('.vp-focus-picker');
+  if (!picker) return;
+  picker.classList.toggle('is-static', !_framed);
+  if (!_framed) picker.open = false;
+  const summary = picker.querySelector('summary');
+  if (summary && _framed) summary.removeAttribute('aria-disabled');
+  else if (summary) summary.setAttribute('aria-disabled', 'true');
 }
 
 function renderReviewEvents() {
@@ -250,10 +294,7 @@ function renderReviewEvents() {
   const marks = reviewEvents();
   const focused = document.activeElement?.closest?.('.vp-review-event')?.dataset.reviewKey;
   if (!marks.some(mark => reviewEventKey(mark) === _selectedReviewEvent)) _selectedReviewEvent = '';
-  const heading = $('vp-review-objective');
-  if (heading) heading.textContent = _framed ? objectiveTitle(_focusedObjId) : 'Match events';
-  const count = $('vp-event-count');
-  if (count) count.textContent = `${marks.length} ${marks.length === 1 ? 'event' : 'events'}`;
+  renderFocusPicker(marks.length);
   const empty = $('vp-event-empty');
   if (empty) empty.textContent = _framed
     ? 'No events linked yet. Watch the recording and add a note for this objective.'
@@ -262,18 +303,22 @@ function renderReviewEvents() {
   show(document.querySelector('.vp-event-help'), marks.length > 0);
   clear(host);
   marks.forEach((mark, index) => {
+    // A calm row: game time, the event's name, then its color. The ordinal stays in the
+    // accessible name only.
     const row = document.createElement('button');
-    row.type = 'button'; row.className = 'vp-review-event';
+    row.type = 'button'; row.className = 'vp-review-event ui-row';
     row.dataset.action = 'review_event'; row.dataset.reviewKey = reviewEventKey(mark);
-    const label = reviewEventLabel(mark);
-    row.setAttribute('aria-label', `Watch event ${index + 1}: ${label} at ${clock(mark.seconds)}`);
-    const part = (name, text) => { const span = document.createElement('span'); span.className = name; span.textContent = text; return span; };
-    row.appendChild(part('vp-event-number', String(index + 1)));
-    const info = part('vp-event-info', '');
-    info.appendChild(part('vp-event-title', label));
-    info.appendChild(part('vp-event-time', clock(mark.seconds)));
-    row.appendChild(info);
-    const play = part('vp-event-play', '▶'); play.setAttribute('aria-hidden', 'true'); row.appendChild(play);
+    const tone = markTone(mark);
+    row.dataset.tone = tone;
+    const name = reviewEventName(mark);
+    row.setAttribute('aria-label', `Watch event ${index + 1}: ${name} at ${clock(mark.seconds)}`);
+    const part = (tag, cls, text) => { const el = document.createElement(tag); el.className = cls; el.textContent = text; return el; };
+    row.appendChild(part('span', 'vp-event-time', clock(mark.seconds)));
+    row.appendChild(part('span', 'vp-event-title', name));
+    const dot = part('i', 'vp-event-dot', '');
+    dot.dataset.tone = tone;
+    dot.setAttribute('aria-hidden', 'true');
+    row.appendChild(dot);
     host.appendChild(row);
     if (focused === row.dataset.reviewKey) row.focus({ preventScroll: true });
   });
@@ -377,6 +422,13 @@ async function fetchVod() {
   const core = await getMedia();
   _core = core;
   if (core && gameId > 0) {
+    // The sign-in hint sits above the player, so its state is read alongside the snapshot:
+    // render shows it before a resumed view restores its scroll, and it never appears
+    // afterwards to push that view down. A local config read; a failure leaves it hidden.
+    const signIn = core.invoke('get_auth_status').then((s) => !(s && s.signedIn), () => false);
+    // Best-effort and never awaited: the review read adds the KDA to the header and the
+    // takeaway to the Journal thread whenever it arrives. The recording never waits on it.
+    readReviewSummary(() => core.invoke('get_review', { gameId }), gameId);
     const data = await core.invoke('get_vod', { gameId });
     // Best-effort: active objectives (+ their prompts) feed the objective/prompt pickers.
     try {
@@ -389,6 +441,7 @@ async function fetchVod() {
       _autoClipEnabled = !!(cfg && cfg.autoClipObjectivesEnabled);
     } catch (_) { _autoClipEnabled = false; }
     try { _narrationOk = await platform.narrationAvailable(); } catch (_) { _narrationOk = false; }
+    _signInHint = await signIn;
     return { data, core };
   }
   // Browser preview: use the existing objective cards as well as the VOD sample
@@ -403,7 +456,53 @@ async function fetchVod() {
   const focus = Array.isArray(sampleObjectives.focusObjectives) ? sampleObjectives.focusObjectives : [];
   const uniqueObjectives = new Map([...active, ...focus].map(objective => [objective.id, objective]));
   _objectives = [...uniqueObjectives.values()].map(objective => ({ ...objective, objectiveId: objective.id }));
-  return { data: await res.json(), core: null };
+  const data = await res.json();
+  readReviewSummary(() => fetch('./sample-review.json').then(r => (r.ok ? r.json() : null)), Number(data.gameId));
+  return { data, core: null };
+}
+
+// Keep the review read only when it answers for this game, then refresh what shows it.
+function readReviewSummary(read, gameId) {
+  return Promise.resolve().then(read).then(reply => {
+    const subject = reply && reply.subject;
+    if (!subject || !(gameId > 0) || Number(subject.gameId) !== gameId) return;
+    _reviewSummary = {
+      gameId,
+      kdaText: String(subject.header?.kdaText || '').trim(),
+      takeaway: takeawayText(subject.form),
+    };
+    if (_vod && Number(_vod.gameId) === gameId) { renderContextDetails(); renderThreadPanel(); }
+  }).catch(err => console.warn('[vodplayer] review summary unavailable:', err));
+}
+
+// "Victory", "Defeat" or the remake label from the VOD snapshot, as a data-result value.
+function vodResult(text) {
+  const word = String(text || '').trim().toLowerCase();
+  if (!word) return '';
+  return resultOf({ win: word === 'victory', isRemake: word !== 'victory' && word !== 'defeat' });
+}
+
+// Header details: the result word in its theme color, the queue, the length and the KDA.
+function renderContextDetails() {
+  const ctx = $('vp-ctx-details');
+  if (!ctx || !_vod) return;
+  clear(ctx);
+  const add = (text, className) => {
+    const span = document.createElement('span');
+    if (className) span.className = className;
+    span.textContent = text;
+    ctx.appendChild(span);
+    return span;
+  };
+  if (_vod.resultText) {
+    const result = add(_vod.resultText, 'vp-result');
+    const tone = vodResult(_vod.resultText);
+    if (tone) result.dataset.result = tone;
+  }
+  if (_vod.gameMode) add(_vod.gameMode);
+  if (Number(_vod.gameDurationSeconds) > 0) add(clock(_vod.gameDurationSeconds), 'vp-ctx-num');
+  const kda = _reviewSummary && _reviewSummary.gameId === Number(_vod.gameId) ? _reviewSummary.kdaText : '';
+  if (kda) add(kda, 'vp-ctx-num');
 }
 
 // Post-game map-state pass finished for a game (shell-outer forwards the sidecar's
@@ -540,6 +639,8 @@ function render(data, core) {
   $('vp-title').textContent = matchup;
   const statusB = document.querySelector('#statusline b');
   statusB.textContent = [data.resultText, data.gameMode, data.datePlayed].filter(Boolean).join(' · ');
+  // Placed before either path restores a resumed view (see fetchVod).
+  if (_signInHint !== null) show($('vp-signin-hint'), _signInHint);
 
   if (!data.hasVod || !data.filePath) {
     show($('vp-novod'), true);
@@ -566,10 +667,7 @@ function render(data, core) {
   // Context line takes over from the loading statusline (the old eyebrow/hero are gone).
   show($('statusline'), false);
   show($('vp-context'), true);
-  const ctx = $('vp-ctx-details');
-  if (ctx) {
-    ctx.textContent = [data.resultText, data.gameMode].filter(Boolean).join(' · ');
-  }
+  renderContextDetails();
 
   // OPEN REVIEW → the structured review for this game (this nav IS wired). Now a link
   // in the context line (was the big primary card). Keep both href + onclick robust.
@@ -686,7 +784,7 @@ function renderObjBar() {
     const active = id === _focusedObjId;
     const tab = document.createElement('button');
     tab.type = 'button';
-    tab.className = `vp-objtab ${objTypeClass(o)}` + (active ? ' is-active' : '') + (count === 0 ? ' is-empty' : '');
+    tab.className = `vp-objtab ui-row ${objTypeClass(o)}` + (active ? ' is-active' : '') + (count === 0 ? ' is-empty' : '');
     tab.dataset.objId = String(id);
     tab.setAttribute('aria-pressed', String(active));
     const typeLabel = objectiveTypeLabel(o) || 'Gameplay skill';
@@ -863,7 +961,14 @@ function stepMarker(delta) {
 function placeMarkers(dur) {
   const host = $('vp-markers');
   clear(host);
-  if (!dur) return;
+  renderTimelineAxis(dur);
+  // Tone -> event types drawn in color, for the legend. Dim ticks stay out of it.
+  const legend = new Map();
+  const noteLegend = (tone, type) => {
+    if (!legend.has(tone)) legend.set(tone, new Set());
+    if (type) legend.get(tone).add(String(type).toUpperCase());
+  };
+  if (!dur) { renderTimelineLegend(legend); return; }
 
   const pctOf = (s) => Math.max(0, Math.min(100, (s / dur) * 100));
 
@@ -880,13 +985,15 @@ function placeMarkers(dur) {
   for (const tf of teamfightZones(liveEvents)) {
     const band = document.createElement('span');
     band.className = 'evtf' + (tfFocused ? '' : ' evtf-dim');
+    band.dataset.tone = 'fight';
+    if (tfFocused) noteLegend('fight', 'TEAMFIGHT');
     band.style.left = `${pctOf(tf.startS)}%`;
     band.style.width = `${Math.max(0.8, pctOf(tf.endS) - pctOf(tf.startS))}%`;
     // A stored fight carries the numbers at your commitment ("3v2") and counts kills;
     // a synthetic cluster keeps the event count.
     band.title = tf.numbers
-      ? `Teamfight ${tf.numbers} ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} kill${tf.count === 1 ? '' : 's'}`
-      : `Teamfight ${clock(tf.startS)}–${clock(tf.endS)} · ${tf.count} events`;
+      ? `Teamfight ${tf.numbers} ${clock(tf.startS)} to ${clock(tf.endS)} · ${tf.count} kill${tf.count === 1 ? '' : 's'}`
+      : `Teamfight ${clock(tf.startS)} to ${clock(tf.endS)} · ${tf.count} events`;
     // The band is the soft BACKDROP spanning the fight. The labeled "TF" pin is now a
     // real synthetic TEAMFIGHT event (rendered in the events pass below) so it's
     // countable/steppable/clickable; the band no longer draws its own TF text, which
@@ -926,6 +1033,10 @@ function placeMarkers(dur) {
   // x-positions where an objective marker reserved space; non-objective labels
   // within OBJ_RESERVE_PCT of any of these are suppressed so the objective wins.
   const objectiveLabelXs = [];
+  // Focused labels always show. Two that would touch take two rows instead: the later
+  // one rises to a second row (evbar-code-alt), so neither code prints over the other.
+  const FOCUS_LABEL_GAP_PCT = 3.5;
+  const focusRowX = [-99, -99];
 
   // What counts as "focused" (loud) depends on framing:
   //  • FRAMED → an event is loud when the FOCUSED objective is among the objectives
@@ -965,11 +1076,12 @@ function placeMarkers(dur) {
         ? 'evbar evbar-dim'
         : `evbar evbar-${kind} evbar-${tier}`;
     bar.style.left = `${leftPct}%`;
-    // Focused bars take the objective's color; dim ticks stay neutral (class-driven);
-    // unframed untied events keep the per-type color.
+    // Every drawn bar carries its meaning tone; CSS maps it to the theme's event color.
+    // Focused bars stand out by height and their cap, not by a second palette. Dim
+    // ticks stay neutral.
     if (!dimmed) {
-      const ringColor = focused ? (e.objectiveColorHex || e.colorHex) : e.colorHex;
-      if (ringColor) bar.style.setProperty('--evc', ringColor);
+      bar.dataset.tone = eventTone(e);
+      noteLegend(bar.dataset.tone, e.eventType);
     }
     bar.style.pointerEvents = 'auto';
     bar.style.cursor = 'pointer';
@@ -986,10 +1098,13 @@ function placeMarkers(dur) {
     // neighbor AND clear of every focused reservation.
     const labellessTier = tier === 'minor' || tier === 'recall';
     const bucket = labelBucket(tier);
-    let showLabel;
+    let showLabel, focusRow = 0;
     if (focused) {
       showLabel = true;
       objectiveLabelXs.push(leftPct);
+      // The base row when clear, else whichever row's last label is farther away.
+      if (leftPct - focusRowX[0] < FOCUS_LABEL_GAP_PCT && focusRowX[1] <= focusRowX[0]) focusRow = 1;
+      focusRowX[focusRow] = leftPct;
     } else if (dimmed) {
       showLabel = false;
     } else {
@@ -1005,6 +1120,7 @@ function placeMarkers(dur) {
       const lbl = document.createElement('span');
       lbl.className = 'evbar-code';
       lbl.textContent = code;
+      if (focusRow === 1) lbl.classList.add('evbar-code-alt');
       bar.appendChild(lbl);
       lastLabelPctByBucket[bucket] = leftPct;
       lastLabelTierByBucket[bucket] = tier;
@@ -1029,7 +1145,70 @@ function placeMarkers(dur) {
     m.title = `${b.timeLabel} ${b.note || ''}`.trim();
     m.dataset.action = 'jump';
     m.dataset.seconds = String(b.gameTimeSeconds);
+    m.dataset.tone = b.hasClip ? 'clip' : 'note';
+    noteLegend(m.dataset.tone);
     host.appendChild(m);
+  }
+  renderTimelineLegend(legend);
+}
+
+// Game-clock ticks inside the scalable content, so they zoom and pan with the events.
+function renderTimelineAxis(dur) {
+  const axis = $('vp-tl-axis');
+  if (!axis) return;
+  clear(axis);
+  if (!(dur > 0)) return;
+  const step = dur >= 20 * 60 ? 600 : 300;
+  for (let s = 0; s <= dur; s += step) {
+    const pct = (s / dur) * 100;
+    const tick = document.createElement('span');
+    tick.className = 'vp-tl-tick' + (s === 0 ? ' is-start' : pct > 97 ? ' is-end' : '');
+    tick.style.left = `${pct}%`;
+    tick.textContent = clock(s);
+    axis.appendChild(tick);
+  }
+}
+
+// The legend names only the colors this timeline draws, in a fixed order.
+const LEGEND_TONES = ['kill', 'assist', 'death', 'dragon', 'void', 'structure', 'fight', 'trade', 'summoner',
+  'proximity', 'loss', 'win', 'recall', 'away', 'neutral', 'clip', 'note'];
+function legendLabel(tone, types) {
+  const has = type => types.has(type);
+  switch (tone) {
+    case 'kill': return 'Kill';
+    case 'assist': return 'Assist';
+    case 'death': return 'Death';
+    case 'dragon': return 'Dragon';
+    case 'void': return has('BARON') && has('HERALD') ? 'Baron, Herald' : has('HERALD') ? 'Herald' : 'Baron';
+    case 'structure': return has('TURRET') || has('INHIBITOR') ? 'Tower' : 'Other';
+    case 'fight': return 'Fight';
+    case 'trade': return 'Trade';
+    case 'summoner': return 'Summoner';
+    case 'proximity': return 'Jungler near';
+    case 'loss': return has('JUNGLE_PROXIMITY') ? 'Enemy jungler' : 'Other';
+    case 'win': return has('JUNGLE_PROXIMITY') ? 'Ally jungler' : 'Other';
+    case 'recall': return 'Recall';
+    case 'away': return 'Fight without you';
+    case 'clip': return 'Clip';
+    case 'note': return 'Note';
+    default: return 'Other';
+  }
+}
+function renderTimelineLegend(legend) {
+  const host = $('vp-tl-sub');
+  if (!host) return;
+  clear(host);
+  const shown = new Set();
+  for (const tone of LEGEND_TONES) {
+    if (!legend.has(tone)) continue;
+    const label = legendLabel(tone, legend.get(tone));
+    if (shown.has(label)) continue;
+    shown.add(label);
+    const item = document.createElement('span');
+    item.className = 'vp-legend-item';
+    item.dataset.tone = tone;
+    item.textContent = label;
+    host.appendChild(item);
   }
 }
 
@@ -1206,6 +1385,7 @@ function normMoment(m, srcLabel) {
     // Prefer the user's note, then the auto title; the editable buffer is the note
     // (title is the auto-detected name and shouldn't overwrite a real note).
     note: m.note || '',
+    title: m.title || '',
     // Card text never shows a bare placeholder for a clip — fall back title → time.
     noteDisplay: m.note || m.title
       || (m.hasClip ? `Clip @ ${m.timeLabel || clock(m.startTimeSeconds || 0)}` : '(no note)'),
@@ -1231,16 +1411,20 @@ function normMoment(m, srcLabel) {
 // Normalize a bookmark → the same uniform moment shape. Carries the bookmark id
 // so plain (non-clip) bookmark rows can offer inline note-edit + delete.
 function normBookmark(b, isClip) {
+  // A bookmark-backed clip carries its own range, so its row can say "12:30 to 12:55".
+  const clipStart = isClip && Number.isFinite(b.clipStartSeconds) ? b.clipStartSeconds : null;
+  const clipEnd = isClip && Number.isFinite(b.clipEndSeconds) ? b.clipEndSeconds : null;
   return {
     id: b.id != null ? b.id : null,
     evidenceId: null,               // bookmark-derived rows have no evidence id
     seconds: b.gameTimeSeconds || 0,
-    startTimeSeconds: b.gameTimeSeconds || 0,
-    endTimeSeconds: null,
+    startTimeSeconds: clipStart ?? (b.gameTimeSeconds || 0),
+    endTimeSeconds: clipEnd,
     timeLabel: b.timeLabel || clock(b.gameTimeSeconds || 0),
     srcLabel: isClip ? 'Saved clip' : 'Bookmark',
     isClip: !!isClip,
     note: b.note || '',
+    title: '',
     // A clip-bookmark with no note still reads meaningfully (time-stamped) instead
     // of an empty "(no note)" — the "clips lost their text" complaint.
     noteDisplay: b.note
@@ -1336,7 +1520,8 @@ function renderMoments() {
   const total = auto.length + clips.length + bm.length;
   const disclosure = $('vp-saved-moments');
   if (disclosure && !disclosure.dataset.initialized) {
-    disclosure.open = total > 0;
+    // Journal reads moments in its thread, so their management list starts closed.
+    disclosure.open = total > 0 && !journalTheme();
     disclosure.dataset.initialized = '1';
   }
   document.querySelectorAll('#vp-tabs .tab').forEach(tab => {
@@ -1347,9 +1532,9 @@ function renderMoments() {
 
   // Tab counts + open badge.
   const setTxt = (id, txt) => { const e = $(id); if (e) e.textContent = txt; };
-  setTxt('vp-c-all', `(${auto.length})`);
-  setTxt('vp-c-clips', `(${clips.length})`);
-  setTxt('vp-c-bm', `(${bm.length})`);
+  setTxt('vp-c-all', String(auto.length));
+  setTxt('vp-c-clips', String(clips.length));
+  setTxt('vp-c-bm', String(bm.length));
   setTxt('vp-open-count', `${total} saved`);
 
   const shown = _bmFilter === 'clips' ? clips : _bmFilter === 'bm' ? bm : auto;
@@ -1372,10 +1557,23 @@ function renderMoments() {
       jump.dataset.seconds = String(m.seconds);
       jump.setAttribute('aria-label', `Watch moment at ${m.timeLabel}`);
     }
-    el.querySelector('.vp-bm-src').textContent = m.srcLabel;
-    el.querySelector('.vp-bm-time').textContent = m.timeLabel;
-    el.querySelector('.vp-bm-note').textContent = m.noteDisplay;
+    const src = el.querySelector('.vp-bm-src');
+    src.textContent = m.srcLabel;
+    // Tint the source badge by polarity (good/bad) when present. CSS reads the tone.
+    if (m.polarity === 'good' || m.polarity === 'bad') src.dataset.tone = polarityTone(m.polarity);
+    el.querySelector('.vp-bm-time').textContent = m.isClip && Number.isFinite(m.endTimeSeconds) && Number.isFinite(m.startTimeSeconds)
+      && m.endTimeSeconds > m.startTimeSeconds ? `${clock(m.startTimeSeconds)} to ${clock(m.endTimeSeconds)}` : m.timeLabel;
+    const title = el.querySelector('.vp-bm-note');
+    title.textContent = m.noteDisplay;
+    // Only the player's own note reads in their voice; titles and placeholders do not.
+    title.classList.toggle('own-words', !!String(m.note || '').trim());
     show(el.querySelector('.vp-bm-clip'), m.isClip);
+    // Clips and notes wear their timeline diamond; a suggestion is a dot in its polarity.
+    const mark = el.querySelector('.vp-bm-mark');
+    if (mark) {
+      mark.dataset.tone = m.isClip ? 'clip' : m.evidenceId != null ? polarityTone(m.polarity) : 'note';
+      mark.dataset.shape = m.isClip || m.evidenceId == null ? 'diamond' : 'dot';
+    }
 
     // Plain bookmark rows (carry an id) get an inline edit/delete block: a note
     // field that autosaves on blur/Enter, and a delete button. Auto/clip rows
@@ -1507,16 +1705,49 @@ function renderMoments() {
           : m.status === 'highlight' ? 'Highlight' : m.status;
         badges.appendChild(st);
       }
-      // Tint the source badge by polarity (good/bad) when present.
-      if (m.polarityColorHex && (m.polarity === 'good' || m.polarity === 'bad')) {
-        const srcb = el.querySelector('.vp-bm-src');
-        if (srcb) { srcb.style.color = m.polarityColorHex; srcb.style.borderColor = m.polarityColorHex; }
-      }
     }
     renderMomentStatus(el);
     rows.push(el);
   }
   placeMomentRows(host, rows);
+  renderThreadPanel();
+}
+
+function journalTheme() {
+  return document.documentElement?.dataset?.theme === 'journal';
+}
+
+// ── Journal thread (ui/vod-thread.mjs) ─────────────────────────────────────────
+// Focus events, the player's notes and clips, and the review takeaway in game time.
+// Built from the same framed lanes as the lists, so it follows objective switches.
+function threadModel() {
+  const { auto, clips, bm } = momentLanes();
+  const own = m => String(m.note || '').trim();
+  const events = reviewEvents().map(mark => ({ t: mark.seconds, text: reviewEventName(mark),
+    key: reviewEventKey(mark), tone: markTone(mark) }));
+  // A suggested moment only joins once the player has written on it.
+  const notes = bm.concat(auto.filter(own)).map(m => ({ t: m.seconds, text: own(m), key: momentKey(m) }));
+  const clipItems = clips.map(m => ({ t: m.startTimeSeconds ?? m.seconds, end: m.endTimeSeconds,
+    text: own(m) || m.title || '', own: !!own(m), narrated: !!m.narrationCtx?.narration, key: momentKey(m) }));
+  const summary = _reviewSummary && _vod && _reviewSummary.gameId === Number(_vod.gameId) ? _reviewSummary : null;
+  return { summary, ...buildThread({ events, notes, clips: clipItems, takeaway: summary?.takeaway || null, now: _T?.currentTime || 0 }) };
+}
+
+function renderThreadPanel() {
+  const list = $('vp-thread-list');
+  if (!list) return;
+  const { items, countText, summary } = threadModel();
+  const count = $('vp-thread-count');
+  if (count) count.textContent = countText;
+  // Offer the review only once the read confirms there is no takeaway yet.
+  renderThread(list, items, { formatTime: clock, selectedKey: _selectedReviewEvent,
+    onReview: summary && !summary.takeaway ? openReviewForTakeaway : undefined });
+}
+
+function openReviewForTakeaway(event) {
+  event?.preventDefault?.();
+  const gid = Number(_vod?.gameId || _gameId || 0);
+  if (gid > 0) _matchNav.navigate(`review.html?gameId=${encodeURIComponent(gid)}`);
 }
 
 // ── Moment rows: stable identity across refreshes ─────────────────────────────
@@ -1557,8 +1788,10 @@ function placeMomentRows(host, rows) {
     if (before !== focusRow || kept) return row;
     kept = before;
     Object.assign(before.dataset, row.dataset);
+    // Parts pair up by their first class: state classes (own-words) may differ between renders.
+    const partKey = node => String(node.className || '').split(' ')[0];
     for (const part of Array.from(row.children)) {
-      const match = Array.from(before.children).find(child => child.className === part.className);
+      const match = Array.from(before.children).find(child => partKey(child) === partKey(part));
       if (!match) continue;
       if (!match.contains(active)) { before.replaceChild(part, match); continue; }
       // The part holding focus stays. Its other controls are swapped for fresh ones
@@ -1765,9 +1998,14 @@ function wireFraming() {
   if (bar) {
     const pick = (target) => {
       const tab = target.closest('.vp-objtab');
-      if (tab && tab.dataset.objId) setFocusedObjective(Number(tab.dataset.objId));
+      if (!tab || !tab.dataset.objId) return;
+      setFocusedObjective(Number(tab.dataset.objId));
+      closeFocusPicker(bar);
     };
     bar.addEventListener('click', (ev) => pick(ev.target));
+    // Without objectives the picker is a plain heading: its summary never opens it.
+    const summary = bar.closest('.vp-focus-picker')?.querySelector('summary');
+    if (summary) summary.addEventListener('click', (ev) => { if (!_framed) ev.preventDefault(); });
   }
   const prev = $('vp-mk-prev'); if (prev) prev.addEventListener('click', () => stepMarker(-1));
   const next = $('vp-mk-next'); if (next) next.addEventListener('click', () => stepMarker(1));
@@ -1790,6 +2028,43 @@ function wireFraming() {
   });
   const sbRetry = $('vp-sharebar-retry');
   if (sbRetry) sbRetry.addEventListener('click', retryAllFailedShares);
+}
+
+// A choice closes the picker. Focus returns to its summary, so the keyboard stays put.
+function closeFocusPicker(inside) {
+  const picker = inside && inside.closest ? inside.closest('.vp-focus-picker') : null;
+  if (!picker || !picker.open) return;
+  const hadFocus = picker.contains(document.activeElement);
+  picker.open = false;
+  if (hadFocus) picker.querySelector('summary')?.focus({ preventScroll: true });
+}
+
+// The note card's time chip and the Journal thread's "You are here" follow playback:
+// once per game second while playing, and after every seek. Neither rebuilds a list.
+function renderNoteWhen() {
+  const when = $('vp-note-when');
+  if (!when) return;
+  const pinned = _bookmarkTime !== null;
+  when.textContent = clock(pinned ? _bookmarkTime : (_T?.currentTime || 0));
+  when.classList.toggle('is-pinned', pinned);
+}
+
+function tickLiveTime() {
+  renderNoteWhen();
+  moveNow($('vp-thread-list'), _T?.currentTime || 0, { formatTime: clock });
+}
+
+function wireLiveTime() {
+  const v = video();
+  if (!v) return;
+  let last = -1;
+  v.addEventListener('timeupdate', () => {
+    const now = Math.floor(_T?.currentTime || 0);
+    if (now === last) return;
+    last = now;
+    tickLiveTime();
+  });
+  v.addEventListener('seeked', () => { last = Math.floor(_T?.currentTime || 0); tickLiveTime(); });
 }
 
 // ── transport ───────────────────────────────────────────────────────────────
@@ -2839,6 +3114,7 @@ function returnComposerEditor() {
   const { element, parent, next } = _composerHome;
   if (parent) parent.insertBefore(element, next?.parentNode === parent ? next : null);
   _composerHome = null;
+  renderNoteWhen();
 }
 
 function openComposer(kind, { focusNote = false } = {}) {
@@ -2865,12 +3141,13 @@ function openComposer(kind, { focusNote = false } = {}) {
 }
 
 function renderComposerContext() {
+  renderNoteWhen();
   const context = $('vp-composer-context');
   if (!context) return;
   context.textContent = _composerKind === 'bookmark'
     ? (_bookmarkTime !== null ? `Bookmark at ${clock(_bookmarkTime)}` : 'Bookmark')
     : _clipIn >= 0 && _clipOut < 0 ? `Clip starts at ${clock(_clipIn)} · Press O to finish`
-    : _clipIn >= 0 && _clipOut >= 0 ? `Clip · ${clock(Math.min(_clipIn, _clipOut))}–${clock(Math.max(_clipIn, _clipOut))}`
+    : _clipIn >= 0 && _clipOut >= 0 ? `Clip · ${clock(Math.min(_clipIn, _clipOut))} to ${clock(Math.max(_clipIn, _clipOut))}`
     : 'Press I to start, then O to finish your clip';
 }
 
@@ -2978,7 +3255,7 @@ async function saveClipNow() {
         clearClip();
         if (_composerKind === 'clip') $('vp-composer-close')?.focus({ preventScroll: true });
       }
-      clipHint(`Clip saved${qualMsg} (${clock(startTimeS)}–${clock(endTimeS)}).`, false);
+      clipHint(`Clip saved${qualMsg} (${clock(startTimeS)} to ${clock(endTimeS)}).`, false);
       await reloadBookmarks();
       showSavedMoments('clips');
     } else {
@@ -3144,9 +3421,7 @@ function applyTimelineZoom() {
   content.style.setProperty('--tl-pan', `${_tlPan}px`);
   const zoomed = _tlZoom > 1.001;
   seek.classList.toggle('is-zoomed', zoomed);
-  // EARLY/MID/LATE are pinned to the viewport, so they'd lie once the content scrolls
-  // under them — hide them while zoomed (they're coarse orientation, not exact marks).
-  seek.querySelectorAll('.ph').forEach((el) => { el.style.opacity = zoomed ? '0' : ''; });
+  // The game-clock ticks live in the content, so they zoom and pan with it.
   const badge = $('vp-tl-zoom');
   if (badge) { badge.textContent = `${_tlZoom.toFixed(1)}×`; show(badge, zoomed); }
 }
@@ -3290,6 +3565,17 @@ document.addEventListener('keydown', (ev) => {
     }
     return;
   }
+  // Escape inside the open focus picker closes it; focus returns to its summary. It
+  // runs before the composer's Escape, because the docked composer is not modal and
+  // the picker beside it stays reachable.
+  if (ev.key === 'Escape') {
+    const picker = ev.target?.closest?.('.vp-focus-picker');
+    if (picker && picker.open) {
+      ev.preventDefault();
+      if (!ev.repeat) closeFocusPicker(picker);
+      return;
+    }
+  }
   // Escape typed in a moment note stays with that note; it never closes the composer.
   if (ev.key === 'Escape' && _composerKind && !isMomentNote(ev.target)) {
     ev.preventDefault();
@@ -3425,6 +3711,7 @@ async function boot() {
   wireSeekBar();
   wireTabs();
   wireFraming();
+  wireLiveTime();
   // Timeline corrections: selection, fast-path keys, the form, ghosts, the list.
   // Reads live page state through getters; writes through reloadBookmarks().
   _fx = createCorrections({
@@ -3469,11 +3756,12 @@ async function refreshSignInHint() {
   if (!hint || !_core) return;
   try {
     const s = await _core.invoke('get_auth_status');
-    show(hint, !(s && s.signedIn));
+    _signInHint = !(s && s.signedIn);
   } catch (_) {
-    // Auth status unavailable — don't nag; leave the hint hidden.
-    show(hint, false);
+    // Auth status unavailable: do not nag; leave the hint hidden.
+    _signInHint = false;
   }
+  show(hint, _signInHint);
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();

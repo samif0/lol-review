@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { polarityTone } from '../ui/meaning-tone.mjs';
 
 const source = (await readFile(new URL('../ui/patterns.js', import.meta.url), 'utf8'))
   .replace(/^import .*?;\r?\n/gm, '');
@@ -16,7 +17,8 @@ function fixture(reply = async () => ({ ok: true })) {
       children: [], selectors: new Map(), dataset: {}, textContent: '', value: '', hidden: false, disabled: false,
       get firstChild() { return this.children[0] || null; },
       set innerHTML(_) { throw new Error('Pattern content must remain plain text'); },
-      style: { setProperty() {} },
+      // Meaning colors travel as data-tone; any inline style write is recorded and fails the tone test.
+      style: { writes: [], setProperty(name, value) { this.writes.push([name, value]); } },
       classList: {
         contains: name => classes.has(name),
         add: (...names) => names.forEach(name => classes.add(name)),
@@ -48,7 +50,7 @@ function fixture(reply = async () => ({ ok: true })) {
       listeners.get(type).push(listener);
     },
   };
-  const context = vm.createContext({ document, window: { addEventListener() {} }, $, setTimeout, clearTimeout,
+  const context = vm.createContext({ document, window: { addEventListener() {} }, $, setTimeout, clearTimeout, polarityTone,
     console: { error() {} }, matchMedia: () => ({ matches: true }),
     show: (node, on) => { if (node) node.hidden = !on; },
     clear: node => { node.children = []; },
@@ -636,4 +638,38 @@ test('a failed rating keeps its error visible and discards a waiting Next reques
   await f.click('m-next', 'next_moment');
   assert.equal(f.hooks.activeMoment().bookmarkId, 102, 'A fresh Next click still works');
   assert.equal(loads.length, 2);
+});
+
+test('severity, rating and source marks are written as tones, never as inline sidecar colors', async () => {
+  const f = fixture();
+  const high = { ...pattern(1), severity: 'high', severityLabel: 'HIGH', severityHex: '#f3a3a8',
+    moments: [{ evidenceId: 'e-1', gameId: 1, title: 'Caught alone', sourceKind: 'clip', polarity: 'bad',
+      polarityLabel: 'BAD', accentHex: '#f3a3a8', win: false, resultLabel: 'LOSS', resultHex: '#f3a3a8' },
+    { evidenceId: 'e-2', gameId: 2, title: 'Good trade', bookmarkId: 9, sourceKind: 'bookmark', polarity: 'good',
+      polarityLabel: 'GOOD', accentHex: '#8ee7ba', win: true }] };
+  const medium = { ...pattern(2), severity: 'medium', severityHex: '#f3c794' };
+  const saved = { ...pattern(3, false, 'saved'), severity: 'high', severityHex: '#f3a3a8' };
+  f.hooks.render(snapshot([high, medium, saved]));
+  const cards = f.$('pat-pick').children;
+  assert.deepEqual(cards.map(card => card.querySelector('.pat-sev').dataset.tone), ['danger', 'pending']);
+  const rows = f.$('pat-rail').children;
+  assert.deepEqual(rows.map(row => row.dataset.tone), ['loss', 'ok']);
+  assert.deepEqual(rows.map(row => row.querySelector('.pat-rpol').dataset.tone), ['loss', 'ok']);
+  assert.deepEqual(rows.map(row => row.querySelector('.pat-rclip').dataset.tone), ['clip', 'note']);
+  assert.deepEqual(rows.map(row => row.querySelector('.pat-rpol').textContent), ['To improve', 'Good']);
+  assert.ok(f.$('m-rtag').classList.contains('loss'), 'the result tag keeps its result class');
+  f.hooks.selectView('saved');
+  assert.equal(f.$('pat-pick').children[0].querySelector('.pat-sev').dataset.tone, 'neutral',
+    'a saved collection has no severity color');
+
+  // Re-rating updates the tone from the polarity alone.
+  f.hooks.selectView('trend');
+  await f.hooks.setMomentQuality('neutral');
+  assert.equal(f.$('pat-rail').children[0].dataset.tone, 'neutral');
+  assert.equal(high.moments[0].accentHex, '#f3a3a8', 'the client never invents a replacement hex');
+
+  const written = [...f.$('pat-pick').children, ...f.$('pat-rail').children, f.$('m-rtag')]
+    .flatMap(node => [node, ...node.children])
+    .flatMap(node => [...node.style.writes, ...Object.keys(node.style).filter(key => !['writes', 'setProperty'].includes(key))]);
+  assert.deepEqual(written, [], 'no inline color reaches the page');
 });

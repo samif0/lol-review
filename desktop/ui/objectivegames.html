@@ -7,7 +7,9 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./learning-pages.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell">
@@ -58,13 +60,13 @@
 
   <!-- ── REPEATING-CELL TEMPLATES ── -->
 
-  <!-- One evidence-ledger row; the chip names its polarity. -->
+  <!-- One evidence-ledger row; the chip names its polarity and JS gives its dot a data-tone. -->
   <template id="tpl-ev">
     <div class="og-ev">
       <div class="og-ev-main">
         <div class="og-ev-title"></div>
         <div class="og-ev-meta"></div>
-        <div class="og-ev-note" hidden></div>
+        <div class="og-ev-note own-words" hidden></div>
       </div>
       <span class="og-ev-chip"></span>
     </div>
@@ -82,7 +84,7 @@
           <span class="og-grow-date"></span>
           <span class="og-badge og-grow-practiced"></span>
         </div>
-        <div class="og-grow-exec" hidden></div>
+        <div class="og-grow-exec own-words" hidden></div>
       </div>
       <div class="og-grow-acts">
         <button class="og-act og-act-review" data-action="review_game" type="button">Review match</button>

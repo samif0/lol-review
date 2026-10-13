@@ -122,6 +122,9 @@ const definitions = {
   open_recordings_folder: native(),
   get_background_settings: native(),
   save_background_settings: native({ payload: 'object' }),
+  // The shell reports the colors it shows; the host paints the window and remembers them
+  // for the next launch's splash. The host validates {mode, background, text, pref?}.
+  set_window_appearance: native({ payload: 'object' }),
   pick_folder: native(),
   save_export_file: native({"fileName":"string","markdown":"string"}),
   copy_text_to_clipboard: native({ text: 'string' }),

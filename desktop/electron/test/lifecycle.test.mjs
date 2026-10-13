@@ -101,6 +101,7 @@ test('the splash is static, escaped markup and cannot be closed while data is pr
   splash.show();
   splash.show();
   assert.equal(windows.length, 1);
+  assert.equal(windows[0].options.backgroundColor, '#21201e');
   assert.equal(windows[0].options.webPreferences.javascript, false);
   assert.equal(windows[0].options.webPreferences.devTools, false);
   splash.preparing();
@@ -111,6 +112,42 @@ test('the splash is static, escaped markup and cannot be closed while data is pr
   splash.close();
   assert.equal(windows[0].destroyed, true);
   splash.close();
+
+  // A saved light theme opens light from the first frame; Windows mode only matters for System.
+  const light = { mode: 'light', background: '#ffffff', text: '#0f1012', pref: 'light' };
+  createSplash({ BrowserWindow: FakeWindow, iconPath: 'revu.ico', appearance: light, dark: true }).show();
+  assert.equal(windows[1].options.backgroundColor, '#ffffff');
+  assert.match(decodeURIComponent(windows[1].loaded[0]), /background:#ffffff;color:#0f1012/);
+  // Nothing saved: the app default (dark), like the main window, even while Windows is light.
+  createSplash({ BrowserWindow: FakeWindow, iconPath: 'revu.ico', dark: false }).show();
+  assert.equal(windows[2].options.backgroundColor, '#21201e');
+  createSplash({ BrowserWindow: FakeWindow, iconPath: 'revu.ico', appearance: { ...light, background: 'red' } }).show();
+  assert.equal(windows[3].options.backgroundColor, '#21201e');
+});
+
+test('the splash opens in the saved palette, or the default Warm dark, and never runs script', () => {
+  const page = (...args) => decodeURIComponent(splashPage(...args).replace(/^data:text\/html;charset=utf-8,/, ''));
+  const defaults = page('Starting');
+  assert.match(defaults, /html,body\{background:#21201e;color:#f3f0ea\}p\{color:#a29d93\}/);
+  assert.doesNotMatch(defaults, /prefers-color-scheme/, 'the first launch opens dark, like the window and the pages');
+  assert.doesNotMatch(defaults, /#0d101b/i);
+  const neutralLight = page('Starting', { mode: 'light', background: '#FFFFFF', text: '#0f1012', pref: 'light' });
+  assert.match(neutralLight, /html,body\{background:#ffffff;color:#0f1012\}/);
+  assert.doesNotMatch(neutralLight, /prefers-color-scheme|#21201e/);
+  // System keeps the saved colors for their mode and follows Windows into the other.
+  const system = page('Starting', { mode: 'dark', background: '#1c1d1f', text: '#f3f4f6', pref: 'system' });
+  assert.match(system, /html,body\{background:#1c1d1f;color:#f3f4f6\}.*@media \(prefers-color-scheme:light\)\{html,body\{background:#f8f7f3/);
+  // Anything but validated hex never reaches the stylesheet.
+  for (const tampered of [{ mode: 'dark', background: '#000}</style><script>alert(1)</script>', text: '#ffffff' },
+    { mode: 'dark', background: 'red', text: '#fff' }, 'dark', 7, []]) {
+    const html = page('Starting', tampered);
+    assert.doesNotMatch(html, /<script|alert|red;/i);
+    assert.match(html, /background:#21201e/);
+  }
+  for (const html of [defaults, neutralLight, system]) {
+    assert.match(html, /default-src 'none'; style-src 'unsafe-inline'/);
+    assert.doesNotMatch(html, /<script|script-src|javascript:/i);
+  }
 });
 
 function fakeSplash() {

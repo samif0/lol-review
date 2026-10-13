@@ -7,14 +7,15 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./matchups-page.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body class="matchups-page">
   <div class="shell">
     <!-- New notes can start blank or use a recent match's champions. -->
     <div class="mj-hero">
       <div class="hero">
-        <div class="eyebrow">Improve</div>
         <h1>Matchup notes</h1>
         <div class="mj-subt" id="mj-subt">Your playbook, one matchup at a time.</div>
       </div>
@@ -194,11 +195,11 @@
       <div class="mj-notes">
         <label class="mj-note mj-note-prior">
           <span class="mj-note-head"><span class="mj-note-k">Plan</span><span class="mj-saved" hidden>Saved</span></span>
-          <textarea class="mj-note-in" data-field="prior" rows="2" maxlength="4000" placeholder="What did you expect going in?"></textarea>
+          <textarea class="mj-note-in own-words" data-field="prior" rows="2" maxlength="4000" placeholder="What did you expect going in?"></textarea>
         </label>
         <label class="mj-note mj-note-observed">
           <span class="mj-note-head"><span class="mj-note-k">What I learned</span><span class="mj-saved" hidden>Saved</span></span>
-          <textarea class="mj-note-in" data-field="observed" rows="2" maxlength="4000" placeholder="What actually happened?"></textarea>
+          <textarea class="mj-note-in own-words" data-field="observed" rows="2" maxlength="4000" placeholder="What actually happened?"></textarea>
         </label>
       </div>
       <div class="mj-card-err" hidden></div>

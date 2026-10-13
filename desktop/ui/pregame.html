@@ -7,6 +7,9 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
+<link rel="stylesheet" href="./pregame.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell pg-shell">
@@ -59,7 +62,7 @@
       </div>
       <div class="active-plan-row" id="active-plan-row" hidden>
         <span class="active-plan-k">Active plan</span>
-        <span class="active-plan" id="active-plan"></span>
+        <span class="active-plan own-words" id="active-plan"></span>
       </div>
 
       <div id="intent-edit">
@@ -106,7 +109,7 @@
     <!-- ════ OBJECTIVES ════ priority headline + practiced toggles -->
     <div class="glass card pg-card obj" id="obj-card" hidden>
       <div class="seclabel-in">Priority</div>
-      <div class="obj-priority-title" id="obj-priority-title"></div>
+      <div class="obj-priority-title own-words" id="obj-priority-title"></div>
       <div class="obj-priority-crit" id="obj-priority-crit" hidden></div>
 
       <div class="seclabel-in obj-sub" id="obj-list-label" hidden>Practiced this game?</div>
@@ -141,7 +144,7 @@
 
   <template id="tpl-mh">
     <div class="mh-row">
-      <div class="mh-note"></div>
+      <div class="mh-note own-words"></div>
       <div class="mh-meta"><span class="mh-date"></span><span class="mh-helpful" hidden></span></div>
     </div>
   </template>
@@ -156,7 +159,7 @@
   <template id="tpl-prompt">
     <label class="p-row">
       <span class="p-label"></span>
-      <textarea class="pg-textarea p-input" rows="2" placeholder="Write your answer…"></textarea>
+      <textarea class="pg-textarea p-input own-words" rows="2" placeholder="Write your answer…"></textarea>
     </label>
   </template>
 

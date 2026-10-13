@@ -238,7 +238,14 @@ export function createTransport({
     const d = dur() || 1;
     const pct = Math.max(0, Math.min(1, current() / d));
     if (seekFillEl) seekFillEl.style.width = `${pct * 100}%`;
-    if (playheadEl) playheadEl.style.left = `${pct * 100}%`;
+    if (playheadEl) {
+      playheadEl.style.left = `${pct * 100}%`;
+      // Distance to the nearer end of the track, in percent: Aura sizes its playhead
+      // glow by it, so the glow shrinks at the ends instead of being cut off.
+      if (typeof playheadEl.style.setProperty === 'function') {
+        playheadEl.style.setProperty('--edge', String(Math.round(Math.min(pct, 1 - pct) * 1000) / 10));
+      }
+    }
     setTimeReadout(current(), d);
   }
   function onPlay() { setGlyph(playBtn, 'pause'); }
@@ -447,7 +454,8 @@ export function createTransport({
         if (ev.key === 'Tab') { containModalTab(ev); return true; }
       }
       if (editableTarget(ev.target)) return false;
-      if ((ev.key === ' ' || ev.key === 'Enter') && ev.target?.closest?.('button')) return false;
+      // Buttons and disclosure summaries keep their native Space and Enter activation.
+      if ((ev.key === ' ' || ev.key === 'Enter') && ev.target?.closest?.('button, summary')) return false;
       let action;
       switch (ev.key) {
         case 'ArrowUp': action = () => api.nudgeStep(1); break;

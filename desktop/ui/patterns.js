@@ -1,6 +1,7 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
+import { polarityTone } from './meaning-tone.mjs';
 
 // Revu desktop — Patterns page renderer for the glass-aurora layout.
 // Renders the JSON returned by the Electron command `get_patterns`
@@ -9,8 +10,8 @@ import { getInvoke } from './platform/index.mjs';
 //   • Outside Electron it fetches ./sample-patterns.json so the page previews in a
 //     plain browser.
 //   • Every server string is written via textContent (never innerHTML) so the
-//     surface stays XSS-free; colors arrive as *Hex strings applied to style
-//     properties only.
+//     surface stays XSS-free. The sidecar's *Hex colors are not painted: meaning
+//     is written as data-tone (./meaning-tone.mjs) and the theme maps it to a color.
 //   • ONE delegated [data-action] click handler.
 //
 // This page surfaces the cross-game pattern playlists for review. Two WRITES
@@ -82,6 +83,13 @@ function displayLabel(value) {
   return labels[String(value || '').toUpperCase()] || value || '';
 }
 
+// A trend's severity as a meaning tone: high reads as danger, anything else as
+// pending. A saved-moments collection has no severity, so it stays neutral.
+function severityTone(p) {
+  if (reviewMode(p) === 'saved') return 'neutral';
+  return String(p?.severity || '').trim().toLowerCase() === 'high' ? 'danger' : 'pending';
+}
+
 function momentTime(seconds) {
   const time = Math.max(0, Math.floor(Number(seconds) || 0));
   return `${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}`;
@@ -130,10 +138,9 @@ function buildPatCard(p, idx) {
 
   const saved = reviewMode(p) === 'saved';
   sev.textContent = saved ? 'Saved moments' : displayLabel(p.severityLabel || p.severity);
-  if (p.severityHex) {
-    sev.style.color = p.severityHex;
-    sev.style.borderColor = p.severityHex;
-  }
+  sev.dataset.tone = severityTone(p);
+  // A saved collection sits under the Saved moments view already; the tag would repeat it.
+  sev.hidden = saved;
 
   title.textContent = p.title || '';
   detail.textContent = p.detail || '';
@@ -141,15 +148,14 @@ function buildPatCard(p, idx) {
 
   state.textContent = saved ? 'Revisit' : p.isReviewed ? 'Reviewed' : 'To review';
   state.classList.toggle('warn', !saved && !p.isReviewed);
+  // "Revisit" would repeat the card's own "Revisit moments" cue.
+  state.hidden = saved;
 
   // Active card reads loud (accent rim) so the selection is obvious.
   if (idx === _patIdx) el.classList.add('pat-card-active');
   el.setAttribute('aria-pressed', String(idx === _patIdx));
 
   if (cue) cue.firstChild.textContent = (idx === _patIdx ? 'Selected' : saved || p.isReviewed ? 'Revisit moments' : 'Compare moments') + ' ';
-
-  // Left edge bar rests in the severity color, energizes to accent on hover.
-  if (p.severityHex) el.style.setProperty('--wl', p.severityHex);
 
   el.dataset.patIdx = String(idx);
   return el;
@@ -187,10 +193,6 @@ function renderPlayer() {
   rtag.textContent = displayLabel(m.resultLabel);
   rtag.classList.toggle('win', !!m.win);
   rtag.classList.toggle('loss', !m.win);
-  if (m.resultHex) {
-    rtag.style.color = m.resultHex;
-    rtag.style.borderColor = m.resultHex;
-  }
   $('m-title').textContent = m.title || '';
   $('m-glabel').textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
   $('m-source-label').textContent = m.sourceKind === 'bookmark' ? 'Bookmark preview · up to 15s each side'
@@ -253,12 +255,16 @@ function buildMomRow(m, idx) {
   rg.textContent = [m.championLabel, m.timeLabel].filter(Boolean).join(' · ');
 
   show(clip, true);
-  if (clip) clip.textContent = m.sourceKind === 'bookmark' ? 'Bookmark' : 'Clip';
+  if (clip) {
+    clip.textContent = m.sourceKind === 'bookmark' ? 'Bookmark' : 'Clip';
+    clip.dataset.tone = m.sourceKind === 'bookmark' ? 'note' : 'clip';
+  }
 
   const polarity = m.polarity || 'neutral';
+  const tone = polarityTone(polarity);
   pol.textContent = displayLabel(m.polarityLabel || polarity);
   pol.classList.add(polarity);
-  if (m.accentHex) pol.style.color = m.accentHex;
+  pol.dataset.tone = tone;
 
   title.textContent = m.title || '';
 
@@ -267,9 +273,9 @@ function buildMomRow(m, idx) {
     show(noteEl, true);
   }
 
-  // Polarity-colored left border; active / viewed states.
+  // Rating tone and the active / viewed states.
   el.classList.add(polarity);
-  if (m.accentHex) el.style.setProperty('--pol', m.accentHex);
+  el.dataset.tone = tone;
   if (idx === _momIdx) el.classList.add('active');
   else if (idx < _momIdx) el.classList.add('viewed');
   el.setAttribute('aria-pressed', String(idx === _momIdx));
@@ -286,6 +292,8 @@ function renderRail() {
 
   // "24 of 500" when the playlist is capped or some moments have nothing left to
   // watch — the card still counts every instance the detector found.
+  const heading = $('rail-label')?.firstChild;
+  if (heading && heading.nodeType === 3) heading.textContent = _view === 'saved' ? 'Saved moments ' : 'Moments to compare ';
   const sub = $('rail-sub');
   const p = activePattern();
   const total = Number(p && p.totalMomentCount) || moms.length;
@@ -633,7 +641,6 @@ async function setMomentQuality(quality) {
         if (same) {
           other.polarity = quality;
           other.polarityLabel = displayLabel(quality);
-          other.accentHex = quality === 'good' ? '#8ee7ba' : quality === 'bad' ? '#f3a3a8' : '#aaa7b5';
         }
       }
     }

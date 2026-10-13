@@ -1,95 +1,140 @@
-/* The review follows one sequence: choose, compare, then write a takeaway. */
-.pat-views{display:flex;gap:8px;flex-wrap:wrap;padding:6px;width:fit-content;border:1px solid var(--border);border-radius:14px;background:var(--surface);margin:24px 0 12px}
-.pat-view{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px 16px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--t2);font:500 14px/1.5 var(--fb);cursor:pointer}
-.pat-view:hover{background:var(--surface-raised);color:var(--text)}
-.pat-view[aria-pressed="true"]{background:var(--surface-raised);border-color:var(--border);color:var(--text)}
-.pat-view span{padding:1px 6px;border-radius:5px;background:var(--bg);color:var(--muted);font-size:12px}
+/* The review follows one sequence: choose, compare, then write a takeaway.
+   Calm look: quiet outlined rows, color only where it carries meaning (severity,
+   rating, result), and one raised surface for the takeaway. "Lit" (--lit-fill)
+   marks what you are on: the selected trend, the current moment and the current
+   view. Tones come from data-tone (patterns.js) mapped in appearance.css. */
+
+/* View switch: a .ui-seg from kit.css. Counts read as quiet numbers. */
+.pat-views{flex-wrap:wrap;margin:0 0 12px}
+.pat-views .pat-view span{margin-left:2px;color:var(--t3);font-weight:400;font-variant-numeric:tabular-nums}
+.pat-views .pat-view[aria-pressed="true"] span{color:var(--t2)}
+:root[data-theme="aura"] .pat-views > .pat-view[aria-pressed="true"]{background:var(--lit-fill),var(--raised);box-shadow:var(--lit-shadow)!important}
 .pat-view-help{max-width:92ch;margin:0 0 26px}
 .pat-batches{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px}
-.pat-batches>span{color:var(--muted);font-size:12px;white-space:nowrap}
-.patterns-shell .pat-batches .pat-btn{min-height:36px;padding:7px 10px;font-size:12px}
+.pat-batches>span{color:var(--t3);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.patterns-shell .pat-batches .pat-btn{min-height:36px;padding:7px 10px;font-size:13px}
 .pat-refresh-trends{margin:0 0 24px}
-.pat-quality{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--border);font-size:14px;color:var(--t2)}
+
+/* Rating: three .ui-pill toggles. */
+.pat-quality{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--line);font-size:14px;color:var(--t2)}
 .pat-quality-options{display:flex;gap:7px;flex-wrap:wrap}
-.pat-quality-options button{min-height:36px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:transparent;color:var(--t2);font:400 13px/1.5 var(--fb);cursor:pointer}
-.pat-quality-options button[aria-pressed="true"]{background:var(--surface-raised);border-color:var(--muted);color:var(--text)}
-.pat-quality-options button:disabled{opacity:.6;cursor:default}
-.patterns-shell .pat-section-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:17px;font-weight:600;line-height:1.5;color:var(--text)}
-.pat-step-number{display:inline-flex;align-items:center;justify-content:center;flex:0 0 26px;width:26px;height:26px;border-radius:50%;background:var(--surface-raised);color:var(--t2);font-size:13px;font-weight:600}
-.pat-section-heading .n{margin-left:auto;color:var(--muted);font-size:13px;font-weight:400}
+.pat-quality-options .ui-pill{height:32px;font-size:13px}
+
+/* Section headings with their step number. */
+.patterns-shell .pat-section-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:17px;font-weight:600;line-height:1.5;color:var(--t1)}
+.pat-step-number{display:inline-flex;align-items:center;justify-content:center;flex:0 0 26px;width:26px;height:26px;border-radius:50%;background:var(--selected);color:var(--t2);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.pat-section-heading .n{margin-left:auto;color:var(--t3);font-size:13px;font-weight:400}
+
+/* Trend picker: outlined rows on the page, lit when selected. */
 .patterns-shell .pat-pick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0}
-body .patterns-shell .pat-card{padding:20px;margin:0;background:var(--surface)!important;border:1px solid var(--border)!important;border-radius:14px!important}
-body .patterns-shell .pat-card:hover{background:var(--surface-raised)!important}
-body .patterns-shell .pat-card-active{background:var(--surface-raised)!important;border-color:var(--muted)!important}
+body .patterns-shell .pat-card{padding:18px 20px;margin:0;background:transparent!important;border:1px solid var(--line)!important;border-radius:var(--r-lg)!important}
+body .patterns-shell .pat-card:hover{background:var(--hover)!important}
+body .patterns-shell .pat-card-active,body .patterns-shell .pat-card-active:hover{background:var(--lit-fill)!important;border-color:var(--line-strong)!important;box-shadow:var(--lit-shadow)!important}
 .patterns-shell .pat-card-viewed{opacity:1}
 .patterns-shell .pat-card .crow{align-items:stretch;gap:16px}
 .patterns-shell .pat-card-top{align-items:baseline;flex-wrap:wrap;gap:8px}
-.patterns-shell .pat-card-title{white-space:normal;overflow-wrap:anywhere;font-size:16px;line-height:1.5}
-.patterns-shell .pat-card-detail{font-size:14px;line-height:1.6;margin-top:8px}
-.patterns-shell .pat-card-sub{font-size:13px;line-height:1.5;margin-top:10px}
+.patterns-shell .pat-card-title{white-space:normal;overflow-wrap:anywhere;font-family:var(--f-body);font-size:16px;font-weight:500;line-height:1.5;color:var(--t1)}
+.patterns-shell .pat-card-detail{font-size:14px;line-height:1.6;margin-top:8px;color:var(--t3)}
+.patterns-shell .pat-card-sub{font-size:13px;line-height:1.5;margin-top:10px;color:var(--t3)}
 .patterns-shell .pat-card-right{justify-content:space-between;gap:16px}
-.patterns-shell :is(.pat-sev,.pat-card-state){font-size:12px;line-height:1.5;padding:3px 8px;font-weight:400;letter-spacing:0}
-.patterns-shell .pat-card-state{background:var(--bg);border:0;color:var(--t2)}
+/* Severity and state read as small tags: the tone tints the severity, pending tints "To review". */
+.patterns-shell :is(.pat-sev,.pat-card-state){display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--r-sm);font-family:var(--f-body);font-size:12px;font-weight:500;line-height:1;white-space:nowrap}
+.patterns-shell .pat-sev{background:color-mix(in srgb,var(--tone,var(--t3)) 14%,transparent);color:color-mix(in srgb,var(--tone,var(--t2)) 80%,var(--t1))}
+.patterns-shell .pat-sev[data-tone="neutral"]{background:var(--selected);color:var(--t2)}
+.patterns-shell .pat-card-state{background:var(--selected);color:var(--t2)}
+.patterns-shell .pat-card-state.warn{background:var(--pending-soft);color:color-mix(in srgb,var(--pending) 85%,var(--t1))}
 .patterns-shell .pat-card .gamerow-cue{opacity:1;transform:none;font-size:13px;line-height:1.5;color:var(--t2);white-space:nowrap}
-.patterns-shell .pat-card-active .gamerow-cue{color:var(--text);font-weight:600}
+.patterns-shell .pat-card:hover .gamerow-cue{color:var(--t1)}
+.patterns-shell .pat-card-active .gamerow-cue{color:var(--t1);font-weight:500}
 .patterns-shell .pat-card-active .gamerow-cue .arr{display:none}
 
-.patterns-shell .pat-main{grid-template-columns:minmax(0,1fr) 320px;gap:24px;margin:32px 0 0;padding-top:28px;border-top:1px solid var(--border)}
+/* Compare: player beside the moment list. */
+.patterns-shell .pat-main{grid-template-columns:minmax(0,1fr) 320px;gap:24px;margin:32px 0 0;padding-top:28px;border-top:1px solid var(--line)}
 .pat-review-heading{grid-column:1/-1;scroll-margin-top:24px}
 .patterns-shell .pat-review-heading .pat-section-heading{margin-bottom:12px}
-#pat-review-title{margin:0 0 8px;color:var(--text);font-size:22px;font-weight:600;line-height:1.45;overflow-wrap:anywhere}
+#pat-review-title{margin:0 0 8px;color:var(--t1);font-size:22px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
 #pat-review-title:focus{outline:none}
 .pat-review-heading .field-help{max-width:76ch}
-.pat-no-moments{grid-column:1/-1;padding:24px;border:1px solid var(--border);border-radius:14px}
-.pat-player-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;font-size:13px;color:var(--muted)}
-#m-position{font-weight:600;color:var(--text)}
-body .patterns-shell .pat-stage{background:#171717!important;border:1px solid var(--border)!important;border-radius:14px!important}
-.patterns-shell .pat-mstrip{padding:14px 16px;gap:10px;flex-wrap:wrap;background:#171717}
-.patterns-shell .pat-mstrip .pat-mtitle{font-size:14px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
-.patterns-shell .pat-mstrip .pat-glabel{font-size:12px;line-height:1.5;color:var(--muted)}
-.patterns-shell .pat-collapse{align-items:center;justify-content:center;min-height:38px;padding:8px 14px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font-family:var(--fb);font-size:14px;line-height:1.5;cursor:pointer}
-.patterns-shell .pat-collapse:hover{background:var(--surface-raised)}
-.patterns-shell :is(.pat-rtag,.pat-rclip,.pat-rpol){font-size:12px;line-height:1.5;letter-spacing:0;font-weight:400}
-.patterns-shell .pat-surface{height:auto;min-height:220px;aspect-ratio:16/9;background:#171717;border-radius:0;border-top:1px solid var(--border)}
-.patterns-shell .pat-surface:hover{box-shadow:none}
-.patterns-shell .pat-play{width:52px;height:52px;background:var(--primary);border:0;box-shadow:none}
-.patterns-shell .pat-play::after{border-left-color:var(--primary-ink);border-width:9px 0 9px 14px}
-.patterns-shell .pat-surface:hover .pat-play{transform:none;box-shadow:none}
-.patterns-shell .pat-vhead{font-size:15px;color:var(--text);letter-spacing:0}
-.patterns-shell .pat-bar i{display:none}
-.patterns-shell .pat-scrub{font-size:12px;background:#171717;color:var(--muted)}
-.patterns-shell .pat-video{border-radius:0}
-.patterns-shell .pat-transport{background:#171717;padding:12px}
-.patterns-shell .pat-nav{margin-top:14px;gap:12px}
-.patterns-shell .pat-btn{min-height:42px;height:auto;padding:10px 16px;font-size:14px;font-weight:500;line-height:1.5}
-body .patterns-shell .pat-btn-gold:not(:disabled){background:var(--primary)!important;color:var(--primary-ink)!important;border-color:transparent!important}
+.pat-no-moments{grid-column:1/-1;padding:24px;border:1px solid var(--line);border-radius:var(--r-lg)}
+.pat-player-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;font-size:13px;color:var(--t3)}
+#m-position{font-weight:500;color:var(--t1);font-variant-numeric:tabular-nums}
 
-body .patterns-shell .pat-npanel{margin-top:24px;padding:22px;background:var(--surface)!important;border:1px solid var(--border)!important;border-radius:14px!important}
+/* Stage: a raised panel. The surface turns into the dark video well only while a
+   clip plays. patterns-player.css repaints the expanded overlay with the page
+   background at equal specificity, so keep these selectors no stronger. */
+body .patterns-shell .pat-stage{background:var(--raised)!important;border:var(--raised-border)!important;border-radius:var(--r-lg)!important}
+.patterns-shell .pat-mstrip{padding:14px 16px;gap:10px;flex-wrap:wrap;background:transparent}
+.patterns-shell .pat-mstrip .pat-mtitle{font-size:14px;font-weight:500;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.patterns-shell .pat-mstrip .pat-glabel{font-size:12px;line-height:1.5;color:var(--t3);font-variant-numeric:tabular-nums}
+.patterns-shell .pat-collapse{align-items:center;justify-content:center;min-height:38px;padding:8px 14px;border:1px solid var(--line-strong);border-radius:var(--btn-radius);background:transparent;color:var(--t1);font-family:var(--f-body);font-size:14px;line-height:1.5;cursor:pointer}
+.patterns-shell .pat-collapse:hover{background:var(--hover)}
+/* Small tone text on its own tint: mixed toward --t1 so it keeps 4.5:1 in every theme and mode. */
+.patterns-shell .pat-rtag.loss{color:color-mix(in srgb,var(--loss) 80%,var(--t1))}
+.patterns-shell .pat-rtag.win{color:color-mix(in srgb,var(--win) 80%,var(--t1))}
+.patterns-shell .pat-rtag{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:0;border-radius:var(--r-sm);background:color-mix(in srgb,currentColor 13%,transparent);font-family:var(--f-body);font-size:12px;font-weight:500;line-height:1}
+.patterns-shell :is(.pat-rclip,.pat-rpol){font-size:12px;line-height:1.5;font-weight:500}
+.patterns-shell .pat-surface{height:auto;min-height:220px;aspect-ratio:16/9;background:var(--surface-raised);border-radius:0;border-top:1px solid var(--line)}
+.patterns-shell .pat-surface.pat-surface-playing{background:var(--well)}
+.patterns-shell .pat-surface:hover{box-shadow:none}
+.patterns-shell .pat-play{width:52px;height:52px;background:var(--accent);border:0;box-shadow:none}
+.patterns-shell .pat-play::after{border-left-color:var(--accent-ink);border-width:9px 0 9px 14px}
+.patterns-shell .pat-surface:hover .pat-play{transform:none;box-shadow:none}
+.patterns-shell .pat-vhead{font-family:var(--f-body);font-size:15px;color:var(--t1)}
+.patterns-shell .pat-novod{font-size:14px;color:var(--t3)}
+.patterns-shell .pat-bar{background:var(--track)}
+.patterns-shell .pat-bar i{display:none}
+.patterns-shell .pat-scrub{font-size:12px;background:transparent;color:var(--t3);font-family:var(--f-body);font-variant-numeric:tabular-nums}
+.patterns-shell .pat-video{border-radius:0}
+.patterns-shell .pat-transport{background:transparent;border-top:1px solid var(--line);padding:12px}
+.patterns-shell .pat-nav{margin-top:14px;gap:12px}
+.patterns-shell .pat-btn{min-height:42px;height:auto;padding:10px 16px;font-family:var(--f-body);font-size:14px;font-weight:500;line-height:1.5}
+body .patterns-shell .pat-btn-gold:not(:disabled){background:var(--accent)!important;color:var(--accent-ink)!important;border-color:var(--accent)!important;border-radius:var(--btn-radius)!important}
+body .patterns-shell .pat-btn-gold:not(:disabled):hover{background:var(--accent-hover)!important;border-color:var(--accent-hover)!important}
+
+/* Takeaway: the page's one raised surface. */
+body .patterns-shell .pat-npanel{margin-top:24px;padding:22px;background:var(--raised)!important;border:var(--raised-border)!important;border-radius:var(--r-lg)!important;box-shadow:var(--raised-shadow)!important}
 .patterns-shell .pat-nhead{flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .patterns-shell .pat-nhead .pat-section-heading{margin:0;flex:1}
-.patterns-shell :is(.pat-nstatus,.pat-clipt){font-size:12px;line-height:1.5;letter-spacing:0}
-.patterns-shell .pat-noteinput{margin:10px 0;min-height:104px}
-.pat-review-finish{margin-top:20px;padding-top:20px;border-top:1px solid var(--border)}
+.patterns-shell .pat-nstatus{font-size:12px;line-height:1.5;color:var(--t3)}
+.patterns-shell .pat-clipt{display:inline-flex;align-items:center;gap:7px;height:22px;padding:0 8px;border:0;border-radius:var(--r-sm);background:var(--selected);color:var(--t2);font-size:12px;font-weight:500;line-height:1}
+.patterns-shell .pat-clipt::before{content:'';flex:none;width:7px;height:7px;border-radius:1px;background:var(--mk-clip);transform:rotate(45deg)}
+.patterns-shell .pat-noteinput{margin:10px 0;min-height:104px;font-size:14px;line-height:1.6}
+.patterns-shell .pat-npanel .field-help{font-size:13px}
+.pat-review-finish{margin-top:20px;padding-top:20px;border-top:1px solid var(--line)}
 .patterns-shell .pat-pending{gap:12px;align-items:flex-start}
 .patterns-shell .pat-markrev{width:auto}
 .patterns-shell .pat-closed{padding:18px;margin:0}
-.patterns-shell .pat-ck{font-size:14px;letter-spacing:0}
+.patterns-shell .pat-ck{font-size:14px}
 .patterns-shell .pat-csum{font-size:14px;line-height:1.6}
 
-.pat-rail-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px;font-size:15px;font-weight:600;line-height:1.5;color:var(--text)}
-.pat-rail-heading .n{font-size:13px;font-weight:400;color:var(--muted)}
-.patterns-shell .pat-rail{position:relative;gap:10px;max-height:720px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:5px}
-.patterns-shell .pat-row{flex-shrink:0;padding:14px;background:var(--surface);border:1px solid var(--border);box-shadow:none;transform:none;opacity:1}
+/* Moment list: outlined rows; the current one is lit. */
+.pat-rail-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px;font-size:15px;font-weight:600;line-height:1.5;color:var(--t1)}
+.pat-rail-heading .n{font-size:13px;font-weight:400;color:var(--t3)}
+.patterns-shell .pat-rail{position:relative;gap:8px;max-height:720px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:5px}
+.patterns-shell .pat-row{flex-shrink:0;padding:12px 14px;background:transparent;border:1px solid var(--line);border-radius:var(--r-md);box-shadow:none;transform:none;opacity:1}
 .patterns-shell .pat-row::before{display:none}
-.patterns-shell .pat-row:hover{background:var(--surface-raised);box-shadow:none;transform:none}
-.patterns-shell .pat-row.active{background:var(--surface-raised);border-color:var(--muted);box-shadow:none}
-.patterns-shell .pat-rtop{flex-wrap:wrap;margin-bottom:10px;gap:8px}
-.pat-moment-number{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;border-radius:6px;background:var(--bg);color:var(--muted);font-size:12px}
-.pat-row.active .pat-moment-number{background:var(--primary);color:var(--primary-ink)}
-.patterns-shell .pat-rg{font-size:13px;letter-spacing:0;color:var(--t2);flex:1}
-.patterns-shell .pat-rright{margin-left:auto}
+.patterns-shell .pat-row:hover{background:var(--hover);border-color:var(--line-strong);box-shadow:none;transform:none}
+.patterns-shell .pat-row.active,.patterns-shell .pat-row.active:hover{background:var(--lit-fill);border-color:var(--line-strong);box-shadow:var(--lit-shadow)!important}
+.patterns-shell .pat-rtop{flex-wrap:wrap;margin-bottom:8px;gap:8px}
+.pat-moment-number{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex-shrink:0;border-radius:var(--r-sm);background:var(--selected);color:var(--t2);font-size:12px;font-variant-numeric:tabular-nums}
+.pat-row.active .pat-moment-number{background:var(--accent);color:var(--accent-ink)}
+.patterns-shell .pat-rg{font-family:var(--f-body);font-size:13px;color:var(--t2);flex:1;font-variant-numeric:tabular-nums}
+.patterns-shell .pat-rright{margin-left:auto;gap:10px}
+/* Clip and bookmark marks: a small diamond in the marker tone, then the word. */
+.patterns-shell .pat-rclip{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;border-radius:0;font-family:var(--f-body);color:var(--t3)}
+.patterns-shell .pat-rclip::before{content:'';flex:none;width:7px;height:7px;border-radius:1px;background:var(--tone,var(--mk-clip));transform:rotate(45deg)}
+.patterns-shell .pat-rpol{font-family:var(--f-body)}
+.patterns-shell .pat-rpol[data-tone]{color:color-mix(in srgb,var(--tone) 85%,var(--t1))}
+.patterns-shell .pat-rpol[data-tone="neutral"]{color:var(--t2)}
 .patterns-shell .pat-rtitle{font-size:14px;font-weight:500;line-height:1.5;overflow-wrap:anywhere}
-.patterns-shell .pat-rnote{font-size:13px;font-style:normal;line-height:1.6;color:var(--muted);margin-top:8px}
+.patterns-shell .pat-rnote{font-size:13px;font-style:normal;line-height:1.6;color:var(--t2);margin-top:6px}
+
+/* Empty state, in the kit's empty-state voice. */
+.patterns-shell .pat-empty{padding:40px 16px}
+.patterns-shell .pat-empty-h{font-family:var(--f-body);font-size:15px;font-weight:500;line-height:1.4;color:var(--t1)}
+.patterns-shell .pat-empty-h:focus{outline:none}
+.patterns-shell .pat-empty-p{font-size:14px;line-height:1.5;color:var(--t3);max-width:460px}
+.patterns-shell .pat-empty .pat-btn{display:inline-flex;margin:16px 8px 0}
 
 @media(max-width:1100px){
   .patterns-shell .pat-card .crow{flex-direction:column}
@@ -97,14 +142,20 @@ body .patterns-shell .pat-npanel{margin-top:24px;padding:22px;background:var(--s
 }
 @media(max-width:900px){
   .patterns-shell .pat-main{grid-template-columns:minmax(0,1fr)}
-  .patterns-shell .pat-rail{max-height:480px}
+  /* One column: the moment list that drives the player sits between the heading and the player. */
+  .patterns-shell .pat-review-heading{order:-2}
+  .patterns-shell .pat-railcol{order:-1}
+  .patterns-shell .pat-rail{max-height:280px}
 }
 @media(max-width:600px){
   .patterns-shell .pat-pick{grid-template-columns:minmax(0,1fr)}
-  .patterns-shell .pat-card{padding:16px}
+  body .patterns-shell .pat-card{padding:16px}
   .patterns-shell .pat-section-heading{font-size:16px}
   .pat-section-heading .n{margin-left:36px;flex-basis:100%}
   .patterns-shell .pat-mstrip .pat-glabel{flex-basis:100%}
-  .patterns-shell .pat-npanel{padding:18px}
+  body .patterns-shell .pat-npanel{padding:18px}
   .patterns-shell .pat-nav{grid-template-columns:minmax(0,1fr)}
+}
+@media(prefers-reduced-motion:no-preference){
+  .patterns-shell :is(.pat-card,.pat-row,.pat-collapse){transition:background-color .15s ease,border-color .15s ease}
 }

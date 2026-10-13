@@ -7,6 +7,9 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
+<link rel="stylesheet" href="./pregame.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell pg-shell">
@@ -84,7 +87,7 @@
 
   <template id="tpl-mh">
     <div class="mh-row">
-      <div class="mh-note"></div>
+      <div class="mh-note own-words"></div>
       <div class="mh-meta"><span class="mh-date"></span><span class="mh-helpful" hidden></span></div>
     </div>
   </template>
@@ -99,7 +102,7 @@
   <template id="tpl-prompt">
     <label class="p-row">
       <span class="p-label"></span>
-      <textarea class="pg-textarea p-input" rows="2" placeholder="Write your answer…"></textarea>
+      <textarea class="pg-textarea p-input own-words" rows="2" placeholder="Write your answer…"></textarea>
     </label>
   </template>
 

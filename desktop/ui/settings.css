@@ -1,10 +1,11 @@
 /* Preferences share the app palette; rules and type replace nested panels. */
 .settings-page{background:var(--bg);color:var(--text);font:15px/1.55 var(--fb)}
-.settings-page *,.settings-page button,.settings-page input,.settings-page select{font-family:var(--fb);letter-spacing:normal}
+/* One body face for the page. Kit classes (ui-) keep their own faces, and each theme preview draws in its theme's faces. */
+.settings-page :where(*:not([class*="ui-"]):not(.settings-theme-preview,.settings-theme-preview *)){font-family:var(--fb);letter-spacing:normal}
 .settings-page [hidden]{display:none!important}
 body.settings-page .settings-shell{max-width:1100px;padding-bottom:56px}
 .settings-page .settings-header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:36px}
-.settings-page h1{font-size:26px;font-weight:600;line-height:1.25;margin:0 0 8px;color:var(--text);text-shadow:none}
+.settings-page h1{margin:0 0 8px;color:var(--text);text-shadow:none}
 .settings-page .settings-header p{margin:0;color:var(--muted);font-size:15px}
 .settings-page .statusline{font-size:13px;color:var(--muted);margin:0;background:none;border:0;padding:0;white-space:nowrap}
 .settings-page .statusline b{font-weight:400}
@@ -13,15 +14,16 @@ body.settings-page .settings-shell{max-width:1100px;padding-bottom:56px}
 .settings-page .settings-sidebar{position:sticky;top:24px}
 .settings-page .settings-search-label{display:block;font-size:13px;font-weight:500;margin-bottom:8px;color:var(--muted)}
 .settings-page .settings-search-wrap{position:relative;margin-bottom:20px}
-body.settings-page #settings-search{width:100%;height:40px;border-radius:10px!important;background:transparent!important;border:1px solid var(--border)!important;padding:0 35px 0 12px;color:var(--text);font-size:14px;outline:none}
+body.settings-page #settings-search{width:100%;height:40px;border-radius:10px!important;background:transparent!important;border:1px solid var(--line-strong)!important;padding:0 35px 0 12px;color:var(--text);font-size:14px;outline:none}
 .settings-page #settings-search::placeholder{color:var(--muted)}
 .settings-page #settings-search::-webkit-search-cancel-button{-webkit-appearance:none}
-body.settings-page #settings-search:focus{border-color:var(--muted)!important}
+body.settings-page #settings-search:focus{border-color:var(--focus)!important}
 body.settings-page #settings-search-clear{position:absolute;right:5px;top:5px;width:30px;height:30px;min-height:0;padding:0;background:transparent!important;border:0!important;border-radius:50%!important;color:var(--muted)!important;cursor:pointer;font-size:20px}
 .settings-page .settings-categories{display:flex;flex-direction:column;gap:3px}
 body.settings-page .settings-categories button{display:flex;align-items:center;gap:8px;justify-content:space-between;width:100%;padding:10px 12px;text-align:left;font-size:14px;font-weight:400;border:1px solid transparent;border-radius:8px!important;background:transparent!important;color:var(--muted)!important;border-color:transparent!important;cursor:pointer;min-height:42px}
-body.settings-page .settings-categories button:hover:not(:disabled){background:var(--surface)!important;color:var(--text)!important;border-color:transparent!important}
-body.settings-page .settings-categories button.is-current,body.settings-page .settings-categories button.is-current:hover{background:var(--surface-raised)!important;color:var(--text)!important;border-color:transparent!important;font-weight:600}
+body.settings-page .settings-categories button:hover:not(:disabled){background:var(--hover)!important;color:var(--text)!important;border-color:transparent!important}
+/* The current category is lit: a quiet selection, and Aura's soft light. */
+body.settings-page .settings-categories button.is-current,body.settings-page .settings-categories button.is-current:hover{background:var(--lit-fill)!important;box-shadow:var(--lit-shadow)!important;color:var(--text)!important;border-color:transparent!important;font-weight:600}
 .settings-page .settings-categories button[data-dirty="true"]::after{content:'';width:5px;height:5px;background:var(--text);border-radius:50%;flex-shrink:0}
 .settings-page [data-search-count]{color:var(--muted);font-size:12px;padding:0 3px}
 .settings-page .settings-sidebar-note{font-size:12px;color:var(--muted);margin:20px 12px 0;line-height:1.8}
@@ -46,10 +48,10 @@ body.settings-page .set-card:last-child{border-bottom:0!important}
 .settings-page .settings-field-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,.7fr);gap:18px}
 .settings-page .obj-field{display:flex;flex-direction:column;gap:8px;margin:0;min-width:0}
 .settings-page .obj-field-k{font-size:13px;font-weight:400;color:var(--text);line-height:1.5;margin:0;text-transform:none}
-body.settings-page .obj-input{width:100%;min-height:40px;padding:9px 12px;border:1px solid var(--border)!important;border-radius:10px!important;background:var(--surface)!important;color:var(--text);font-size:14px;line-height:1.5;box-shadow:none}
+body.settings-page .obj-input{width:100%;min-height:40px;padding:9px 12px;border:1px solid var(--field-line)!important;border-radius:10px!important;background:var(--field)!important;color:var(--text);font-size:14px;line-height:1.5;box-shadow:none}
 .settings-page .obj-input::placeholder{color:var(--muted)}
-body.settings-page .obj-input:focus{border-color:var(--muted)!important;outline:none;background:var(--surface)!important}
-.settings-page select.obj-input option{background:var(--surface);color:var(--text)}
+body.settings-page .obj-input:focus{border-color:var(--focus)!important;outline:none;background:var(--field)!important}
+.settings-page select.obj-input option{background:var(--raised);color:var(--text)}
 .settings-page .settings-field-help{font-size:13px;color:var(--muted);margin:0;line-height:1.65}
 .settings-page .settings-path-field{display:flex;gap:8px;min-width:0}
 .settings-page .settings-path-field input{min-width:0;flex:1}
@@ -67,13 +69,13 @@ body.settings-page .set-toggle{position:relative;width:38px;height:22px;min-heig
 body.settings-page .set-toggle.on,body.settings-page .set-toggle.on:hover:not(:disabled){background:var(--primary)!important;border-color:var(--primary)!important}
 .settings-page .set-toggle.on>i{background:var(--primary-ink);transform:translateX(16px)}
 body.settings-page .set-toggle:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--text)!important}
-body.settings-page :is(button,a,summary):focus-visible{outline:2px solid var(--text)!important;outline-offset:3px;box-shadow:none}
+body.settings-page :is(button,a,summary):focus-visible{outline:2px solid var(--focus)!important;outline-offset:3px;box-shadow:none}
 .settings-page .set-btnrow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0}
-body.settings-page .rule-act,body.settings-page .cta{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 15px;border:1px solid var(--border)!important;border-radius:999px!important;background:transparent!important;color:var(--text)!important;font-size:14px;font-weight:500;line-height:1.4;text-decoration:none;text-transform:none;box-shadow:none;cursor:pointer;white-space:nowrap}
+body.settings-page .rule-act,body.settings-page .cta{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 15px;border:1px solid var(--line-strong)!important;border-radius:var(--btn-radius)!important;background:transparent!important;color:var(--text)!important;font-size:14px;font-weight:500;line-height:1.4;text-decoration:none;text-transform:none;box-shadow:none;cursor:pointer;white-space:nowrap}
 body.settings-page .rule-act:hover:not(:disabled),body.settings-page .cta:hover:not(:disabled){background:var(--surface-raised)!important;border-color:var(--muted)!important;transform:none;box-shadow:none}
 body.settings-page .set-act-primary,body.settings-page .cta{background:var(--primary)!important;border-color:var(--primary)!important;color:var(--primary-ink)!important}
-body.settings-page .set-act-primary:hover:not(:disabled),body.settings-page .cta:hover:not(:disabled){background:var(--text)!important;border-color:var(--text)!important;color:var(--primary-ink)!important}
-body.settings-page .settings-text-button{border:0!important;background:transparent!important;color:var(--muted)!important;font-size:14px;padding:8px;cursor:pointer;border-radius:999px!important}
+body.settings-page .set-act-primary:hover:not(:disabled),body.settings-page .cta:hover:not(:disabled){background:var(--accent-hover)!important;border-color:var(--accent-hover)!important;color:var(--primary-ink)!important}
+body.settings-page .settings-text-button{border:0!important;background:transparent!important;color:var(--muted)!important;font-size:14px;padding:8px;cursor:pointer;border-radius:var(--btn-radius)!important}
 body.settings-page .settings-text-button:hover:not(:disabled),body.settings-page #settings-search-clear:hover{background:var(--surface)!important;color:var(--text)!important}
 .settings-page .settings-save-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px;margin-top:0;border:0}
 .settings-page .settings-save-footer>.set-btnrow:last-child,.settings-page .settings-save-footer>button:last-child{margin-left:auto}
@@ -81,6 +83,10 @@ body.settings-page .settings-text-button:hover:not(:disabled),body.settings-page
 .settings-page [data-dirty="true"]>[data-save-status],.settings-page [data-dirty="true"] [data-save-status]{color:var(--text)}
 .settings-page .set-status{font-size:13px;line-height:1.65;color:var(--muted);margin:0;min-height:0}
 .settings-page .set-status:empty{display:none}
+/* "Theme saved." sits in the card's bottom padding, so showing and clearing it never moves the cards below. */
+.settings-page #theme-settings{position:relative}
+.settings-page #appearance-status{position:absolute;left:0;bottom:4px;margin:0}
+.settings-page .set-status[data-tone]{color:var(--tone)}
 .settings-page .set-status.good,.settings-page [data-save-status].good{color:var(--text)}
 .settings-page .set-status.bad,.settings-page [data-save-status].bad{color:var(--text);font-weight:600}
 .settings-page .settings-status-box{background:transparent;border:0;padding:0;border-radius:0}
@@ -100,8 +106,8 @@ body.settings-page details.set-card{display:block;padding:0;overflow:hidden}
 .settings-page .settings-disclosure-body{display:flex;flex-direction:column;gap:18px;border:0;padding:0 0 26px}
 /* Reset all data is the one destructive control here: it keeps the shared danger treatment. */
 body.settings-page .set-danger>summary{color:var(--danger)!important}
-body.settings-page .set-danger-btn{background:transparent!important;border-color:#674148!important;color:var(--danger)!important}
-body.settings-page .set-danger-btn:hover:not(:disabled){background:#352328!important;border-color:var(--danger)!important;color:var(--danger)!important}
+body.settings-page .set-danger-btn{background:transparent!important;border-color:var(--danger-line)!important;color:var(--danger)!important}
+body.settings-page .set-danger-btn:hover:not(:disabled){background:var(--danger-soft)!important;border-color:var(--danger)!important;color:var(--danger)!important}
 .settings-page .set-acct-status{display:flex;align-items:center;gap:8px;font-family:inherit;font-size:13px;color:var(--muted)}
 .settings-page .set-acct-status.on{color:var(--text)}
 .settings-page .set-acct-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);box-shadow:none}
@@ -123,17 +129,60 @@ body.settings-page .set-danger-btn:hover:not(:disabled){background:#352328!impor
 body.settings-page button[disabled]:disabled{background:var(--surface)!important;color:var(--muted)!important;border-color:var(--border)!important;opacity:.5!important;cursor:not-allowed!important}
 body.settings-page .settings-text-button[disabled]:disabled{background:transparent!important}
 body.settings-page input:disabled,body.settings-page select:disabled{opacity:.5!important;cursor:not-allowed}
+/* Look and feel: four theme cards with live previews, then the mode segment. Native radios
+   give arrow-key movement; the card saves on change and never joins the unsaved state. */
+.settings-page .settings-appearance-field{display:block;min-width:0;margin:0;padding:0;border:0}
+.settings-page .settings-appearance-legend{float:left;width:100%;margin:0 0 10px;padding:0;font-size:13px;line-height:1.5;color:var(--text)}
+.settings-page .settings-appearance-legend+*{clear:both}
+.settings-page .settings-theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.settings-page .settings-theme-option{position:relative;display:flex;flex-direction:column;gap:10px;min-width:0;padding:7px 7px 12px;border:1px solid var(--line);border-radius:var(--r-lg);cursor:pointer}
+.settings-page .settings-theme-option:hover{border-color:var(--line-strong)}
+body.settings-page .settings-theme-option:has(>input:checked){border-color:var(--t3);background:var(--lit-fill);box-shadow:var(--lit-shadow)!important}
+.settings-page .settings-theme-option:has(>input:focus-visible){outline:2px solid var(--focus);outline-offset:2px}
+.settings-page .settings-theme-input{position:absolute;top:0;left:0;width:1px;height:1px;margin:0;opacity:0;pointer-events:none}
+.settings-page .settings-theme-text{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;gap:3px 8px;padding:0 5px}
+.settings-page .settings-theme-mark{display:grid;place-items:center;width:16px;height:16px;border:1.5px solid var(--field-line);border-radius:50%}
+.settings-page .settings-theme-mark::after{content:"";width:8px;height:8px;border-radius:50%}
+.settings-page .settings-theme-option:has(>input:checked) .settings-theme-mark{border-color:var(--t1)}
+.settings-page .settings-theme-option:has(>input:checked) .settings-theme-mark::after{background:var(--t1)}
+.settings-page .settings-theme-name{font-size:14px;font-weight:600;line-height:1.4;color:var(--text)}
+.settings-page .settings-theme-desc{grid-column:1/-1;font-size:13px;line-height:1.5;color:var(--muted)}
+/* stp: the settings theme preview, a miniature window in the preview's own tokens and faces. */
+.settings-page .settings-theme-preview{--stp-voice-face:var(--f-body);--stp-voice:var(--t2);--stp-glow:transparent;--stp-glow-wide:transparent;
+  display:grid;grid-template-columns:30% minmax(0,1fr);height:96px;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-md);
+  background:var(--bg);color:var(--t1);font-family:var(--f-body);pointer-events:none}
+.settings-page .settings-theme-preview[data-theme="journal"]{--stp-voice-face:var(--f-voice);--stp-voice:var(--voice)}
+.settings-page .settings-theme-preview[data-theme="aura"]{--stp-glow:var(--aura-core);--stp-glow-wide:var(--aura-wide)}
+.settings-page .stp-side{display:flex;flex-direction:column;gap:3px;padding:9px 5px;background:var(--side);border-right:1px solid var(--line)}
+.settings-page .stp-side i{display:flex;align-items:center;height:12px;padding:0 4px;border-radius:4px}
+.settings-page .stp-side i::after{content:"";flex:1;height:3px;border-radius:2px;background:var(--line-strong)}
+.settings-page .stp-side i.is-on{background:var(--lit-fill)}
+.settings-page .stp-side i.is-on::after{background:var(--t2)}
+.settings-page .stp-main{display:flex;flex-direction:column;justify-content:center;gap:7px;min-width:0;padding:8px 9px;
+  background:radial-gradient(70% 60% at 50% 0%,var(--stp-glow),transparent 70%),radial-gradient(120% 90% at 50% 0%,var(--stp-glow-wide),transparent 80%)}
+.settings-page .stp-face::before{content:attr(data-sample);display:block;font:var(--display-weight) 24px/1 var(--f-display);color:var(--t1)}
+.settings-page .stp-line{display:block;flex:none;width:40px;height:4px;border-radius:2px;background:var(--line-strong)}
+.settings-page .stp-card{display:flex;align-items:center;align-self:flex-start;gap:5px;min-width:0;padding:5px 7px;border:var(--raised-border);border-radius:var(--r-sm);background:var(--raised)}
+.settings-page .stp-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--tone)}
+.settings-page .stp-note{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font:400 11px/1.3 var(--stp-voice-face);color:var(--stp-voice)}
+.settings-page .stp-note::before{content:attr(data-sample)}
+.settings-page .settings-mode-seg{flex-wrap:wrap}
+@media(prefers-reduced-motion:no-preference){.settings-page .settings-theme-option{transition:border-color .15s ease,background-color .15s ease}}
 @media(max-width:1050px){
   .settings-page .settings-layout{grid-template-columns:184px minmax(0,1fr);gap:28px}
   .settings-page .settings-field-grid{grid-template-columns:1fr}
   .settings-page .settings-header{align-items:flex-start}
   .settings-page .statusline{white-space:normal}
 }
-@media(max-width:730px){
+/* The 980px minimum window leaves a 724px frame beside the 256px sidebar; it keeps the
+   sidebar layout. Narrower frames scroll the categories in a row, padded so each tab's
+   3px-offset focus ring stays inside the scroll box. */
+@media(max-width:700px){
   .settings-page .settings-layout{display:block}
   .settings-page .settings-sidebar{position:static;margin-bottom:24px}
   .settings-page .settings-search-wrap{max-width:420px;margin-bottom:14px}
-  .settings-page .settings-categories{flex-direction:row;overflow-x:auto;padding-bottom:6px;gap:4px}
+  .settings-page .settings-categories{flex-direction:row;overflow-x:auto;padding:5px 5px 6px;margin:-5px -5px 0;
+    scroll-padding-inline:5px;gap:4px}
   body.settings-page .settings-categories button{width:auto;flex-shrink:0;min-height:36px;padding:8px 11px}
   .settings-page .settings-sidebar-note{display:none}
   .settings-page .settings-header{display:block;margin-bottom:26px}

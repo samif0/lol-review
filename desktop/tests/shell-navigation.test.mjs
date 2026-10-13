@@ -23,6 +23,38 @@ test('the persistent shell holds the only navigation rail; content pages carry n
   assert.equal((outer.match(/const ACTIVE_WORK_PAGES/g) || []).length, 1);
 });
 
+test('every page applies its appearance before any stylesheet and links the shared sheets in order', async () => {
+  const all = ['index.html', ...pages];
+  assert.equal(all.length, 17);
+  const cacheKey = '?v=appearance-20261012';
+  for (const page of all) {
+    const html = await read(page);
+    const head = html.slice(html.indexOf('<head>'), html.indexOf('</head>'));
+    const sheets = [...head.matchAll(/<link rel="stylesheet" href="\.\/([^"]+)">/g)].map(m => m[1]);
+    const firstSheet = head.indexOf('<link rel="stylesheet"');
+    const prepaint = head.indexOf('<script src="./nav-prepaint.js"></script>');
+    assert.ok(prepaint >= 0 && prepaint < firstSheet, `${page}: nav-prepaint.js runs before the first stylesheet`);
+    assert.equal(head.indexOf('<script'), prepaint, `${page}: nav-prepaint.js is the first script`);
+    const bare = sheets.map(sheet => sheet.replace(/\?.*$/, ''));
+    assert.equal(bare[0], 'styles.css', page);
+    assert.equal(bare[1], 'kit.css', `${page}: kit.css comes right after styles.css`);
+    assert.equal(bare.at(-1), 'appearance.css', `${page}: appearance.css is the last stylesheet`);
+    assert.equal(new Set(bare).size, bare.length, `${page}: no stylesheet twice`);
+    assert.doesNotMatch(html.slice(html.indexOf('</head>')), /<link rel="stylesheet"/, `${page}: stylesheets stay in the head`);
+    assert.doesNotMatch(head, /match-navigation-20260912/, page);
+    for (const sheet of bare) await assert.doesNotReject(read(sheet), `${page} links ${sheet}, which must exist`);
+    if (page === 'review.html' || page === 'vodplayer.html') {
+      const keyed = sheets.filter(sheet => sheet.endsWith(cacheKey)).map(sheet => sheet.replace(cacheKey, ''));
+      const local = page === 'review.html' ? 'review-launchpad.css' : 'vod-review.css';
+      assert.deepEqual(keyed, ['styles.css', 'kit.css', local, 'appearance.css'], page);
+    }
+  }
+  const shellHead = shell.slice(0, shell.indexOf('</head>'));
+  assert.match(shellHead, /<link rel="stylesheet" href="\.\/shell\.css">/);
+  assert.match(shellHead, /<script type="module" src="\.\/appearance-native\.mjs"><\/script>/);
+  for (const page of pages) assert.doesNotMatch(await read(page), /shell\.css|appearance-native\.mjs/, page);
+});
+
 function runFramed({ top, pathname, search = '', hash = '' }) {
   const classes = [], replaced = [];
   const self = {};

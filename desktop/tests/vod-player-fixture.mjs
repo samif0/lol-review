@@ -5,6 +5,9 @@ import { objectiveTypeLabel, objectivePhaseLabel } from '../ui/objective-labels.
 import { clipRowNarrationContext } from '../ui/clip-narration.mjs';
 import { noteTranscriptProgress, renderClipTranscript } from '../ui/clip-transcript.mjs';
 import { shareProgressLabel } from '../ui/clip-share-wait.mjs';
+import { eventTone, polarityTone, resultOf } from '../ui/meaning-tone.mjs';
+import { buildThread, renderThread, moveNow } from '../ui/vod-thread.mjs';
+import { takeawayText } from '../ui/journal-takeaway.mjs';
 
 // Shared VOD player fixture: executes the page's real render/action handlers.
 // Electron smoke covers native button activation and layout; this fixture covers
@@ -225,6 +228,7 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
     tpl() {
       // Mirrors vodplayer.html tpl-bookmark: a plain row whose Watch button owns the jump.
       const row = node('div', 'moment');
+      row.appendChild(node('i', 'vp-bm-mark'));
       const watch = row.appendChild(node('button', 'ricon')); watch.dataset.action = 'jump';
       for (const name of ['vp-bm-src', 'vp-bm-time', 'vp-bm-note', 'vp-bm-clip']) row.appendChild(node('span', name));
       const bookmarkEdit = row.appendChild(node('div', 'vp-bm-edit'));
@@ -257,6 +261,7 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
     resolveAssetUrl: (_core, path) => `revu-media://fixture/${path}`,
     console: { error() {}, warn() {} }, CustomEvent: class {},
     clipRowNarrationContext, renderClipTranscript, noteTranscriptProgress, shareProgressLabel,
+    eventTone, polarityTone, resultOf, buildThread, renderThread, moveNow, takeawayText,
     openNarrationStudio(options) {
       const studio = { options, state: 'setup', closed: false, close() { this.closed = true; } };
       studios.push(studio);
@@ -278,6 +283,8 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
     setOverrides() { _bmObjUserSet = true; _clipObjUserSet = true; },
     renderClipState, saveClip, deleteClip, cancelShareJob, processShareQueue, enqueueShare, isRetryableShareError,
     setNarrationOk(value) { _narrationOk = value; }, get studio() { return _studio; },
+    readReviewSummary, renderContextDetails, renderThreadPanel, tickLiveTime, closeFocusPicker,
+    get reviewSummary() { return _reviewSummary; },
     get shareJobs() { return _shareJobs; }, get pendingShareBmId() { return _pendingShareBmId; } };`, context);
   context.hooks.setNarrationOk(narrationOk);
   snapshot = { gameId: 42, filePath: noVod ? '' : 'match.mp4', hasVod: !noVod, gameDurationSeconds: 200,

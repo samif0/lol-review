@@ -7,134 +7,132 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./dashboard.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
+  <!-- Aura: one soft light field behind the greeting; it follows the time of day (appearance.css). -->
+  <div class="home-aura" data-theme-only="aura" aria-hidden="true"></div>
   <main class="shell home-page">
     <header class="home-header">
-      <div>
-        <div class="hero"><h1 id="hero-title">Welcome back.</h1></div>
-        <p class="home-intro">A little more intentional. One match at a time.</p>
-      </div>
+      <h1 class="ui-display home-greet"><svg class="home-mark" data-theme-hide="neutral" width="32" height="27" viewBox="12 18 77 64" aria-hidden="true" focusable="false"><path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/></svg><span id="hero-title">Welcome back</span></h1>
+      <p class="home-intro" data-theme-hide="journal">A little more intentional. One match at a time.</p>
+      <p class="home-account" id="hero-account" hidden><a class="ui-link" href="onboarding.html">Link your Riot account</a></p>
     </header>
 
-    <section class="home-review-inbox" id="review-inbox" aria-labelledby="unreviewed-label" hidden>
-      <div class="home-review-heading">
-        <div class="home-review-eyebrow"><span aria-hidden="true"></span>Pending review</div>
-        <h2 id="unreviewed-label">Your match is ready to review</h2>
-        <p>Take one useful lesson into your next game.</p>
+    <!-- Journal: the last takeaway you wrote, and a private check-in (journal-takeaway.mjs). -->
+    <figure class="home-last" id="home-last" data-theme-only="journal" hidden>
+      <figcaption class="home-last-cap" id="home-last-cap">After <a class="home-last-link" id="home-last-link" href="games.html"></a><span id="home-last-when"></span>, you wrote</figcaption>
+      <blockquote class="home-last-quote own-words" id="home-last-quote"></blockquote>
+      <div class="home-check" id="home-check" role="group" aria-labelledby="home-check-q">
+        <span class="home-check-q" id="home-check-q">Did you do it?</span>
+        <button class="ui-pill home-ans" type="button" data-answer="yes" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>Yes</button>
+        <button class="ui-pill home-ans" type="button" data-answer="partly" aria-pressed="false">Partly</button>
+        <button class="ui-pill home-ans" type="button" data-answer="notyet" aria-pressed="false">Not yet</button>
       </div>
-      <div id="unreviewed"></div>
-      <div class="home-review-footer" id="review-queue-footer" hidden>
-        <span id="review-queue-more"></span>
-        <a class="home-link" href="games.html">View review queue <span aria-hidden="true">→</span></a>
-      </div>
-    </section>
+      <p class="home-last-empty" id="home-last-empty" hidden></p>
+    </figure>
 
-    <!-- Finished games Revu did not save (missed-games.mjs): Save or Dismiss each. -->
-    <section class="home-review-inbox" id="missed-games" aria-labelledby="missed-games-label" hidden>
-      <div class="home-review-heading">
-        <div class="home-review-eyebrow"><span aria-hidden="true"></span>Not saved yet</div>
-        <h2 id="missed-games-label">Finished games weren't saved</h2>
-        <p>Your League match history has these games, but Revu missed them. Save one to add it to your Match library.</p>
+    <!-- The composer: name one focus and start a session, or finish the one in progress. -->
+    <section class="home-composer" id="nextstep" aria-label="Session">
+      <p class="home-composer-k" id="nextstep-k"></p>
+      <div class="home-composer-idle">
+        <input class="ui-field intent-input home-composer-input" id="nextstep-input" type="text" maxlength="120" autocomplete="off"
+          placeholder="What will you practice this session?" aria-label="What will you practice this session?">
       </div>
-      <div id="missed-games-list"></div>
-      <p class="vsmall" id="missed-games-status" role="status" hidden></p>
-    </section>
-
-    <!-- One clear starting point, with supporting tools below. -->
-    <div class="toprow">
-      <div class="glass primary" id="nextstep">
-        <div class="body">
-          <div class="k" id="nextstep-k">Next step</div>
-          <h2 id="nextstep-h">…</h2>
-          <p id="nextstep-p">…</p>
-          <!-- v3.3: active coaching stint context (name · block count · coach split).
-               An old stint can be ended here; nothing else starts or ends one. -->
-          <div class="nextstep-stint" id="nextstep-stint" hidden><span id="nextstep-stint-text"></span><button class="nextstep-stint-end" id="nextstep-stint-end" type="button" data-action="end_stint">End stint</button></div>
-          <button class="cta" id="nextstep-cta" data-action="start_block">Start a session</button>
+      <div class="home-composer-now">
+        <p class="home-focus own-words" id="nextstep-h"></p>
+        <p class="home-focus-p" id="nextstep-p"></p>
+      </div>
+      <div class="home-composer-row">
+        <div class="home-composer-tools">
+          <div class="home-obj">
+            <button class="ui-pill home-obj-btn" id="nextstep-objective" type="button" aria-expanded="false" aria-controls="nextstep-objective-menu"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></svg><span class="home-obj-label" id="nextstep-objective-label">Learning objectives</span><svg class="home-chev" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5"/></svg></button>
+            <div class="home-menu" id="nextstep-objective-menu" hidden></div>
+          </div>
+          <button class="ui-pill intent-coach" id="nextstep-coach" type="button" role="switch" aria-checked="false" aria-label="Playing with a coach"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c1-3.5 3.3-5 6-5s5 1.5 6 5M16 5.5a3 3 0 0 1 0 5.5M18 15c1.6.6 2.6 2.2 3 5"/></svg><span id="nextstep-coach-text">Solo</span></button>
+        </div>
+        <button class="ui-btn ui-btn-primary home-cta" id="nextstep-cta" type="button" data-action="start_block">Start session</button>
+      </div>
+      <div class="home-finish" id="nextstep-finish" hidden>
+        <fieldset class="home-finish-set">
+          <legend class="home-finish-q">How did your session go?</legend>
+          <div class="ui-seg home-rate" id="nextstep-rate">
+            <label><input type="radio" name="nextstep-rating" value="1"><span>1</span></label>
+            <label><input type="radio" name="nextstep-rating" value="2"><span>2</span></label>
+            <label><input type="radio" name="nextstep-rating" value="3"><span>3</span></label>
+            <label><input type="radio" name="nextstep-rating" value="4"><span>4</span></label>
+            <label><input type="radio" name="nextstep-rating" value="5"><span>5</span></label>
+            <label><input type="radio" name="nextstep-rating" value="6"><span>6</span></label>
+            <label><input type="radio" name="nextstep-rating" value="7"><span>7</span></label>
+            <label><input type="radio" name="nextstep-rating" value="8"><span>8</span></label>
+            <label><input type="radio" name="nextstep-rating" value="9"><span>9</span></label>
+            <label><input type="radio" name="nextstep-rating" value="10"><span>10</span></label>
+          </div>
+        </fieldset>
+        <p class="home-rate-hint" id="nextstep-rate-hint" role="status"></p>
+        <input class="ui-field home-note" id="nextstep-note" type="text" maxlength="240" autocomplete="off"
+          placeholder="Optional: a note on how it went" aria-label="A note on how the session went">
+        <div class="home-finish-actions">
+          <button class="ui-btn ui-btn-primary" id="nextstep-save" type="button">Save reflection</button>
+          <button class="ui-btn ui-btn-ghost" id="nextstep-cancel" type="button">Cancel</button>
         </div>
       </div>
+      <!-- v3.3: an old coaching stint (name, blocks, coach split). It can be ended here;
+           nothing else starts or ends one. -->
+      <div class="home-stint" id="nextstep-stint" hidden><span id="nextstep-stint-text"></span><button class="nextstep-stint-end" id="nextstep-stint-end" type="button" data-action="end_stint">End stint</button></div>
+    </section>
+
+    <div class="home-errpanel errpanel" id="errpanel" role="alert" hidden>
+      <p class="vline" id="err-line">Couldn't load the dashboard.</p>
+      <p class="vsmall" id="err-detail"></p>
     </div>
 
     <div class="home-orientation frt-launch">
-      <a class="home-shortcut" href="games.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Review a match</a>
-      <a class="home-shortcut" href="settings.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10 5-3v10l-5-3"/></svg>Recording settings</a>
-      <button class="home-shortcut" type="button" data-action="start_first_review_tutorial">Quick guide</button>
+      <a class="ui-pill" id="home-suggest-review" href="games.html?view=queue" hidden><i class="ui-dot" data-tone="pending" aria-hidden="true"></i><span id="home-suggest-review-text">Review a match</span></a>
+      <a class="ui-pill" href="tiltcheck.html">Tilt check</a>
+      <a class="ui-pill" href="manualentry.html">Add a game</a>
+      <button class="ui-pill" type="button" data-action="start_first_review_tutorial">Quick guide</button>
     </div>
 
-    <div class="home-review-status">
-      <p id="unreviewed-empty" hidden>You're all caught up on recent reviews.</p>
-      <div class="hint" id="vod-hint" hidden>
-        <span class="hint-dot"></span>
-        <span class="hint-text" id="vod-line"></span>
-        <button class="hint-link" id="vod-btn" data-action="review_vod">Open recording →</button>
-      </div>
-    </div>
-
-    <div class="home-secondary">
-      <div class="objpane" id="objpane">
-        <div class="home-section-head"><div class="seclabel" id="objectives-label">Your learning objectives</div><a class="home-link" href="objectives.html">Manage learning objectives →</a></div>
-        <div id="objectives"></div>
-        <div class="home-empty" id="objectives-empty" hidden><h3>Start with one thing to improve.</h3><p>Keep the skill you want to practice close by.</p><a class="home-link" href="objectives.html">Add a learning objective <span aria-hidden="true">↗</span></a></div>
-      </div>
-
-    </div>
-
-    <section class="home-stats" aria-label="Session statistics">
-      <div class="home-section-head"><h2 class="seclabel">Your progress</h2><span class="home-caption">Today and your 30-day baseline</span></div>
-      <div class="strip" id="strip"></div>
-      <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
+    <!-- Finished games Revu did not save (missed-games.mjs): Save or Dismiss each. -->
+    <section class="home-block" id="missed-games" aria-labelledby="missed-games-label" hidden>
+      <div class="ui-sec"><h2 class="ui-h" id="missed-games-label">Finished games weren't saved</h2></div>
+      <p class="home-block-p">Your League match history has these games, but Revu missed them. Save one to add it to your Match library.</p>
+      <div class="home-rows" id="missed-games-list"></div>
+      <p class="home-missed-error" id="missed-games-status" role="status" hidden></p>
     </section>
 
-    <!-- ERROR PANEL -->
-    <div class="card errpanel" id="errpanel" hidden>
-      <div class="crow">
-        <div>
-          <div class="vline" id="err-line">Couldn't load the dashboard.</div>
-          <div class="vsmall" id="err-detail"></div>
-        </div>
-      </div>
-    </div>
+    <section class="home-block" id="review-inbox" aria-labelledby="unreviewed-label" hidden>
+      <div class="ui-sec"><h2 class="ui-h" id="unreviewed-label">Ready to review</h2><a class="ui-link" href="games.html?view=queue">Match library</a></div>
+      <div class="home-rows" id="unreviewed"></div>
+      <p class="home-more" id="review-queue-footer" hidden><a class="ui-link" id="review-queue-more" href="games.html?view=queue"></a></p>
+    </section>
+    <p class="home-caught-up" id="unreviewed-empty" hidden>You're all caught up on recent reviews.</p>
+
+    <section class="home-block" aria-labelledby="home-stats-h">
+      <div class="ui-sec"><h2 class="ui-h" id="home-stats-h">Last 30 days</h2><p class="home-caption" id="statusline"><b id="status-text">Loading…</b></p></div>
+      <div class="home-stats" id="strip"></div>
+    </section>
   </main>
 
-  <!-- ── REPEATING-CELL TEMPLATES ── -->
+  <!-- Repeating-cell templates -->
   <template id="tpl-stat">
-    <div class="stat">
-      <div class="k"></div>
-      <div class="v"></div>
-      <div class="s"></div>
-    </div>
-  </template>
-
-  <template id="tpl-objective">
-    <div class="card">
-      <div class="ring">
-        <div class="ringwrap">
-          <svg width="58" height="58" viewBox="0 0 58 58">
-            <circle class="ring-track" cx="29" cy="29" r="24" fill="none" stroke-width="4"/>
-            <circle class="ring-prog" cx="29" cy="29" r="24" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="150.8"/>
-          </svg>
-          <div class="pc"></div>
-        </div>
-        <div>
-          <span class="pill" hidden>Current focus</span>
-          <div class="oname"></div>
-          <div class="ometa"></div>
-        </div>
-      </div>
-    </div>
+    <div class="home-stat"><p class="home-stat-v"><b class="v"></b><small class="s"></small></p><span class="k"></span></div>
   </template>
 
   <template id="tpl-gamerow">
-    <div class="home-review-match">
+    <div class="ui-row home-review-match">
+      <span class="home-champ" aria-hidden="true"></span>
       <div class="home-review-match-info">
-        <div class="home-review-match-title"><h3 class="vline"></h3><span class="home-review-result"></span></div>
-        <p class="vsmall"></p>
+        <h3 class="vline"></h3>
+        <p class="home-review-sub"><span class="home-review-result"></span><span class="vsmall home-review-meta"></span></p>
       </div>
+      <span class="home-kda ui-num"></span>
       <div class="home-review-actions">
-        <a class="cta home-review-open">Review match <span aria-hidden="true">→</span></a>
-        <button type="button" class="home-review-skip" data-action="skip_review">Skip</button>
+        <a class="home-review-open">Review <span aria-hidden="true">→</span></a>
+        <button type="button" class="ui-btn ui-btn-ghost home-review-skip" data-action="skip_review">Skip</button>
       </div>
     </div>
   </template>

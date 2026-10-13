@@ -6,9 +6,11 @@
 <title>Revu: Review</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
-<link rel="stylesheet" href="./styles.css?v=match-navigation-20260912">
+<link rel="stylesheet" href="./styles.css?v=appearance-20261012">
+<link rel="stylesheet" href="./kit.css?v=appearance-20261012">
 <link rel="stylesheet" href="./learning-pages.css">
-<link rel="stylesheet" href="./review-launchpad.css?v=match-navigation-20260912">
+<link rel="stylesheet" href="./review-launchpad.css?v=appearance-20261012">
+<link rel="stylesheet" href="./appearance.css?v=appearance-20261012">
 </head>
 <body class="review-launchpad-page">
   <div class="match-navigation" id="match-navigation" hidden>
@@ -27,7 +29,7 @@
       <div class="rv-hero-row">
         <div class="rv-hero-lead">
           <div class="rv-page-label">Match review</div>
-          <h1 id="hero-title">Match review</h1>
+          <h1 class="ui-title" id="hero-title">Match review</h1>
           <div class="rv-resline">
             <span class="rv-res" id="rv-res"></span>
             <span class="rv-gmode" id="rv-gmode"></span>
@@ -52,14 +54,14 @@
 
     <!-- Start in the VOD, capture a takeaway, then open optional match context. -->
     <div class="rv-body" id="rv-body" hidden>
-      <section class="rv-launchpad" id="rv-launchpad" aria-labelledby="rv-launch-title">
+      <section class="rv-launchpad ui-raised" id="rv-launchpad" aria-labelledby="rv-launch-title">
         <div class="rv-launch-top">
           <span class="rv-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></span>
           <div class="rv-launch-copy">
             <h2 id="rv-launch-title">Start with the recording</h2>
             <p>Review by learning objective, revisit key events, and save what you learn.</p>
           </div>
-          <button type="button" class="cta rv-open-vod" id="rv-open-vod" data-action="review_vod">Review in VOD <span aria-hidden="true">→</span></button>
+          <button type="button" class="ui-btn ui-btn-primary rv-open-vod" id="rv-open-vod" data-action="review_vod">Review in VOD <span aria-hidden="true">→</span></button>
         </div>
 
         <section class="rv-deathsec" id="rv-deathsec" aria-labelledby="rv-death-title" hidden>
@@ -98,19 +100,19 @@
         <section class="rv-journal" id="rv-journal" aria-labelledby="rv-journal-title" hidden>
           <div class="rv-section-heading">
             <h3 id="rv-journal-title">Matchup note</h3>
-            <a class="rv-journal-link" id="rv-journal-link" href="matchups.html">Open in matchup notes →</a>
+            <a class="rv-journal-link ui-link" id="rv-journal-link" href="matchups.html">Open in matchup notes →</a>
           </div>
           <p class="field-help" id="rv-journal-matchup"></p>
-          <p class="rv-journal-prior" id="rv-journal-prior" hidden></p>
+          <p class="rv-journal-prior" id="rv-journal-prior" hidden><span class="rv-journal-prior-k">Before this match:</span> <span class="rv-journal-prior-text own-words" id="rv-journal-prior-text"></span></p>
           <div id="rv-journal-editor" hidden>
             <label class="rv-field-k" for="rv-journal-observed">What did you learn about this matchup?</label>
-            <textarea class="rv-journal-input" id="rv-journal-observed" rows="2" placeholder="Trades, timings, or something to remember next time…"></textarea>
+            <textarea class="rv-journal-input ui-field own-words" id="rv-journal-observed" rows="2" placeholder="Trades, timings, or something to remember next time…"></textarea>
           </div>
           <p class="field-help" id="rv-journal-empty">Prepare a note with this match’s lane and champions, then add what you learned.</p>
           <div class="rv-journal-actions">
-            <button type="button" class="review" id="rv-journal-prepare" data-action="prepare_matchup_note">Prepare matchup note</button>
+            <button type="button" class="ui-btn ui-btn-quiet" id="rv-journal-prepare" data-action="prepare_matchup_note">Prepare matchup note</button>
             <span class="field-help" id="rv-journal-status" role="status" hidden></span>
-            <button type="button" class="review" id="rv-journal-retry" data-action="retry_matchup_note" hidden>Retry save</button>
+            <button type="button" class="ui-btn ui-btn-quiet" id="rv-journal-retry" data-action="retry_matchup_note" hidden>Retry save</button>
           </div>
         </section>
 
@@ -122,20 +124,20 @@
           <div class="learning-details-body">
             <div class="rv-check-in">
               <div class="rv-focus" id="rv-focus">
-                <div class="rv-focus-lbl">Did you practice what you intended?</div>
-                <div class="rv-focus-intent" id="rv-focus-intent" hidden></div>
-                <div class="rv-focus-btns" id="rv-focus-btns">
-                  <button type="button" class="rv-focus-btn" data-focus="2">Yes</button>
-                  <button type="button" class="rv-focus-btn" data-focus="1">Partly</button>
-                  <button type="button" class="rv-focus-btn" data-focus="0">No</button>
+                <div class="rv-focus-lbl" id="rv-focus-lbl">Did you practice what you intended?</div>
+                <div class="rv-focus-intent own-words" id="rv-focus-intent" hidden></div>
+                <div class="rv-focus-btns ui-seg" id="rv-focus-btns" role="group" aria-labelledby="rv-focus-lbl">
+                  <button type="button" class="rv-focus-btn ui-seg-btn" data-focus="2" aria-pressed="false">Yes</button>
+                  <button type="button" class="rv-focus-btn ui-seg-btn" data-focus="1" aria-pressed="false">Partly</button>
+                  <button type="button" class="rv-focus-btn ui-seg-btn" data-focus="0" aria-pressed="false">No</button>
                 </div>
                 <p class="field-help">Saved when you choose an answer.</p>
               </div>
               <div class="rv-mentalrow" id="rv-mentalrow">
-                <label class="rv-field-k" for="rv-mental-input">How focused and calm were you? <span class="field-help">1–10</span></label>
+                <label class="rv-field-k" for="rv-mental-input">How focused and calm were you? <span class="field-help">1 to 10</span></label>
                 <div class="rv-mental-ctl">
                   <input type="range" id="rv-mental-input" class="rv-range" min="1" max="10" step="1" value="5" aria-label="Mental rating, 1 to 10">
-                  <span class="rv-mental" id="rv-mental">5</span>
+                  <span class="rv-mental ui-num" id="rv-mental">5</span>
                 </div>
               </div>
             </div>
@@ -146,11 +148,11 @@
         </details>
 
         <div class="rv-commitbar" id="rv-commitbar">
-          <button type="button" class="cta rv-savebtn" id="rv-savebtn" data-action="save_review">Save review</button>
+          <button type="button" class="ui-btn ui-btn-primary rv-savebtn" id="rv-savebtn" data-action="save_review">Save review</button>
           <span class="rv-commit-msg" id="rv-commit-msg" role="status" hidden></span>
           <span class="rv-commit-msg rv-draft-status" id="rv-draft-status" role="status" hidden>Draft not saved.</span>
-          <button type="button" class="review rv-draft-retry" id="rv-draft-retry" data-action="retry_draft" hidden>Retry</button>
-          <button type="button" class="review rv-nextbtn" id="rv-nextbtn" data-action="next_unreviewed" hidden>Next game →</button>
+          <button type="button" class="ui-btn ui-btn-quiet rv-draft-retry" id="rv-draft-retry" data-action="retry_draft" hidden>Retry</button>
+          <button type="button" class="ui-btn ui-btn-quiet rv-nextbtn" id="rv-nextbtn" data-action="next_unreviewed" hidden>Next game →</button>
         </div>
       </section>
 
@@ -179,7 +181,7 @@
               <label class="rv-field-k" for="rv-tag-input">Topics</label>
               <div class="rv-tagedit" id="rv-tagedit">
                 <span class="rv-tags" id="rv-tags"></span>
-                <input type="text" id="rv-tag-input" class="rv-taginput" placeholder="Add a tag, press Enter" autocomplete="off" aria-label="Add a concept tag">
+                <input type="text" id="rv-tag-input" class="rv-taginput ui-field" placeholder="Add a tag, press Enter" autocomplete="off" aria-label="Add a concept tag">
               </div>
             </div>
             <div class="rv-tagcat" id="rv-tagcat" hidden>
@@ -187,10 +189,10 @@
               <div class="rv-tagcat-grid" id="rv-tagcat-grid"></div>
             </div>
             <div class="rv-secondary-actions">
-              <button type="button" class="review rv-copybtn" id="rv-copybtn" data-action="copy_review" title="Copy this game's review as markdown">Copy review</button>
-              <button type="button" class="review rv-exportbtn" id="rv-exportbtn" data-action="export_review" title="Export this game's review as a markdown file">Export review</button>
-              <button type="button" class="review rv-skipbtn" id="rv-skipbtn" data-action="skip_review">Skip review</button>
-              <button type="button" class="rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
+              <button type="button" class="ui-btn ui-btn-quiet rv-copybtn" id="rv-copybtn" data-action="copy_review" title="Copy this game's review as markdown">Copy review</button>
+              <button type="button" class="ui-btn ui-btn-quiet rv-exportbtn" id="rv-exportbtn" data-action="export_review" title="Export this game's review as a markdown file">Export review</button>
+              <button type="button" class="ui-btn ui-btn-quiet rv-skipbtn" id="rv-skipbtn" data-action="skip_review">Skip review</button>
+              <button type="button" class="ui-btn ui-btn-danger rv-deletebtn" id="rv-deletebtn" data-action="delete_review" hidden>Delete review</button>
             </div>
             <p class="rv-commit-msg rv-export-msg" id="rv-export-msg" role="status" hidden></p>
           </div>
@@ -199,9 +201,9 @@
     </div>
 
     <!-- EMPTY STATE — no reviewable game. -->
-    <div class="rv-empty" id="rv-empty" hidden>
-      <div class="rv-empty-h">No game to review.</div>
-      <div class="rv-empty-p">Keep Revu open while you play a Ranked Solo/Duo game. Completed games appear in Games, where you can also add one manually.</div>
+    <div class="rv-empty ui-empty" id="rv-empty" hidden>
+      <b class="rv-empty-h">No game to review.</b>
+      <span class="rv-empty-p">Keep Revu open while you play a Ranked Solo/Duo game. Completed games appear in the Match library, where you can also add one manually.</span>
     </div>
 
     <!-- ERROR PANEL (data-driven, mirrors dashboard) -->
@@ -244,9 +246,9 @@
           <div class="rv-crit" hidden></div>
         </div>
         <!-- Practiced ON/OFF switch — whole control (label + track) is clickable. -->
-        <label class="rv-switch">
+        <label class="rv-switch ui-switch">
           <input type="checkbox" class="rv-practiced-cb" role="switch">
-          <span class="rv-switch-track" aria-hidden="true"><span class="rv-switch-knob"></span></span>
+          <i aria-hidden="true"></i>
           <span class="rv-switch-lbl">Not practiced</span>
         </label>
       </div>
@@ -259,7 +261,7 @@
         <div class="rv-clipgroup-lbl">Learning objective evidence <span class="n">no prompt</span></div>
         <div class="rv-clips rv-obj-unprompted-list"></div>
       </div>
-      <input type="text" class="rv-objnote" placeholder="How did it go? (optional)"
+      <input type="text" class="rv-objnote ui-field own-words" placeholder="How did it go? (optional)"
              autocomplete="off" hidden>
     </div>
   </template>
@@ -270,10 +272,10 @@
   <template id="tpl-prompt">
     <div class="rv-prompt">
       <div class="rv-prompt-q">
-        <span class="rv-prompt-phase" hidden></span>
+        <span class="rv-prompt-phase ui-tag" hidden></span>
         <span class="rv-prompt-txt"></span>
       </div>
-      <textarea class="rv-prompt-input" rows="1" autocomplete="off"
+      <textarea class="rv-prompt-input ui-field own-words" rows="1" autocomplete="off"
                 placeholder="Your answer (saved automatically)"></textarea>
       <!-- Clips tagged to THIS prompt (P-027) — each jumps to the VOD + carries
            triage controls. Rendered/populated in review.js. -->
@@ -285,7 +287,7 @@
   <template id="tpl-field">
     <div class="rv-field">
       <label class="rv-field-k"></label>
-      <textarea class="rv-field-in" rows="2" autocomplete="off"></textarea>
+      <textarea class="rv-field-in ui-field own-words" rows="2" autocomplete="off"></textarea>
     </div>
   </template>
 
@@ -326,14 +328,14 @@
           <span class="rv-evid-title rv-clip-note"></span>
         </div>
         <div class="rv-evid-meta">
-          <a class="rv-clip-share" target="_blank" rel="noopener" hidden></a>
+          <a class="rv-clip-share ui-link" target="_blank" rel="noopener" hidden></a>
         </div>
         <!-- Triage controls — wired in review.js (data-evid-action). -->
         <div class="rv-evid-actions" hidden>
-          <button type="button" class="rv-evid-btn rv-evid-good" data-evid-action="good" title="Mark good">▲ Good</button>
-          <button type="button" class="rv-evid-btn rv-evid-bad" data-evid-action="bad" title="Mark bad">▼ Bad</button>
+          <button type="button" class="rv-evid-btn rv-evid-good ui-pill" data-evid-action="good" aria-pressed="false" title="Mark good"><i class="ui-dot" data-tone="ok" aria-hidden="true"></i>Good</button>
+          <button type="button" class="rv-evid-btn rv-evid-bad ui-pill" data-evid-action="bad" aria-pressed="false" title="Mark bad"><i class="ui-dot" data-tone="loss" aria-hidden="true"></i>Bad</button>
           <select class="rv-evid-pick" data-evid-action="objective" aria-label="Attach to objective"></select>
-          <button type="button" class="rv-evid-btn rv-evid-dismiss" data-evid-action="dismiss" title="Dismiss">✕</button>
+          <button type="button" class="rv-evid-btn rv-evid-dismiss ui-iconbtn" data-evid-action="dismiss" title="Dismiss" aria-label="Dismiss clip"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
         </div>
         <p class="field-help rv-evid-save-status" role="status" aria-live="polite" hidden></p>
       </div>
@@ -343,7 +345,7 @@
   <!-- One matchup-history note (read-only): note text + meta line + helpful pip. -->
   <template id="tpl-match">
     <div class="card glass rv-match">
-      <div class="rv-match-note"></div>
+      <div class="rv-match-note own-words"></div>
       <div class="rv-match-meta"></div>
     </div>
   </template>
@@ -351,7 +353,7 @@
   <!-- One concept-tag catalog chip: a toggle button (aria-pressed = selected). The
        tag's own color is a small swatch; selection uses the shared pressed style. -->
   <template id="tpl-tagcat">
-    <button type="button" class="rv-tagcat-chip" aria-pressed="false"><span class="rv-tagcat-swatch" aria-hidden="true"></span><span class="rv-tagcat-txt"></span></button>
+    <button type="button" class="rv-tagcat-chip ui-pill" aria-pressed="false"><span class="rv-tagcat-swatch" aria-hidden="true"></span><span class="rv-tagcat-txt"></span></button>
   </template>
 
   <script type="module" src="./review.js"></script>

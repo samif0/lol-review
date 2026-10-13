@@ -7,20 +7,21 @@
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
 <link rel="stylesheet" href="./styles.css">
+<link rel="stylesheet" href="./kit.css">
 <link rel="stylesheet" href="./learning-pages.css">
 <link rel="stylesheet" href="./patterns-page.css">
 <link rel="stylesheet" href="./patterns-player.css">
+<link rel="stylesheet" href="./appearance.css">
 </head>
 <body>
   <div class="shell patterns-shell">
-    <div class="eyebrow">Learn across games</div>
     <div class="hero"><h1>Patterns</h1></div>
     <p class="page-intro">Revisit the moments you saved. Find recurring mistakes that connect to what you’re learning now.</p>
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
 
-    <div class="pat-views" role="group" aria-label="Choose how to review your saved moments">
-      <button class="pat-view" id="pat-view-trend" type="button" data-action="select_view" data-view="trend" aria-pressed="true">Mistake trends <span id="pat-trend-count">0</span></button>
-      <button class="pat-view" id="pat-view-saved" type="button" data-action="select_view" data-view="saved" aria-pressed="false">Saved moments <span id="pat-saved-count">0</span></button>
+    <div class="pat-views ui-seg" role="group" aria-label="Choose how to review your saved moments">
+      <button class="pat-view ui-seg-btn" id="pat-view-trend" type="button" data-action="select_view" data-view="trend" aria-pressed="true">Mistake trends <span id="pat-trend-count">0</span></button>
+      <button class="pat-view ui-seg-btn" id="pat-view-saved" type="button" data-action="select_view" data-view="saved" aria-pressed="false">Saved moments <span id="pat-saved-count">0</span></button>
     </div>
     <p class="field-help pat-view-help" id="pat-view-help">Clips and bookmarks you saved, connected to your learning objectives.</p>
     <button class="pat-btn pat-btn-sec pat-refresh-trends" id="pat-refresh-trends" type="button" data-action="reload_patterns" hidden>Update trends with your new ratings</button>
@@ -82,9 +83,9 @@
           <div class="pat-quality" role="group" aria-label="Rate this saved moment">
             <span>How did this moment go?</span>
             <div class="pat-quality-options">
-              <button id="m-quality-good" type="button" data-action="set_quality" data-quality="good" aria-pressed="false">Good example</button>
-              <button id="m-quality-bad" type="button" data-action="set_quality" data-quality="bad" aria-pressed="false">To improve</button>
-              <button id="m-quality-neutral" type="button" data-action="set_quality" data-quality="neutral" aria-pressed="false">Neutral</button>
+              <button class="ui-pill" id="m-quality-good" type="button" data-action="set_quality" data-quality="good" aria-pressed="false">Good example</button>
+              <button class="ui-pill" id="m-quality-bad" type="button" data-action="set_quality" data-quality="bad" aria-pressed="false">To improve</button>
+              <button class="ui-pill" id="m-quality-neutral" type="button" data-action="set_quality" data-quality="neutral" aria-pressed="false">Neutral</button>
             </div>
           </div>
           <div class="pat-nhead">
@@ -93,7 +94,7 @@
             <span class="pat-clipt" id="m-clipt" hidden>Clip saved</span>
           </div>
           <label class="field-help" for="m-note">What would you do differently in this moment?</label>
-          <textarea class="pat-noteinput" id="m-note" rows="3" placeholder="Next time, I will…" aria-label="Your takeaway for this moment" aria-describedby="m-note-help"></textarea>
+          <textarea class="pat-noteinput own-words" id="m-note" rows="3" placeholder="Next time, I will…" aria-label="Your takeaway for this moment" aria-describedby="m-note-help"></textarea>
           <p class="field-help" id="m-note-help">Notes save automatically to this clip or bookmark. Bookmark previews use the original recording and do not create a clip file.</p>
         </div>
 
@@ -140,7 +141,7 @@
   <!-- ── REPEATING-CELL TEMPLATES ── -->
 
   <!-- One pattern selector card. Whole card selects the pattern (select_pattern).
-       Reuses .gamerow hover hype + left edge bar; the edge color carries severity. -->
+       The severity chip carries the meaning color (data-tone, set in JS). -->
   <template id="tpl-patcard">
     <div class="card gamerow pat-card" data-action="select_pattern" tabindex="0" role="button">
       <span class="gamerow-sweep" aria-hidden="true"></span>
@@ -163,19 +164,19 @@
   </template>
 
   <!-- One moment row in the rail. Whole row jumps to that moment (goto_moment).
-       Polarity-colored left border; CLIP badge + GOOD/BAD/NEUTRAL tag. -->
+       A clip or bookmark mark, then the rating in its meaning color (data-tone). -->
   <template id="tpl-momrow">
     <div class="pat-row" data-action="goto_moment" tabindex="0" role="button">
       <div class="pat-rtop">
         <span class="pat-moment-number"></span>
         <span class="pat-rg"></span>
         <span class="pat-rright">
-          <span class="pat-rclip" hidden>Clip</span>
+          <span class="pat-rclip" data-tone="clip" hidden>Clip</span>
           <span class="pat-rpol"></span>
         </span>
       </div>
       <div class="pat-rtitle"></div>
-      <div class="pat-rnote" hidden></div>
+      <div class="pat-rnote own-words" hidden></div>
     </div>
   </template>
 

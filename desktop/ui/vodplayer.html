@@ -6,11 +6,13 @@
 <title>Revu: VOD Player</title>
 <script src="./nav-prepaint.js"></script>
 <script src="./framed.js"></script>
-<link rel="stylesheet" href="./styles.css?v=match-navigation-20260912">
-<link rel="stylesheet" href="./vod-review.css?v=match-navigation-20260912">
+<link rel="stylesheet" href="./styles.css?v=appearance-20261012">
+<link rel="stylesheet" href="./kit.css?v=appearance-20261012">
+<link rel="stylesheet" href="./vod-review.css?v=appearance-20261012">
 <link rel="stylesheet" href="./vod-cinema.css">
 <link rel="stylesheet" href="./vod-composer.css">
 <link rel="stylesheet" href="./vod-narration.css">
+<link rel="stylesheet" href="./appearance.css?v=appearance-20261012">
 </head>
 <body class="vod-review-page">
   <div class="match-navigation" id="match-navigation" hidden>
@@ -38,9 +40,6 @@
     </div>
     <!-- Loading shim (pre-render) — kept minimal; the context line takes over on render. -->
     <div class="statusline" id="statusline"><span class="dot"></span> <b id="status-text">Loading…</b></div>
-
-    <div class="vp-section-label" id="vp-objective-heading" hidden>Review by learning objective</div>
-    <div class="vp-objbar" id="vp-objbar" aria-label="Learning objectives" hidden></div>
 
     <!-- Zero-objective nudge — shown only when the user has no active objectives. The
          viewer falls back to the full-game timeline; this prompts setting one. -->
@@ -132,21 +131,19 @@
           <!-- event timeline (click-to-scrub + bookmark markers). In framed mode the
                in-objective marker stepper sits to its right (steps between THIS
                objective's markers — distinct from the tab bar that switches objectives). -->
-          <div class="seclabel">Event timeline <span class="n" id="vp-tl-sub">bookmarks · clips</span></div>
+          <div class="seclabel vp-tl-head"><span class="vp-tl-title">Event timeline</span><span class="n vp-tl-legend" id="vp-tl-sub" aria-label="Timeline colors"></span></div>
           <div class="card vp-timeline-card">
            <div class="vp-tl-row">
             <!-- .vp-timeline is the fixed-width VIEWPORT (overflow:hidden). The inner
                  .vp-tl-content is the scalable track: Ctrl+wheel widens it (--tl-zoom)
                  and drag pans it (--tl-pan). Everything positioned by left:% lives in
-                 the content, so it scales for free. Phase labels stay pinned to the
-                 viewport. -->
+                 the content, so it scales for free, including the game-clock ticks
+                 that placeMarkers() writes into #vp-tl-axis. -->
             <div class="vp-timeline" id="vp-seek" title="Click an event label or near its line to select · Click empty space to scrub · Ctrl+wheel to zoom · drag to pan">
-              <div class="ph" style="left:8px">Early</div>
-              <div class="ph" style="left:42%">Mid</div>
-              <div class="ph" style="right:8px">Late</div>
               <div class="vp-tl-content" id="vp-tl-content">
                 <div class="track"></div>
                 <div class="prog" id="vp-seek-fill"></div>
+                <div class="vp-tl-axis" id="vp-tl-axis" aria-hidden="true"></div>
                 <div class="vp-markers" id="vp-markers"></div>
                 <!-- Clip range overlay: a highlighted band between the Start/End points
                      plus a flag at each, so the in/out you set is visible on the timeline. -->
@@ -163,9 +160,9 @@
             <div class="vp-mkstep" id="vp-mkstep" hidden>
               <span class="vp-mkstep-lbl">Objective events</span>
               <div class="vp-mkstep-row">
-                <button class="vp-mkstep-btn" id="vp-mk-prev" type="button" aria-label="Previous marker">◀</button>
-                <button class="vp-mkstep-btn" id="vp-mk-next" type="button" aria-label="Next marker">▶</button>
-                <button class="vp-mkstep-btn" id="vp-mk-fix" type="button" data-action="fix_event" aria-label="Fix this marker" title="Fix this marker (E)">✎</button>
+                <button class="vp-mkstep-btn" id="vp-mk-prev" type="button" aria-label="Previous marker"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+                <button class="vp-mkstep-btn" id="vp-mk-next" type="button" aria-label="Next marker"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+                <button class="vp-mkstep-btn" id="vp-mk-fix" type="button" data-action="fix_event" aria-label="Fix this marker" title="Fix this marker (E)"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></svg></button>
               </div>
               <span class="vp-mkstep-count" id="vp-mk-count">marker <b>0</b> / 0</span>
             </div>
@@ -196,20 +193,20 @@
               <div class="row" id="vp-fix-time-row">
                 <label>Time (m:ss)<input class="inp" id="vp-fix-start" value="0:00" inputmode="numeric" autocomplete="off"></label>
                 <label id="vp-fix-end-wrap" hidden>End (m:ss)<input class="inp" id="vp-fix-end" value="0:00" inputmode="numeric" autocomplete="off"></label>
-                <button class="key" type="button" data-action="fix_now">Use playback time</button>
+                <button class="ui-btn ui-btn-quiet" type="button" data-action="fix_now">Use playback time</button>
               </div>
               <div class="vp-fix-attrs" id="vp-fix-attrs"></div>
               <input class="inp" id="vp-fix-reason" maxlength="280" placeholder="Why? (optional, 280 characters)" autocomplete="off">
               <div class="row">
-                <button class="addbtn" id="vp-fix-save" type="button" data-action="save_correction">Save correction</button>
-                <button class="key" type="button" data-action="fix_cancel">Cancel</button>
+                <button class="ui-btn ui-btn-primary" id="vp-fix-save" type="button" data-action="save_correction">Save correction</button>
+                <button class="ui-btn ui-btn-quiet" type="button" data-action="fix_cancel">Cancel</button>
               </div>
             </div>
             <div class="vp-bm-hint" id="vp-fix-hint" role="status"></div>
             <details class="vp-fix-list-wrap" id="vp-fix-list-wrap">
               <summary class="vp-fix-list-title">Corrections in this game <span class="openbadge" id="vp-fix-count">0</span></summary>
               <div class="vp-fix-list" id="vp-fix-list"></div>
-              <button class="key" type="button" id="vp-fix-export" data-action="export_corrections">Copy as JSON</button>
+              <button class="ui-btn ui-btn-quiet" type="button" id="vp-fix-export" data-action="export_corrections">Copy as JSON</button>
             </details>
           </div>
           </details>
@@ -220,7 +217,7 @@
               <div class="mtitle">Clip <span class="vp-cliprange" id="vp-clip-range"></span></div>
               <div class="vp-clip-hint" id="vp-clip-hint" role="status" aria-live="polite" hidden></div>
               <label for="vp-clip-note">Clip note</label>
-              <input class="inp" id="vp-clip-note" type="text" placeholder="What would you repeat or change?" autocomplete="off" aria-describedby="vp-clip-help">
+              <input class="inp own-words" id="vp-clip-note" type="text" placeholder="What would you repeat or change?" autocomplete="off" aria-describedby="vp-clip-help">
               <button class="savebtn" id="vp-clip-save" data-action="clip_save" type="button" aria-keyshortcuts="Control+s Meta+s Enter" disabled>Save clip <kbd>Ctrl+S</kbd></button>
               <p class="vp-composer-help" id="vp-clip-help">Enter or Ctrl+S to save · Esc to return to the video</p>
               <details class="vp-composer-options" id="vp-clip-options">
@@ -240,7 +237,7 @@
                 <option value="">No objective</option>
               </select>
               <div class="qual" id="vp-clip-qual">
-                <span class="q good" data-action="clip_qual" data-q="good">Good</span>
+                <span class="q" data-action="clip_qual" data-q="good">Good</span>
                 <span class="q" data-action="clip_qual" data-q="neutral">Neutral</span>
                 <span class="q" data-action="clip_qual" data-q="bad">Bad</span>
               </div>
@@ -280,27 +277,53 @@
         </div>
 
         <aside class="stack vp-review-column" aria-label="Review this objective">
-          <section class="vp-review-focus">
-            <div class="vp-section-label">Your review focus</div>
-            <h2 id="vp-review-objective">This match</h2>
-            <div class="vp-event-heading">
-              <h3>Events to watch</h3>
-              <span id="vp-event-count"></span>
+          <!-- The focus picker names the objective under review; opening it lists the
+               active objectives (#vp-objbar, delegated clicks). It has no id on purpose:
+               match navigation restores every details[id], and the picker always starts
+               closed. With no objectives it reads "Match events" and stays closed. -->
+          <details class="vp-focus-picker">
+            <summary class="vp-focus-summary">
+              <span class="vp-focus-text">
+                <h2 id="vp-review-objective">This match</h2>
+                <span class="vp-focus-sub"><span id="vp-focus-kind">Your focus</span> · <span id="vp-event-count"></span></span>
+              </span>
+              <svg class="vp-focus-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5"/></svg>
+            </summary>
+            <div class="vp-focus-menu">
+              <div class="vp-section-label" id="vp-objective-heading" hidden>Review by learning objective</div>
+              <div class="vp-objbar" id="vp-objbar" aria-label="Learning objectives" hidden></div>
             </div>
-            <p class="vp-event-help">Choose an event to watch the 10 seconds leading up to it.</p>
-            <div id="vp-event-list" class="vp-event-list"></div>
-            <p id="vp-event-empty" class="vp-event-empty" hidden>No events for this objective. You can still review the recording and add a note.</p>
+          </details>
+
+          <section class="vp-review-focus" data-theme-hide="journal" aria-labelledby="vp-event-heading-title">
+            <div class="vp-event-heading" data-theme-hide="journal">
+              <h3 id="vp-event-heading-title">Events to watch</h3>
+            </div>
+            <p class="vp-event-help" data-theme-hide="journal">Choose an event to watch the 10 seconds leading up to it.</p>
+            <div id="vp-event-list" class="vp-event-list" data-theme-hide="journal"></div>
+            <p id="vp-event-empty" class="vp-event-empty" data-theme-hide="journal" hidden>No events for this objective. You can still review the recording and add a note.</p>
           </section>
 
-          <section class="vp-review-note" id="vp-bookmark-tools" aria-label="Add a review note">
-            <div class="vp-bm-hint" id="vp-bm-hint" role="status" hidden></div>
-            <label class="vp-review-note-label" for="vp-bm-note">Add a review note</label>
-            <textarea class="inp" id="vp-bm-note" rows="3" placeholder="What would you repeat or change?" autocomplete="off" aria-describedby="vp-note-help"></textarea>
-            <div class="vp-note-footer">
-              <span id="vp-note-help">Ctrl+Enter or Ctrl+S to save.</span>
-              <button class="addbtn" id="vp-bm-add" data-action="add_bookmark" type="button" aria-keyshortcuts="Control+s Meta+s Control+Enter Meta+Enter"><span>Save bookmark</span><kbd aria-hidden="true">Ctrl+S</kbd></button>
+          <!-- Journal: focus events, your notes and clips, and your takeaway as one list
+               in game time (ui/vod-thread.mjs). Read and jump only; writes stay below. -->
+          <section class="vp-thread" id="vp-thread" data-theme-only="journal" aria-labelledby="vp-thread-title">
+            <div class="vp-thread-head">
+              <h3 id="vp-thread-title">Your notes, in game time</h3>
+              <span class="vp-thread-count" id="vp-thread-count"></span>
             </div>
-            <details class="vp-composer-options">
+            <ol class="vp-thread-list" id="vp-thread-list"></ol>
+          </section>
+
+          <section class="vp-review-note ui-raised" id="vp-bookmark-tools" aria-label="Add a review note">
+            <div class="vp-bm-hint" id="vp-bm-hint" role="status" hidden></div>
+            <label class="vp-review-note-label vp-sr" for="vp-bm-note">Add a review note</label>
+            <textarea class="ui-field vp-note-input own-words" id="vp-bm-note" rows="2" placeholder="Add a note at this moment" autocomplete="off" aria-describedby="vp-note-help"></textarea>
+            <div class="vp-note-footer">
+              <span class="vp-note-when" id="vp-note-when" title="Your note saves at this game time">0:00</span>
+              <span class="vp-note-help" id="vp-note-help">Ctrl+Enter or Ctrl+S to save.</span>
+              <button class="ui-iconbtn is-accent vp-note-save" id="vp-bm-add" data-action="add_bookmark" type="button" aria-label="Save note" title="Save note (Ctrl+S)" aria-keyshortcuts="Control+s Meta+s Control+Enter Meta+Enter"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19V6M6 11l6-6 6 6"/></svg></button>
+            </div>
+            <details class="vp-composer-options vp-note-options">
               <summary>Learning objective</summary>
               <select class="inp" id="vp-bm-obj" aria-label="Tie note to objective or prompt">
                 <option value="">No objective</option>
@@ -309,12 +332,12 @@
           </section>
 
           <details class="vp-tools-disclosure vp-saved-moments" id="vp-saved-moments">
-            <summary><span>Saved moments</span><span id="vp-open-count">0 saved</span></summary>
+            <summary><span class="vp-saved-label"><span data-theme-hide="journal">Saved moments</span><span data-theme-only="journal">Manage clips and notes</span></span><span id="vp-open-count">0 saved</span></summary>
             <div class="vp-moments-card">
               <div class="tabs" id="vp-tabs" aria-label="Saved moment types">
-                <button type="button" class="tab auto on" data-filter="auto" aria-pressed="true">Suggested <span class="c" id="vp-c-all">(0)</span></button>
-                <button type="button" class="tab clips" data-filter="clips" aria-pressed="false">Clips <span class="c" id="vp-c-clips">(0)</span></button>
-                <button type="button" class="tab bm" data-filter="bm" aria-pressed="false">Notes <span class="c" id="vp-c-bm">(0)</span></button>
+                <button type="button" class="tab auto on" data-filter="auto" aria-pressed="true">Suggested <span class="c" id="vp-c-all">0</span></button>
+                <button type="button" class="tab clips" data-filter="clips" aria-pressed="false">Clips <span class="c" id="vp-c-clips">0</span></button>
+                <button type="button" class="tab bm" data-filter="bm" aria-pressed="false">Notes <span class="c" id="vp-c-bm">0</span></button>
               </div>
               <div class="moments" id="vp-bookmarks"></div>
               <div class="vp-moments-empty" id="vp-moments-empty" hidden>No saved moments yet.</div>
@@ -355,6 +378,7 @@
   <!-- A plain row: its controls stay separate, and the Watch button owns the jump. -->
   <template id="tpl-bookmark">
     <div class="moment">
+      <i class="vp-bm-mark" aria-hidden="true"></i>
       <button type="button" class="ricon" data-action="jump" title="Watch moment" aria-label="Watch moment"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg></button>
       <div class="mbadges">
         <span class="b src vp-bm-src">Bookmark</span>
@@ -386,7 +410,7 @@
       <!-- Inline edit/delete — shown only for plain bookmark rows (carry an id).
            The note field autosaves on blur/Enter; delete removes the bookmark. -->
       <div class="vp-bm-edit" hidden>
-        <input class="inp vp-bm-editnote" type="text" placeholder="Edit note…" autocomplete="off">
+        <input class="inp vp-bm-editnote own-words" type="text" placeholder="Edit note…" autocomplete="off">
         <button class="vp-bm-del" data-action="delete_bookmark" title="Delete bookmark" aria-label="Delete bookmark">
           <svg viewBox="0 0 24 24" width="14" height="14"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -398,7 +422,7 @@
         <select class="inp vp-ev-obj" aria-label="Tag objective">
           <option value="">No objective</option>
         </select>
-        <input class="inp vp-ev-note" type="text" placeholder="Add a note…" autocomplete="off">
+        <input class="inp vp-ev-note own-words" type="text" placeholder="Add a note…" autocomplete="off">
       </div>
       <!-- A failed note, tag or delete explains itself here and offers Retry. -->
       <div class="vp-moment-status" hidden>
@@ -417,7 +441,7 @@
       <span class="vp-fix-what"></span>
       <span class="b vp-fix-state"></span>
       <span class="vp-fix-reason" hidden></span>
-      <button type="button" class="key vp-fix-revert" data-action="revert_correction">Revert</button>
+      <button type="button" class="ui-btn ui-btn-quiet vp-fix-revert" data-action="revert_correction">Revert</button>
     </div>
   </template>
 
