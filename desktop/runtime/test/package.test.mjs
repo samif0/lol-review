@@ -10,6 +10,8 @@ import { encoderBinaryPins, encoderDependencyProvenance, isRecorderFile, obsPin,
   recorderModules, recorderSourceLock, requiredRecorderFiles, verifyEncoderBinaryPins, verifyEncoderSourceProvenance,
   verifyRecorderRuntime } from '../../recorder/runtime/libobs.mjs';
 import { writeSourceZip } from '../../recorder/scripts/source-zip.mjs';
+import { locateRecorderCrt } from '../../recorder/scripts/setup.mjs';
+import { recorderCrtBinaries } from '../../recorder/runtime/libobs.mjs';
 import { execFileSync } from 'node:child_process';
 
 async function scratch(t) {
@@ -273,3 +275,66 @@ test('source subsets preserve exact bytes and produce reproducible ZIPs readable
     assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'include/example.h'], { encoding: 'utf8', windowsHide: true }), '/* header */\n');
     assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'LICENSE.txt'], { encoding: 'utf8', windowsHide: true }), 'Original license\n');
   });
+
+async function crtFixture(redist, version, family, marker, { architecture = 'x64', missing = [] } = {}) {
+  const directory = path.join(redist, version, architecture, family);
+  for (const name of recorderCrtBinaries) {
+    if (!missing.includes(name)) await file(directory, name, marker);
+  }
+  return directory;
+}
+
+test('CRT discovery supports legacy and newer Visual Studio families and chooses the newest complete x64 directory', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  const legacy = await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'legacy');
+  assert.equal(await locateRecorderCrt(redist), legacy);
+  const latest = await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'latest');
+  await crtFixture(redist, '14.9.99999', 'Microsoft.VC199.CRT', 'numerically older');
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC143.CRT', 'older family');
+  await crtFixture(redist, '99.0.0', 'Microsoft.VC199.CRT', 'wrong architecture', { architecture: 'arm64' });
+  assert.equal(await locateRecorderCrt(redist), latest);
+  assert.equal(await readFile(path.join(latest, recorderCrtBinaries[0]), 'utf8'), 'latest');
+});
+
+test('CRT discovery falls back to one complete version without mixing missing or non-file DLLs', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  const fallback = await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'complete old');
+  const missing = recorderCrtBinaries[0];
+  const incomplete = await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'incomplete new', { missing: [missing] });
+  assert.equal(await locateRecorderCrt(redist), fallback);
+  await mkdir(path.join(incomplete, missing));
+  assert.equal(await locateRecorderCrt(redist), fallback);
+  for (const name of recorderCrtBinaries)
+    assert.equal(await readFile(path.join(await locateRecorderCrt(redist), name), 'utf8'), 'complete old');
+});
+
+test('compiled helpers cannot fall back to an older CRT minor while same-minor servicing builds remain valid', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'old compiler family');
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'incomplete new', { missing: [recorderCrtBinaries[0]] });
+  await assert.rejects(locateRecorderCrt(redist, { minimumToolVersion: '14.51.36260' }), /compatible with MSVC 14\.51\.36260/);
+  const sameMinor = await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'complete same minor');
+  assert.equal(await locateRecorderCrt(redist, { minimumToolVersion: '14.51.36260' }), sameMinor);
+  await assert.rejects(locateRecorderCrt(redist, { minimumToolVersion: 'invalid' }), /Invalid MSVC tool version/);
+});
+
+test('CRT discovery refuses incomplete sets even when other versions and x86 collectively contain all DLLs', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'partial first', { missing: [recorderCrtBinaries[0]] });
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'partial second', { missing: [recorderCrtBinaries[1]] });
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.CRT', 'wrong architecture', { architecture: 'x86' });
+  await crtFixture(redist, '14.51.36231', 'Microsoft.VC145.DebugCRT', 'wrong family');
+  await assert.rejects(locateRecorderCrt(redist), /No complete x64 Visual Studio CRT redistributable/);
+  const empty = path.join(root, 'empty'); await mkdir(empty);
+  await assert.rejects(locateRecorderCrt(empty), /No complete x64 Visual Studio CRT redistributable/);
+});
+
+test('CRT discovery rejects a designated family junction instead of reading outside its redist tree', async t => {
+  const root = await scratch(t), redist = path.join(root, 'redist');
+  await crtFixture(redist, '14.44.35112', 'Microsoft.VC143.CRT', 'complete old');
+  const external = await crtFixture(path.join(root, 'external'), '14.51.36231', 'Microsoft.VC145.CRT', 'external');
+  const x64 = path.join(redist, '14.51.36231/x64'); await mkdir(x64, { recursive: true });
+  await symlink(external, path.join(x64, 'Microsoft.VC145.CRT'), process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(locateRecorderCrt(redist), /rejects directory aliases/);
+  assert.equal(await readFile(path.join(external, recorderCrtBinaries[0]), 'utf8'), 'external');
+});

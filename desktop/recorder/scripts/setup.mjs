@@ -45,6 +45,60 @@ export async function downloadPinned(url, destination, expectedSha256) {
   return destination;
 }
 
+/** Select a complete, unaliased x64 CRT from one designated Visual Studio redist directory.
+ * Microsoft requires the compiler's runtime major and at least its minor version.
+ * Servicing build numbers differ between installed compiler and redist directory layouts.
+ */
+export async function locateRecorderCrt(redistRoot, { minimumToolVersion } = {}) {
+  const root = path.resolve(redistRoot);
+  if (minimumToolVersion !== undefined && !/^\d+\.\d+(?:\.\d+){1,2}$/.test(minimumToolVersion))
+    throw new Error(`Invalid MSVC tool version for CRT discovery: ${minimumToolVersion}`);
+  const minimum = minimumToolVersion?.split('.').slice(0, 2).map(Number);
+  async function directoryExists(directory) {
+    let metadata;
+    try { metadata = await lstat(directory); }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    if (!metadata.isDirectory() || await realpath(directory) !== path.resolve(directory))
+      throw new Error(`Recorder CRT discovery rejects directory aliases or non-directories: ${directory}`);
+    return true;
+  }
+  function newestFirst(a, b) {
+    const left = a.match(/\d+/g).map(Number), right = b.match(/\d+/g).map(Number);
+    for (let index = 0; index < Math.max(left.length, right.length); index++) {
+      const difference = (right[index] ?? 0) - (left[index] ?? 0);
+      if (difference) return difference;
+    }
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  if (!await directoryExists(root)) throw new Error(`Visual Studio CRT redist directory is missing: ${root}`);
+  const versions = (await readdir(root)).filter(name => /^\d+(?:\.\d+){2,3}$/.test(name)).sort(newestFirst);
+  for (const version of versions) {
+    const [major, minor] = version.split('.').map(Number);
+    if (minimum && (major !== minimum[0] || minor < minimum[1])) continue;
+    const versionDirectory = path.join(root, version);
+    await directoryExists(versionDirectory);
+    const x64 = path.join(versionDirectory, 'x64');
+    if (!await directoryExists(x64)) continue;
+    const families = (await readdir(x64)).filter(name => /^Microsoft\.VC\d+\.CRT$/.test(name)).sort(newestFirst);
+    for (const family of families) {
+      const candidate = path.join(x64, family);
+      await directoryExists(candidate);
+      let complete = true;
+      for (const name of recorderCrtBinaries) {
+        const file = path.join(candidate, name);
+        let metadata;
+        try { metadata = await lstat(file); }
+        catch (error) { if (error.code === 'ENOENT') { complete = false; continue; } throw error; }
+        if (metadata.isSymbolicLink() || await realpath(file) !== path.resolve(file))
+          throw new Error(`Recorder CRT discovery rejects file aliases: ${file}`);
+        if (!metadata.isFile()) complete = false;
+      }
+      if (complete) return candidate;
+    }
+  }
+  throw new Error(`No complete x64 Visual Studio CRT redistributable${minimumToolVersion ? ` compatible with MSVC ${minimumToolVersion}` : ''} was found under ${root}`);
+}
+
 export async function locateVisualStudio() {
   const vswhere = path.join(process.env['ProgramFiles(x86)'] || 'C:/Program Files (x86)', 'Microsoft Visual Studio/Installer/vswhere.exe');
   const installations = JSON.parse(await run(vswhere, ['-latest', '-products', '*', '-requires',
@@ -53,10 +107,7 @@ export async function locateVisualStudio() {
   const root = installations[0].installationPath;
   const toolVersion = (await readFile(path.join(root, 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt'), 'utf8')).trim();
   const toolRoot = path.join(root, 'VC/Tools/MSVC', toolVersion, 'bin/Hostx64/x64');
-  const crtVersions = (await readdir(path.join(root, 'VC/Redist/MSVC'), { withFileTypes: true }))
-    .filter(entry => entry.isDirectory() && /^\d+\.\d+\.\d+$/.test(entry.name)).map(entry => entry.name)
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-  const crt = path.join(root, 'VC/Redist/MSVC', crtVersions[0], 'x64/Microsoft.VC143.CRT');
+  const crt = await locateRecorderCrt(path.join(root, 'VC/Redist/MSVC'), { minimumToolVersion: toolVersion });
   const cmake = path.join(root, 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe');
   const ctest = path.join(path.dirname(cmake), 'ctest.exe');
   for (const file of [cmake, ctest, path.join(toolRoot, 'dumpbin.exe'), path.join(toolRoot, 'lib.exe')]) {
