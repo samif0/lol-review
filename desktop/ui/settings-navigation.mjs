@@ -27,7 +27,7 @@ export function initializeSettingsNavigation({ document = globalThis.document, s
   const buttons = [...document.querySelectorAll('[data-settings-category]')];
   const categories = sections.map(section => ({ id: section.dataset.settingsSection,
     title: section.querySelector('h2')?.textContent || '',
-    cards: [...section.querySelectorAll('[data-settings-card]')].map(card => ({ id: card.id,
+    cards: [...section.querySelectorAll('[data-settings-card]')].map(card => ({ id: card.id, element: card,
       text: `${card.dataset.search || ''} ${[...card.querySelectorAll('h3,summary,label,.set-row-h,.set-row-s,.settings-card-description')]
         .map(element => element.textContent).join(' ')}` })),
   }));
@@ -37,10 +37,13 @@ export function initializeSettingsNavigation({ document = globalThis.document, s
   const openedBySearch = new Set();
   const hash = scope.location.hash.replace(/^#settings-/, '');
   let selected = categories.some(category => category.id === hash) ? hash : 'recording';
+  // A card marked data-unavailable="true" (a feature this computer cannot use) is never shown or found.
+  const offered = card => card.dataset?.unavailable !== 'true';
   const apply = () => {
     const query = search.value.trim();
     const searching = normalize(query).length > 0;
-    const matches = findSettings(categories, query);
+    const matches = findSettings(categories.map(category => ({ ...category,
+      cards: category.cards.filter(card => offered(card.element)) })), query);
     for (const detail of openedBySearch) detail.open = false;
     openedBySearch.clear();
     let resultCount = 0;
@@ -49,7 +52,7 @@ export function initializeSettingsNavigation({ document = globalThis.document, s
       const ids = new Set(matches.find(match => match.id === category)?.cards || []);
       section.hidden = searching ? ids.size === 0 : category !== selected;
       for (const card of section.querySelectorAll('[data-settings-card]')) {
-        card.hidden = searching && !ids.has(card.id);
+        card.hidden = !offered(card) || (searching && !ids.has(card.id));
         if (!card.hidden && searching) {
           resultCount++;
           const details = card.matches('details') ? [card] : [...card.querySelectorAll('details')];

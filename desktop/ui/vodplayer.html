@@ -71,13 +71,6 @@
       <button class="vp-sharebar-retry" id="vp-sharebar-retry" type="button" hidden>Retry failed</button>
     </div>
 
-    <!-- Speed up: shown only for a built-in recording saved before Revu indexed recordings
-         (recording-optimize.mjs). The host checks eligibility; the page never names a file. -->
-    <div class="vp-speedup" id="vp-speedup" role="group" aria-label="Recording file speed-up" tabindex="-1" hidden>
-      <span class="vp-speedup-txt" id="vp-speedup-txt" data-speedup-text role="status" aria-live="polite"></span>
-      <button class="ui-btn ui-btn-quiet vp-speedup-btn" data-speedup-action type="button" aria-describedby="vp-speedup-txt" hidden>Speed up</button>
-    </div>
-
     <!-- No-VOD state -->
     <div class="card vp-novod" id="vp-novod" hidden>
       <div class="vline">No recording found for this game.</div>
@@ -104,6 +97,8 @@
           <div class="card pad0 vp-video-card">
             <div class="vp-stage">
               <video id="vp-video" class="vp-video" preload="metadata" playsinline></video>
+              <!-- Says why the player is empty while Settings > Recording speeds this recording up. -->
+              <p class="vp-stage-note" id="vp-stage-note" role="status"></p>
             </div>
           </div>
 

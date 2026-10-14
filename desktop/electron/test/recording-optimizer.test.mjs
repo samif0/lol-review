@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { link, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createRecordingOptimizer, isStaleTemporary, runTool, toolTimeout } from '../recording-optimizer.mjs';
+import { createRecordingOptimizer, isStaleTemporary, LIST_LIMIT, MIN_FRAGMENTS, runTool, toolTimeout } from '../recording-optimizer.mjs';
+import { mp4Summary } from '../recorder-media.mjs';
 
 // Synthetic top-level MP4 boxes: the real mp4Layout reads these; fake tools stand in for ffmpeg.
 const box = (name, payload = Buffer.alloc(0)) => {
@@ -324,4 +325,221 @@ test('the tool runner streams stdout, reports failures and settles only after th
   await assert.rejects(running, { name: 'AbortError' });
   await assert.rejects(runTool(path.join(os.tmpdir(), `missing-${randomUUID()}.exe`), []), { code: 'ENOENT' });
   assert.ok(toolTimeout(4 * 1024 ** 3) > toolTimeout(1024 ** 3));
+});
+
+// Settings lists sessions from disk. Each extra session gets its own game snapshot here.
+function listing(f) {
+  const vods = new Map(), asked = [], request = f.backend.request;
+  f.backend.request = async (route, options) => {
+    const game = /^\/api\/vod\?gameId=(\d+)$/.exec(route);
+    if (game) asked.push(Number(game[1]));
+    if (game && vods.has(Number(game[1]))) return vods.get(Number(game[1]));
+    return request(route, options);
+  };
+  f.backend.vod = { ...f.backend.vod, championName: 'Ahri', enemyChampion: 'Zed', datePlayed: 'Oct 13, 21:40', gameDurationSeconds: 1920 };
+  const add = async ({ gameId, bytes = fragmented(MEDIA), session = {}, vod } = {}) => {
+    const sessionId = randomUUID(), directory = path.join(f.root, sessionId), file = path.join(directory, 'capture.mp4');
+    await mkdir(directory, { recursive: true });
+    await writeFile(file, bytes);
+    await writeFile(path.join(directory, 'session.json'), JSON.stringify({ sessionId, gameId, state: 'saved', complete: true,
+      registrationStatus: 'linked', filePath: file, fileSize: bytes.length,
+      registration: { sessionId, gameId, filePath: file, fileSize: bytes.length, durationSeconds: 90, complete: true }, ...session }));
+    vods.set(gameId, typeof vod === 'function' ? await vod(file) : vod ?? { hasVod: true, gameId, filePath: file, championName: 'Lux',
+      enemyChampion: '', datePlayed: 'Oct 12, 20:15', gameDurationSeconds: 1500 });
+    return { sessionId, directory, file, bytes };
+  };
+  return { add, asked, vods };
+}
+const GiB = 1024 ** 3;
+
+test('Settings lists each linked recording that still opens slowly, newest first, with what its row shows and no path', async t => {
+  assert.equal(MIN_FRAGMENTS, 1000);
+  assert.equal(LIST_LIMIT, 50);
+  const f = await fixture(t, { session: { startedAt: '2026-10-13T19:40:00.000Z' } });
+  const l = listing(f);
+  const newer = await l.add({ gameId: 5001, session: { startedAt: '2026-10-14T09:00:00.000Z' } });
+  const result = await f.optimizer.list();
+  assert.deepEqual(result, { available: true, blocked: null, working: null, items: [
+    { gameId: 5001, championName: 'Lux', enemyChampion: '', datePlayed: 'Oct 12, 20:15', durationSeconds: 1500,
+      fileSize: newer.bytes.length, requiredBytes: newer.bytes.length + 4 * GiB, ready: true, reason: null },
+    { gameId: GAME, championName: 'Ahri', enemyChampion: 'Zed', datePlayed: 'Oct 13, 21:40', durationSeconds: 1920,
+      fileSize: f.bytes.length, requiredBytes: f.bytes.length + 4 * GiB, ready: true, reason: null },
+  ] });
+  const wire = JSON.stringify(result);
+  for (const secret of [f.root, f.sessionId, newer.sessionId, 'capture', ':\\']) assert.equal(wire.includes(secret), false, secret);
+  assert.deepEqual(f.events, [], 'listing never runs a tool or holds a file');
+  assert.equal((await f.optimizer.optimize({ gameId: GAME })).status, 'optimized', 'a listed game is one a speed-up accepts');
+  assert.deepEqual((await f.optimizer.list()).items.map(item => item.gameId), [5001]);
+});
+
+test('indexed, short, test, pending, unlinked, duplicate and replaced recordings are never listed', async t => {
+  const f = await fixture(t, { minFragments: 2 });
+  const l = listing(f);
+  const oneFragment = Buffer.concat([ftyp(), box('moov', Buffer.alloc(16)), box('moof', Buffer.alloc(24)), box('mdat', MEDIA)]);
+  const excluded = [
+    { gameId: 6001, bytes: progressive(MEDIA) }, // already indexed (sped up before its session recorded the layout)
+    { gameId: 6002, session: { container: 'progressive' } }, // a clean 4.0.1 save: never even asked about
+    { gameId: 6003, bytes: oneFragment }, // too short to open slowly
+    { gameId: 6004, session: { testCapture: true } },
+    { gameId: 6005, session: { state: 'awaiting-match' } },
+    { gameId: 6006, session: { registrationStatus: 'retained-existing' } },
+    { gameId: 6007, session: { registrationStatus: 'pending' } },
+    { gameId: 6008, vod: async () => { // the match now plays an Ascent file
+      const outside = path.join(path.dirname(f.root), 'Ascent.mp4'); await writeFile(outside, f.bytes);
+      return { hasVod: true, gameId: 6008, filePath: outside }; } },
+    { gameId: 6009, vod: { hasVod: false, gameId: 6009, filePath: '' } },
+  ];
+  for (const value of excluded) await l.add(value);
+  const pending = await l.add({ gameId: 6010 });
+  f.recording.pending.set(pending.sessionId, {});
+  await l.add({ gameId: GAME, session: { startedAt: '2020-01-01T00:00:00.000Z' } }); // an older second session of the same game
+  await mkdir(path.join(f.root, 'imports')); // not a session folder
+  const result = await f.optimizer.list();
+  assert.deepEqual(result.items.map(item => item.gameId), [GAME]);
+  for (const gameId of [6002, 6004, 6005, 6006, 6007]) assert.equal(l.asked.includes(gameId), false, `${gameId} is filtered by session.json alone`);
+  assert.equal(l.asked.filter(gameId => gameId === GAME).length, 1, 'one row and one snapshot read per game');
+  assert.deepEqual(f.events, []);
+});
+
+test('a game, a recording or a full drive holds every row and clears on the next check; closing hides the list', async t => {
+  let free = 100 * GiB;
+  const f = await fixture(t, { space: async () => free });
+  f.recording.game = { pid: 7 };
+  let result = await f.optimizer.list();
+  assert.equal(result.blocked, 'game-running');
+  assert.deepEqual(result.items.map(({ ready, reason }) => ({ ready, reason })), [{ ready: false, reason: 'game-running' }]);
+  f.recording.game = null; f.recording.current = { sessionId: randomUUID() };
+  assert.equal((await f.optimizer.list()).items[0].reason, 'recording-active');
+  f.recording.current = null; f.backend.context = { isGameInProgress: true, phase: 'InProgress' };
+  assert.equal((await f.optimizer.list()).blocked, 'game-running', 'the sidecar sees a game automatic recording skipped');
+  f.backend.context = { isGameInProgress: false, phase: 'None' }; free = 4 * GiB;
+  result = await f.optimizer.list();
+  assert.deepEqual(result.items.map(({ ready, reason, requiredBytes }) => ({ ready, reason, requiredBytes })),
+    [{ ready: false, reason: 'not-enough-space', requiredBytes: f.bytes.length + 4 * GiB }]);
+  assert.equal(result.blocked, null);
+  free = 100 * GiB;
+  assert.deepEqual((await f.optimizer.list()).items.map(item => item.ready), [true]);
+  const closed = await fixture(t, { available: () => false });
+  assert.deepEqual(await closed.optimizer.list(), { available: false, blocked: null, working: null, items: [] });
+  const quitting = await fixture(t);
+  await quitting.optimizer.cancel();
+  assert.equal((await quitting.optimizer.list()).available, false);
+});
+
+test('while a speed-up runs the list shows that game working and the rest waiting, without opening its file', async t => {
+  const inspected = [], opened = [];
+  const f = await fixture(t, { inspect: async (file, signal) => { inspected.push(file); return mp4Summary(file, signal); },
+    readText: async file => { opened.push(file); return readFile(file, 'utf8'); } });
+  const l = listing(f);
+  await l.add({ gameId: 7001 });
+  assert.equal((await f.optimizer.list()).items.length, 2);
+  let started, finish;
+  const copying = new Promise(resolve => { started = resolve; });
+  f.tools.remux = (input, output) => new Promise(resolve => { finish = () => resolve(writeFile(output, progressive(MEDIA))); started(); });
+  const job = f.optimizer.optimize({ gameId: GAME });
+  await copying;
+  inspected.length = 0; opened.length = 0;
+  const during = await f.optimizer.list();
+  assert.equal(during.working, GAME);
+  assert.deepEqual(during.items.map(({ gameId, ready, reason }) => ({ gameId, ready, reason })).sort((a, b) => a.gameId - b.gameId),
+    [{ gameId: GAME, ready: false, reason: 'working' }, { gameId: 7001, ready: false, reason: 'busy' }]);
+  assert.equal(inspected.includes(f.file), false, 'an open handle on the file being replaced would block its swap');
+  assert.equal(opened.includes(f.sessionFile), false, 'nor on the session.json its bookkeeping rewrites');
+  finish();
+  assert.equal((await job).status, 'optimized');
+  const after = await f.optimizer.list();
+  assert.equal(after.working, null);
+  assert.deepEqual(after.items.map(item => [item.gameId, item.ready]), [[7001, true]], 'a sped-up recording leaves the list');
+});
+
+test('held re-checks reuse a check from the last minute, read a layout only after its file changes, and stop at the newest 50', async t => {
+  let reads = 0, clock = Date.parse('2026-10-14T12:00:00.000Z');
+  const f = await fixture(t, { listLimit: 2, now: () => clock, session: { startedAt: '2019-10-14T11:00:00.000Z' },
+    inspect: async (file, signal) => { reads++; return mp4Summary(file, signal); } });
+  const l = listing(f);
+  const first = await l.add({ gameId: 8001, session: { startedAt: '2026-10-14T10:00:00.000Z' } });
+  const second = await l.add({ gameId: 8002, session: { startedAt: '2026-10-14T11:00:00.000Z' } });
+  await l.add({ gameId: 8003, session: { startedAt: '2020-10-14T11:00:00.000Z' } });
+  assert.deepEqual((await f.optimizer.list()).items.map(item => item.gameId), [8002, 8001]);
+  assert.equal(reads, 2);
+  assert.deepEqual([...l.asked].sort(), [8001, 8002], 'older sessions past the limit are never asked about');
+  // A game in progress: Settings asks every 10 s. Readiness is fresh; held rows keep their check without the sidecar's snapshots.
+  f.recording.game = { pid: 9 };
+  const held = await f.optimizer.list();
+  assert.deepEqual(held.items.map(item => [item.gameId, item.ready, item.reason, item.championName]),
+    [[8002, false, 'game-running', 'Lux'], [8001, false, 'game-running', 'Lux']]);
+  assert.equal(l.asked.length, 2, 'no snapshot is read again while every row is held');
+  assert.equal(reads, 2);
+  const session = path.join(second.directory, 'session.json');
+  await writeFile(session, JSON.stringify({ ...JSON.parse(await readFile(session, 'utf8')), note: 'changed' }));
+  await f.optimizer.list();
+  assert.deepEqual(l.asked.slice(2), [8002], 'a changed session.json is checked again at once');
+  // Nothing holds the rows: each one that could be offered is checked against its snapshot again.
+  f.recording.game = null;
+  await f.optimizer.list();
+  assert.deepEqual(l.asked.slice(3).sort(), [8001, 8002]);
+  assert.equal(reads, 2, 'an unchanged file is not walked again');
+  await f.optimizer.status({ gameId: 8001 });
+  assert.equal(reads, 3, 'status and a speed-up always read the file afresh');
+  assert.equal(l.asked.length, 6, 'and the snapshot');
+  f.recording.game = { pid: 9 };
+  await f.optimizer.list();
+  assert.equal(l.asked.length, 6, 'held again within the minute: the fresh checks are reused');
+  clock += 61_000;
+  await writeFile(first.file, Buffer.concat([fragmented(MEDIA), box('free')]));
+  await f.optimizer.list();
+  assert.equal(l.asked.length, 8, 'a minute later even held rows are checked against their snapshots again');
+  assert.equal(reads, 4, 'a file that changed size is walked again');
+});
+
+test('a row that could be offered is always checked afresh, so a game deleted a moment ago is not offered', async t => {
+  let free = 100 * GiB;
+  const f = await fixture(t, { space: async () => free });
+  const l = listing(f);
+  await l.add({ gameId: 8101 });
+  const games = async () => (await f.optimizer.list()).items.map(item => item.gameId).sort((a, b) => a - b);
+  f.recording.game = { pid: 3 };
+  assert.deepEqual(await games(), [GAME, 8101]);
+  l.vods.set(8101, { hasVod: false, gameId: 8101 }); // removed from the match library while Settings stays open
+  assert.deepEqual(await games(), [GAME, 8101], 'a held row may keep its check from the last minute');
+  f.recording.game = null; free = 1 * GiB;
+  assert.deepEqual(await games(), [GAME, 8101], 'so may a row the drive has no room for');
+  free = 100 * GiB;
+  assert.deepEqual(await games(), [GAME], 'a row that could be offered is checked afresh');
+});
+
+test('listing never opens the session.json of a recording in progress or awaiting its match, nor an unchanged one twice', async t => {
+  const opened = [];
+  const f = await fixture(t, { readText: async file => { opened.push(file); return readFile(file, 'utf8'); } });
+  const l = listing(f);
+  const active = await l.add({ gameId: 9101 }), waiting = await l.add({ gameId: 9102 });
+  const metadata = value => path.join(value.directory, 'session.json');
+  // The recorder renames a new session.json over these while they run; on Windows any open handle fails that rename.
+  f.recording.current = { sessionId: active.sessionId };
+  f.recording.pending.set(waiting.sessionId, {});
+  assert.deepEqual((await f.optimizer.list()).items.map(item => item.gameId), [GAME]);
+  assert.deepEqual(await f.optimizer.status({ gameId: 9101 }), { eligible: false, ready: false, reason: 'not-linked' });
+  for (const value of [active, waiting]) assert.equal(opened.includes(metadata(value)), false);
+  assert.equal(l.asked.includes(9102), false, 'a pending session is not even asked about');
+  // Every 10 s while that recording runs, nothing unchanged is opened again.
+  opened.length = 0;
+  await f.optimizer.list(); await f.optimizer.list();
+  assert.deepEqual(opened, []);
+  // Saved and linked, they are read like any other.
+  f.recording.current = null; f.recording.pending.clear();
+  assert.deepEqual((await f.optimizer.list()).items.map(item => item.gameId).sort((a, b) => a - b), [GAME, 9101, 9102]);
+  for (const value of [active, waiting]) assert.equal(opened.includes(metadata(value)), true);
+});
+
+test('the 1,000-fragment line holds: about 8 minutes is listed, anything shorter already opens quickly', async t => {
+  const fragments = count => Buffer.concat([ftyp(), box('moov', Buffer.alloc(16)),
+    ...Array.from({ length: count }, (_, index) => [box('moof', Buffer.alloc(24)), box('mdat', Buffer.from(`packet ${index}`))]).flat()]);
+  for (const [count, listed] of [[MIN_FRAGMENTS, true], [MIN_FRAGMENTS - 1, false]]) {
+    const f = await fixture(t, { bytes: fragments(count), minFragments: MIN_FRAGMENTS });
+    listing(f);
+    assert.deepEqual((await f.optimizer.list()).items.map(item => item.gameId), listed ? [GAME] : [], String(count));
+    assert.deepEqual(await f.optimizer.status({ gameId: GAME }), listed
+      ? { eligible: true, ready: true, reason: null, fileSize: f.bytes.length, freeBytes: 100 * GiB, requiredBytes: f.bytes.length + 4 * GiB }
+      : { eligible: false, ready: false, reason: 'opens-quickly' }, String(count));
+  }
 });

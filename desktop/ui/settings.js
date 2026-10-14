@@ -2,6 +2,7 @@ import { $, show, clear as clearEl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { initializeRecordingSettings } from './recording-settings.mjs';
+import { initializeRecordingSpeedUp } from './recording-optimize.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
 import { registerLeaveGuard } from './leave-guard.mjs';
 import { initializeAudioSettings } from './audio-settings.mjs';
@@ -797,7 +798,7 @@ function showFirstUnsavedCard() {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
-  initializeSettingsNavigation();
+  const navigation = initializeSettingsNavigation();
   registerLeaveGuard({ isDirty: settingsDirty, flush: saveDirtySettings });
   window.addEventListener('revu:update-download-progress', event => showUpdateDownloadProgress(event.detail));
   for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
@@ -813,6 +814,9 @@ function boot() {
   loadConfig(); loadAppVersion(); loadAscentAccess();
   try { initializeAppearanceSettings(); } catch (err) { console.warn('[settings] appearance unavailable:', err); }
   try { initializeAudioSettings(); } catch (err) { console.warn('[settings] audio devices unavailable:', err); }
+  // Speed up sits outside the save groups: each row acts at once, so it never marks the page unsaved.
+  initializeRecordingSpeedUp({ getInvoke, onAvailability: () => navigation?.refresh() })
+    .catch(err => console.warn('[settings] speed up unavailable:', err));
   initializeRecordingSettings().then(() => {
     for (const group of document.querySelectorAll('[data-native-group]')) {
       _nativeBaseline.set(group.id, nativeValues(group));

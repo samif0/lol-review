@@ -183,6 +183,7 @@ async function executeCommand(command, args) {
     let value;
     if (command === 'get_recording_status') value = recording.getStatus();
     else if (command === 'save_recording_settings') value = await recording.saveSettings(args.payload);
+    else if (command === 'list_recording_optimizations') value = await optimizer.list();
     else if (command === 'get_recording_optimization') value = await optimizer.status(args);
     else if (command === 'optimize_recording') value = await optimizer.optimize(args);
     else if (command === 'get_background_settings') value = background.getSettings();

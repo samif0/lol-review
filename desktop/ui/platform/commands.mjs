@@ -121,7 +121,9 @@ const definitions = {
   save_recording_settings: native({ payload: 'object' }),
   open_recordings_folder: native(),
   // "Speed up" for a linked built-in recording: the host resolves the file from the
-  // game's own VOD snapshot and never accepts a path from the page.
+  // game's own VOD snapshot and never accepts a path from the page. Settings lists the
+  // recordings that still open slowly; the answer names games only, never a path.
+  list_recording_optimizations: native({}),
   get_recording_optimization: native({ gameId: 'integer' }),
   optimize_recording: native({ gameId: 'integer' }),
   get_background_settings: native(),

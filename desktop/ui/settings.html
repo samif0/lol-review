@@ -58,6 +58,11 @@
           <div class="settings-save-footer"><div class="set-status" id="recording-settings-status" role="status" aria-live="polite"></div><div class="set-btnrow"><button class="rule-act" type="button" id="open-recordings-folder" disabled>Open recordings folder</button><button class="rule-act set-act-primary" type="button" id="save-recording-settings" disabled>Save recording settings</button></div></div>
           </div>
         </div>
+        <div class="set-card" id="speedup-settings" data-settings-card data-unavailable="true" hidden data-search="speed up slow recordings opens slowly open quickly faster loading older interrupted rewrite built-in">
+          <div><h3>Speed up slow recordings</h3><p class="settings-card-description">Recordings saved before Revu 4.0.1, or interrupted before they finished saving, can take a while to open. Speeding one up rewrites it once so it opens instantly. The video and audio stay exactly the same.</p></div>
+          <p class="set-status" id="speedup-status" role="status" aria-live="polite">Checking your recordings…</p>
+          <ul class="settings-speedup-list" id="speedup-list" aria-label="Recordings that open slowly" hidden></ul>
+        </div>
         <p class="settings-inline-note">Want Revu ready when you play? Use <a href="#settings-appearance" data-category-link="appearance">Appearance &amp; startup</a> to keep it in the system tray or start it with Windows.</p>
       </section>
 
