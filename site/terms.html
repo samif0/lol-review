@@ -38,7 +38,7 @@
     <article class="legal">
       <p class="eyebrow">Legal</p>
       <h1 class="legal-h1">Terms of service</h1>
-      <p class="legal-meta">Last updated: 2026-10-12</p>
+      <p class="legal-meta">Last updated: 2026-10-13</p>
 
       <p>
         Revu is open-source software released under the
@@ -63,6 +63,55 @@
         commercial use. The MIT License lets you fork, modify, and
         redistribute the source. If you do redistribute, please keep
         the copyright notice in the LICENSE file intact.
+      </p>
+
+      <h2 id="third-party">Third-party software</h2>
+      <p>
+        The desktop installer includes FFmpeg
+        (<a href="https://ffmpeg.org">ffmpeg.org</a>) as the separate
+        program <code>ffmpeg.exe</code>, which Revu runs to save and
+        narrate clips. This FFmpeg build is licensed under the
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License version 3</a>
+        and contains libraries such as x264 and x265 under their own
+        licenses. Revu only runs it as a separate program, so Revu's own
+        MIT License is unchanged.
+      </p>
+      <ul>
+        <li>
+          Build: FFmpeg n8.1.2-50-g1a748fe2cd (commit
+          <code>1a748fe2cd43e3ead22fafb1b5b7d77f153898a8</code>), built by
+          BtbN FFmpeg-Builds release
+          <code>autobuild-2026-08-31-13-27</code>, variant win64-gpl-8.1.
+        </li>
+        <li>
+          License texts and every library in <code>ffmpeg.exe</code> with
+          its license: the <code>licenses\ffmpeg</code> folder installed
+          with Revu, also
+          <a href="https://github.com/samif0/lol-review/tree/main/licenses/ffmpeg">on GitHub</a>.
+        </li>
+        <li>
+          Source code:
+          <a href="https://github.com/FFmpeg/FFmpeg/tree/1a748fe2cd43e3ead22fafb1b5b7d77f153898a8">FFmpeg at that commit</a>,
+          the
+          <a href="https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-08-31-13-27">build scripts at that release</a>,
+          which name the source and revision of every library, and each
+          library at the revision listed in the license folder.
+        </li>
+        <li>
+          For at least three years after Revu last distributes this
+          build, Sami Fawcett will provide the complete corresponding
+          source to anyone who has a copy. Ask in a
+          <a href="https://github.com/samif0/lol-review/issues">GitHub issue</a>
+          or by email at the address in <code>licenses\ffmpeg\README.txt</code>.
+        </li>
+      </ul>
+      <p>
+        Built-in recording uses the separate helper
+        <code>revu-recorder.exe</code>, which links libobs from
+        <a href="https://obsproject.com">OBS Studio</a> and is licensed
+        under the GPL. Its notices, license texts and complete source code
+        ship in the <code>recorder</code> folder installed with Revu; see the
+        <a href="https://github.com/samif0/lol-review/blob/main/desktop/recorder/THIRD-PARTY-NOTICES.txt">recorder notices</a>.
       </p>
 
       <h2>Riot Games disclaimer</h2>
