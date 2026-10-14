@@ -18,7 +18,9 @@
 
 import { Env } from "./types";
 import { jsonResponse } from "./http";
-import { RELEASES_MAX, totalBudgetBytes, userClipBudgetBytes, vodBudgetBytes } from "./share-limits";
+import { RELEASES_MAX, VOD_TTL_SECONDS, totalBudgetBytes, userClipBudgetBytes, vodBudgetBytes } from "./share-limits";
+// Read only inside releaseAt, so the clips.ts <-> storage-budget.ts cycle is safe.
+import { CLIP_TTL_SECONDS } from "./clips";
 
 export interface StorageUsage {
   used: number;
@@ -45,7 +47,7 @@ export interface StoragePool {
 export const STORAGE_USAGE_SQL =
   "SELECT COALESCE(SUM(b.size_bytes), 0) AS used, COALESCE(SUM(CASE WHEN b.kind = 'vod' THEN b.size_bytes ELSE 0 END), 0) AS vod_used FROM (SELECT size_bytes, kind FROM clips UNION ALL SELECT size_bytes, kind FROM storage_tombstones) AS b";
 
-const RELEASE_ROWS_SQL = "SELECT kind, size_bytes, status, expires_at FROM clips ORDER BY expires_at ASC LIMIT 1000";
+const RELEASE_ROWS_SQL = "SELECT kind, size_bytes, status, created_at, expires_at FROM clips ORDER BY expires_at ASC LIMIT 1000";
 const RELEASE_TOMBS_SQL = "SELECT kind, size_bytes FROM storage_tombstones LIMIT 1000";
 
 export const STORAGE_FULL_MESSAGE = "Revu's sharing space is full right now. Try again in a few hours.";
@@ -93,11 +95,32 @@ export function nextHour(t: number): number {
   return (Math.floor(t / 3600) + 1) * 3600;
 }
 
+interface ReleaseRow {
+  kind: string;
+  size_bytes: number;
+  status: string;
+  created_at: number;
+  expires_at: number;
+}
+
+/**
+ * When a row's bytes are expected to leave the bucket. A pending upload's
+ * expires_at only ends its upload window: once it completes it keeps its bytes
+ * for the share TTL (a VOD from init, a clip from complete, at the latest the
+ * window end), so the estimate never comes before the bytes can really go.
+ */
+function releaseAt(r: ReleaseRow, now: number): number {
+  if (r.status === "purging") return nextHour(now);
+  if (r.status === "uploading" && r.expires_at > now) {
+    const kept = r.kind === "vod" ? r.created_at + VOD_TTL_SECONDS : r.expires_at + CLIP_TTL_SECONDS;
+    return nextHour(Math.max(kept, now));
+  }
+  return nextHour(Math.max(r.expires_at, now));
+}
+
 /** When stored bytes are expected to be released, grouped by purge hour, ascending. */
 export async function readReleases(db: D1Database, now: number): Promise<PoolRelease[]> {
-  const rows = await db
-    .prepare(RELEASE_ROWS_SQL)
-    .all<{ kind: string; size_bytes: number; status: string; expires_at: number }>();
+  const rows = await db.prepare(RELEASE_ROWS_SQL).all<ReleaseRow>();
   const tombs = await db.prepare(RELEASE_TOMBS_SQL).all<{ kind: string; size_bytes: number }>();
 
   const grouped = new Map<number, PoolRelease>();
@@ -108,10 +131,7 @@ export async function readReleases(db: D1Database, now: number): Promise<PoolRel
     if (kind === "vod") g.vod_bytes += bytes;
     grouped.set(at, g);
   };
-  for (const r of rows.results ?? []) {
-    const at = r.status === "purging" ? nextHour(now) : nextHour(Math.max(r.expires_at, now));
-    add(at, r.kind, r.size_bytes);
-  }
+  for (const r of rows.results ?? []) add(releaseAt(r, now), r.kind, r.size_bytes);
   for (const t of tombs.results ?? []) add(nextHour(now), t.kind, t.size_bytes);
 
   return [...grouped.values()].sort((a, b) => a.at - b.at).slice(0, RELEASES_MAX);

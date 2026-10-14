@@ -344,7 +344,7 @@ One account outside `vod_sharers` may hold at most `USER_CLIP_BUDGET_BYTES`
 (default 3e9, a third of the total) of clips, pending reservations included,
 so no single account can fill the pool; over it is the usual 403
 `quota_exceeded`. A clip upload or VOD init that would be refused for storage
-first discards up to 10 idle pending uploads (30 minutes without part activity)
+first discards up to 5 idle pending uploads (30 minutes without part activity)
 of any account.
 
 When an R2 delete or upload abort fails, the bytes stay counted: owner delete,

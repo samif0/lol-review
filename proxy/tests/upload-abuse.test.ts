@@ -14,6 +14,7 @@ import { isGoneUploadError } from "../src/upload-cleanup";
 import { ABORT_GIVE_UP_SECONDS } from "../src/clip-purge";
 import {
   DEFAULT_USER_CLIP_BUDGET_BYTES,
+  IDLE_SWEEP_ON_START,
   IDLE_SWEEP_PER_RUN,
   IDLE_SWEEP_SECONDS,
   PART_PUTS_PER_DAY,
@@ -183,6 +184,51 @@ describe("idle reservations of any account", () => {
     expect(sweepAt).toBeGreaterThan(pruneAt);
     // Workers Free allows 50 D1 queries per invocation; the whole run fits with room to spare.
     expect(cron.length).toBeLessThanOrEqual(50);
+  });
+
+  /**
+   * A pool exactly full of idle 100-byte uploads: two clips for each of
+   * `accounts` accounts and for "fresh", plus one VOD for the owner. A start
+   * by "fresh" or the owner discards its own idle uploads first, then sweeps.
+   */
+  async function poolFullOfIdle(accounts: number) {
+    const tokens = Array.from({ length: accounts }, (_, i) => `idle${i + 1}`);
+    const budget = String(100 * (2 * accounts + 3));
+    const s = await vodSetup({
+      tokens: ["sess-owner", "fresh", ...tokens],
+      allow: ["sess-owner"],
+      env: { TOTAL_BUDGET_BYTES: budget, VOD_BUDGET_BYTES: budget },
+    });
+    for (const t of ["fresh", ...tokens]) {
+      await idOf(await clipInit(s.env, t, 100));
+      await idOf(await clipInit(s.env, t, 100));
+    }
+    await idOf(await vodInitOk(s.env, "sess-owner", 100));
+    s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE status = 'uploading'", nowSec() - IDLE_SWEEP_SECONDS - 1);
+    resetUserLimits();
+    return s;
+  }
+
+  it("an upload start that sweeps a backlog stays inside the Workers Free D1 budget", async () => {
+    expect(IDLE_SWEEP_ON_START).toBe(5);
+    // [route, start, own idle uploads it discards first, pending rows it adds]
+    const starts: [string, (s: VodSetup) => Promise<Response>, number, number][] = [
+      ["clip multipart init", (s) => clipInit(s.env, "fresh", 500), 2, 1],
+      ["VOD init", (s) => vodInitOk(s.env, "sess-owner", 500), 1, 1],
+      ["single PUT", (s) => single(s.env, "fresh", mp4Bytes(484)), 0, 0],
+    ];
+    for (const [route, start, own, added] of starts) {
+      const s = await poolFullOfIdle(6);
+      const pendingBefore = pendingCount(s);
+      const from = s.db._sql.length;
+      const res = await start(s);
+      const queries = s.db._sql.length - from;
+
+      expect(res.status, route).toBe(201);
+      expect(pendingCount(s), route).toBe(pendingBefore - own - IDLE_SWEEP_ON_START + added);
+      // Workers Free allows 50 D1 queries per invocation, auth and the post-insert recount included.
+      expect(queries, route).toBeLessThanOrEqual(50);
+    }
   });
 });
 

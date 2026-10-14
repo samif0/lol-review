@@ -83,7 +83,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
         share = { ...(share || {}), url, expiresAt: source.expiresAt ?? share?.expiresAt ?? null,
           markersAttached: source.markersAttached ?? share?.markersAttached ?? null,
           quality: source.quality ?? share?.quality ?? null };
-        message = null; rowNote = null; justDone = true; includeNotes = false;
+        // The next share starts from the defaults again: 1080p, notes off.
+        message = null; rowNote = null; justDone = true; includeNotes = false; quality = '1080p';
       }
       epoch++; // a read already in flight predates this link
       if (reread) void refresh(true); // the stored entry carries the id and the exact expiry
@@ -246,7 +247,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     const stopped = reply?.ok === true && !stillLive;
     const note = stopped ? { text: STOPPED, error: false } : { text: stillLive ? STOPPED_QUEUED : STOP_FAILED, error: true };
     if (inRow) showRowNote(note); else message = note;
-    if (stopped) { share = null; includeNotes = false; epoch++; void refresh(true); }
+    if (stopped) { share = null; includeNotes = false; quality = '1080p'; epoch++; void refresh(true); }
     paint();
     if (!inRow) focusView();
   }
@@ -326,7 +327,12 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       const phase = cancelling ? 'Cancelling' : vodSharePhaseLabel(job);
       if (phase !== progressSaid) { progressSaid = phase; setText(hook(sheet, 'progress-live'), phase); }
       const bar = hook(sheet, 'progress-bar');
-      if (bar?.style) bar.style.width = `${job.phase === 'finishing' ? 100 : percentOf(job.percent)}%`;
+      if (bar?.style) {
+        const width = job.phase === 'finishing' ? 100 : percentOf(job.percent);
+        // A new phase (or a new share) starts the bar over: jump back instead of sliding backwards.
+        bar.style.transition = width < (parseFloat(bar.style.width) || 0) ? 'none' : '';
+        bar.style.width = `${width}%`;
+      }
       const reason = job.qualityReason === 'pool' ? POOL_720_HINT : job.qualityReason === 'size' ? SIZE_720_NOTE : '';
       setText(hook(sheet, 'progress-note'), reason ? `${reason} ${KEEP_REVIEWING}` : KEEP_REVIEWING);
     } else {

@@ -45,9 +45,11 @@
         notes, objectives, and clips live on your machine. Revu's
         server holds only what it needs to run its online features: the
         email address and session you use to sign in, pending sign-in
-        codes (deleted within about two hours), clips you choose
-        to share and their transcripts (deleted after 3 days), and daily
-        transcription usage counts (kept for 7 days). This page
+        codes (deleted within about two hours), the clips and full
+        games you choose to share with their transcripts, game details
+        and markers (deleted after 3 days), daily transcription usage
+        counts (kept for 7 days), and daily upload and share counts
+        (also kept for 7 days). This page
         explains exactly what Revu reads, what it stores, and what (if
         anything) leaves your computer.
       </p>
@@ -90,9 +92,10 @@
           lookups, sign-in, clip sharing uploads, and narration
           transcription. For Riot lookups it forwards Match-V5 requests
           using a server-side API key; your Riot ID, region, and match
-          IDs flow through. Clips you share and narration you record
-          while signed in are uploaded here; see
-          <a href="#shared-clips">Shared clips and narration</a>. The
+          IDs flow through. Clips and full games you share and
+          narration you record while signed in are uploaded here; see
+          <a href="#shared-clips">Shared clips and narration</a> and
+          <a href="#shared-games">Shared full games</a>. The
           rest of your local game data does not leave your machine. The
           Worker logs request metadata (timestamps, status codes) for
           rate limiting and abuse prevention; it does not log request
@@ -121,8 +124,11 @@
         <li>
           <strong>Shared clip links and web sign-in</strong>
           (<code>clips.revu.lol</code>): serves the links for clips you
-          share, and the sign-in and My clips requests from revu.lol. See
-          <a href="#shared-clips">Shared clips and narration</a> and
+          share, and the sign-in and My clips requests from revu.lol. It
+          also serves the video and details of full games you share to
+          their revu.lol/v pages. See
+          <a href="#shared-clips">Shared clips and narration</a>,
+          <a href="#shared-games">Shared full games</a> and
           <a href="#website">The website itself</a>.
         </li>
         <li>
@@ -172,11 +178,45 @@
           Workers AI only to create a transcript. The audio is not
           kept after the transcript is made.
         </li>
+      </ul>
+
+      <h2 id="shared-games">Shared full games</h2>
+      <ul>
         <li>
-          Everything else stays on your PC: your games, notes, VODs,
-          clips you have not shared, and your narration recordings.
+          Some accounts can share a whole game from the desktop app.
+          Revu's server keeps the list of accounts that can.
+        </li>
+        <li>
+          When you share a full game, its recording is uploaded to
+          Revu's server with the game details shown on its page (your
+          champion, the opposing champion, your role, the result, the
+          game length and the date) and markers for the game's events.
+          Your notes and bookmarks are uploaded only if you tick
+          "Include my notes and bookmarks".
+        </li>
+        <li>
+          Anyone with the link can watch the game, see its details and
+          markers, and read any notes you included. The video shows
+          other players' names and in-game chat, and an imported
+          recording may include voice or desktop audio.
+        </li>
+        <li>
+          A shared game is deleted 3 days after you start sharing it.
+          Stop sharing in the app or on <a href="/my-clips">My clips</a>
+          removes it sooner, as soon as Revu can reach its server.
+        </li>
+        <li>
+          To keep sharing fair, the server counts how many games each
+          account starts sharing and how many upload requests it makes
+          each day (kept for 7 days), and how many times each shared
+          game is played each day (deleted with the game).
         </li>
       </ul>
+      <p>
+        Everything else stays on your PC: your game history, your
+        narration recordings, and any notes, recordings or clips you
+        have not shared.
+      </p>
 
       <h2>What we do not collect</h2>
       <ul>
@@ -244,16 +284,19 @@
         <code>%LOCALAPPDATA%\LoLReviewData\</code> folder. Shared clips
         and their transcripts are deleted from Revu's server after 3
         days, or sooner if you delete the clip in the app while signed
-        in and Revu can reach its server. For the
+        in and Revu can reach its server. Shared full games are deleted
+        3 days after you start sharing them, or sooner when you stop
+        sharing. For the
         web review tool, delete this site's browser data to remove the
         local web copy.
       </p>
       <p>
         On revu.lol you can sign out, sign out everywhere on the web,
-        delete shared clips from <a href="/my-clips">My clips</a>, and
-        delete your whole account from the <a href="/account">Account</a>
-        page. Deleting the account removes your email, sessions and shared
-        clips from Revu's server.
+        delete shared clips and stop sharing games from
+        <a href="/my-clips">My clips</a>, and delete your whole account
+        from the <a href="/account">Account</a> page. Deleting the account
+        removes your email, sessions, shared clips and shared games from
+        Revu's server.
       </p>
 
       <h2>Changes to this policy</h2>

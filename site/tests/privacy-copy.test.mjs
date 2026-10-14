@@ -54,6 +54,20 @@ test('Shared clip titles: the note fallback in older desktop builds is disclosed
   assert.match(text, /Review notes are kept separately for each match/);
 });
 
+test('Full-game sharing is disclosed', () => {
+  // 4.2 uploads a whole recording with game details and markers, and the
+  // player's notes only when they opt in, so VODs and notes no longer always
+  // stay on the PC.
+  assert.match(text, /Shared full games/);
+  assert.match(text, /its recording is uploaded to Revu's server with the game details/);
+  assert.match(text, /Your notes and bookmarks are uploaded only if you tick "Include my notes and bookmarks"/);
+  assert.match(text, /other players' names and in-game chat/);
+  assert.match(text, /A shared game is deleted 3 days after you start sharing it/);
+  assert.match(text, /how many times each shared game is played each day/);
+  assert.match(text, /removes your email, sessions, shared clips and shared games/);
+  assert.doesNotMatch(text, /your games, notes, VODs/);
+});
+
 test('The policy has no em or en dashes', () => {
   assert.doesNotMatch(html, /[\u2013\u2014]/);
 });

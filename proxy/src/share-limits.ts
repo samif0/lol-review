@@ -56,8 +56,13 @@ export const DEFAULT_USER_CLIP_BUDGET_BYTES = 3_000_000_000;
  * riding out a short network drop is never swept.
  */
 export const IDLE_SWEEP_SECONDS = 1800;
-/** At most this many idle uploads are discarded by one upload start. */
-export const IDLE_SWEEP_ON_START = 10;
+/**
+ * At most this many idle uploads are discarded by one upload start. Each
+ * discard costs 4 D1 queries, so with the caller's own idle discards and the
+ * post-insert recount a start stays well inside the 50 queries per invocation
+ * that Workers Free allows (about 40 at worst).
+ */
+export const IDLE_SWEEP_ON_START = 5;
 /**
  * At most this many idle uploads are discarded by one hourly cron run. Each
  * discard costs about 6 D1 and R2 calls, and the run is the last step of the

@@ -9,7 +9,8 @@ import worker from "../src/index";
 import { Env } from "../src/types";
 import { resetUserLimits } from "../src/user-limits";
 import { fitsAt, nextHour, readReleases, StoragePool, storageUsage, STORAGE_FULL_MESSAGE, STORAGE_USAGE_SQL } from "../src/storage-budget";
-import { RELEASES_MAX, totalBudgetBytes, vodBudgetBytes, vodServingOn, vodSharingOn } from "../src/share-limits";
+import { RELEASES_MAX, VOD_TTL_SECONDS, totalBudgetBytes, vodBudgetBytes, vodServingOn, vodSharingOn } from "../src/share-limits";
+import { CLIP_TTL_SECONDS } from "../src/clips";
 import { clip, dbWithSessions, FakeDb, json, makeEnv, makeFakeR2, makeRequest, mp4Bytes, nowSec } from "./fakes";
 import { makeSqliteD1, migrationFiles } from "./sqlite-d1";
 import { createRequire } from "node:module";
@@ -95,16 +96,23 @@ describe("fitsAt and releases", () => {
     const db = makeSqliteD1();
     const now = 1_760_400_100;
     db.x("INSERT INTO users (id, email, created_at) VALUES (1, 'a@example.com', 1)");
-    const add = (id: string, kind: string, size: number, status: string, exp: number) =>
-      db.x("INSERT INTO clips (id, user_id, r2_key, content_type, size_bytes, created_at, expires_at, status, kind) VALUES (?1, 1, ?1, 'video/mp4', ?2, 1, ?3, ?4, ?5)", id, size, exp, status, kind);
+    const add = (id: string, kind: string, size: number, status: string, exp: number, created = 1) =>
+      db.x("INSERT INTO clips (id, user_id, r2_key, content_type, size_bytes, created_at, expires_at, status, kind) VALUES (?1, 1, ?1, 'video/mp4', ?2, ?6, ?3, ?4, ?5)", id, size, exp, status, kind, created);
     add("Purge01", "vod", 10, "purging", now + 99999);
     add("Expd001", "clip", 20, "ready", now - 50);
     add("Live001", "vod", 30, "ready", now + 7200);
+    // Pending uploads keep their bytes for the share TTL once they complete:
+    // a clip from complete (at the latest its window end), a VOD from init.
     add("Upl0001", "clip", 40, "uploading", now + 7300);
+    add("UplVod1", "vod", 50, "uploading", now + 42600, now - 600);
+    // A window that already ended can't complete; the next purge removes it.
+    add("Stale01", "clip", 60, "uploading", now - 10);
     db.x("INSERT INTO storage_tombstones (r2_key, size_bytes, kind, created_at) VALUES ('t1', 5, 'vod', 1)");
     expect(await readReleases(db, now)).toEqual([
-      { at: nextHour(now), bytes: 35, vod_bytes: 15 },
-      { at: nextHour(now + 7200), bytes: 70, vod_bytes: 30 },
+      { at: nextHour(now), bytes: 95, vod_bytes: 15 },
+      { at: nextHour(now + 7200), bytes: 30, vod_bytes: 30 },
+      { at: nextHour(now - 600 + VOD_TTL_SECONDS), bytes: 50, vod_bytes: 50 },
+      { at: nextHour(now + 7300 + CLIP_TTL_SECONDS), bytes: 40, vod_bytes: 0 },
     ]);
     for (let i = 0; i < RELEASES_MAX + 5; i++) add(`Many${String(i).padStart(3, "0")}`, "clip", 1, "ready", now + (i + 3) * 3600);
     expect(await readReleases(db, now)).toHaveLength(RELEASES_MAX);

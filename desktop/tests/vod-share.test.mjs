@@ -567,6 +567,60 @@ test('"Include my notes and bookmarks" starts off for every new share; Try again
   assert.equal(f.sheet.el('notes').checked, true);
 });
 
+test('a new share after a finished or stopped one starts at 1080p again; Try again keeps 720p', async () => {
+  let shared = false;
+  const f = setup({ replies: {
+    get_vod_share_status: () => status({ share: shared ? SHARE : null }),
+    start_vod_share: { ok: true, accepted: true, quality: '720p' },
+    stop_vod_share: () => { shared = false; return { ok: true, remoteDeleted: true, queued: false }; },
+  } });
+  const choose720 = () => { f.sheet.el('q720').checked = true; f.sheet.el('q720').dispatch('change'); };
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  choose720();
+  await f.share.start();
+  assert.equal(f.named('start_vod_share')[0][1].payload.quality, '720p');
+  shared = true;
+  f.emit({ gameId: 123, state: 'done', phase: 'done', url: SHARE.url, expiresAt: SHARE.expiresAt, markersAttached: true });
+  await flush();
+  f.sheet.el('stop').click();
+  f.sheet.el('confirm-stop').click();
+  await flush();
+  assert.equal(f.sheetView(), 'start');
+  assert.equal(f.sheet.el('q1080').checked, true, 'stopping and sharing again starts from the default');
+  assert.equal(f.sheet.el('size').textContent, 'About 1.3 GB at 1080p.');
+  await f.share.start();
+  assert.equal(f.named('start_vod_share')[1][1].payload.quality, '1080p');
+
+  // A failed share retried from the row keeps the player's choice.
+  choose720();
+  f.sheet.close();
+  f.emit({ gameId: 123, state: 'error', phase: 'error', errorCode: 'upload_failed' });
+  f.row.el('row-retry').click();
+  await flush();
+  assert.equal(f.sheet.el('q720').checked, true);
+});
+
+test('the progress bar starts each phase over instead of sliding backwards', async () => {
+  const f = setup({ replies: { get_vod_share_status: status(), start_vod_share: { ok: true, accepted: true, quality: '1080p' } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  const bar = f.sheet.el('progress-bar');
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 99 });
+  assert.equal(bar.style.width, '99%');
+  assert.equal(bar.style.transition, '');
+  f.emit({ gameId: 123, state: 'running', phase: 'uploading', percent: 0 });
+  assert.equal(bar.style.width, '0%');
+  assert.equal(bar.style.transition, 'none', 'uploading starts at 0 without animating down from 99%');
+  f.emit({ gameId: 123, state: 'running', phase: 'uploading', percent: 33 });
+  assert.equal(bar.style.width, '33%');
+  assert.equal(bar.style.transition, '', 'progress within a phase still animates');
+  f.emit({ gameId: 123, state: 'running', phase: 'finishing', percent: 100 });
+  assert.equal(bar.style.width, '100%');
+  assert.equal(bar.style.transition, '');
+});
+
 test('a share made before access was removed still opens its sheet with Stop sharing', async () => {
   const f = setup({ replies: {
     get_vod_share_status: ({ gameId }) => status({ gameId, allowed: gameId === 124 ? false : true, share: gameId === 123 ? SHARE : null }),
