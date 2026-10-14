@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-06-14T09:12:00",
   "today": "2026-06-14",
-  "greeting": "Good morning, bye.",
+  "greeting": "Good evening.",
   "stats": {
     "totalGames": 2,
     "wins": 1,
@@ -28,15 +28,7 @@
     "withCoach": false,
     "stintBlockNumber": null
   },
-  "stint": {
-    "id": 1,
-    "name": "Violet",
-    "startDate": "2026-07-30",
-    "plannedEndDate": "2026-12-30",
-    "blocksTotal": 12,
-    "blocksWithCoach": 4,
-    "blocksSolo": 8
-  },
+  "stint": null,
   "deathMix": {
     "text": "Your most-tagged death cause is vision: 27% of the last 11 tagged deaths.",
     "label": "vision",
@@ -55,26 +47,26 @@
     "items": [
       {
         "gameId": 5581701721,
-        "championName": "Sivir",
-        "enemyChampion": "Senna",
+        "championName": "Jinx",
+        "enemyChampion": "Caitlyn",
         "gameRole": "BOTTOM",
         "win": true,
         "winLossText": "W",
-        "kdaText": "4/2/12",
-        "csPerMin": 9.2,
-        "visionScore": 10,
-        "totalDamageToChampions": 32362,
-        "duration": "29:05",
-        "datePlayed": "Jun 14, 12:32",
+        "kdaText": "8/2/11",
+        "csPerMin": 7.2,
+        "visionScore": 42,
+        "totalDamageToChampions": 28412,
+        "duration": "32:11",
+        "datePlayed": "Jun 14, 20:42",
         "gameMode": "Ranked Solo/Duo",
         "winLossColorHex": "#8ee7ba",
         "borderColorHex": "#8ee7ba",
         "hasReview": false,
-        "statsLine": "CS 269 (9.2/m) · 32.4k dmg",
-        "metaLine": "RANKED SOLO/DUO · JUN 14, 12:32 · 29:05",
-        "kills": 4,
+        "statsLine": "CS 231 (7.2/m) · 28.4k dmg",
+        "metaLine": "RANKED SOLO/DUO · JUN 14, 20:42 · 32:11",
+        "kills": 8,
         "deaths": 2,
-        "assists": 12
+        "assists": 11
       },
       {
         "gameId": 5581655110,

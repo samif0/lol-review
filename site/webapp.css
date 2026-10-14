@@ -1,8 +1,8 @@
 /*
- * Web review tool on the home page (index.html + app.js): search, match
+ * Web review tool at /review (review.html + app.js): search, match
  * list, review screen, VOD controls and notes. Moved out of styles.css and
- * flattened to the app's charcoal system. Every class and id below is used
- * by app.js or index.html; keep selectors stable when restyling.
+ * styled in the app's Neutral system (tokens only). Every class and id below is used
+ * by app.js or review.html; keep selectors stable when restyling.
  */
 
 /* Turnstile stays invisible unless Cloudflare escalates to an interactive
@@ -25,7 +25,7 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(0, 0, 0, .6);
+  background: var(--overlay);
   pointer-events: auto;
   opacity: 1;
 }
@@ -48,7 +48,7 @@
   padding: 48px var(--gutter);
 }
 .search-intro { text-align: center; }
-.search-intro h1 { font-size: 32px; font-weight: 500; line-height: 1.25; }
+.search-intro h1 { font-size: 32px; font-weight: var(--display-weight); letter-spacing: var(--display-track); line-height: 1.25; }
 .sublead { margin-top: 6px; color: var(--muted); font-size: 15px; }
 .search-card { width: 100%; max-width: 680px; padding: 24px; }
 .player-search {
@@ -204,14 +204,14 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  background: #000;
+  background: var(--video);
 }
 #video-player {
   display: block;
   width: 100%;
   height: 100%;
   min-height: 60vh;
-  background: #000;
+  background: var(--video);
   cursor: pointer;
 }
 .drop-viewer,
@@ -257,7 +257,7 @@
 .notes-actions { display: flex; gap: 10px; justify-content: center; }
 .notes-actions { justify-content: flex-end; }
 
-/* VOD controls: a 4px #454545 rail with a white fill and thumb. app.js
+/* VOD controls: a 4px hairline rail with an accent fill and thumb. app.js
    positions the fill and thumb 10px in from each end of #vod-track. */
 .vod-controls {
   position: absolute;
