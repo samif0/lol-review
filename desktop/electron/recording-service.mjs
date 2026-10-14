@@ -22,7 +22,7 @@ export function recordingSettings(value) {
   return { enabled: value.enabled, preset: value.preset };
 }
 
-async function atomicJson(file, value) {
+export async function atomicJson(file, value) {
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, JSON.stringify(value, null, 2), { flag: 'wx', flush: true });

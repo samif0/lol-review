@@ -23,6 +23,7 @@ import { shareProgressLabel, waitForShareJob } from './clip-share-wait.mjs';
 import { eventTone, polarityTone, resultOf } from './meaning-tone.mjs';
 import { buildThread, renderThread, moveNow } from './vod-thread.mjs';
 import { takeawayText } from './journal-takeaway.mjs';
+import { createRecordingSpeedUp } from './recording-optimize.mjs';
 import { platform } from './platform/index.mjs';
 
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
@@ -45,6 +46,8 @@ let _linkedVodLoading = false;
 let _vodReadVersion = 0;
 let _narrationOk = false;   // host can save narration takes (not in isolated previews)
 let _studio = null;         // the open narration studio, if any
+let _speedUp = null;        // "Speed up" row for an unindexed built-in recording (recording-optimize.mjs)
+let _speedUpStatus;         // its host answer, read with the first snapshot (undefined: ask again)
 // ── Objective-framed viewer state ────────────────────────────────────────────
 // The VOD page opens framed on ONE objective at a time (the default, not a mode).
 // _focusedObjId is the currently-framed objective id; its events/moments are loud,
@@ -426,6 +429,8 @@ async function fetchVod() {
     // render shows it before a resumed view restores its scroll, and it never appears
     // afterwards to push that view down. A local config read; a failure leaves it hidden.
     const signIn = core.invoke('get_auth_status').then((s) => !(s && s.signedIn), () => false);
+    // The Speed up row sits above the player too, so its answer is read the same way.
+    const speedUp = core.invoke('get_recording_optimization', { gameId }).then(status => status, () => null);
     // Best-effort and never awaited: the review read adds the KDA to the header and the
     // takeaway to the Journal thread whenever it arrives. The recording never waits on it.
     readReviewSummary(() => core.invoke('get_review', { gameId }), gameId);
@@ -442,6 +447,7 @@ async function fetchVod() {
     } catch (_) { _autoClipEnabled = false; }
     try { _narrationOk = await platform.narrationAvailable(); } catch (_) { _narrationOk = false; }
     _signInHint = await signIn;
+    _speedUpStatus = await speedUp;
     return { data, core };
   }
   // Browser preview: use the existing objective cards as well as the VOD sample
@@ -659,6 +665,8 @@ function render(data, core) {
       }
       show(back, gid > 0);
     }
+    _speedUpStatus = undefined;
+    _speedUp?.check(null);
     restoreMatchView();
     return;
   }
@@ -697,6 +705,11 @@ function render(data, core) {
   // P-027: honor the &clip=<evidenceId> deep-link the review page's clip cards
   // build — surface the right Moments lane, scroll to the row, flash it.
   applyClipDeepLink();
+  // Like the sign-in hint, the Speed up row above the player is in place before a
+  // resumed view restores: the answer read with the first snapshot paints it at once.
+  const speedUpStatus = _speedUpStatus;
+  _speedUpStatus = undefined;
+  _speedUp?.check(core ? data : null, { status: speedUpStatus });
   // Drafts and controls are usable before a recording finishes loading. Restore
   // them now; metadata only applies the pending media position afterwards.
   restoreMatchView();
@@ -706,7 +719,8 @@ function render(data, core) {
   const v = video();
   const assetUrl = resolveAssetUrl(core, data.filePath);
   if (!assetUrl) {
-    renderError(new Error(VIDEO_LOAD_ERROR));
+    // A speed-up started on an earlier visit holds the file; its row says so and reloads it when done.
+    if (_speedUp?.state !== 'working') renderError(new Error(VIDEO_LOAD_ERROR));
     restoreMatchView();
     return;
   }
@@ -723,6 +737,29 @@ function render(data, core) {
       renderError(new Error(VIDEO_LOAD_ERROR));
       restoreMatchView();
     } });
+}
+
+// Speed up rewrites the file in place: let go of it first, then reload the same view.
+function releaseRecording() {
+  const view = captureVodViewState();
+  _T?.unload();
+  return view;
+}
+async function reloadRecording(view) {
+  const gameId = _gameId, core = _core;
+  if (!core || gameId <= 0) return;
+  ++_vodReadVersion; // an older passive metadata response must not undo this reload
+  try {
+    const data = await core.invoke('get_vod', { gameId });
+    if (gameId !== _gameId || core !== _core || Number(data?.gameId) !== gameId) return;
+    show($('errpanel'), false); // an earlier error only; render shows a new one itself
+    render(data, core);
+    if (view) await restoreVodViewState(view);
+  } catch (error) {
+    // The video was let go before the rewrite: an unanswered reload must not leave a blank player.
+    console.warn('[vodplayer] recording reload failed:', error);
+    renderError(new Error(VIDEO_LOAD_ERROR));
+  }
 }
 
 // (resolveAssetUrl now lives in ./vodtransport.js — imported above — and is shared
@@ -3708,6 +3745,8 @@ async function boot() {
     durationFallback: () => (_vod && _vod.gameDurationSeconds) || 0,
   });
   _T.attachVideo({ clickToToggle: true, stopProp: false });
+  _speedUp = createRecordingSpeedUp({ root: $('vp-speedup'), invoke: (command, args) => _core.invoke(command, args),
+    release: releaseRecording, reload: reloadRecording });
 
   wireSeekBar();
   wireTabs();

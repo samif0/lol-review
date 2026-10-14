@@ -120,6 +120,10 @@ const definitions = {
   get_recording_status: native(),
   save_recording_settings: native({ payload: 'object' }),
   open_recordings_folder: native(),
+  // "Speed up" for a linked built-in recording: the host resolves the file from the
+  // game's own VOD snapshot and never accepts a path from the page.
+  get_recording_optimization: native({ gameId: 'integer' }),
+  optimize_recording: native({ gameId: 'integer' }),
   get_background_settings: native(),
   save_background_settings: native({ payload: 'object' }),
   // The shell reports the colors it shows; the host paints the window and remembers them

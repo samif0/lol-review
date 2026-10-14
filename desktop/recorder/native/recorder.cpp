@@ -727,13 +727,15 @@ void configureOutput(Recording &recording, const std::filesystem::path &file, co
   obs_encoder_set_audio(recording.audioEncoder, obs_get_audio());
   settings = obs_data_create();
   obs_data_set_string(settings, "path", utf8(file.wstring()).c_str());
-  // Keep fragmented MP4 even after a clean stop. No remux, split or software fallback.
-  obs_data_set_string(settings, "muxer_settings", "movflags=frag_keyframe+empty_moov+default_base_moof frag_duration=500000 avoid_negative_ts=disabled flush_packets=1");
+  // Fragmented while recording, so an interrupted file stays playable. A clean stop
+  // writes a complete index at the end, so players open it without walking every
+  // fragment. The muxer finalizes in place: no remux, split or software fallback.
+  obs_data_set_string(settings, "muxer_settings", "movflags=frag_keyframe+empty_moov+default_base_moof+hybrid_fragmented frag_duration=500000 avoid_negative_ts=disabled flush_packets=1");
   obs_data_set_bool(settings, "split_file", false);
   obs_data_set_bool(settings, "allow_overwrite", false);
-  recording.output = obs_output_create("ffmpeg_muxer", "Revu fragmented MP4", settings, nullptr);
+  recording.output = obs_output_create("ffmpeg_muxer", "Revu MP4", settings, nullptr);
   obs_data_release(settings);
-  if (!recording.output) throw Failure("output-unavailable", "Fragmented MP4 output could not initialize");
+  if (!recording.output) throw Failure("output-unavailable", "MP4 recording output could not initialize");
   obs_output_set_video_encoder(recording.output, recording.videoEncoder);
   obs_output_set_audio_encoder(recording.output, recording.audioEncoder, 0);
   signal_handler_connect(obs_output_get_signal_handler(recording.output), "stop", Recording::stopSignal, &recording);

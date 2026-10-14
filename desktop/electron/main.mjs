@@ -9,6 +9,7 @@ import { nativeCommands, externalUrl } from './native.mjs';
 import { registerProtocols } from './protocols.mjs';
 import { createCommandGate, createQuitHandler, shutdownOwnedApp } from './shutdown.mjs';
 import { RecordingService } from './recording-service.mjs';
+import { createRecordingOptimizer } from './recording-optimizer.mjs';
 import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createLibobsRecorder } from './libobs-recorder.mjs';
 import { createBackgroundController } from './background.mjs';
@@ -21,7 +22,7 @@ import { createSplash, createStartupProgress } from './splash.mjs';
 
 app.setName('Revu');
 let window, backend, eventAbort, configuration, native, afterShutdown, splash, progress;
-let recording, background, appearance, recorderReady = false, recorderAttached = false, recordingPrepared = false;
+let recording, optimizer, background, appearance, recorderReady = false, recorderAttached = false, recordingPrepared = false;
 let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
 // abandonedWork: quit cancelled a long job, so its backend may need to be ended.
@@ -127,7 +128,7 @@ const openLogs = async () => {
   if (error) throw new Error(error);
 };
 app.on('before-quit', createQuitHandler({
-  begin: () => { quitting = true; hostLog.info('Revu is closing'); },
+  begin: () => { quitting = true; void optimizer?.cancel(); hostLog.info('Revu is closing'); },
   shutdown: async () => { await shutdown(); if (restart || restartAfterFailure) relaunch(); },
   failed: error => {
     process.exitCode = 1;
@@ -182,6 +183,8 @@ async function executeCommand(command, args) {
     let value;
     if (command === 'get_recording_status') value = recording.getStatus();
     else if (command === 'save_recording_settings') value = await recording.saveSettings(args.payload);
+    else if (command === 'get_recording_optimization') value = await optimizer.status(args);
+    else if (command === 'optimize_recording') value = await optimizer.optimize(args);
     else if (command === 'get_background_settings') value = background.getSettings();
     else if (command === 'save_background_settings') value = await background.saveSettings(args.payload);
     else if (command === 'set_window_appearance') value = await appearance.apply(args.payload);
@@ -298,14 +301,21 @@ async function start() {
   if (quitting) return;
   recording = new RecordingService({ root: path.join(dataRoot, 'Revu', 'Recordings'), profile, backend, isolated,
     recordingTest: configuration.recordingTest,
+    // A speed-up yields to recording at once, and its doomed copy counts as free space.
+    space: directory => optimizer.recordingSpace(directory),
     onChange: value => {
       if (window && !window.isDestroyed()) window.webContents.send('revu:lcu-event', { type: 'recordingStatus', payload: value });
     } });
+  optimizer = createRecordingOptimizer({ recording, backend, media, log: hostLog,
+    ffmpegPath: path.join(configuration.recorderDirectory, 'revu-media-ffmpeg.exe'),
+    ffprobePath: path.join(configuration.recorderDirectory, 'revu-media-ffprobe.exe'),
+    available: () => recordingPrepared && !isolated && !quitting });
   // Native capture is owned by a separate libobs helper. Isolated previews
   // never probe or launch it; the explicit Overwolf launcher stays diagnostic.
   if (!isolated) {
     try { await recording.initialize(); recordingPrepared = true; }
     catch { recording.publish('failed', 'The recordings folder is unavailable. Your other Revu features are still available.'); }
+    await optimizer.init(); // Abandoned speed-up copies, and a capture whose index never reached the disk.
     await attachRecorder();
   } else recording.publish('unavailable', 'Recording is unavailable in this isolated preview.');
   // Revu's network policy belongs to its own session; it must not intercept

@@ -326,6 +326,13 @@ html.framed .vod-review-page .shell{padding:20px 28px 40px}
 .vod-review-page .vp-clip .vp-iobtn.is-set{background:var(--selected)!important;color:var(--t1)!important;border-color:var(--t2)!important}
 .vod-review-page .vp-clip .vp-iobtn.is-set .keycap{border-color:var(--t2);color:var(--t1)}
 
+/* Speed up: the same quiet row above the player; the message carries the meaning */
+.vod-review-page .vp-speedup{display:flex;align-items:center;gap:12px;margin-top:14px;padding:10px 0;border-bottom:1px solid var(--line)}
+/* As tall as the button, so the row keeps its height while the button is hidden mid-work */
+.vod-review-page .vp-speedup-txt{flex:1;min-width:0;min-height:34px;display:flex;align-items:center;font-size:13px;line-height:1.45;color:var(--t2)}
+.vod-review-page .vp-speedup.is-error .vp-speedup-txt{color:var(--error)}
+.vod-review-page .vp-speedup-btn{flex:none}
+
 /* Sign-in hint and share progress: quiet rows, the dot is the only color */
 .vod-review-page :is(.vp-signin-hint,.vp-sharebar){padding:10px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
 .vod-review-page .vp-signin-hint:hover{background:var(--hover)}

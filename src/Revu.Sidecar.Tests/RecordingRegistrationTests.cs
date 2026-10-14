@@ -319,7 +319,72 @@ public sealed class RecordingRegistrationTests
     }
 
     [Theory]
+    [InlineData(true, "linked")]
+    [InlineData(false, "linked-partial")]
+    public async Task RelayoutUpdatesOnlyTheSizeOfALinkedReceiptAndItsVideoRow(bool complete, string status)
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await fixture.Database.SeedGameAsync(1001);
+        var request = fixture.CreateRecording(1001) with { Complete = complete, GameTimeAtVideoStart = complete ? -30.25 : 120 };
+        Assert.Equal(status, (await fixture.Service.RegisterAsync(request)).Status);
+        var timing = File.ReadAllText(request.FilePath + RecordingTimeline.Suffix);
+        File.WriteAllBytes(request.FilePath, new byte[48]); // the same path, rewritten in place
+
+        var backups = 0;
+        var result = await fixture.NewService(() => { backups++; return Task.CompletedTask; }).UpdateFileSizeAsync(request.SessionId, 48);
+        Assert.Equal(status, result!.Status);
+        Assert.Equal(1, backups); // the guarded backup precedes the database write, like every other write
+        Assert.Equal(request.SessionId, result.SessionId);
+        var vod = (await fixture.Database.Vod.GetVodAsync(1001))!;
+        Assert.Equal((request.FilePath, 48L), (vod.FilePath, vod.FileSize));
+        Assert.Equal(timing, File.ReadAllText(request.FilePath + RecordingTimeline.Suffix));
+        // The durable receipt now describes the rewritten file: its exact details replay idempotently
+        // from a fresh service, and a repeated relayout is a no-op.
+        Assert.Equal(status, (await fixture.NewService().RegisterAsync(request with { FileSize = 48 })).Status);
+        Assert.Equal(status, (await fixture.NewService().UpdateFileSizeAsync(request.SessionId, 48))!.Status);
+        await Assert.ThrowsAsync<RecordingConflictException>(() => fixture.Service.RegisterAsync(request with { FileSize = 48, DurationSeconds = 11 }));
+        Assert.Single(await fixture.Database.Vod.GetAllVodsAsync());
+    }
+
+    [Fact]
+    public async Task RelayoutRejectsUnlinkedReceiptsMismatchedSizesAndUnknownSessions()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await fixture.Database.SeedGameAsync(1001);
+        await fixture.Database.Vod.LinkVodAsync(1001, "existing-user-video.mp4");
+        var backups = 0;
+        var guarded = fixture.NewService(() => { backups++; return Task.CompletedTask; });
+        var pending = fixture.CreateRecording(2002);
+        var retainedPartial = fixture.CreateRecording(2002) with { Complete = false, GameTimeAtVideoStart = null };
+        var retainedExisting = fixture.CreateRecording(1001);
+        Assert.Equal("pending-match", (await fixture.Service.RegisterAsync(pending)).Status);
+        Assert.Equal("retained-partial", (await fixture.Service.RegisterAsync(retainedPartial)).Status);
+        Assert.Equal("retained-existing", (await fixture.Service.RegisterAsync(retainedExisting)).Status);
+        foreach (var request in new[] { pending, retainedPartial, retainedExisting })
+        {
+            File.WriteAllBytes(request.FilePath, new byte[48]);
+            await Assert.ThrowsAsync<RecordingConflictException>(() => guarded.UpdateFileSizeAsync(request.SessionId, 48));
+            File.WriteAllBytes(request.FilePath, new byte[32]);
+        }
+        Assert.Equal("pending-match", (await fixture.Service.GetAsync(pending.SessionId))!.Status);
+        Assert.Equal("existing-user-video.mp4", (await fixture.Database.Vod.GetVodAsync(1001))!.FilePath);
+
+        await fixture.Database.SeedGameAsync(3003);
+        var linked = fixture.CreateRecording(3003);
+        Assert.Equal("linked", (await fixture.Service.RegisterAsync(linked)).Status);
+        // The file on disk must already have the reported size; nothing changes otherwise.
+        await Assert.ThrowsAsync<InvalidDataException>(() => guarded.UpdateFileSizeAsync(linked.SessionId, 48));
+        await Assert.ThrowsAsync<ArgumentException>(() => guarded.UpdateFileSizeAsync(linked.SessionId, 0));
+        await Assert.ThrowsAsync<ArgumentException>(() => guarded.UpdateFileSizeAsync(Guid.Empty, 32));
+        Assert.Equal(0, backups); // a refused relayout never writes, so it needs no backup
+        Assert.Equal(32, (await fixture.Database.Vod.GetVodAsync(3003))!.FileSize);
+        Assert.Equal("linked", (await fixture.NewService().RegisterAsync(linked)).Status);
+        Assert.Null(await fixture.Service.UpdateFileSizeAsync(Guid.NewGuid(), 32));
+    }
+
+    [Theory]
     [InlineData("POST", "/api/recording/register")]
+    [InlineData("POST", "/api/recording/relayout")]
     [InlineData("GET", "/api/recording/session/01234567-89ab-cdef-0123-456789abcdef")]
     public void IsolatedHostDoesNotAcceptRecordingRegistrationOrInspectProductionReceipts(string method, string route) =>
         Assert.False(IsolatedHostPolicy.Allows(method, route));
@@ -341,8 +406,8 @@ public sealed class RecordingRegistrationTests
             fixture.Service = fixture.NewService();
             return fixture;
         }
-        public RecordingRegistrationService NewService() => new(Root, new(Database.ConnectionFactory),
-            () => Task.CompletedTask, NullLogger<RecordingRegistrationService>.Instance);
+        public RecordingRegistrationService NewService(Func<Task>? backup = null) => new(Root, new(Database.ConnectionFactory),
+            backup ?? (() => Task.CompletedTask), NullLogger<RecordingRegistrationService>.Instance);
         public RecordingRegistration CreateRecording(long gameId)
         {
             var id = Guid.NewGuid();
