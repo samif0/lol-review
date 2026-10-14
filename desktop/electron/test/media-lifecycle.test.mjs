@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -68,6 +68,29 @@ test('revocation cancels open streams and permits deleting the media file', () =
   await new Promise((resolve) => setImmediate(resolve));
   await rm(file);
   assert.equal((await registry.respond(new Request(url))).status, 403);
+}));
+
+test('revoke ends the streams and grants of one file, and snapshots skip it until the swap is released', () => fixture(async (directory, registry) => {
+  const file = path.join(directory, 'capture.mp4');
+  const other = path.join(directory, 'other.mp4');
+  await writeFile(file, Buffer.alloc(4 * 1024 * 1024, 7));
+  await writeFile(other, 'other');
+  const grants = new Map(await registry.replace([file, other]));
+  const reader = (await registry.respond(new Request(grants.get(file)))).body.getReader();
+  assert.equal((await reader.read()).done, false);
+  const release = await registry.revoke(await realpath(file));
+  await assert.rejects(async () => { while (!(await reader.read()).done) {} });
+  assert.equal((await registry.respond(new Request(grants.get(file)))).status, 403);
+  assert.equal(await (await registry.respond(new Request(grants.get(other)))).text(), 'other');
+  // While the file is being replaced, a concurrent snapshot cannot grant it again.
+  assert.deepEqual((await registry.replace([file, other])).map(([original]) => original), [other]);
+  await writeFile(path.join(directory, 'capture.mp4.copy'), 'indexed');
+  await rename(path.join(directory, 'capture.mp4.copy'), file);
+  release(); release();
+  const [[, url]] = await registry.replace([file]);
+  assert.notEqual(url, grants.get(file));
+  assert.equal(await (await registry.respond(new Request(url))).text(), 'indexed');
+  assert.equal((await registry.respond(new Request(grants.get(other)))).status, 403);
 }));
 
 test('empty media, suffix ranges, invalid methods and URL decorations fail predictably', () => fixture(async (directory, registry) => {

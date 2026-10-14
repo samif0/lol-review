@@ -27,12 +27,29 @@ const mediaTypes = new Map([['.mp4', 'video/mp4'], ['.m4v', 'video/mp4'],
 // The renderer cannot grant a path. Only allowlisted backend snapshots populate
 // this registry, and each page/review replacement revokes the previous grants.
 export class MediaRegistry {
-  #grants = new Map(); #streams = new Map(); #generation = 0;
+  #grants = new Map(); #streams = new Map(); #busy = new Set(); #generation = 0;
   clear() {
     this.#generation++;
     this.#grants.clear();
     for (const stream of this.#streams.keys()) stream.destroy();
     this.#streams.clear();
+  }
+  /** Before the host replaces a file in place: drop its grants, end its streams, and keep
+   * later snapshots from granting it until the returned release() runs. */
+  async revoke(canonical, { waitMs = 2000 } = {}) {
+    this.#busy.add(canonical);
+    for (const [token, file] of this.#grants) if (file === canonical) this.#grants.delete(token);
+    const closed = [];
+    for (const [stream, file] of this.#streams) {
+      if (file !== canonical) continue;
+      if (!stream.closed) closed.push(new Promise(resolve => stream.once('close', resolve)));
+      stream.destroy(); this.#streams.delete(stream);
+    }
+    let timer;
+    await Promise.race([Promise.all(closed), new Promise(resolve => { timer = setTimeout(resolve, waitMs); })]);
+    clearTimeout(timer);
+    let released = false;
+    return () => { if (!released) { released = true; this.#busy.delete(canonical); } };
   }
   async replace(paths) {
     const generation = ++this.#generation;
@@ -45,11 +62,13 @@ export class MediaRegistry {
       } catch { /* Missing media is unavailable, never a fallback arbitrary path. */ }
     }
     if (generation !== this.#generation) throw new Error('Media review changed');
-    const desired = new Set(resolved.map(([, canonical]) => canonical));
+    // A file being replaced in place is unavailable until its swap finishes.
+    const granted = resolved.filter(([, canonical]) => !this.#busy.has(canonical));
+    const desired = new Set(granted.map(([, canonical]) => canonical));
     for (const [token, file] of this.#grants) if (!desired.has(file)) this.#grants.delete(token);
     for (const [stream, file] of this.#streams) if (!desired.has(file)) { stream.destroy(); this.#streams.delete(stream); }
     const tokens = new Map([...this.#grants].map(([token, file]) => [file, token]));
-    const result = resolved.map(([original, canonical]) => {
+    const result = granted.map(([original, canonical]) => {
       const token = tokens.get(canonical) || randomUUID();
       tokens.set(canonical, token); this.#grants.set(token, canonical);
       return [original, `revu-media://file/${token}`];

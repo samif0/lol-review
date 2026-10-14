@@ -9,6 +9,7 @@ namespace Revu.Sidecar;
 public sealed record RecordingRegistration(Guid SessionId, long GameId, string FilePath, long FileSize,
     double DurationSeconds, DateTimeOffset StartedAt, bool Complete, double? GameTimeAtVideoStart = null);
 public sealed record RecordingRegistrationResult(bool Ok, Guid SessionId, long GameId, string Status);
+public sealed record RecordingRelayout(Guid SessionId, long FileSize);
 
 /// <summary>
 /// Durable per-session receipts under the owned recording root. The receipt is written
@@ -56,6 +57,31 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
             ValidateRoot();
             var receipt = ReadReceipt(ReceiptPath(sessionId));
             return receipt is null ? null : Result(receipt);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>The host rewrote a linked recording losslessly at the same path (a new
+    /// byte layout, identical packets). Only the size changes: identity, match and timing
+    /// stay frozen, and the file must already have the new size. Null for an unknown session.</summary>
+    public async Task<RecordingRegistrationResult?> UpdateFileSizeAsync(Guid sessionId, long fileSize)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            ValidateRoot();
+            if (sessionId == Guid.Empty) throw new ArgumentException("Recording session must be valid.");
+            var previous = ReadReceipt(ReceiptPath(sessionId));
+            if (previous is null) return null;
+            if (previous.Status is not ("linked" or "linked-partial"))
+                throw new RecordingConflictException("Only a recording attached to its match can change layout.");
+            var updated = ValidateMetadata(previous.Recording with { FileSize = fileSize });
+            using var media = OpenValidatedMedia(updated);
+            await ensureBackup();
+            await links.UpdateFileSizeAsync(updated);
+            var receipt = previous with { Recording = updated };
+            if (receipt != previous) await SaveReceiptAsync(receipt);
+            return Result(receipt);
         }
         finally { _gate.Release(); }
     }

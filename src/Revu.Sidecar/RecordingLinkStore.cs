@@ -45,6 +45,23 @@ public sealed class RecordingLinkStore(IDbConnectionFactory factory)
         transaction.Commit();
         return "linked";
     }
+
+    /// <summary>Informational size only, for the exact match/file row this recording linked.
+    /// A row the user has since replaced is left untouched.</summary>
+    public async Task<int> UpdateFileSizeAsync(RecordingRegistration request)
+    {
+        using var conn = factory.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        using var command = conn.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE vod_files SET file_size = @size WHERE game_id = @game AND file_path = @path COLLATE NOCASE";
+        command.Parameters.AddWithValue("@size", request.FileSize);
+        command.Parameters.AddWithValue("@game", request.GameId);
+        command.Parameters.AddWithValue("@path", request.FilePath);
+        var changed = await command.ExecuteNonQueryAsync();
+        transaction.Commit();
+        return changed;
+    }
 }
 
 public sealed class RecordingConflictException(string message) : Exception(message);
