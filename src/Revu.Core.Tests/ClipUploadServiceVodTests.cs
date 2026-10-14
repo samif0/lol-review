@@ -32,6 +32,8 @@ public sealed class ClipUploadServiceVodTests : IDisposable
         public List<Seen> Requests { get; } = new();
         public required Func<Seen, HttpResponseMessage> Respond { get; init; }
         public Exception? Throw { get; set; }
+        /// <summary>Runs before a part is answered, with its number and body (to hold parts in flight).</summary>
+        public Func<int, byte[], Task>? OnPart { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
         {
@@ -42,6 +44,8 @@ public sealed class ClipUploadServiceVodTests : IDisposable
                 req.Content?.Headers.ContentLength, body.Length, media == "application/json" ? Encoding.UTF8.GetString(body) : null,
                 media, req.Headers.Authorization?.ToString());
             lock (Requests) Requests.Add(seen);
+            if (OnPart is { } onPart && seen.Method == "PUT" && seen.Path.Contains("/parts/"))
+                await onPart(int.Parse(seen.Path.Split('/')[^1]), body);
             return Respond(seen);
         }
     }
@@ -389,6 +393,62 @@ public sealed class ClipUploadServiceVodTests : IDisposable
         Assert.Equal("unauthorized", (await Assert.ThrowsAsync<ClipUploadException>(() =>
             service.UploadVodAsync(MakeFile(MiB), " ", new VodUploadRequest("720p", 600)))).Code);
         Assert.Empty(proxy.Requests);
+    }
+
+    // 1 MiB parts keep these small: multi-hundred-MiB buffers here caused GC pauses that broke
+    // other tests' 50 ms deadlines on a shared CI runner.
+
+    [Fact]
+    public async Task Parts_GoUpFourAtATime_AndTheBytesMatchTheFile()
+    {
+        var inFlight = 0;
+        var most = 0;
+        var hashes = new Dictionary<int, string>();
+        var (service, proxy) = Create(HappyVodProxy(partSize: MiB));
+        proxy.OnPart = async (n, body) =>
+        {
+            var now = Interlocked.Increment(ref inFlight);
+            lock (hashes)
+            {
+                most = Math.Max(most, now);
+                hashes[n] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(body));
+            }
+            await Task.Delay(40);
+            Interlocked.Decrement(ref inFlight);
+        };
+        var file = Path.Combine(_dir, "patterned.mp4");
+        Grow(file, 7 * MiB + 1234);
+        var bytes = await File.ReadAllBytesAsync(file);
+
+        await service.UploadVodAsync(file, "tok", new VodUploadRequest("1080p", 600, 60));
+
+        Assert.Equal(4, most);
+        Assert.Equal(8, hashes.Count);
+        for (var n = 1; n <= 8; n++)
+        {
+            var offset = (int)((n - 1) * MiB);
+            Assert.Equal(HashOf(bytes, offset, (int)Math.Min(MiB, bytes.Length - offset)), hashes[n]);
+        }
+    }
+
+    private static string HashOf(byte[] bytes, int offset, int count) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes.AsSpan(offset, count)));
+
+    [Fact]
+    public async Task AFailedPart_StopsTheOthers_AndItsErrorIsTheOneReported()
+    {
+        var (service, proxy) = Create(HappyVodProxy(seen =>
+            seen.Method == "PUT" && seen.Path.EndsWith("/parts/2") ? Json(HttpStatusCode.BadRequest, new { error = "part_size_mismatch" }) : null,
+            partSize: MiB));
+
+        var ex = await Assert.ThrowsAsync<ClipUploadException>(() =>
+            service.UploadVodAsync(MakeFile(25 * MiB), "tok", new VodUploadRequest("1080p", 600, 60)));
+
+        Assert.Equal("upload_failed", ex.Code);
+        // 25 parts: the pumps stop soon after part 2 fails instead of sending the rest.
+        Assert.True(Parts(proxy).Count < 25, $"{Parts(proxy).Count} parts were sent");
+        Assert.Contains(proxy.Requests, r => r.Method == "DELETE" && r.Path == "/clips/vod1234");
+        Assert.DoesNotContain(proxy.Requests, r => r.Path.EndsWith("/complete"));
     }
 
     [Fact]
