@@ -37,6 +37,7 @@ public sealed class LcuLiveState
     private string _participantMapJson = "";
     private string? _sessionKey;
     private bool _isGameInProgress;
+    private bool _isInChampSelect;
     private bool _isLcuConnected;
 
     // ── Deferred pre-game snapshots (written at EOG) — mirror the WinUI
@@ -59,6 +60,10 @@ public sealed class LcuLiveState
     public string ParticipantMapJson { get { lock (_gate) return _participantMapJson; } }
     public string? SessionKey { get { lock (_gate) return _sessionKey; } }
     public bool IsGameInProgress { get { lock (_gate) return _isGameInProgress; } }
+    /// <summary>Champ select is open right now. Unlike <see cref="SessionKey"/>, which
+    /// deliberately survives a cancel, this clears on a dodge, when the game starts,
+    /// at game end and when the client disconnects (the Patterns nudge waits on it).</summary>
+    public bool IsInChampSelect { get { lock (_gate) return _isInChampSelect; } }
     public bool IsLcuConnected { get { lock (_gate) return _isLcuConnected; } }
 
     public int PreGameMood { get { lock (_gate) return _preGameMood; } }
@@ -82,6 +87,7 @@ public sealed class LcuLiveState
             // stale flow — a game that never reached EOG — and reusing it would
             // prefill and later promote THAT lobby's drafts onto this game.
             _sessionKey = Guid.NewGuid().ToString("N");
+            _isInChampSelect = true;
             // Fresh flow: clear any leftover deferred snapshots.
             _preGameMood = 0;
             _intention = "";
@@ -106,7 +112,11 @@ public sealed class LcuLiveState
 
     public void SetGameInProgress(bool inProgress)
     {
-        lock (_gate) _isGameInProgress = inProgress;
+        lock (_gate)
+        {
+            _isGameInProgress = inProgress;
+            if (inProgress) _isInChampSelect = false;
+        }
     }
 
     public void SetHardStop(HardStopSnapshot? snapshot)
@@ -116,7 +126,11 @@ public sealed class LcuLiveState
 
     public void SetLcuConnected(bool connected)
     {
-        lock (_gate) _isLcuConnected = connected;
+        lock (_gate)
+        {
+            _isLcuConnected = connected;
+            if (!connected) _isInChampSelect = false;
+        }
     }
 
     /// <summary>Champ select cancelled (dodge / queue expired) — drop the champ
@@ -135,6 +149,7 @@ public sealed class LcuLiveState
             _enemyChampion = "";
             _myPosition = "";
             _participantMapJson = "";
+            _isInChampSelect = false;
         }
     }
 
@@ -181,6 +196,7 @@ public sealed class LcuLiveState
             _practicedObjectiveIds = Array.Empty<long>();
             _sessionKey = null;
             _isGameInProgress = false;
+            _isInChampSelect = false;
             return snapshot;
         }
     }

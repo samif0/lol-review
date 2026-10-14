@@ -321,6 +321,10 @@ test('command declarations keep immutable envelopes, required arguments and exce
   for (const [name, definition] of Object.entries(COMMANDS)) {
     if (definition.timeoutMs !== undefined) assert.ok(definition.timeoutMs <= 290_000, name);
   }
+  // The sidebar's Patterns count and Home's pill: a light read with no arguments.
+  assert.equal(COMMANDS.get_pattern_nudge.route, '/api/patterns/nudge');
+  assert.equal(COMMANDS.get_pattern_nudge.method, 'GET');
+  assert.deepEqual(COMMANDS.get_pattern_nudge.args, {});
   assert.equal(COMMANDS.get_clip_share_status.route, '/api/clip/share-status');
   assert.deepEqual(COMMANDS.get_clip_share_status.args, { bookmarkId: 'integer' });
   assert.equal(COMMANDS.get_clip_share_status.method, 'GET');

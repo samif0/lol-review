@@ -1,0 +1,10 @@
+{
+  "notify": true,
+  "readyCount": 1,
+  "patternKey": "bad_objective_evidence:obj3",
+  "title": "Track the enemy jungler",
+  "momentCount": 4,
+  "gameCount": 3,
+  "quietReason": "",
+  "errorText": ""
+}

@@ -30,6 +30,7 @@ const definitions = {
   get_rules: get("/api/rules"),
   get_tiltcheck: get("/api/tiltcheck"),
   get_patterns: get("/api/patterns"),
+  get_pattern_nudge: get("/api/patterns/nudge"),
   get_vod: get("/api/vod", {"gameId":"integer"}),
   get_config: get("/api/config"),
   start_block: post("/api/block/start"),

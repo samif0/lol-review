@@ -18,9 +18,9 @@
       "severityLabel": "HIGH",
       "severityHex": "#f3a3a8",
       "isReviewed": false,
-      "momentCount": 3,
-      "gameCount": 2,
-      "subtitle": "3 saved mistakes across 2 games",
+      "momentCount": 4,
+      "gameCount": 3,
+      "subtitle": "4 saved mistakes across 3 games",
       "carryForwardNote": "",
       "moments": [
         {
@@ -96,10 +96,38 @@
           "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581701721.mp4",
           "hasVod": true,
           "bookmarkId": 9003
+        },
+        {
+          "evidenceId": 9004,
+          "gameId": 5581744302,
+          "ordinal": 4,
+          "championName": "Ezreal",
+          "championLabel": "Ezreal",
+          "win": false,
+          "resultLabel": "LOSS",
+          "resultHex": "#f3a3a8",
+          "gameTimestamp": 1749884400,
+          "startTimeSeconds": 1118,
+          "endTimeSeconds": 1148,
+          "timeLabel": "18:53",
+          "videoHeaderText": "Ezreal · LOSS · 18:53",
+          "title": "Warded the wrong side before a gank",
+          "note": "",
+          "hasNote": false,
+          "polarity": "bad",
+          "polarityLabel": "BAD",
+          "accentHex": "#f3a3a8",
+          "sourceKind": "bookmark",
+          "vodPath": "C:\\Users\\you\\Videos\\Revu\\5581744302.mp4",
+          "hasVod": true,
+          "bookmarkId": 9004
         }
       ],
       "newMomentCount": 0,
-      "reviewMode": "trend"
+      "totalMomentCount": 4,
+      "reviewMode": "trend",
+      "readyToReview": true,
+      "reviewMomentOrdinals": [1, 2, 3, 4]
     },
     {
       "patternKey": "bad_objective_evidence:obj7",
