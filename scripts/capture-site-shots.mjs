@@ -39,7 +39,8 @@ export const SHOTS = [
     ready: "d.getElementById('hero-title')?.textContent !== 'Welcome back' && d.querySelectorAll('#unreviewed > *').length > 0" },
   { name: 'review', page: `review.html?gameId=${GAME}`, top: 64, ready: "d.getElementById('rv-body')?.hidden === false" },
   { name: 'objectives', page: 'objectives.html', top: 190, ready: "d.querySelectorAll('#active-list > *').length > 0" },
-  { name: 'patterns', page: 'patterns.html', top: 270, ready: "d.getElementById('pat-main')?.hidden === false" },
+  // 262 ends the pane just above the back-to-back review card under the trends.
+  { name: 'patterns', page: 'patterns.html', top: 262, ready: "d.getElementById('pat-main')?.hidden === false" },
 ];
 
 /** The site file one shot writes. */
@@ -48,6 +49,22 @@ export const shotFile = name => `shot-${name}.webp`;
 // The owner's Riot name and old coaching stint, an email address, or a Riot ID
 // (name#TAG). Any of them in the rendered text aborts the capture.
 export const PERSONAL_TEXT = /\bbye\b|\bviolet\b|\bchapy\b|[\w.+-]+@[\w-]+\.[a-z]{2,}|[^\s#]#[a-z0-9]{2,5}\b/i;
+
+/**
+ * A document's text as a shot shows it: innerText less the screen-reader-only spans
+ * (clipped to inset(50%), 1 px wide), such as the account row's "Signed in as ...", which
+ * never reach the image. Only one copy of each is dropped, so the same words shown
+ * elsewhere are still checked. Runs in the page, so it uses nothing from this module.
+ */
+export function shownText(doc) {
+  let text = doc.body.innerText;
+  for (const el of doc.body.querySelectorAll('*')) {
+    if (doc.defaultView.getComputedStyle(el).clipPath === 'inset(50%)' && el.getBoundingClientRect().width <= 1) {
+      text = text.replace(el.innerText, '');
+    }
+  }
+  return text;
+}
 
 const MARK = '<path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>'
   + '<path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/>';
@@ -215,7 +232,7 @@ async function captureShot(cdp, origin, shot, out) {
   await evaluate(cdp, `Promise.all([document.fonts.ready, ${FRAME}.fonts.ready]).then(() => true)`);
   await waitFor(cdp, `(d => ${shot.ready})(${FRAME})`, `${shot.name}: its content`);
   await settle(cdp);
-  const text = await evaluate(cdp, `[document.body.innerText, ${FRAME}.body.innerText,
+  const text = await evaluate(cdp, `[(${shownText})(document), (${shownText})(${FRAME}),
     ...[...document.querySelectorAll('input, textarea'), ...${FRAME}.querySelectorAll('input, textarea')].map(field => field.value)].join('\\n')`);
   const personal = PERSONAL_TEXT.exec(text);
   if (personal) throw new Error(`${shot.name}: personal text "${personal[0]}" is on screen; nothing was written for this shot.`);

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { OG_SIZE, PANE, PERSONAL_TEXT, SHOTS, VIEWPORT, ogTemplate, parseArgs, repositoryRoot, shotFile } from './capture-site-shots.mjs';
+import { OG_SIZE, PANE, PERSONAL_TEXT, SHOTS, VIEWPORT, ogTemplate, parseArgs, repositoryRoot, shotFile, shownText } from './capture-site-shots.mjs';
 import { jpegSize, webpSize } from './image-size.mjs';
 
 const site = path.join(repositoryRoot, 'site');
@@ -72,6 +72,21 @@ test('the privacy guard catches personal strings and passes the sample data', ()
     assert.match(personal, PERSONAL_TEXT, personal);
   for (const generic of ['Good evening', 'Jinx vs Caitlyn', 'Ranked Solo/Duo · 27:48', '8 / 2 / 11', 'Player', 'Goodbye to tilt'])
     assert.doesNotMatch(generic, PERSONAL_TEXT, generic);
+});
+
+test('the privacy guard skips screen-reader-only text but still reads the same words when shown', () => {
+  const el = (innerText, clipPath = 'none', width = 120) => ({ innerText, clipPath, getBoundingClientRect: () => ({ width }) });
+  const doc = (innerText, ...elements) => ({ body: { innerText, querySelectorAll: () => elements },
+    defaultView: { getComputedStyle: element => ({ clipPath: element.clipPath }) } });
+  const state = el('Signed in as you@example.com.', 'inset(50%)', 1);
+  const row = shownText(doc('Player\nLeague offline\nSigned in as you@example.com.', el('Player'), state));
+  assert.equal(row, 'Player\nLeague offline\n');
+  assert.doesNotMatch(row, PERSONAL_TEXT);
+  assert.match(shownText(doc('you@example.com\nSigned in as you@example.com.', el('you@example.com'), state)), PERSONAL_TEXT,
+    'an email shown as the name still aborts');
+  assert.match(shownText(doc('Signed in as you@example.com.\nSigned in as you@example.com.', state)), PERSONAL_TEXT,
+    'only one copy is dropped per hidden span');
+  assert.match(shownText(doc('Faker#KR1', el('Faker#KR1', 'inset(50%)', 200))), PERSONAL_TEXT, 'a wide clipped element is shown');
 });
 
 test('the desktop sample fixtures carry no personal data', () => {
