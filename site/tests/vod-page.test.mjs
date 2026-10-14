@@ -222,6 +222,15 @@ test('a ready game renders its header, banner, lane and notes as text, and marke
   assert.equal(run.$('vod-lane-playhead').style.left, '50%');
 });
 
+test('the quality pill shows the frame rate when the share has one, and nothing for an unknown value', async () => {
+  for (const [quality, shown] of [['1080p60', '1080p60'], ['720p30', '720p30'], ['720p', '720p'], ['1080p144', ''], [null, '']]) {
+    const run = page({ routes: { '/vod-meta/Abc1234': meta({ quality }) } });
+    await flush();
+    assert.equal(run.$('vod-quality').textContent, shown, String(quality));
+    assert.equal(run.$('vod-quality').hidden, !shown);
+  }
+});
+
 test('without notes or markers the lane and notes stay hidden; a playback error rechecks the meta', async () => {
   let current = meta({}, { markers: [], notes: [] });
   const run = page({ hostname: 'localhost', search: '?proxy=http://localhost:8787', routes: { '/vod-meta/Abc1234': () => current } });

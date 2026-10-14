@@ -34,7 +34,18 @@ internal sealed class FakeVodClient : IVodShareClient
             return Task.FromResult(new VodUploadResult("vod1234", "https://revu.lol/v/vod1234", Now + 259_200));
         };
 
-    public List<(string File, VodUploadRequest Request, bool FileExisted)> Uploads { get; } = new();
+    /// <summary>
+    /// Uploads that went through: Declared is the reserved size of one that ran while the copy was
+    /// encoded (recorded once the copy was final), null for one of a finished file.
+    /// </summary>
+    public List<(string File, VodUploadRequest Request, bool FileExisted, long? Declared)> Uploads { get; } = new();
+    /// <summary>Every upload started with the encode, and how it ended (true written, false given up, null open).</summary>
+    public List<(VodUploadRequest Request, long Declared, bool EncodeDone)> WhileWriting { get; } = new();
+    public List<bool?> WhileWritingOutcomes { get; } = new();
+    /// <summary>A refusal the proxy gives at init, before anything is written.</summary>
+    public Exception? InitError { get; set; }
+    /// <summary>Set by the encoder double while it encodes (to see the upload start before the encode ends).</summary>
+    public Func<bool> EncodeDone { get; set; } = () => false;
     public List<(string Id, string Json)> Markers { get; } = new();
     public Func<int, Exception?> MarkerError { get; set; } = _ => null;
 
@@ -48,8 +59,33 @@ internal sealed class FakeVodClient : IVodShareClient
     public Task<VodUploadResult> UploadVodAsync(string filePath, string sessionToken, VodUploadRequest request,
         IProgress<ClipUploadProgress>? progress = null, Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
     {
-        lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath)));
+        lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath), null));
         return OnUpload(filePath, request, progress, onRemoteIdAssigned, ct);
+    }
+
+    public async Task<VodUploadResult> UploadVodWhileWritingAsync(string filePath, long declaredSize, Task<bool> written,
+        string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress = null,
+        Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
+    {
+        int index;
+        lock (WhileWriting)
+        {
+            WhileWriting.Add((request, declaredSize, EncodeDone()));
+            WhileWritingOutcomes.Add(null);
+            index = WhileWriting.Count - 1;
+        }
+        // Like the real client: a refusal comes back from init at once, and nothing completes until
+        // the copy is written; a copy that was given up throws once the remote is gone.
+        await Task.Yield();
+        if (InitError is { } refused) throw refused;
+        bool ok;
+        try { ok = await written.WaitAsync(ct); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception) { ok = false; }
+        lock (WhileWriting) WhileWritingOutcomes[index] = ok;
+        if (!ok) throw new VodCopyAbandonedException();
+        lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath), declaredSize));
+        return await OnUpload(filePath, request, progress, onRemoteIdAssigned, ct);
     }
 
     public Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default)
@@ -68,22 +104,33 @@ internal sealed class FakeVodClient : IVodShareClient
 /// <summary>Encoder double: writes a small "mp4" and reports the size the test chooses.</summary>
 internal sealed class FakeVodEncoder : IVodShareEncoder
 {
-    public List<(string Source, string Output, VodShareQuality Quality, double Duration)> Encodes { get; } = new();
-    public Func<VodShareQuality, long> SizeFor { get; set; } = _ => 1_315_583_333;
+    public List<(string Source, string Output, VodShareQuality Quality, int Fps, double Duration)> Encodes { get; } = new();
+    /// <summary>The real copies of a 37.6-minute game: 1080p30 and 720p30.</summary>
+    public Func<VodShareQuality, long> SizeFor { get; set; } = q => q == VodShareQuality.P1080 ? 1_315_583_333 : 763_897_802;
     public Func<CancellationToken, Task>? DuringEncode { get; set; }
     public Exception? Error { get; set; }
+    /// <summary>The first run fails and a second encoder starts over (beforeRetry runs in between).</summary>
+    public bool Restarts { get; set; }
+    public int Running;
 
     public Task<VodEncoderChoice?> SelectAsync(CancellationToken ct) =>
         Task.FromResult<VodEncoderChoice?>(new VodEncoderChoice("ffmpeg.exe", "h264_nvenc"));
 
-    public async Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality,
-        double durationSeconds, IProgress<int>? percent, CancellationToken ct)
+    public async Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality, int fps,
+        double durationSeconds, IProgress<int>? percent, CancellationToken ct, Func<CancellationToken, Task>? beforeRetry = null)
     {
-        lock (Encodes) Encodes.Add((sourcePath, outputPath, quality, durationSeconds));
-        await File.WriteAllBytesAsync(outputPath, [0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p'], ct);
-        percent?.Report(34);
+        lock (Encodes) Encodes.Add((sourcePath, outputPath, quality, fps, durationSeconds));
+        Interlocked.Increment(ref Running);
         try
         {
+            await File.WriteAllBytesAsync(outputPath, [0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p'], ct);
+            percent?.Report(34);
+            if (Restarts)
+            {
+                File.Delete(outputPath);
+                if (beforeRetry is not null) await beforeRetry(ct);
+                await File.WriteAllBytesAsync(outputPath, [0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p'], ct);
+            }
             if (DuringEncode is not null) await DuringEncode(ct);
             ct.ThrowIfCancellationRequested();
             if (Error is not null) throw Error;
@@ -93,7 +140,12 @@ internal sealed class FakeVodEncoder : IVodShareEncoder
             File.Delete(outputPath);
             throw;
         }
-        return new VodEncodeResult(outputPath, SizeFor(quality), "h264_nvenc", quality, 4500);
+        finally
+        {
+            Interlocked.Decrement(ref Running);
+        }
+        return new VodEncodeResult(outputPath, SizeFor(quality), "h264_nvenc", quality, fps,
+            VodShareEncoderArgs.VideoKbps(quality, fps, durationSeconds));
     }
 }
 
@@ -139,6 +191,8 @@ internal sealed class VodShareHarness : IDisposable
     public VodDto Snapshot { get; set; } = VodShareMarkersTests.Vod([VodShareMarkersTests.Event(1, "DRAGON", 312, "Dragon", "gold")],
         [VodShareMarkersTests.Bookmark(2, 400, "my note")]);
     public long FreeDisk { get; set; } = 1_000_000_000_000;
+    /// <summary>Copies padded to their reserved size (the fake encoder's file is a few bytes, so nothing is written).</summary>
+    public List<(string File, long Size)> Pads { get; } = new();
 
     public VodShareHarness()
     {
@@ -157,12 +211,18 @@ internal sealed class VodShareHarness : IDisposable
             ? Task.FromResult(args is [long id] && id == GameId ? Game : null)
             : throw new NotSupportedException(method.Name));
         var vod = RepositoryDouble.Create<IVodRepository>((method, _) => throw new NotSupportedException(method.Name));
+        Client.EncodeDone = () => Encoder.Encodes.Count > 0 && Volatile.Read(ref Encoder.Running) == 0;
         Worker = new VodShareWorker(Client, Upload, Encoder, Mixer, vod, games,
             (_, _) => Task.FromResult(Snapshot), Config, Live, Store, Cleanup, Hub, Work,
             NullLogger<VodShareWorker>.Instance)
         {
             ResolveRecordingAsync = _ => Task.FromResult<string?>(Recording),
             FreeDiskBytes = _ => FreeDisk,
+            PadCopy = (file, size) =>
+            {
+                lock (Pads) Pads.Add((file, size));
+                return true;
+            },
             Now = () => FakeVodClient.Now,
             MarkerRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
             GameCheckInterval = TimeSpan.FromMilliseconds(40),

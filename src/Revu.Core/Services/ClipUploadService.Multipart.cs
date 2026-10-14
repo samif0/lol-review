@@ -6,22 +6,33 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32.SafeHandles;
 
 namespace Revu.Core.Services;
 
 /// <summary>
-/// R2 multipart sharing for clips above 95 MiB (C4 4.1 to 4.4): init, sequential parts of
-/// the server-chosen size, complete. Any terminal failure or cancellation DELETEs the
-/// remote upload with its own 10 s timeout (2 s once the caller's token has fired).
+/// R2 multipart sharing for clips above 95 MiB (C4 4.1 to 4.4): init, parts of the
+/// server-chosen size (several in flight at once), complete. Any terminal failure or
+/// cancellation DELETEs the remote upload with its own 10 s timeout (2 s once the caller's
+/// token has fired).
 /// </summary>
 public sealed partial class ClipUploadService
 {
     private static readonly TimeSpan InitTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PartTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CompleteTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Parts in flight at once, each on its own connection with its own pooled buffer. One
+    /// part at a time leaves a fast uplink idle while R2 stores each part: on a line that
+    /// carried about 220 Mbps with four streams, one stream topped out near 65 Mbps. The
+    /// proxy counts each part attempt on its own, so this changes no limit there.
+    /// </summary>
+    internal int PartConcurrency { get; set; } = 4;
 
     /// <summary>How long the remote abort may take once the caller's token has fired.</summary>
     internal static readonly TimeSpan AbortBudgetAfterCancel = TimeSpan.FromSeconds(2);
@@ -69,13 +80,16 @@ public sealed partial class ClipUploadService
     internal const string ClipsRouteBase = "clips";
 
     /// <summary>
-    /// The sequential part loop and complete of an initialized multipart upload under
-    /// <paramref name="routeBase"/> (<c>clips</c> or <c>vod-shares</c>). Any terminal failure or
+    /// The part uploads and complete of an initialized multipart upload under
+    /// <paramref name="routeBase"/> (<c>clips</c> or <c>vod-shares</c>). Up to
+    /// <see cref="PartConcurrency"/> parts are in flight; the first part that fails for good
+    /// stops the others and is the error reported. With <paramref name="written"/> the file is
+    /// still being written (see <see cref="PutPartsAsync"/>). Any terminal failure or
     /// cancellation DELETEs the remote upload (kind-agnostic <c>DELETE /clips/{id}</c>).
     /// </summary>
     private async Task<ClipUploadResult> UploadPartsAndCompleteAsync(string routeBase, string id, long partSize,
         int partCount, string filePath, long size, string sessionToken, IProgress<ClipUploadProgress>? progress,
-        Action<string>? onRemoteIdAssigned, string what, CancellationToken ct)
+        Action<string>? onRemoteIdAssigned, string what, CancellationToken ct, Task<bool>? written = null)
     {
         try
         {
@@ -88,29 +102,9 @@ public sealed partial class ClipUploadService
             }
 
             progress?.Report(new ClipUploadProgress("uploading", 0, size));
-            var parts = new List<PartDto>(partCount);
-            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(partSize, size));
-            try
-            {
-                await using var file = OpenShared(filePath);
-                long sent = 0;
-                for (var n = 1; n <= partCount; n++)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var length = (int)Math.Min(partSize, size - sent);
-                    file.Seek(sent, SeekOrigin.Begin);
-                    await file.ReadExactlyAsync(buffer.AsMemory(0, length), ct).ConfigureAwait(false);
-
-                    var etag = await PutPartAsync(routeBase, id, n, buffer, length, sessionToken, ct).ConfigureAwait(false);
-                    parts.Add(new PartDto { part_number = n, etag = etag });
-                    sent += length;
-                    progress?.Report(new ClipUploadProgress("uploading", sent, size));
-                }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
-            }
+            var etags = await PutPartsAsync(routeBase, id, partSize, partCount, filePath, size, sessionToken, progress, ct,
+                written).ConfigureAwait(false);
+            var parts = etags.Select((etag, i) => new PartDto { part_number = i + 1, etag = etag }).ToList();
 
             progress?.Report(new ClipUploadProgress("finishing", size, size));
             var result = await CompleteAsync(routeBase, id, parts, sessionToken, ct).ConfigureAwait(false);
@@ -127,6 +121,148 @@ public sealed partial class ClipUploadService
             var deleted = await DeleteAsync(id, sessionToken, budget.Token).ConfigureAwait(false);
             _logger.LogInformation(ex, "Multipart upload {Id} abandoned (remote delete {Deleted})", id, deleted);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Every part of the file, up to <see cref="PartConcurrency"/> at once, each pump taking
+    /// the next part. Returns the etags in part order. Progress counts finished parts and never
+    /// goes backwards. The first failure cancels the other pumps and is rethrown as it was
+    /// (their cancellations are a consequence, not the cause).
+    /// <para>
+    /// With <paramref name="written"/> the encoder is still writing the file. Its mp4 muxer
+    /// (no +faststart) never changes a byte past the header once written, only the mdat size
+    /// near the start when it finishes, so a middle part goes up as soon as the file has grown
+    /// <see cref="GrowGuardBytes"/> past it. Part 1 (the header) and the last part wait until
+    /// <paramref name="written"/> is true: the file is final at exactly <paramref name="size"/>
+    /// bytes. False, a fault or a cancellation abandons the upload
+    /// (<see cref="VodCopyAbandonedException"/>).
+    /// </para>
+    /// </summary>
+    private async Task<string[]> PutPartsAsync(string routeBase, string id, long partSize, int partCount, string filePath,
+        long size, string sessionToken, IProgress<ClipUploadProgress>? progress, CancellationToken ct,
+        Task<bool>? written = null)
+    {
+        var etags = new string[partCount];
+        var order = PartOrder(partCount, growing: written is not null);
+        var gate = new object();
+        var next = -1;
+        long sent = 0;
+        ExceptionDispatchInfo? first = null;
+        // A finished file opens now (and must exist); a growing one opens once the encoder has created it.
+        SafeFileHandle? file = written is null
+            ? File.OpenHandle(filePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, FileOptions.Asynchronous)
+            : null;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        SafeFileHandle? TryOpen()
+        {
+            lock (gate)
+            {
+                if (file is not null) return file;
+                try
+                {
+                    // The encoder holds the file open for writing, so reading must share write access.
+                    file = File.OpenHandle(filePath, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete, FileOptions.Asynchronous);
+                }
+                catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    // Not created yet.
+                }
+                return file;
+            }
+        }
+
+        async Task WaitForPartAsync(int n)
+        {
+            var end = Math.Min(n * partSize, size);
+            var middle = n > 1 && n < partCount;
+            while (true)
+            {
+                stop.Token.ThrowIfCancellationRequested();
+                if (written!.IsCompleted)
+                {
+                    if (written.IsCompletedSuccessfully && written.Result && TryOpen() is not null) return;
+                    throw new VodCopyAbandonedException();
+                }
+                if (middle && TryOpen() is { } handle && RandomAccess.GetLength(handle) >= end + GrowGuardBytes) return;
+                await Task.WhenAny(written, Task.Delay(GrowPollInterval, stop.Token)).ConfigureAwait(false);
+            }
+        }
+
+        async Task PumpAsync()
+        {
+            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(partSize, size));
+            try
+            {
+                for (var i = Interlocked.Increment(ref next); i < order.Length; i = Interlocked.Increment(ref next))
+                {
+                    var n = order[i];
+                    stop.Token.ThrowIfCancellationRequested();
+                    if (written is not null) await WaitForPartAsync(n).ConfigureAwait(false);
+                    var offset = (n - 1) * partSize;
+                    var length = (int)Math.Min(partSize, size - offset);
+                    await ReadAtAsync(file!, buffer.AsMemory(0, length), offset, stop.Token).ConfigureAwait(false);
+                    etags[n - 1] = await PutPartAsync(routeBase, id, n, buffer, length, sessionToken, stop.Token)
+                        .ConfigureAwait(false);
+                    lock (gate)
+                    {
+                        sent += length;
+                        progress?.Report(new ClipUploadProgress("uploading", sent, size));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lock (gate) first ??= ExceptionDispatchInfo.Capture(ex);
+                stop.Cancel();
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        try
+        {
+            var pumps = Enumerable.Range(0, Math.Clamp(PartConcurrency, 1, partCount)).Select(_ => PumpAsync()).ToArray();
+            await Task.WhenAll(pumps).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (gate) file?.Dispose();
+        }
+        first?.Throw();
+        return etags;
+    }
+
+    /// <summary>
+    /// Upload order: 1..N for a finished file. For a growing one the parts the encoder can no
+    /// longer change go first (2..N-1, as it passes them), then part 1 (the header it patches
+    /// last) and part N (the end of the file).
+    /// </summary>
+    internal static int[] PartOrder(int partCount, bool growing)
+    {
+        if (!growing || partCount <= 2) return Enumerable.Range(1, partCount).ToArray();
+        return [.. Enumerable.Range(2, partCount - 2), 1, partCount];
+    }
+
+    /// <summary>How far past a part's end the growing file must be before the part is read (writes in flight).</summary>
+    internal const long GrowGuardBytes = 4L * 1024 * 1024;
+
+    /// <summary>How often a growing upload checks the file's length (tests shorten it).</summary>
+    internal TimeSpan GrowPollInterval { get; set; } = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>Fill <paramref name="buffer"/> from <paramref name="offset"/> (positional, safe to run concurrently).</summary>
+    private static async Task ReadAtAsync(SafeFileHandle file, Memory<byte> buffer, long offset, CancellationToken ct)
+    {
+        while (!buffer.IsEmpty)
+        {
+            var read = await RandomAccess.ReadAsync(file, buffer, offset, ct).ConfigureAwait(false);
+            if (read == 0) throw new EndOfStreamException("The prepared file ended early.");
+            buffer = buffer[read..];
+            offset += read;
         }
     }
 

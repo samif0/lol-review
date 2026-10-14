@@ -229,20 +229,26 @@ public static class GameConstants
     /// <summary>Largest share copy the proxy accepts (2 GiB).</summary>
     public const long MaxVodShareBytes = 2147483648L;
 
-    /// <summary>1.9 GiB: the size a long game's 720p bitrate is fitted to.</summary>
+    /// <summary>1.9 GiB: the size a long game's bitrate is fitted to.</summary>
     public const long VodShareTargetMaxBytes = 2040109465L;
 
-    /// <summary>Size estimate per minute at 1080p30 4.5 Mbps (decimal MB, measured about 35 MB/min).</summary>
-    public const long VodShareBytesPerMinute1080 = 35_000_000;
+    // Video bitrates of the share copy before a long game is fitted. VMAF on a 1080p60 League
+    // recording (NVENC p4): 1080p60 scores 87.4 at 3 Mbps, 93.2 at 5 and 94.5 at 6; 720p60 scores
+    // 81.9 at 3 Mbps and never passes 88, even at 15. 1080p60 at 5 Mbps is the default; 720p60
+    // is the smaller file that also encodes about twice as fast.
+    public const int VodShareVideoKbps1080p60 = 5000;
+    public const int VodShareVideoKbps1080p30 = 4500;
+    public const int VodShareVideoKbps720p60 = 3000;
+    public const int VodShareVideoKbps720p30 = 2500;
 
-    /// <summary>Size estimate per minute at 720p30 2.5 Mbps.</summary>
-    public const long VodShareBytesPerMinute720 = 21_000_000;
-
-    public const int VodShareVideoKbps1080 = 4500;
-    public const int VodShareVideoKbps720 = 2500;
+    /// <summary>A long game whose fitted 1080p bitrate falls below this is shared at 720p instead.</summary>
+    public const int VodShareMin1080VideoKbps = 3000;
 
     /// <summary>Below this 720p bitrate a game is too long to share.</summary>
     public const int VodShareMinVideoKbps = 1200;
+
+    /// <summary>Container and rate-control overshoot the size estimate allows for (4%).</summary>
+    public const double VodShareOverhead = 1.04;
 
     public const int VodShareAudioKbps = 128;
 

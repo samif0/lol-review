@@ -101,6 +101,12 @@ export function vodShareErrorText(code, options = {}) {
   }
 }
 
+/** "1080p60", "720p30": the resolution with the share copy's frame rate (the bare resolution when it is unknown). */
+export function shareQualityLabel(quality, fps) {
+  const rate = Number(fps);
+  return rate === 60 || rate === 30 ? `${quality}${rate}` : quality;
+}
+
 export function vodShareTtlText(ttlSeconds) {
   const days = Math.max(1, Math.round((Number(ttlSeconds) || 259_200) / 86_400));
   return `Anyone with the link can watch for ${days} ${days === 1 ? 'day' : 'days'}.`;
@@ -126,7 +132,10 @@ export function vodSharePlan(status, requested = '1080p') {
     block = { code: 'daily_limit', retryAt: limits.dayResetsAt ?? null };
   }
   const size = formatShareSize(quality === '720p' ? status?.estimates?.p720Bytes : status?.estimates?.p1080Bytes);
+  // The copy keeps the recording's frame rate (60 or 30); the sidecar reports it with the recording.
+  const label = q => shareQualityLabel(q, recording.fps);
   return { quality, disable1080, block, canShare: !block, hint: disable1080 ? POOL_720_HINT : '',
-    notice: status?.reachable === false && !block ? 'network' : null, sizeText: size ? `About ${size} at ${quality}.` : '',
+    notice: status?.reachable === false && !block ? 'network' : null, sizeText: size ? `About ${size} at ${label(quality)}.` : '',
+    labels: { p1080: label('1080p'), p720: label('720p') },
     builtIn: recording.builtIn === true, imported: recording.builtIn === false };
 }

@@ -44,6 +44,12 @@ import {
 } from "./share-limits";
 
 const QUALITIES = new Set(["1080p", "720p"]);
+/**
+ * Desktops from 4.3 send the share copy's frame rate; it is stored with the quality
+ * ("1080p60", "720p30") so the watch page can show it. Older desktops send none and keep the
+ * bare resolution.
+ */
+const FRAME_RATES = new Set(["30", "60"]);
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -194,8 +200,11 @@ export async function handleVodUploadInit(request: Request, env: Env, userId: nu
   if (duration === null || duration < 1 || duration > VOD_MAX_SECONDS) {
     return refuse(400, "bad_request", `duration must be 1 to ${VOD_MAX_SECONDS} seconds`);
   }
-  const quality = url.searchParams.get("quality") ?? "";
-  if (!QUALITIES.has(quality)) return refuse(400, "bad_request", "quality must be 1080p or 720p");
+  const resolution = url.searchParams.get("quality") ?? "";
+  if (!QUALITIES.has(resolution)) return refuse(400, "bad_request", "quality must be 1080p or 720p");
+  const fps = url.searchParams.get("fps");
+  if (fps !== null && !FRAME_RATES.has(fps)) return refuse(400, "bad_request", "fps must be 30 or 60");
+  const quality = fps === null ? resolution : `${resolution}${fps}`;
 
   const now = nowSeconds();
 

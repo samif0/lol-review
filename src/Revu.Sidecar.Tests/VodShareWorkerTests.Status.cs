@@ -91,8 +91,8 @@ public sealed partial class VodShareWorkerTests
             Assert.Equal((false, false, true), (status.SignedIn, status.Allowed, status.Reachable));
             Assert.Null(status.Pool);
             Assert.Null(status.Limits);
-            Assert.Equal(new VodShareRecordingDto(true, true, 2256, false), status.Recording);
-            Assert.Equal(new VodShareEstimatesDto(1_315_650_000, 789_390_000), status.Estimates);
+            Assert.Equal(new VodShareRecordingDto(true, true, 2256, false, 30), status.Recording);
+            Assert.Equal(new VodShareEstimatesDto(1_355_495_400, 769_091_400), status.Estimates);
             Assert.Equal(259_200, status.TtlSeconds);
             Assert.Equal(0, h.Client.StatusCalls);
         }
@@ -126,13 +126,13 @@ public sealed partial class VodShareWorkerTests
         using (h)
         using (tap)
         {
-            // Room for the bare 1080p estimate (1,315,650,000) but not for it plus 3%.
-            h.Client.Status = () => FakeVodClient.Allowed(freeBytes: 1_332_220_736);
+            // Room for the bare 1080p30 estimate (1,355,495,400) but not for it plus 3%.
+            h.Client.Status = () => FakeVodClient.Allowed(freeBytes: 1_380_000_000);
 
             var status = await h.Worker.GetStatusAsync(GameId, CancellationToken.None);
 
-            Assert.Equal(new VodShareEstimatesDto(1_315_650_000, 789_390_000), status.Estimates);
-            Assert.Equal(new VodSharePoolDto(1_332_220_736, false, true, null, null), status.Pool);
+            Assert.Equal(new VodShareEstimatesDto(1_355_495_400, 769_091_400), status.Estimates);
+            Assert.Equal(new VodSharePoolDto(1_380_000_000, false, true, null, null), status.Pool);
         }
     }
 

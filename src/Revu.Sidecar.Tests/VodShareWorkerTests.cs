@@ -212,6 +212,12 @@ public sealed partial class VodShareWorkerTests
             Assert.Equal(new VodUploadRequest("1080p", 2256), upload.Request);
             Assert.Equal(h.Recording, h.Encoder.Encodes.Single().Source);
             Assert.Empty(Directory.EnumerateFiles(h.TempDir));
+            // The upload ran with the encode: it reserved the estimate plus 3% and the copy was padded to it.
+            var started = Assert.Single(h.Client.WhileWriting);
+            Assert.False(started.EncodeDone);
+            Assert.Equal(1_396_160_262, started.Declared);
+            Assert.Equal((upload.File, 1_396_160_262L), Assert.Single(h.Pads));
+            Assert.Equal(1_396_160_262, upload.Declared);
 
             var entry = h.Store.Get(GameId)!;
             Assert.Equal(new VodShareEntry(GameId, "vod1234", "https://revu.lol/v/vod1234", "1080p", true, 1_315_583_333,
@@ -229,6 +235,87 @@ public sealed partial class VodShareWorkerTests
             var status = await h.Worker.GetStatusAsync(GameId, CancellationToken.None);
             Assert.Equal(("done", "done"), (status.Job!.State, status.Job.Phase));
             Assert.Equal("https://revu.lol/v/vod1234", status.Share!.Url);
+        }
+    }
+
+    [Fact]
+    public async Task A60FpsRecording_IsSharedAt60_AndTheUploadStartsWithTheEncode()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            h.Mixer.ProbeFrameRate = 60;
+            var status = await h.Worker.GetStatusAsync(GameId, CancellationToken.None);
+            Assert.Equal(60, status.Recording.Fps);
+            Assert.Equal(new VodShareEstimatesDto(1_502_096_400, 915_692_400), status.Estimates);
+
+            await StartShareAsync(h);
+            await WaitPhaseAsync(tap, "done");
+
+            Assert.Equal(60, h.Encoder.Encodes.Single().Fps);
+            var started = Assert.Single(h.Client.WhileWriting);
+            Assert.False(started.EncodeDone);
+            Assert.Equal((new VodUploadRequest("1080p", 2256, 60), 1_547_159_292L), (started.Request, started.Declared));
+            Assert.Equal(1_547_159_292, Assert.Single(h.Pads).Size);
+            Assert.Equal(1_547_159_292, h.Client.Uploads.Single().Declared);
+        }
+    }
+
+    [Fact]
+    public async Task ACopyLargerThanItsReservation_GivesUpTheEarlyUpload_AndUploadsTheFinishedFile()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            h.Encoder.SizeFor = _ => 1_396_160_263;   // one byte past the 1080p30 reservation
+            await StartShareAsync(h);
+            var done = await WaitPhaseAsync(tap, "done");
+
+            Assert.Equal(new bool?[] { false }, h.Client.WhileWritingOutcomes);
+            var upload = h.Client.Uploads.Single();
+            Assert.Null(upload.Declared);
+            Assert.Equal("1080p", upload.Request.Quality);
+            Assert.Empty(h.Pads);
+            Assert.Equal("https://revu.lol/v/vod1234", done.GetProperty("url").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task AnEncodeThatStartsOver_GivesUpTheEarlyUpload_AndUploadsTheFinishedFile()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            h.Encoder.Restarts = true;
+            await StartShareAsync(h);
+            await WaitPhaseAsync(tap, "done");
+
+            Assert.Equal(new bool?[] { false }, h.Client.WhileWritingOutcomes);
+            Assert.Null(h.Client.Uploads.Single().Declared);
+            Assert.Empty(h.Pads);
+        }
+    }
+
+    [Fact]
+    public async Task ARefusedUpload_StopsTheEncode_AndReportsTheRefusal()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            h.Encoder.DuringEncode = ct => Task.Delay(Timeout.Infinite, ct);
+            h.Client.InitError = new ClipUploadException("full") { Code = "pool_full", RetryAt = 1_760_403_600 };
+            await StartShareAsync(h);
+            var error = await WaitPhaseAsync(tap, "error");
+
+            Assert.Equal(("pool_full", 1_760_403_600L),
+                (error.GetProperty("errorCode").GetString(), error.GetProperty("retryAt").GetInt64()));
+            Assert.Equal(0, Volatile.Read(ref h.Encoder.Running));
+            Assert.Empty(h.Client.Uploads);
+            Assert.Empty(Directory.EnumerateFiles(h.TempDir));
         }
     }
 

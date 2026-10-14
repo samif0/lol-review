@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createVodShare, formatShareSize, formatShareTime, safeShareUrl, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
+import { createVodShare, formatShareSize, formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
   vodShareProgressLabel, vodShareTtlText, CHECKING, KEEP_REVIEWING, LINK_READY, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED,
   STOPPED, STOPPED_QUEUED } from '../ui/vod-share.mjs';
 
@@ -47,7 +47,7 @@ function container(doc, hooks, views = []) {
 }
 const ROW_HOOKS = ['row-label', 'row-url', 'row-detail', 'row-live', 'row-actions', 'row-copy', 'row-open', 'row-stop',
   'row-cancel', 'row-retry', 'row-confirm', 'row-confirm-stop', 'row-keep'];
-const SHEET_HOOKS = ['close', 'size', 'q1080', 'q720', 'hint', 'ttl', 'imported', 'notes', 'progress-label', 'progress-live', 'progress-bar',
+const SHEET_HOOKS = ['close', 'size', 'q1080', 'q720', 'q1080-label', 'q720-label', 'hint', 'ttl', 'imported', 'notes', 'progress-label', 'progress-live', 'progress-bar',
   'progress-note', 'url', 'copy', 'open', 'expiry', 'markers', 'message-box', 'message', 'signin', 'folder', 'confirm',
   'confirm-stop', 'keep', 'actions', 'stop', 'cancel', 'share', 'done'];
 
@@ -153,7 +153,7 @@ test('every errorCode has the agreed copy, and unknown codes fall back to the si
 
 test('the plan preselects 720p when 1080p does not fit and blocks what cannot be shared', () => {
   assert.deepEqual(vodSharePlan(status()), { quality: '1080p', disable1080: false, block: null, canShare: true, hint: '',
-    notice: null, sizeText: 'About 1.3 GB at 1080p.', builtIn: true, imported: false });
+    notice: null, sizeText: 'About 1.3 GB at 1080p.', labels: { p1080: '1080p', p720: '720p' }, builtIn: true, imported: false });
   assert.equal(vodSharePlan(status(), '720p').sizeText, 'About 0.8 GB at 720p.');
   const tight = vodSharePlan(status({ pool: { freeBytes: 900e6, fits1080: false, fits720: true, fits1080At: 1760403600 } }), '1080p');
   assert.equal(tight.quality, '720p');
@@ -254,6 +254,25 @@ test('an existing link shows in the row with Copy, Open, expiry and a confirmed 
   assert.equal(f.row.el('row-url').hidden, true);
   await f.tick(6000);
   assert.equal(f.row.hidden, true, 'the calm result fades');
+});
+
+test('the quality choices carry the frame rate the recording is shared at', async () => {
+  assert.equal(shareQualityLabel('1080p', 60), '1080p60');
+  assert.equal(shareQualityLabel('720p', 30), '720p30');
+  for (const unknown of [undefined, null, 0, 48, 'x']) assert.equal(shareQualityLabel('1080p', unknown), '1080p');
+  const sixty = status({ recording: { available: true, builtIn: true, durationSeconds: 2255, tooLong: false, fps: 60 },
+    estimates: { p1080Bytes: 1502096400, p720Bytes: 915692400 } });
+  assert.deepEqual(vodSharePlan(sixty).labels, { p1080: '1080p60', p720: '720p60' });
+  assert.equal(vodSharePlan(sixty).sizeText, 'About 1.5 GB at 1080p60.');
+  assert.equal(vodSharePlan(sixty, '720p').sizeText, 'About 0.9 GB at 720p60.');
+
+  const f = setup({ replies: { get_vod_share_status: sixty } });
+  await f.share.check({ gameId: 123 });
+  f.openButton.click();
+  await flush();
+  assert.equal(f.sheet.el('q1080-label').textContent, '1080p60');
+  assert.equal(f.sheet.el('q720-label').textContent, '720p60');
+  assert.equal(f.sheet.el('size').textContent, 'About 1.5 GB at 1080p60.');
 });
 
 test('a full share runs from the sheet: fresh status, start payload, progress, done and copy', async () => {

@@ -79,6 +79,10 @@ public sealed class ClipUploadServiceMultipartTests : IDisposable
         {
             PartRetryDelays = [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero],
             CompleteRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
+            // These files are over 95 MiB (the multipart threshold) with 16 MiB parts: one part at
+            // a time keeps the test host's memory churn low. Parallel parts are covered in
+            // ClipUploadServiceVodTests with 1 MiB parts.
+            PartConcurrency = 1,
         };
         return (service, proxy);
     }
@@ -143,7 +147,8 @@ public sealed class ClipUploadServiceMultipartTests : IDisposable
         Assert.Contains("narrated=0", init.Query);
         Assert.Contains("duration=300", init.Query);
 
-        var parts = proxy.Parts.ToList();
+        // Parts go up several at a time, so they may arrive in any order.
+        var parts = proxy.Parts.OrderBy(p => int.Parse(p.Path.Split('/')[^1])).ToList();
         Assert.Equal(7, parts.Count);
         Assert.Equal(Enumerable.Range(1, 7).Select(n => $"/clips/mp1/parts/{n}"), parts.Select(p => p.Path));
         Assert.All(parts.Take(6), p => Assert.Equal(PartSize, p.ContentLength));
@@ -160,6 +165,8 @@ public sealed class ClipUploadServiceMultipartTests : IDisposable
 
         Assert.Equal(new ClipUploadProgress("finishing", size, size), progress.Items[^1]);
         Assert.Contains(new ClipUploadProgress("uploading", size, size), progress.Items);
+        var sent = progress.Items.Where(p => p.Phase == "uploading").Select(p => p.SentBytes).ToList();
+        Assert.Equal(sent.OrderBy(b => b), sent);
     }
 
     [Fact]
