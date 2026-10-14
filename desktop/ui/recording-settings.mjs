@@ -68,8 +68,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
     if (timer !== null) scope.clearInterval(timer);
     if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
   }, { once: true });
-  const recordingFields = ['recordingEnabled', 'recordingPreset', 'recordingPriority'];
-  const controls = [...recordingFields, 'save-recording-settings', 'open-recordings-folder',
+  const controls = ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder',
     'closeToTray', 'startWithWindows', 'save-background-settings'];
   const setToggle = (id, on) => {
     const button = el(id);
@@ -78,7 +77,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   const toggleValue = id => el(id).getAttribute('aria-checked') === 'true';
   const text = (id, value) => { el(id).textContent = value; };
   const lockRecording = () => {
-    [...recordingFields, 'save-recording-settings', 'open-recordings-folder']
+    ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']
       .forEach(id => { el(id).disabled = true; });
     setToggle('recordingEnabled', false);
     text('recording-status', UNAVAILABLE_MESSAGE);
@@ -106,7 +105,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
         : 'Capture the League window and game audio. Use Borderless mode. Your desktop and microphone are excluded.';
       if (el('recording-encoder')) el('recording-encoder').textContent = recordingEncoderText(value);
       if (!available) lockRecording();
-      else [...recordingFields, 'save-recording-settings', 'open-recordings-folder']
+      else ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']
         .forEach(id => { el(id).disabled = false; });
       text('recording-status', value?.message ? recordingStatusText(value) : UNAVAILABLE_MESSAGE);
     },
@@ -115,8 +114,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
       if (!value) return;
       setToggle('recordingEnabled', value.enabled);
       el('recordingPreset').value = value.preset;
-      el('recordingPriority').value = value.priority === 'normal' ? 'normal' : 'below-normal';
-      [...recordingFields, 'save-recording-settings'].forEach(id => { el(id).disabled = false; });
+      ['recordingEnabled', 'recordingPreset', 'save-recording-settings'].forEach(id => { el(id).disabled = false; });
       el('open-recordings-folder').disabled = false;
     },
     renderBackground: value => {
@@ -133,7 +131,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   const save = async (kind, operation) => {
     const button = el(`save-${kind}-settings`), status = `${kind}-settings-status`;
     if (button.disabled || (kind === 'recording' && !available)) return;
-    const fields = kind === 'recording' ? recordingFields : ['closeToTray', 'startWithWindows'];
+    const fields = kind === 'recording' ? ['recordingEnabled', 'recordingPreset'] : ['closeToTray', 'startWithWindows'];
     fields.forEach(id => { el(id).disabled = true; });
     button.disabled = true; text(status, 'Saving…');
     try { await operation(); if (!disposed) text(status, 'Saved.'); }
@@ -151,10 +149,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   };
   el('save-recording-settings').addEventListener('click', () => save('recording', async () => {
     savingRecording = true;
-    try {
-      await model.saveRecording({ enabled: toggleValue('recordingEnabled'), preset: el('recordingPreset').value,
-        priority: el('recordingPriority').value });
-    }
+    try { await model.saveRecording({ enabled: toggleValue('recordingEnabled'), preset: el('recordingPreset').value }); }
     finally { savingRecording = false; }
   }));
   el('save-background-settings').addEventListener('click', () => save('background', () => model.saveBackground({

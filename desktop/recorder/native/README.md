@@ -15,7 +15,8 @@ revu-recorder.exe --record --pid 1234 --output C:\recordings\session\capture.mp4
 ```
 
 The only presets are `720p30`, `1080p30`, and `1080p60`. `--priority` is
-`below-normal` (the default when omitted) or `normal`. JSON lines on stdout
+`below-normal` (the default when omitted) or `normal`. Revu always passes
+`below-normal`; `normal` exists only for manual diagnostics. JSON lines on stdout
 are protocol messages; diagnostics use stderr. `--probe` reports capabilities,
 and `--discover` reports live League game process IDs and available client dimensions.
 A loading or minimized game remains present with zero dimensions. Discovery uses
@@ -79,9 +80,9 @@ counted. This is an estimate calibrated on 1080p60 NVENC against decoded frames.
   holds a final IO chunk in memory; recovery can require trimming an incomplete
   trailing fragment. Revu preserves the original partial file and never silently
   promotes it to complete.
-- The game always comes first. By default the helper and its muxer child run at
-  below-normal CPU priority and the helper at below-normal GPU scheduling priority;
-  `--priority normal` raises both to normal and never above. libobs raises its GPU
+- The game always comes first. The helper and its muxer child run at below-normal
+  CPU priority and the helper at below-normal GPU scheduling priority; the
+  diagnostic `--priority normal` raises both to normal and never above. libobs raises its GPU
   scheduling class to HIGH (REALTIME without hardware-accelerated GPU scheduling)
   while creating its device, which Windows permits without administrator rights
   even though libobs then logs that its GPU priority setup failed. The helper pins

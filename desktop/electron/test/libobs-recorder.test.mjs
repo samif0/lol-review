@@ -130,26 +130,15 @@ test('no discovery helper is launched while a recording is running', async t => 
   assert.ok(discoveries() > during, 'discovery resumes once the recording helper has exited');
 });
 
-test('the recorder priority is host-chosen, passed through and confirmed by the helper', async t => {
+test('recording always launches game first and a helper that is not game first is stopped', async t => {
   const f = await fixture(t);
-  await assert.rejects(f.driver.start({ pid: 123, priority: 'high', outputDirectory: f.directory }), { code: 'recording-priority-invalid' });
-  assert.equal(f.child(), undefined);
-  const pending = f.driver.start({ pid: 123, priority: 'normal', outputDirectory: f.directory });
+  const refused = f.driver.start({ pid: 123, priority: 'normal', outputDirectory: f.directory });
   while (!f.child()) await wait(1);
-  assert.deepEqual(f.calls.find(value => value.args).args.slice(-2), ['--priority', 'normal']);
+  assert.deepEqual(f.calls.find(value => value.args).args.slice(-2), ['--priority', 'below-normal'], 'callers cannot raise it');
   f.child().send({ type: 'started', encoder: 'obs_nvenc_h264_tex', width: 1280, height: 720, fps: 30,
     priority: 'normal', gpuPriority: 'normal', startedAtVerified: true, startedAt: new Date().toISOString() });
-  const settings = await pending;
-  assert.equal(settings.priority, 'normal'); assert.equal(settings.gpuPriority, 'normal');
-  f.child().send({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0 });
-  f.child().close();
-  const mismatch = await fixture(t);
-  const refused = mismatch.driver.start({ pid: 123, priority: 'normal', outputDirectory: mismatch.directory });
-  while (!mismatch.child()) await wait(1);
-  mismatch.child().send({ type: 'started', encoder: 'obs_nvenc_h264_tex', width: 1280, height: 720, fps: 30,
-    priority: 'below-normal', startedAtVerified: true, startedAt: new Date().toISOString() });
   await assert.rejects(refused, { code: 'recorder-protocol-invalid' });
-  assert.equal(mismatch.child().killed, true);
+  assert.equal(f.child().killed, true);
 });
 
 test('per-minute frame stats are kept when well formed and dropped otherwise', async t => {

@@ -11,7 +11,9 @@ const transientStartup = new Set(['source-window-not-ready', 'recording-cancelle
   'game-process-invalid', 'recording-context-unavailable']);
 const validPid = value => Number.isSafeInteger(value) && value > 0;
 const finite = value => typeof value === 'number' && Number.isFinite(value);
-const priorities = new Set(['below-normal', 'normal']);
+// Revu always records game first: the helper's CPU and GPU priority stay below League's.
+// There is no user setting; the helper must confirm this priority when it starts.
+const GAME_FIRST = 'below-normal';
 const gpuClasses = new Set(['idle', 'below-normal', 'normal', 'above-normal', 'high', 'realtime', 'unknown']);
 const minuteSeries = value => Array.isArray(value) && value.length > 0 && value.length <= 300
   && value.every(count => Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000);
@@ -176,13 +178,12 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (!game || ![game.width, game.height].every(number => Number.isInteger(number) && number >= 64))
         throw recorderError('source-window-not-ready');
     },
-    async start({ pid, preset = '720p30', priority = 'below-normal', outputDirectory, signal, onStopped = () => {} } = {}) {
+    async start({ pid, preset = '720p30', outputDirectory, signal, onStopped = () => {} } = {}) {
       checkRecordingAbort(signal);
       if (disposed || !initialized) throw recorderError('recorder-unavailable');
       if (session && !session.exited) throw recorderError('recorder-busy');
       if (!validPid(pid)) throw recorderError('game-process-invalid');
       if (!Object.hasOwn(RECORDING_PRESETS, preset)) throw recorderError('recording-preset-invalid');
-      if (!priorities.has(priority)) throw recorderError('recording-priority-invalid');
       if (typeof outputDirectory !== 'string' || !path.isAbsolute(outputDirectory)) throw recorderError('recording-path-invalid');
       let context;
       try { context = await getContext(); } catch { throw recorderError('recording-context-unavailable'); }
@@ -197,7 +198,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (session && !session.exited) throw recorderError('recorder-busy');
       const filePath = path.join(root, 'capture.mp4');
       const child = spawnHelper(helperPath, ['--record', '--pid', String(pid), '--output', filePath, '--preset', preset,
-        '--priority', priority],
+        '--priority', GAME_FIRST],
         { cwd, windowsHide: true, detached: false, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       const owned = session = { child, root, filePath, pid, signal, onStopped,
         started: deferred(), stopped: deferred(), closed: deferred(), lastHeartbeat: Date.now(), completed: false, exited: false };
@@ -227,7 +228,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
           if (value?.type === 'heartbeat') owned.lastHeartbeat = Date.now();
           else if (value?.type === 'started' && !owned.startedReceived) {
             if (value.encoder !== capabilities.selectedEncoder || ![value.width, value.height, value.fps].every(number => Number.isInteger(number) && number > 0)
-                || value.fps !== RECORDING_PRESETS[preset].fps || value.priority !== priority
+                || value.fps !== RECORDING_PRESETS[preset].fps || value.priority !== GAME_FIRST
                 || value.width > RECORDING_PRESETS[preset].width || value.height > RECORDING_PRESETS[preset].height) {
               protocolFailure(); return;
             }

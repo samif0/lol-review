@@ -48,7 +48,7 @@ Inspect A/V content at the beginning, middle and end of each full match. Presele
 
 ## Practice Tool A/B with League's own frame stats
 
-League writes per-game frame-time statistics to its `Logs/GameLogs` folder, and every built-in recording saves per-minute frames, repeated frames and lagged render ticks in its `session.json`. After a set of Practice Tool runs with recording off, "Game first" and "Same as the game", one command pairs them:
+League writes per-game frame-time statistics to its `Logs/GameLogs` folder, and every built-in recording saves per-minute frames, repeated frames and lagged render ticks in its `session.json`. After a set of Practice Tool runs with recording off and on, one command pairs them:
 
 ```powershell
 node scripts/recording-benchmark/practice-check.mjs --hours 3

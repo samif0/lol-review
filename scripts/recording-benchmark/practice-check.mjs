@@ -1,5 +1,5 @@
 // Compare League's own frame-time stats per game with Revu's per-minute recording stats, so a
-// Practice Tool A/B (recording off, Game first, Same as the game) reads as one table.
+// Practice Tool A/B (recording off, recording on) reads as one table.
 // Usage: node scripts/recording-benchmark/practice-check.mjs [--hours 12] [--logs <League GameLogs>] [--recordings <dir> ...]
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -33,7 +33,8 @@ export function recordingSummary(session) {
   const stats = session.finalStats ?? {}, minutes = stats.perMinute?.frames?.length ?? 0;
   const sum = key => stats.perMinute?.[key]?.reduce((total, count) => total + count, 0) ?? null;
   const frames = sum('frames');
-  return { startedAt: Date.parse(session.startedAt), priority: session.priority ?? 'before fix',
+  return { startedAt: Date.parse(session.startedAt),
+    priority: session.resolvedSettings?.priority ?? session.priority ?? 'before fix',
     gpuPriority: session.resolvedSettings?.gpuPriority ?? 'high (before fix)', preset: session.preset,
     repeatedPerMinute: minutes ? sum('repeated') / (frames / ((session.resolvedSettings?.fps ?? 60) * 60)) : null,
     repeatedPercent: frames ? 100 * sum('repeated') / frames : null, lagged: sum('lagged') ?? stats.laggedFrames ?? null };
@@ -86,7 +87,7 @@ function main(argv) {
     'repeated %': recording?.repeatedPercent == null ? '' : recording.repeatedPercent.toFixed(2),
     'lagged': recording?.lagged ?? '' }));
   console.table(rows);
-  console.log('Game smoothness comes from League\'s own log. Compare "Game first" runs against "off" runs of the same routine:');
+  console.log('Game smoothness comes from League\'s own log. Compare recording-on runs against "off" runs of the same routine:');
   console.log('avg FPS and the hitch counts should match within normal run-to-run variation. Repeated/min is how often the');
   console.log('recording itself froze for a frame (about 60/min before this fix on 1080p60).');
 }
