@@ -33,6 +33,11 @@ public interface ILcuClient
     /// <summary>Stable identity for retaining captured evidence when EOG results arrive late.</summary>
     Task<long> GetCurrentGameIdAsync(CancellationToken ct = default) => Task.FromResult(0L);
 
+    /// <summary>Current game identity and queue from one gameflow session snapshot.
+    /// Clients without this capability return an unknown queue so automatic capture stays gated.</summary>
+    async Task<LcuGameSession> GetCurrentGameSessionAsync(CancellationToken ct = default) =>
+        new(await GetCurrentGameIdAsync(ct).ConfigureAwait(false), null);
+
     /// <summary>
     /// Get the end-of-game stats block. Only available right after a game.
     /// </summary>

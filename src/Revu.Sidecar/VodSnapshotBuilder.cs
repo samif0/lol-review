@@ -105,7 +105,13 @@ public sealed class VodSnapshotBuilder
         catch (Exception ex) { _logger.LogDebug(ex, "VOD: path lookup failed for {GameId}", gameId); }
 
         var gameTimeAtVideoStart = 0d;
-        try { gameTimeAtVideoStart = RecordingTimeline.ReadGameTimeAtVideoStart(filePath, gameId); }
+        var isPartial = false;
+        try
+        {
+            var timing = RecordingTimeline.ReadTiming(filePath, gameId);
+            gameTimeAtVideoStart = timing?.GameTimeAtVideoStart ?? 0;
+            isPartial = timing?.IsPartial ?? false;
+        }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "VOD timing metadata unavailable for {GameId}", gameId);
@@ -306,7 +312,8 @@ public sealed class VodSnapshotBuilder
             SavedClips: savedClips,
             EventTypeCatalog: VodCorrectionMapper.Catalog,
             Corrections: ledger.Select(VodCorrectionMapper.Map).ToList(),
-            GameTimeAtVideoStart: gameTimeAtVideoStart);
+            GameTimeAtVideoStart: gameTimeAtVideoStart,
+            IsPartial: isPartial);
     }
 
     // ── v3.11 correction decoration ────────────────────────────────────────────

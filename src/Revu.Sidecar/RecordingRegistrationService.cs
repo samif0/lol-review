@@ -13,7 +13,8 @@ public sealed record RecordingRegistrationResult(bool Ok, Guid SessionId, long G
 /// <summary>
 /// Durable per-session receipts under the owned recording root. The receipt is written
 /// before linking; replay after a crash heals a missing game row without guessing a match.
-/// Partial recordings stay on disk and cannot replace the match's primary video.
+/// Anchored partial recordings can become an empty match's video; automatic
+/// recordings never replace an existing video. Unknown timing stays unlinked.
 /// </summary>
 public sealed class RecordingRegistrationService(string root, RecordingLinkStore links,
     Func<Task> ensureBackup, ILogger<RecordingRegistrationService> logger, Action<long>? onLinked = null)
@@ -39,7 +40,7 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
                     && receipt.Recording.FilePath.Equals(request.FilePath, StringComparison.OrdinalIgnoreCase))
                     throw new RecordingConflictException("This file already belongs to a different recording session.");
 
-            var current = previous ?? new Receipt(request, request.Complete ? "pending-match" : "retained-partial");
+            var current = previous ?? new Receipt(request, request.GameTimeAtVideoStart.HasValue ? "pending-match" : "retained-partial");
             if (previous is null) await SaveReceiptAsync(current);
             current = await ReconcileOneAsync(current);
             return Result(current);
@@ -79,7 +80,7 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
         try
         {
             await ReconcilePendingAsync(null);
-            var reserved = ReadReceipts().Where(r => r.Recording.Complete && r.Status == "pending-match")
+            var reserved = ReadReceipts().Where(r => r.Recording.GameTimeAtVideoStart.HasValue && r.Status == "pending-match")
                 .Select(r => r.Recording.GameId).ToHashSet();
             cancellationToken.ThrowIfCancellationRequested();
             return await scan(reserved);
@@ -106,13 +107,14 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
 
     private async Task<Receipt> ReconcileOneAsync(Receipt receipt)
     {
-        if (!receipt.Recording.Complete || receipt.Status != "pending-match") return receipt;
+        if (!receipt.Recording.GameTimeAtVideoStart.HasValue || receipt.Status != "pending-match") return receipt;
         await ensureBackup();
         var status = await links.LinkAsync(receipt.Recording, () => SaveTimingAsync(receipt.Recording));
+        if (status == "linked" && !receipt.Recording.Complete) status = "linked-partial";
         if (status == receipt.Status) return receipt;
         var updated = receipt with { Status = status };
         await SaveReceiptAsync(updated);
-        if (status == "linked") onLinked?.Invoke(receipt.Recording.GameId);
+        if (status is "linked" or "linked-partial") onLinked?.Invoke(receipt.Recording.GameId);
         return updated;
     }
 
@@ -225,10 +227,11 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
     {
         var destination = request.FilePath + RecordingTimeline.Suffix;
         RejectAliases(destination);
-        var timing = new RecordingTiming(1, request.GameId, Path.GetFileName(request.FilePath), request.GameTimeAtVideoStart!.Value);
+        var timing = new RecordingTiming(1, request.GameId, Path.GetFileName(request.FilePath),
+            request.GameTimeAtVideoStart!.Value, IsPartial: !request.Complete);
         if (File.Exists(destination))
         {
-            if (RecordingTimeline.ReadGameTimeAtVideoStart(request.FilePath, request.GameId) != timing.GameTimeAtVideoStart)
+            if (RecordingTimeline.ReadTiming(request.FilePath, request.GameId) != timing)
                 throw new RecordingConflictException("Recording timing was already registered differently.");
             return;
         }

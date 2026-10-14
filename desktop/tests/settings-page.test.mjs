@@ -17,18 +17,21 @@ test('settings copy only promises what the app does', () => {
   assert.match(text, /Revu minimizes once your game loads/);
 });
 
-test('the dormant built-in recorder is one Coming soon line below Ascent', () => {
+test('the bundled recorder exposes beta controls only after host availability is known', () => {
   const ascent = html.indexOf('id="ascent-settings"'), recorder = html.indexOf('id="recording-settings"');
-  assert.ok(ascent > 0 && recorder > ascent, 'Ascent, the live recording path, comes first');
+  assert.ok(ascent > 0 && recorder > ascent, 'existing folder import remains available');
   const card = html.slice(html.lastIndexOf('<div', recorder), html.indexOf('<p class="settings-inline-note"', recorder));
   const controls = card.indexOf('<div class="settings-recording-controls" id="recording-controls" hidden>');
-  assert.ok(controls > 0, 'recorder controls stay hidden until the recorder ships');
+  assert.ok(controls > 0, 'recorder controls stay hidden until host availability is known');
   for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) {
     assert.ok(card.indexOf(`id="${id}"`) > controls, id);
   }
   assert.equal(visibleText(card.slice(0, controls)).trim(),
-    'Coming soon Automatic match recording is coming in a future update. Use Ascent recordings above for now.');
+    'Beta Checking built-in recording availability…');
   assert.doesNotMatch(visibleText(html.slice(ascent, recorder)), /built-in recording/i);
+  assert.match(card, /id="recording-encoder"/);
+  assert.doesNotMatch(visibleText(card), /requires an NVIDIA GPU/);
+  assert.doesNotMatch(card, /<select[^>]+id="[^"]*encoder/i);
 });
 
 test('Reset all data keeps the destructive treatment instead of a neutral button', () => {

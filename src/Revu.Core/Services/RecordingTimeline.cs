@@ -3,7 +3,8 @@ using Revu.Core.Data;
 
 namespace Revu.Core.Services;
 
-public sealed record RecordingTiming(int Schema, long GameId, string FileName, double GameTimeAtVideoStart);
+public sealed record RecordingTiming(int Schema, long GameId, string FileName, double GameTimeAtVideoStart,
+    bool IsPartial = false);
 
 /// <summary>Native VOD media zero may precede game zero (the loading screen).</summary>
 public static class RecordingTimeline
@@ -12,12 +13,15 @@ public static class RecordingTimeline
     public static bool IsValidOffset(double value) => double.IsFinite(value) && value is >= -600 and <= 7200;
 
     public static double ReadGameTimeAtVideoStart(string videoPath, long? expectedGameId = null)
+        => ReadTiming(videoPath, expectedGameId)?.GameTimeAtVideoStart ?? 0;
+
+    public static RecordingTiming? ReadTiming(string videoPath, long? expectedGameId = null)
     {
-        if (string.IsNullOrWhiteSpace(videoPath)) return 0;
+        if (string.IsNullOrWhiteSpace(videoPath)) return null;
         var path = videoPath + Suffix;
         // Legacy/imported VODs and extracted clips have no companion and retain their
         // established game-zero convention. Reading never creates or repairs metadata.
-        if (!File.Exists(path)) return 0;
+        if (!File.Exists(path)) return null;
         DataRootLease.Canonicalize(Path.GetDirectoryName(Path.GetFullPath(path))!);
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidDataException("Recording timing cannot be a symbolic link.");
@@ -31,7 +35,7 @@ public static class RecordingTimeline
             || !Path.GetFileName(videoPath).Equals(timing.FileName, StringComparison.OrdinalIgnoreCase)
             || !IsValidOffset(timing.GameTimeAtVideoStart))
             throw new InvalidDataException("Recording timing does not match this video.");
-        return timing.GameTimeAtVideoStart;
+        return timing;
     }
 
     public static (double Start, double End) ToMediaRange(string videoPath, double gameStart, double gameEnd)

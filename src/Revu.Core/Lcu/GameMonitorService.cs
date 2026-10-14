@@ -660,7 +660,7 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 { _logger.LogTrace(ex, "Recording game-end identity unavailable"); }
             }
-            ClearRecordingContext();
+            ClearRecordingContext(phase);
             return;
         }
 
@@ -670,11 +670,12 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(1));
         long? gameId = null;
+        int? queueId = null;
         double? gameTime = null;
         DateTimeOffset? clockObservedAt = null;
         try
         {
-            var identity = _lcuClient.GetCurrentGameIdAsync(deadline.Token);
+            var identity = _lcuClient.GetCurrentGameSessionAsync(deadline.Token);
             async Task<(System.Text.Json.JsonElement? Stats, DateTimeOffset ObservedAt)> ReadClockAsync()
             {
                 var snapshot = await _liveEventApi.FetchGameStatsAsync(deadline.Token).ConfigureAwait(false);
@@ -683,7 +684,11 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
             var clock = ReadClockAsync();
             try { await Task.WhenAll(identity, clock).WaitAsync(deadline.Token).ConfigureAwait(false); }
             catch when (!ct.IsCancellationRequested) { /* the live clock may be unavailable during loading */ }
-            if (identity.IsCompletedSuccessfully && identity.Result > 0) gameId = identity.Result;
+            if (identity.IsCompletedSuccessfully && identity.Result.GameId > 0)
+            {
+                gameId = identity.Result.GameId;
+                queueId = identity.Result.QueueId is >= 0 ? identity.Result.QueueId : null;
+            }
             if (clock.IsCompletedSuccessfully) clockObservedAt = clock.Result.ObservedAt;
             if (gameId.HasValue && clock.IsCompletedSuccessfully && clock.Result.Stats is { } stats
                 && stats.ValueKind == System.Text.Json.JsonValueKind.Object
@@ -701,7 +706,8 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
             _lastRecordingClock = (gameId.Value, gameTime.Value, clockObservedAt.Value);
         Volatile.Write(ref _recordingContext, new(gameId, true, gameTime,
             _lastEndedRecordingGameId, clockObservedAt ?? DateTimeOffset.UtcNow,
-            _lastEndedRecordingGameTimeSeconds, _lastEndedRecordingObservedAt, _lastEndedRecordingConfirmedAt));
+            _lastEndedRecordingGameTimeSeconds, _lastEndedRecordingObservedAt, _lastEndedRecordingConfirmedAt,
+            queueId, phase.ToString()));
     }
 
     private void SetRecordingGameEnded(long gameId)
@@ -718,9 +724,10 @@ public sealed partial class GameMonitorService : BackgroundService, IGameMonitor
         _lastEndedRecordingObservedAt = clock?.GameId == gameId ? clock.Value.ObservedAt : null;
     }
 
-    private void ClearRecordingContext() => Volatile.Write(ref _recordingContext,
+    private void ClearRecordingContext(GamePhase? phase = null) => Volatile.Write(ref _recordingContext,
         new(null, false, null, _lastEndedRecordingGameId, DateTimeOffset.UtcNow,
-            _lastEndedRecordingGameTimeSeconds, _lastEndedRecordingObservedAt, _lastEndedRecordingConfirmedAt));
+            _lastEndedRecordingGameTimeSeconds, _lastEndedRecordingObservedAt, _lastEndedRecordingConfirmedAt,
+            null, phase?.ToString()));
 
     /// <summary>
     /// v2.17.25: true once the in-game Live Client Data API responds — i.e. the

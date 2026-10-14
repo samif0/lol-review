@@ -33,19 +33,20 @@ The shared command catalog is `../ui/platform/commands.mjs`. Same-origin child
 pages deliberately use the trusted top document's bridge. The renderer uses its
 own Chromium session, so its network restrictions don't affect runtime-owned
 windows. Automatic match recording, match attachment, Settings and background
-behavior are implemented; the ordinary unsigned build still requests no gaming
-packages. The credentialed development launcher enables Recorder in a staged
-copy of Revu. See [automatic recording](RECORDING.md) for setup, user behavior
-and the live validation that still requires developer access. Separate manual
+behavior use a bundled libobs helper; the ordinary build requests no gaming
+packages. Run `npm run recorder:setup` to build the native runtime. See
+[automatic recording](RECORDING.md) for setup and remaining live validation. Separate manual
 diagnostics remain in `../overwolf-probes/`.
 
-Ascent imports are available as a temporary recording option without developer
-access. In **Settings → Recording → Ascent recordings**, choose Ascent's output
+Ascent imports remain available alongside built-in recording. In
+**Settings → Recording → Ascent recordings**, choose Ascent's output
 folder, save it, and scan for existing videos. Keep Ascent recording your matches;
 Revu links finished recordings on startup and after games. Imports reference the
 original files, so keep them in that folder. Disconnecting the folder stops future
-imports and preserves already linked videos. Built-in recording is marked
-**Coming soon**, with its controls disabled until release; Ascent stays available.
+imports and preserves already linked videos. Built-in recording shows **Beta**
+when the bundled provider is available and stays off until you enable it.
+The provider automatically detects NVIDIA NVENC, AMD AMF or Intel Quick Sync
+on its active recording graphics adapter and shows the selected encoder in Settings.
 
 If the scan finds recordings but the games are missing from Revu, keep the League
 client open and use **Recover missing matches** in Settings → Recording. This

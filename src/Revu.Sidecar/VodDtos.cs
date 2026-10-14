@@ -33,7 +33,8 @@ public sealed record VodDto(
     // The builder always fills both; Empty() passes empty lists.
     IReadOnlyList<VodEventTypeDto>? EventTypeCatalog = null,
     IReadOnlyList<VodCorrectionDto>? Corrections = null,
-    double GameTimeAtVideoStart = 0);
+    double GameTimeAtVideoStart = 0,
+    bool IsPartial = false);
 
 /// <summary>A timeline marker (moment) on the VOD.</summary>
 public sealed record VodBookmarkDto(

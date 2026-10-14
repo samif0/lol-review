@@ -6,6 +6,15 @@ const presets = new Set(['720p30', '1080p30', '1080p60']);
 const defaults = Object.freeze({ enabled: false, preset: '720p30' });
 const unfinished = new Set(['starting', 'recording', 'stopping', 'finalizing']);
 const validId = value => Number.isSafeInteger(value) && value > 0;
+const hardwareEncoders = new Set(['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs_qsv11_v2']);
+const encoderId = value => hardwareEncoders.has(value) ? value : null;
+const encoderUnavailableMessage = code => {
+  if (['hardware-encoder-unavailable', 'hardware-encoder-failed'].includes(code))
+    return 'No supported hardware encoder is available. Revu supports NVIDIA NVENC, AMD AMF and Intel Quick Sync. Check your graphics driver; folder import is still available.';
+  if (['capture-unavailable', 'wgc-unavailable'].includes(code))
+    return 'League window capture or game audio is unavailable on this Windows PC. Folder import is still available.';
+  return 'Built-in recording is unavailable on this PC. Your preference is saved; folder import is still available.';
+};
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 export function recordingSettings(value) {
   if (!value || Object.keys(value).some(key => !['enabled', 'preset'].includes(key))
@@ -29,19 +38,27 @@ async function bounded(operation, milliseconds, code = 'recording-timeout') {
 
 /** Only session metadata crosses into the sidecar; video remains in native Recorder. */
 export class RecordingService {
-  constructor({ root, profile, backend, onChange = () => {}, isolated = false,
+  constructor({ root, profile, backend, onChange = () => {}, isolated = false, recordingTest = false,
     now = () => Date.now(), space = async directory => { const fs = await statfs(directory); return fs.bavail * fs.bsize; },
     deadlines = {} }) {
-    Object.assign(this, { root, profile, backend, onChange, isolated, now, space });
-    this.deadlines = { start: 35_000, stop: 8_000, callback: 8_000, validate: 15_000, registration: 5000, ...deadlines };
+    Object.assign(this, { root, profile, backend, onChange, isolated, now, space, recordingTest: recordingTest === true });
+    this.deadlines = { start: 35_000, stop: 8_000, callback: 8_000, validate: 45_000, registration: 5000, ...deadlines };
     this.settings = { ...defaults }; this.state = 'disabled'; this.message = 'Automatic recording is off.';
     this.driver = null; this.available = false; this.current = null; this.pending = new Map();
     this.game = null; this.context = null; this.serial = Promise.resolve(); this.closing = false;
     this.blocked = false; this.suppressedPid = null; this.timer = null; this.tickPending = false;
     this.startRevision = 0; this.requestedEnabled = false; this.shutdownOperation = null;
     this.windowRetryPid = null;
+    this.encoderCapabilities = null; this.lastEncoder = null; this.unavailableCode = null;
   }
-  getStatus() { return { state: this.state, message: this.message, settings: { ...this.settings }, available: this.available && !this.isolated }; }
+  getStatus() {
+    const activeEncoder = ['recording', 'stopping'].includes(this.current?.state)
+      ? encoderId(this.current.resolvedSettings?.encoder) : null;
+    return { state: this.state, message: this.message, settings: { ...this.settings },
+      available: this.available && !this.isolated, recordingTest: this.recordingTest,
+      encoders: [...(this.encoderCapabilities?.encoders ?? [])], activeEncoder,
+      selectedEncoder: activeEncoder ?? this.encoderCapabilities?.selectedEncoder ?? null, lastEncoder: this.lastEncoder };
+  }
   publish(state, message) { this.state = state; this.message = message; this.onChange(this.getStatus()); }
   enqueue(operation) {
     const result = this.serial.then(operation);
@@ -70,20 +87,24 @@ export class RecordingService {
           session.state = 'partial'; session.complete = false; session.reason = 'host-interrupted';
           await atomicJson(file, session);
           this.publish('partial', 'Files from an interrupted recording were kept in your recordings folder. Their playback has not been verified.');
+        } else if (session.state === 'awaiting-match' && session.testCapture === true) {
+          session.directory = directory;
+          await this.finishTestCapture(session);
         } else if (session.state === 'awaiting-match' && this.pending.size < 100) {
           session.directory = directory; this.pending.set(session.sessionId, session);
         }
       } catch { /* Keep unfamiliar or unreadable media untouched. */ }
     }
-    if (this.state !== 'partial' && this.state !== 'failed') this.idleStatus();
+    if (!['partial', 'failed', 'saved'].includes(this.state)) this.idleStatus();
     this.schedule();
     return this.getStatus();
   }
   idleStatus() {
     if (this.isolated) this.publish('unavailable', 'Recording is unavailable in this isolated preview.');
+    else if (!this.available && this.unavailableCode) this.publish('unavailable', encoderUnavailableMessage(this.unavailableCode));
     else if (!this.settings.enabled) this.publish('disabled', 'Automatic recording is off.');
     else if (this.blocked) this.publish('partial', 'Recording cannot restart safely yet. Existing files have been kept; restart Revu before recording again.');
-    else if (!this.available) this.publish('unavailable', 'Recording is not available in this build yet. Your preference is saved.');
+    else if (!this.available) this.publish('unavailable', encoderUnavailableMessage(this.unavailableCode));
     else this.publish('idle', 'Ready to record your next League match.');
   }
   async saveSettings(value) {
@@ -112,20 +133,41 @@ export class RecordingService {
       return this.getStatus();
     });
   }
+  async prepareProvider(provider) {
+    if (!['libobs'].includes(provider) || this.driver || this.current || this.closing)
+      throw new Error('Recording provider cannot change while capture is active');
+    const file = path.join(this.profile, 'recording-provider.json');
+    let previous;
+    try {
+      if ((await lstat(file)).size > 4096) throw new Error('Invalid recording provider metadata');
+      previous = JSON.parse(await readFile(file, 'utf8'));
+    } catch (error) { if (error.code !== 'ENOENT') previous = null; }
+    if (previous?.schema === 1 && previous.provider === provider) return;
+    // A dormant/developer provider's saved opt-in does not authorize a newly
+    // bundled engine. Save off before marking the new provider prepared.
+    await this.saveSettings({ ...this.settings, enabled: false });
+    await atomicJson(file, { schema: 1, provider });
+  }
   async attachDriver(driver) {
     if (this.isolated || this.closing || this.driver) { await driver.dispose?.(); return; }
     this.driver = driver;
     try {
-      await bounded(driver.initialize(), 15_000);
+      const capabilities = await bounded(driver.initialize(), 30_000);
       if (this.closing) { await driver.dispose?.(); return; }
+      this.encoderCapabilities = Array.isArray(capabilities?.encoders)
+        && capabilities.encoders.every(id => hardwareEncoders.has(id)) && capabilities.encoders.includes(capabilities.selectedEncoder)
+        ? { encoders: [...new Set(capabilities.encoders)], selectedEncoder: capabilities.selectedEncoder } : null;
+      this.unavailableCode = null;
       this.available = true;
     }
-    catch { this.available = false; await driver.dispose?.(); this.driver = null; }
+    catch (error) { this.available = false; this.encoderCapabilities = null; this.unavailableCode = error.code ?? 'recorder-unavailable';
+      await driver.dispose?.(); this.driver = null; }
     if (!['partial', 'failed'].includes(this.state)) this.idleStatus();
     this.schedule();
   }
-  unavailable() {
+  unavailable(code = 'recorder-unavailable') {
     this.available = false; this.startRevision++;
+    this.unavailableCode = code;
     if (this.current) {
       this.current.reason = 'recorder-unavailable';
       if (this.current.state === 'starting') this.current.abort.abort();
@@ -226,12 +268,28 @@ export class RecordingService {
       this.publish('failed', 'The League game window was not ready. Recording will try again for your next match.');
       return;
     }
+    // A provider can check process/window readiness before durable native
+    // intent. Loading and unknown LCU observations do not create empty session
+    // directories or permanently suppress a valid ranked game.
+    if (driver.prepareStart) {
+      try { await bounded(driver.prepareStart({ pid: game.pid }), 12_000, 'recording-context-unavailable'); }
+      catch (error) {
+        if (error.code === 'source-window-not-ready') {
+          this.windowRetryPid = game.pid; this.publish('starting', 'Waiting for the League game window…');
+        } else if (!['recording-context-unavailable', 'recording-queue-unsupported'].includes(error.code)) {
+          this.suppressedPid = game.pid; this.publish('failed', 'Recording could not prepare for this match.');
+        }
+        return;
+      }
+      if (!canStart()) return;
+    }
     try { if (await bounded(this.space(this.root), 3000) < 2 * 1024 ** 3) {
       this.suppressedPid = game.pid; this.publish('failed', 'Not enough disk space to start recording. Free space before the next match.'); return;
     } } catch { this.publish('failed', 'The recordings folder is unavailable.'); this.suppressedPid = game.pid; return; }
     if (!canStart()) return;
     const session = { sessionId: randomUUID(), pid: game.pid, gameId: null, state: 'starting', preset: this.settings.preset,
-      startedAt: new Date(this.now()).toISOString(), complete: false, reason: null, gameClockAnchor: null, abort: new AbortController() };
+      startedAt: new Date(this.now()).toISOString(), complete: false, reason: null, gameClockAnchor: null,
+      ...(this.recordingTest ? { testCapture: true } : {}), abort: new AbortController() };
     session.directory = path.join(this.root, session.sessionId);
     let nativeEntered = false;
     try {
@@ -259,6 +317,7 @@ export class RecordingService {
         }
       }, () => {});
       session.resolvedSettings = await bounded(session.startOperation, this.deadlines.start, 'start-timeout');
+      this.lastEncoder = encoderId(session.resolvedSettings?.encoder) ?? this.lastEncoder;
       if (session.stoppedResult !== undefined) { await this.finalize(session, session.stoppedResult); return; }
       if (!canStart() || session.abort.signal.aborted) { await this.stopCurrent(session.reason || (this.closing ? 'app-exit' : 'game-exit')); return; }
       session.state = 'recording'; await this.persist(session);
@@ -272,11 +331,14 @@ export class RecordingService {
         try { await bounded(driver.stop(), this.deadlines.stop); }
         catch { this.blocked = true; }
       }
-      session.state = 'partial'; session.reason ||= error.code === 'source-window-not-ready' ? 'window-not-ready' : 'start-failed';
+      const contextUnknown = error.code === 'recording-context-unavailable';
+      session.state = 'partial'; session.reason ||= error.code === 'source-window-not-ready' ? 'window-not-ready'
+        : contextUnknown ? 'context-unavailable' : 'start-failed';
       await this.preserve(session); if (this.current === session) this.current = null;
       if (session.reason === 'window-not-ready') this.windowRetryPid = game.pid;
-      if (session.reason !== 'window-not-ready' || this.now() - game.firstSeen >= 30_000) this.suppressedPid = game.pid;
-      this.publish('failed', session.reason === 'window-not-ready' ? 'Waiting for the League game window…' : 'Recording could not start. Existing files have been kept.');
+      if (!contextUnknown && (session.reason !== 'window-not-ready' || this.now() - game.firstSeen >= 30_000)) this.suppressedPid = game.pid;
+      this.publish(contextUnknown ? 'starting' : 'failed', contextUnknown ? 'Waiting for League match information…'
+        : session.reason === 'window-not-ready' ? 'Waiting for the League game window…' : 'Recording could not start. Existing files have been kept.');
     }
   }
   async stopCurrent(reason) {
@@ -310,17 +372,39 @@ export class RecordingService {
       if (result?.hasError !== false || (result.reason !== undefined && result.reason !== 0) || result.splitCount > 0) session.reason ||= 'recording-interrupted';
       const media = await bounded(this.driver.validate(result, validation.signal), this.deadlines.validate);
       Object.assign(session, media);
-      session.state = 'awaiting-match'; session.stoppedAt = new Date(this.now()).toISOString();
+      session.state = session.testCapture === true ? (session.reason ? 'partial' : 'saved') : 'awaiting-match';
+      session.stoppedAt = new Date(this.now()).toISOString();
     } catch { session.state = 'partial'; session.reason ||= 'media-validation-failed'; }
     finally { validation.abort(); }
     if (!await this.preserve(session)) session.state = 'partial';
     if (session.state === 'awaiting-match') this.pending.set(session.sessionId, session);
     this.current = null; this.suppressedPid = session.pid;
+    if (session.testCapture === true) {
+      this.publish(session.state, session.state === 'saved'
+        ? 'Test recording saved. Open recordings folder to play it.'
+        : 'The test recording is incomplete. Its files have been kept.');
+      return;
+    }
     this.publish(session.state === 'partial' ? 'partial' : 'finalizing', session.state === 'partial'
       ? 'The recording is incomplete. Its files have been kept.' : 'Video saved. Waiting for the match result…');
     if (session.state === 'awaiting-match') await this.reconcile(session);
   }
+  async finishTestCapture(session) {
+    // This durable marker prevents test footage ever entering match history,
+    // even when recovery runs from an ordinary launch or a stale pending list.
+    session.complete = false;
+    session.state = session.reason ? 'partial' : 'saved';
+    delete session.registration; delete session.registrationStatus;
+    delete session.nextRetryAt; delete session.retryAttempts;
+    const persisted = await this.preserve(session);
+    this.pending.delete(session.sessionId);
+    if (!persisted) { session.state = 'partial'; return; }
+    if (!this.current) this.publish(session.state, session.state === 'saved'
+      ? 'Test recording saved. Open recordings folder to play it.'
+      : 'The test recording is incomplete. Its files have been kept.');
+  }
   async reconcile(session) {
+    if (session.testCapture === true) { await this.finishTestCapture(session); return; }
     if (!session.registration) {
       const ended = validId(session.gameId) && this.context?.lastEndedGameId === session.gameId;
       if (!ended && !session.reason && !this.closing && this.now() - Date.parse(session.stoppedAt) < 180_000) return;
@@ -370,7 +454,8 @@ export class RecordingService {
       await this.persist(session); this.pending.delete(session.sessionId);
       if (!this.current) this.publish(session.state, session.complete
         ? (result.status === 'retained-existing' ? 'Recording saved. The match keeps its existing video.' : 'Recording saved for this match.')
-        : 'An incomplete recording was kept in your recordings folder.');
+        : result.status === 'linked-partial' ? 'A partial recording was attached to this match.'
+          : 'An incomplete recording was kept in your recordings folder.');
     } catch {
       session.retryAttempts = Math.min((session.retryAttempts || 0) + 1, 10);
       session.nextRetryAt = this.now() + Math.min(60_000, 1000 * 2 ** session.retryAttempts);

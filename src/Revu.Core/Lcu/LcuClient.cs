@@ -119,10 +119,26 @@ public sealed class LcuClient : ILcuClient
 
     /// <inheritdoc />
     public async Task<long> GetCurrentGameIdAsync(CancellationToken ct = default)
+        => (await GetCurrentGameSessionAsync(ct).ConfigureAwait(false)).GameId;
+
+    /// <inheritdoc />
+    public async Task<LcuGameSession> GetCurrentGameSessionAsync(CancellationToken ct = default)
     {
         var session = await GetAsync("/lol-gameflow/v1/session", ct).ConfigureAwait(false);
-        return session is { } value && value.TryGetProperty("gameData", out var data)
-            && data.TryGetProperty("gameId", out var id) && id.TryGetInt64(out var gameId) ? gameId : 0;
+        return ParseCurrentGameSession(session);
+    }
+
+    internal static LcuGameSession ParseCurrentGameSession(JsonElement? session)
+    {
+        if (session is not { ValueKind: JsonValueKind.Object } value
+            || !value.TryGetProperty("gameData", out var data) || data.ValueKind != JsonValueKind.Object)
+            return new(0, null);
+        var gameId = data.TryGetProperty("gameId", out var id) && id.ValueKind == JsonValueKind.Number
+            && id.TryGetInt64(out var game) && game > 0 ? game : 0;
+        int? queueId = data.TryGetProperty("queue", out var queue) && queue.ValueKind == JsonValueKind.Object
+            && queue.TryGetProperty("id", out var queueValue) && queueValue.ValueKind == JsonValueKind.Number
+            && queueValue.TryGetInt32(out var queueNumber) && queueNumber >= 0 ? queueNumber : null;
+        return new(gameId, gameId > 0 ? queueId : null);
     }
 
     public async Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default)
