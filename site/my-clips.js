@@ -23,7 +23,7 @@
     var badges = [];
     if (vod) {
       badges.push('Full game');
-      if (clip.quality === '1080p' || clip.quality === '720p') badges.push(clip.quality);
+      if (/^(1080|720)p(30|60)?$/.test(clip.quality)) badges.push(clip.quality);
       if (clip.has_notes === true) badges.push('Includes notes');
     } else {
       if (clip.narrated === true) badges.push('Narrated');

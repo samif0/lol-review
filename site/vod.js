@@ -301,7 +301,8 @@
     line.textContent = parts.join(' · ');
     line.hidden = parts.length === 0;
     var quality = $('vod-quality');
-    quality.textContent = meta.quality === '1080p' || meta.quality === '720p' ? meta.quality : '';
+    // "1080p60" once the sharer's app sends the frame rate; older shares say "1080p".
+    quality.textContent = /^(1080|720)p(30|60)?$/.test(meta.quality) ? meta.quality : '';
     quality.hidden = !quality.textContent;
     $('vod-id').textContent = id;
   }

@@ -131,6 +131,9 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
       [{ size: 500, quality: "1080p" }, 400, "bad_request"],
       [{ size: 500, duration: 60, quality: "4k" }, 400, "bad_request"],
       [{ size: 500, duration: 60 }, 400, "bad_request"],
+      [{ size: 500, duration: 60, quality: "1080p60" }, 400, "bad_request"],
+      [{ size: 500, duration: 60, quality: "1080p", fps: 144 }, 400, "bad_request"],
+      [{ size: 500, duration: 60, quality: "1080p", fps: "" }, 400, "bad_request"],
     ];
     for (const [q, status, error] of cases) {
       resetUserLimits();
@@ -261,6 +264,16 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
     expect(upload.key).toBe(`vods/${id}.mp4`);
     expect(upload.state).toBe("live");
     expect(s.db.q("SELECT starts FROM vod_share_usage")).toEqual([{ starts: 1 }]);
+  });
+
+  it("keeps the copy's frame rate with its quality when the desktop sends one", async () => {
+    const s = await vodSetup();
+    const res = await vodInit(s.env, OWNER, { size: 1_517_117_364, duration: 2256, quality: "1080p", fps: 60 });
+    expect(res.status).toBe(201);
+    const id = (await body(res)).id as string;
+    expect(s.db.q<{ quality: string }>("SELECT quality FROM clips WHERE id = ?1", id)[0].quality).toBe("1080p60");
+    const status = await body(await vodStatus(s.env, OWNER));
+    expect((status.shares as Array<{ id: string; quality: string }>).find(x => x.id === id)?.quality).toBe("1080p60");
   });
 
   it("the post-insert recount rolls back the loser of a pending race", async () => {

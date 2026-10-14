@@ -62,12 +62,13 @@ const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 export function vodInit(
   env: Env,
   token: string,
-  q: { size?: number | string; duration?: number | string; quality?: string; type?: string } = {},
+  q: { size?: number | string; duration?: number | string; quality?: string; fps?: number | string; type?: string } = {},
 ): Promise<Response> {
   const params = new URLSearchParams();
   if (q.size !== undefined) params.set("size", String(q.size));
   if (q.duration !== undefined) params.set("duration", String(q.duration));
   if (q.quality !== undefined) params.set("quality", q.quality);
+  if (q.fps !== undefined) params.set("fps", String(q.fps));
   return worker.fetch(
     makeRequest(`${BASE}/vod-shares/uploads?${params}`, {
       method: "POST",

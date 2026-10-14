@@ -360,7 +360,11 @@ test('cardModel for a shared full game', () => {
   assert.equal(plain.title, 'Full game');
   assert.equal(plain.champion, 'Jinx');
   assert.deepEqual([...plain.badges], ['Full game', '720p']);
+  // Shares from 4.3 carry the frame rate with the resolution.
+  assert.deepEqual([...cardModel(game({ quality: '1080p60', has_notes: false }), NOW).badges], ['Full game', '1080p60']);
+  assert.deepEqual([...cardModel(game({ quality: '720p30', has_notes: false }), NOW).badges], ['Full game', '720p30']);
   assert.deepEqual([...cardModel(game({ status: 'uploading', quality: 'huge' }), NOW).badges], ['Full game', 'Includes notes', 'Uploading']);
+  assert.deepEqual([...cardModel(game({ quality: '1080p144', has_notes: false }), NOW).badges], ['Full game']);
   // A bad url falls back to the canonical watch link; a clip url never passes for a game.
   for (const url of ['https://evil.example/v/Game123', 'https://clips.revu.lol/Game123', 'http://localhost:8788/v/Game123', 'javascript:alert(1)']) {
     assert.equal(cardModel(game({ url }), NOW).shareUrl, 'https://revu.lol/v/Game123', url);
