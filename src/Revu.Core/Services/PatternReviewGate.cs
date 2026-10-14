@@ -50,4 +50,50 @@ public static class PatternReviewGate
         }
         return moments.Count(m => m.CreatedAt > reviewedAt) < PatternConstants.ReArmNewMoments;
     }
+
+    /// <summary>
+    /// Whether a mistake trend is ready for a back-to-back review, and which moments
+    /// that review plays. Unreviewed means created after the trend's review watermark
+    /// (every moment when it was never reviewed). Only watchable moments count (the
+    /// caller decides: a recording or kept clip on disk), so the review never queues a
+    /// moment with nothing to play. Ready needs at least
+    /// <see cref="PatternConstants.NudgeMinMoments"/> of them across at least
+    /// <see cref="PatternConstants.NudgeMinGames"/> games. Pure: shared by the Patterns
+    /// page and the nudge read, so the page and the nudge never disagree.
+    /// </summary>
+    public static PatternReadiness Readiness(
+        IReadOnlyDictionary<string, long> reviewedStamps,
+        string patternKey,
+        IReadOnlyList<PatternMoment> moments,
+        Func<int, bool> isWatchable)
+    {
+        var stamped = reviewedStamps.TryGetValue(patternKey, out var reviewedAt);
+        var queue = new List<int>();
+        for (var i = 0; i < moments.Count; i++)
+        {
+            if (stamped && moments[i].CreatedAt <= reviewedAt) continue;
+            if (isWatchable(i)) queue.Add(i);
+        }
+        var games = queue.Select(i => moments[i].GameId).Distinct().Count();
+        var ready = queue.Count >= PatternConstants.NudgeMinMoments && games >= PatternConstants.NudgeMinGames;
+        return new PatternReadiness(ready, ready ? queue : Array.Empty<int>(), queue.Count, games);
+    }
+
+    /// <summary>True while any pattern was reviewed less than
+    /// <see cref="PatternConstants.NudgeQuietHours"/> hours ago: one review is never
+    /// followed by another nudge the same evening.</summary>
+    public static bool InQuietPeriod(IReadOnlyDictionary<string, long> reviewedStamps, long nowUnixSeconds)
+    {
+        var quietSeconds = PatternConstants.NudgeQuietHours * 3600L;
+        return reviewedStamps.Values.Any(reviewedAt => nowUnixSeconds - reviewedAt < quietSeconds);
+    }
 }
+
+/// <summary>One trend's review readiness (<see cref="PatternReviewGate.Readiness"/>).</summary>
+public sealed record PatternReadiness(
+    bool IsReady,
+    // 0-based indexes into the trend's oldest-first moments: the unreviewed, watchable
+    // ones a back-to-back review plays, ascending. Empty unless ready.
+    IReadOnlyList<int> ReviewIndexes,
+    int UnreviewedWatchableCount,
+    int UnreviewedWatchableGames);

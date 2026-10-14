@@ -17,6 +17,12 @@ public static partial class SidecarEndpoints
         app.MapGet("/api/patterns", async (PatternsSnapshotBuilder b, CancellationToken ct) =>
             Results.Json(await b.BuildAsync(ct), jsonOptions));
 
+        // ── GET /api/patterns/nudge (token-gated): the quiet "ready to review" notice ──
+        // Counts and one title, never file paths: the shell's Patterns count and the Home
+        // pill read it on navigation, so it skips the page's full snapshot.
+        app.MapGet("/api/patterns/nudge", async (PatternNudgeReader r, CancellationToken ct) =>
+            Results.Json(await r.ReadAsync(ct), jsonOptions));
+
         // ─────────────────────────────────────────────────────────────────────────────
         // Pattern-review writes. Saved moments edit their existing notes without
         // video extraction. The shared VOD note path retains optional promotion.

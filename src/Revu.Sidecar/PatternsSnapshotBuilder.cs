@@ -11,6 +11,8 @@ namespace Revu.Sidecar;
 /// Builds saved-moment collections and cross-game mistake trends for active
 /// objectives. The full saved playlists remain available for paginated revision,
 /// including reviewed trends and notes whose recording has since been removed.
+/// Each trend also says whether it is ready for a back-to-back review
+/// (<see cref="PatternReviewGate.Readiness"/>) and which moments that review plays.
 /// </summary>
 public sealed class PatternsSnapshotBuilder
 {
@@ -55,6 +57,9 @@ public sealed class PatternsSnapshotBuilder
                 var isReviewed = !savedCollection && PatternReviewGate.IsReviewed(reviewedStamps, pattern.PatternKey, rawMoments);
                 var newMoments = savedCollection ? 0 : PatternReviewGate.NewMomentCount(reviewedStamps, pattern.PatternKey, rawMoments);
                 var (moments, playableCount) = MapMoments(rawMoments);
+                // Saved collections never nudge. A trend's review plays only what can be watched.
+                var readiness = savedCollection ? null : PatternReviewGate.Readiness(reviewedStamps, pattern.PatternKey,
+                    rawMoments, i => moments[i].HasVod || moments[i].HasClip);
 
                 var distinctGames = moments.Select(m => m.GameId).Distinct().Count();
                 var momentCount = moments.Count;
@@ -82,7 +87,9 @@ public sealed class PatternsSnapshotBuilder
                     NewMomentCount: newMoments,
                     TotalMomentCount: totalMoments,
                     UnwatchableMomentCount: unwatchable,
-                    ReviewMode: savedCollection ? "saved" : "trend"));
+                    ReviewMode: savedCollection ? "saved" : "trend",
+                    ReadyToReview: readiness?.IsReady ?? false,
+                    ReviewMomentOrdinals: readiness?.ReviewIndexes.Select(i => moments[i].Ordinal).ToArray() ?? []));
             }
         }
         catch (Exception ex)
@@ -140,32 +147,14 @@ public sealed class PatternsSnapshotBuilder
     /// <summary>All saved moments plus the number with playable media.</summary>
     private static (IReadOnlyList<PatternMomentDto> Moments, int PlayableCount) MapMoments(IReadOnlyList<PatternMoment> moments)
     {
-        // vod_files rows may outlive the recordings they point at (files can be
-        // moved or removed), so probe the disk before advertising a playable
-        // VOD — same File.Exists shape as GamesSnapshotBuilder — and degrade a
-        // pruned one to the graceful no-VOD state instead of a player that
-        // errors with "Could not load this clip". One probe per distinct path:
-        // a playlist's moments mostly share their game's VOD. Clip files get the
-        // same probe (a kept clip outlives its game's recording).
-        var onDisk = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        bool OnDisk(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path)) return false;
-            if (!onDisk.TryGetValue(path, out var exists))
-            {
-                exists = File.Exists(path);
-                onDisk[path] = exists;
-            }
-            return exists;
-        }
-
-        // The viewer limits each batch, while notes remain revisitable even
-        // after the source video has gone. Never substitute raw event anchors.
-        var saved = moments
-            .Select(m => (Moment: m, HasVod: OnDisk(m.VodPath), HasClip: OnDisk(m.ClipPath)))
-            .ToList();
+        // A pruned recording degrades to the graceful no-VOD state instead of a
+        // player that errors with "Could not load this clip" (PatternMediaProbe,
+        // shared with the review nudge). The viewer limits each batch, while notes
+        // remain revisitable even after the source video has gone. Never
+        // substitute raw event anchors.
+        var probe = new PatternMediaProbe();
         var ordinal = 0;
-        var mapped = saved.Select(x => MapMoment(x.Moment, ++ordinal, x.HasVod, x.HasClip)).ToList();
+        var mapped = moments.Select(m => MapMoment(m, ++ordinal, probe.Recording(m), probe.HasClip(m))).ToList();
         return (mapped, mapped.Count(moment => moment.HasVod || moment.HasClip));
     }
 
@@ -190,31 +179,19 @@ public sealed class PatternsSnapshotBuilder
     }
 
     /// <summary>Mirror of PatternMomentItem's display projection (no brushes).</summary>
-    private static PatternMomentDto MapMoment(PatternMoment m, int ordinal, bool vodOnDisk, bool clipOnDisk)
+    private static PatternMomentDto MapMoment(PatternMoment m, int ordinal,
+        (bool Playable, double GameTimeAtVideoStart) recording, bool clipOnDisk)
     {
-        var gameTimeAtVideoStart = 0d;
-        if (vodOnDisk)
-        {
-            try { gameTimeAtVideoStart = RecordingTimeline.ReadGameTimeAtVideoStart(m.VodPath, m.GameId); }
-            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-            { vodOnDisk = false; }
-        }
+        var vodOnDisk = recording.Playable;
+        var gameTimeAtVideoStart = recording.GameTimeAtVideoStart;
         var championLabel = string.IsNullOrWhiteSpace(m.ChampionName) ? "Game" : m.ChampionName;
         var resultLabel = m.Win ? "WIN" : "LOSS";
         var resultHex = m.Win ? WinHex : LossHex;
         var note = m.Note ?? "";
         var polarity = m.Polarity;
-        var startTimeSeconds = m.StartTimeSeconds;
-        var endTimeSeconds = m.EndTimeSeconds;
-        if (m.SourceKind == "bookmark" && startTimeSeconds is int point)
-        {
-            // Virtual clip: play a bounded window from the existing recording.
-            // Keep TimeLabel at the bookmark itself and never export a file.
-            var upperBound = m.GameDurationSeconds > 0 ? m.GameDurationSeconds : int.MaxValue;
-            point = Math.Clamp(point, 0, upperBound);
-            startTimeSeconds = Math.Max(0, point - 15);
-            endTimeSeconds = (int)Math.Min(upperBound, (long)point + 15);
-        }
+        // A bookmark is a virtual clip: a bounded window from the existing recording.
+        // Keep TimeLabel at the bookmark itself and never export a file.
+        var (startTimeSeconds, endTimeSeconds) = PatternMediaProbe.Window(m);
 
         // A start-less moment (game-level anchor: recurring tag, rule break) has
         // no in-game second — render no time rather than a fabricated "0:00".

@@ -1,6 +1,7 @@
 import { getInvoke, getListen, getWindow } from './platform/index.mjs';
 import { createMatchViewStore } from './match-navigation.mjs';
 import { createShellSidebar, crumbFor, pageOf } from './shell-recent.mjs';
+import { createPatternNudge } from './shell-patterns.mjs';
 
 // Own the snapshot store in the persistent shell's realm, so its methods never
 // retain a discarded content window. Entries contain cloned plain data only.
@@ -135,6 +136,8 @@ document.addEventListener('click', (ev) => {
 
 // The shell's sidebar data: recent matches, the review count and the account name.
 const sidebar = createShellSidebar();
+// The Patterns count: trends ready for a back-to-back review (shell-patterns.mjs).
+const patternNudge = createPatternNudge();
 
 // ── Sync active item whenever the iframe finishes loading a page ─────────────
 // Covers in-page navigations (a page doing location.href=... inside the iframe,
@@ -151,10 +154,12 @@ frame?.addEventListener('load', () => {
     setCrumb(page, navId);
     frame.title = pageLabels[page] || pageLabels[navId] || 'Revu';
     sidebar.frameLoaded(pathname, search);
+    patternNudge.frameLoaded();
   }
   catch (_) { /* cross-origin (shouldn't happen in-app); leave as-is */ }
 });
 sidebar.start();
+patternNudge.start();
 
 // ── Deep-link support on the shell URL ───────────────────────────────────────
 // index.html#vodplayer.html?gameId=5 opens that page in the iframe at startup, and

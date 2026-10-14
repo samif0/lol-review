@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 114);
+  assert.equal(Object.keys(COMMANDS).length, 115);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
@@ -321,6 +321,10 @@ test('command declarations keep immutable envelopes, required arguments and exce
   for (const [name, definition] of Object.entries(COMMANDS)) {
     if (definition.timeoutMs !== undefined) assert.ok(definition.timeoutMs <= 290_000, name);
   }
+  // The sidebar's Patterns count and Home's pill: a light read with no arguments.
+  assert.equal(COMMANDS.get_pattern_nudge.route, '/api/patterns/nudge');
+  assert.equal(COMMANDS.get_pattern_nudge.method, 'GET');
+  assert.deepEqual(COMMANDS.get_pattern_nudge.args, {});
   assert.equal(COMMANDS.get_clip_share_status.route, '/api/clip/share-status');
   assert.deepEqual(COMMANDS.get_clip_share_status.args, { bookmarkId: 'integer' });
   assert.equal(COMMANDS.get_clip_share_status.method, 'GET');

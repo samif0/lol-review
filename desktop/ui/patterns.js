@@ -25,6 +25,7 @@ import { polarityTone } from './meaning-tone.mjs';
 // identically (play/pause, ◀▶ step seek, speed, mute, enlarge, keyboard shortcuts).
 
 import { createTransport, resolveAssetUrl, getMedia, renderTransportBar } from './vodtransport.js';
+import { createBulkReview } from './pattern-bulk-review.mjs';
 
 // ── invoke resolver (writes) ─────────────────────────────────────────────────
 // getInvoke() keeps serving the WRITE path (save_pattern_moment_note,
@@ -45,6 +46,8 @@ let _pendingMomentIndex = null;
 let _trendRefreshNeeded = false;
 let _view = 'trend';
 let _viewInitialized = false;
+// The pattern a link asked for (?pattern=key, Home's pill); opened once.
+let _linkedKey = linkedPatternKey();
 
 // ── note-autosave state ──────────────────────────────────────────────────────
 // Mirrors PatternReviewViewModel: a short pause after typing flushes the note
@@ -75,6 +78,28 @@ function activeMoments() {
   return Array.isArray(p?.moments) ? p.moments : [];
 }
 function activeMoment() { return activeMoments()[_momIdx] || null; }
+
+// patterns.html?pattern=<key> opens that pattern (Home's "Review 4 repeated mistakes").
+function linkedPatternKey() {
+  try { return new URLSearchParams(globalThis.location?.search || '').get('pattern') || null; } catch (_) { return null; }
+}
+
+// Back-to-back review of a ready trend (./pattern-bulk-review.mjs). It reads the page
+// through these accessors; leaving a run midway marks nothing.
+const bulk = createBulkReview({
+  $, show,
+  pattern: () => activePattern(),
+  patterns: () => patterns(),
+  canPlay: m => playableSource(m) !== null,
+  saving: () => _reviewSaving || _qualitySaving,
+  stale: () => _trendRefreshNeeded,
+  open: index => gotoMoment(index, { play: true }),
+  pause: () => _T?.pause(),
+  hasMedia: () => _inlineActive,
+  flushNote: () => flushOutgoingNote(),
+  focusReview: () => focusReview(),
+  repaint: () => { renderPosition(); renderClosure(); },
+});
 
 // Only display labels are normalized; player-written titles and notes stay intact.
 function displayLabel(value) {
@@ -146,7 +171,7 @@ function buildPatCard(p, idx) {
   detail.textContent = p.detail || '';
   sub.textContent = p.subtitle || '';
 
-  state.textContent = saved ? 'Revisit' : p.isReviewed ? 'Reviewed' : 'To review';
+  state.textContent = saved ? 'Revisit' : p.isReviewed ? 'Reviewed' : p.readyToReview === true ? 'Ready to review' : 'To review';
   state.classList.toggle('warn', !saved && !p.isReviewed);
   // "Revisit" would repeat the card's own "Revisit moments" cue.
   state.hidden = saved;
@@ -235,11 +260,16 @@ function renderPlayer() {
   show($('m-clipt'), !!m.hasClip || m.sourceKind === 'clip');
   renderQuality();
 
-  // Prev / next bounds.
+  renderPosition();
+}
+
+// Prev / next bounds. A back-to-back run counts and steps through its own queue.
+function renderPosition() {
   const moms = activeMoments();
-  $('m-position').textContent = `Moment ${_momIdx + 1} of ${moms.length}`;
-  $('m-prev').disabled = _momIdx <= 0;
-  $('m-next').disabled = _momIdx >= moms.length - 1;
+  const run = bulk.progress();
+  $('m-position').textContent = run ? run.label : `Moment ${_momIdx + 1} of ${moms.length}`;
+  $('m-prev').disabled = run ? run.prev === null : _momIdx <= 0;
+  $('m-next').disabled = run ? run.next === null : _momIdx >= moms.length - 1;
 }
 
 // ── render: moment rail ─────────────────────────────────────────────────────
@@ -329,7 +359,16 @@ function renderClosure() {
   const btn = $('pat-markrev');
   if (btn) btn.disabled = _reviewSaving || _qualitySaving || _trendRefreshNeeded;
   show(btn, !saved && !p.isReviewed);
+  bulk.paintClosure(p);
 }
+
+// Media events. A back-to-back run decides what Play, Pause and the end of a clip mean.
+function onVideoPlay() {
+  bulk.onPlay(!!_inlineWindow);
+  constrainPlayback(true);
+}
+function onVideoPause() { bulk.onPause($('m-video')); }
+function onVideoEnded() { bulk.onEnded(); }
 
 // ── render: the active-pattern panel (player + rail + closure) ──────────────
 function renderActive() {
@@ -349,7 +388,8 @@ function renderActive() {
   show(document.querySelector('.pat-playcol'), hasMoments);
   show(document.querySelector('.pat-railcol'), hasMoments);
   show($('pat-review-status'), false);
-  if (!hasMoments) return;
+  if (!hasMoments) { show($('pat-bulk'), false); return; }
+  bulk.paintBar();
   renderPlayer();
   renderRail();
   renderClosure();
@@ -378,11 +418,25 @@ function playEntrance() {
 
 // ── top-level render ────────────────────────────────────────────────────────
 function render(d) {
-  const selectedKey = activePattern()?.patternKey;
+  let selectedKey = activePattern()?.patternKey;
+  if (d !== _data) bulk.snapshot();   // a new snapshot ends a back-to-back run midway
   _data = d;
+  const firstLoad = !_viewInitialized;
   if (!_viewInitialized && Array.isArray(d?.patterns) && d.patterns.length) {
     _view = d.patterns.some(p => reviewMode(p) === 'trend') ? 'trend' : 'saved';
     _viewInitialized = true;
+  }
+  // A link (Home's pill) opens its pattern once; a first visit opens a trend that is ready.
+  const all = Array.isArray(d?.patterns) ? d.patterns : [];
+  const linked = _linkedKey ? all.find(p => String(p.patternKey) === _linkedKey) : null;
+  if (all.length) _linkedKey = null;
+  if (linked) {
+    _view = reviewMode(linked);
+    selectedKey = linked.patternKey;
+    _momIdx = 0;
+  } else if (firstLoad && _view === 'trend') {
+    const ready = all.find(p => reviewMode(p) === 'trend' && p.readyToReview === true && !p.isReviewed);
+    if (ready) selectedKey = ready.patternKey;
   }
   clearError();
 
@@ -423,6 +477,7 @@ function render(d) {
   renderPicker();
   renderActive();
   playEntrance();
+  if (linked && activePattern()?.patternKey === linked.patternKey) focusReview();
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
@@ -446,6 +501,7 @@ async function loadPatterns() {
 function selectView(mode) {
   if (_reviewSaving || _qualitySaving || !['trend', 'saved'].includes(mode) || mode === _view) return;
   flushOutgoingNote();
+  bulk.leave();
   resetInlineVideo();
   _editingMoment = null;
   _view = mode;
@@ -462,6 +518,7 @@ function selectPattern(idx) {
   if (idx === _patIdx) { focusReview(); return; }
   // Flush the moment we're leaving before switching patterns.
   flushOutgoingNote();
+  bulk.leave();         // leaving a back-to-back run midway marks nothing
   resetInlineVideo();   // stop any inline clip from the previous pattern
   _patIdx = idx;
   _momIdx = 0;
@@ -477,7 +534,7 @@ function focusReview() {
     behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
 }
 
-function gotoMoment(idx) {
+function gotoMoment(idx, { play = false } = {}) {
   if (_reviewSaving) return;
   const moms = activeMoments();
   if (idx < 0 || idx >= moms.length) return;
@@ -490,14 +547,15 @@ function gotoMoment(idx) {
   }
   // Flush the outgoing moment's note (background) before the index changes.
   flushOutgoingNote();
+  bulk.sync(idx);   // a back-to-back run follows steps inside its queue; a step outside ends it
   // If a clip is already up, KEEP PLAYING through the playlist: switch to the new
   // moment and auto-load + play its clip (no drop back to the poster / play icon).
   // Otherwise just show the new moment's poster (first play is a click as before).
-  const keepPlaying = _inlineActive;
+  const keepPlaying = _inlineActive || play;
   _momIdx = idx;
   renderPlayer();
   renderRail();
-  if (keepPlaying) playMoment();   // loads the new moment's clip via _T.load (swaps src)
+  if (keepPlaying) playMoment({ restart: play });   // loads the new moment's clip via _T.load (swaps src)
   else resetInlineVideo();         // not playing → poster state for the new moment
 }
 
@@ -659,16 +717,24 @@ async function setMomentQuality(quality) {
     renderClosure();
     const pendingIndex = _pendingMomentIndex;
     _pendingMomentIndex = null;
-    if (saved && pendingIndex !== null) gotoMoment(pendingIndex);
+    if (saved && pendingIndex !== null) gotoMoment(pendingIndex, { play: bulk.running() });
+    // A dropped step leaves a back-to-back run on the moment still shown.
+    else if (pendingIndex !== null) { bulk.sync(_momIdx); renderPosition(); }
   }
 }
 
 // ── mark pattern reviewed (WRITE) ────────────────────────────────────────────
-function keepReviewedPattern(p) {
+function keepReviewedPattern(p, { keepOpen = false } = {}) {
   p.isReviewed = true;
   _data.pendingCount = Math.max(0, (_data.pendingCount ?? 1) - 1);
   _data.reviewedPatternCount = (_data.reviewedPatternCount ?? 0) + 1;
   _data.hasPending = _data.pendingCount > 0;
+  if (keepOpen) {
+    // A back-to-back review stays open with its confirmation where the trend now sorts.
+    _patIdx = Math.max(0, patterns().indexOf(p));
+    render(_data);
+    return;
+  }
   resetInlineVideo();
   _editingMoment = null;
   _patIdx = 0;
@@ -676,9 +742,17 @@ function keepReviewedPattern(p) {
   render(_data);
 }
 
+function announcePatternsChanged() {
+  try { window.top.dispatchEvent(new CustomEvent('revu:patterns-changed')); }
+  catch (_) { /* best-effort: the shell also asks again on navigation */ }
+}
+
 async function markReviewed() {
   const p = activePattern();
-  if (!p || _reviewSaving || _qualitySaving || _trendRefreshNeeded || p.isReviewed || reviewMode(p) === 'saved') return;
+  // A watched back-to-back review refreshes the trends itself after finishing.
+  const watched = bulk.finished(p);
+  if (!p || _reviewSaving || _qualitySaving || (_trendRefreshNeeded && !watched) || p.isReviewed || reviewMode(p) === 'saved') return;
+  if (bulk.running()) return;   // midway through a run, finishing waits for the last moment
   _reviewSaving = true;
   const btn = $('pat-markrev');
   if (btn) btn.disabled = true;
@@ -695,6 +769,14 @@ async function markReviewed() {
       },
     }) : null;
     if (result?.ok === false) throw new Error(result.error || 'Review save failed');
+    announcePatternsChanged();
+    if (watched) {
+      bulk.confirm(p);   // the confirmation, then the next ready trend
+      keepReviewedPattern(p, { keepOpen: true });
+      if (invoke) await loadPatterns();
+      bulk.focusAfterReview();
+      return;
+    }
     keepReviewedPattern(p);
     // Refresh the authoritative counts while preserving access to review history.
     if (invoke) await loadPatterns();
@@ -708,6 +790,8 @@ async function markReviewed() {
     _reviewSaving = false;
     if (btn) btn.disabled = false;
     if (note) note.readOnly = false;
+    // The ratings were drawn while saving; the trend stays open to revisit.
+    renderQuality();
   }
 }
 
@@ -755,12 +839,14 @@ function playableSource(m) {
   return null;
 }
 
-function playMoment() {
+// restart: play from the moment's start even when it is already loaded (a run's moment).
+function playMoment({ restart = false } = {}) {
   const m = activeMoment();
   const src = playableSource(m);
   if (!m || !src) {
     resetInlineVideo();
     if (m) setMomentStatus('The recording for this moment is unavailable.');
+    bulk.skip();
     return;
   }
   const vid = $('m-video');
@@ -769,7 +855,8 @@ function playMoment() {
 
   // Already loaded for this moment → just toggle play/pause.
   if (_patVideoLoadedFor === m && vid.getAttribute('src')) {
-    _T.toggle();
+    if (restart) { _T.seekTo(src.startSeconds); _T.play(); }
+    else _T.toggle();
     return;
   }
 
@@ -778,6 +865,7 @@ function playMoment() {
     // Browser preview (or asset protocol unavailable): can't stream a local file.
     resetInlineVideo();
     setMomentStatus('Video preview is only available in the app.');
+    bulk.skip();
     return;
   }
 
@@ -791,7 +879,7 @@ function playMoment() {
     startSeconds: src.startSeconds,
     gameTimeAtVideoStart: src.gameTimeAtVideoStart || 0,
     autoplay: true,
-    onError: () => { setMomentStatus('Could not load this clip.'); resetInlineVideo(); },
+    onError: () => { setMomentStatus('Could not load this clip.'); resetInlineVideo(); bulk.skip(); },
   });
   _inlineWindow = Number.isFinite(src.endSeconds) && src.endSeconds > src.startSeconds
     ? { start: Math.max(src.startSeconds, src.gameTimeAtVideoStart || 0), end: src.endSeconds } : null;
@@ -810,13 +898,16 @@ function constrainPlayback(replay = false) {
   if (end <= start) {
     resetInlineVideo();
     setMomentStatus('This moment falls outside the available recording.');
+    bulk.skip();
     return;
   }
-  if (_T.currentTime < start - tolerance) _T.seekTo(start);
+  if (_T.currentTime < start - tolerance) { _T.seekTo(start); bulk.rewound(); }
   else if (_T.currentTime >= end - tolerance) {
+    // A back-to-back run plays on through a short beat and moves on (Pause stops that).
+    if (bulk.windowEnded(replay)) return;
     if (replay) _T.seekTo(start);
     else { _T.pause(); if (_T.currentTime > end + tolerance) _T.seekTo(end); }
-  }
+  } else bulk.rewound();
 }
 
 // ── single delegated action handler ─────────────────────────────────────────
@@ -825,7 +916,7 @@ function constrainPlayback(replay = false) {
 // prev/next_moment = step the active playlist (client-side).
 // play_moment    = the VOD surface → load + play the moment's clip INLINE.
 // playpause/seek/mute/fullscreen = the shared transport bar, forwarded to _T.
-const ACTIONS = new Set(['set_quality', 'select_view', 'select_pattern', 'goto_moment', 'prev_moment', 'next_moment', 'prev_batch', 'next_batch', 'play_moment', 'mark_reviewed', 'reload_patterns', 'playpause', 'seek', 'mute', 'fullscreen']);
+const ACTIONS = new Set(['set_quality', 'select_view', 'select_pattern', 'goto_moment', 'prev_moment', 'next_moment', 'prev_batch', 'next_batch', 'play_moment', 'mark_reviewed', 'reload_patterns', 'bulk_start', 'bulk_next', 'playpause', 'seek', 'mute', 'fullscreen']);
 
 document.addEventListener('click', async (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -859,12 +950,20 @@ document.addEventListener('click', async (ev) => {
     gotoMoment(Number(target.dataset.momIdx));
     return;
   }
-  if (action === 'prev_moment') {
-    gotoMoment(_momIdx - 1);
+  if (action === 'prev_moment' || action === 'next_moment') {
+    const step = action === 'prev_moment' ? -1 : 1;
+    if (!bulk.step(step)) gotoMoment(_momIdx + step);   // a run steps through its own queue
     return;
   }
-  if (action === 'next_moment') {
-    gotoMoment(_momIdx + 1);
+  if (action === 'bulk_start') {
+    bulk.start();
+    return;
+  }
+  if (action === 'bulk_next') {
+    const idx = patterns().findIndex(p => p.patternKey === target.dataset.patternKey);
+    if (idx < 0 || _reviewSaving || _qualitySaving) return;
+    selectPattern(idx);
+    bulk.start();
     return;
   }
   if (action === 'mark_reviewed') {
@@ -910,9 +1009,12 @@ function wireNoteEditor() {
     scheduleNoteSave();
   });
   note.addEventListener('blur', () => {
+    bulk.noteBlur();
     if (_suppressNoteSave) return;
     commitPendingNote();
   });
+  // Writing a takeaway keeps a back-to-back run on this moment.
+  note.addEventListener('focus', () => bulk.noteFocus());
 }
 
 // Persist a pending note if the user navigates away / closes the page.
@@ -924,6 +1026,7 @@ window.addEventListener('beforeunload', () => { flushOutgoingNote(); });
 window.addEventListener('revu:events-corrected', () => {
   const a = document.activeElement;
   if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return;
+  if (bulk.running()) return;   // a back-to-back run keeps its queue; the next visit refetches
   loadPatterns();
 });
 
@@ -952,7 +1055,9 @@ async function boot() {
   _T.attachVideo({ clickToToggle: true, stopProp: true });
   $('m-video').addEventListener('timeupdate', () => constrainPlayback());
   $('m-video').addEventListener('seeking', () => constrainPlayback());
-  $('m-video').addEventListener('play', () => constrainPlayback(true));
+  $('m-video').addEventListener('play', onVideoPlay);
+  $('m-video').addEventListener('pause', onVideoPause);
+  $('m-video').addEventListener('ended', onVideoEnded);
   // Transport keyboard (Space, ◀▶ seek, Up/Down step, F/Esc enlarge). #m-note typing
   // is exempt (INPUT/TEXTAREA guard). When a role=button row/surface is focused, let
   // patterns' own keydown (below) handle Enter/Space activation instead of toggling.
