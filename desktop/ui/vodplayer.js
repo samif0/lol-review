@@ -13,7 +13,7 @@ import { $, show, clear, tpl } from './dom.mjs';
 
 import { createTransport, resolveAssetUrl, getMedia } from './vodtransport.js';
 import { createCorrections } from './vodcorrections.js';
-import { findTimelineEventAtPoint } from './timeline-event-hit.mjs';
+import { createTimelineHover } from './timeline-hover.mjs';
 import { objectiveTypeLabel, objectivePhaseLabel } from './objective-labels.mjs';
 import { createMatchNavigation } from './match-navigation.mjs';
 import { createVodViewRestorer, createVodWriteBarrier, sameVodDraft, vodRestorePlan } from './vod-view-state.mjs';
@@ -3438,19 +3438,21 @@ function applyTimelineZoom() {
 }
 
 // Zoom by a factor, keeping the timeline-content point under `anchorClientX` fixed.
+// Returns whether the zoom changed.
 function zoomTimelineAt(anchorClientX, factor) {
   const seek = $('vp-seek');
-  if (!seek) return;
+  if (!seek) return false;
   const rect = seek.getBoundingClientRect();
   const x = anchorClientX - rect.left;                 // cursor x within the viewport
   const contentXBefore = (x - _tlPan) / _tlZoom;       // game-fraction px under cursor
   const prev = _tlZoom;
   _tlZoom = Math.max(TL_ZOOM_MIN, Math.min(TL_ZOOM_MAX, _tlZoom * factor));
-  if (_tlZoom === prev) return;
+  if (_tlZoom === prev) return false;
   // Solve new pan so the same content point stays under the cursor.
   _tlPan = x - contentXBefore * _tlZoom;
   if (_tlZoom <= 1.001) { _tlZoom = 1; _tlPan = 0; } // snapped back to whole game
   applyTimelineZoom();
+  return true;
 }
 
 function resetTimelineZoom() { _tlZoom = 1; _tlPan = 0; applyTimelineZoom(); }
@@ -3467,23 +3469,23 @@ function timelineFractionFromClientX(clientX) {
 function wireSeekBar() {
   const seek = $('vp-seek');
   const markers = $('vp-markers');
-  const eventAt = ev => findTimelineEventAtPoint(seek, markers, ev);
-  let hoveredEvent = null;
-  const showEventHover = bar => {
-    if (bar === hoveredEvent) return;
-    hoveredEvent?.classList.remove('evbar-hit-hover');
-    hoveredEvent = bar;
-    hoveredEvent?.classList.add('evbar-hit-hover');
-    seek.classList.toggle('is-event-hover', !!bar);
-  };
+  // One resolver (timeline-hover.mjs over timeline-event-hit.mjs) decides both what
+  // the hover ring and clock-row chip show and what a click or right-click does: an
+  // event only on its drawn mark or label, the exact pointer time everywhere else.
+  const hover = createTimelineHover({ seek, markers, chip: $('vp-tl-hover'), text: $('vp-tl-hover-text'),
+    hint: $('vp-tl-hover-hint'), clock, zoom: () => _tlZoom, secondsAt: clientX => {
+      const dur = _T?.duration || _vod?.gameDurationSeconds || 0;
+      return dur ? timelineFractionFromClientX(clientX) * dur : null;
+    } });
 
-  // Resolve forgiving pointer targets before the correction controller's marker
-  // capture listener. Forward to the real bar so selection, ghosts, and exact-time
-  // playback all use the existing action path. Programmatic clicks stay exact.
+  // Resolve pointer targets before the correction controller's marker capture
+  // listener. A click on a marker (or within 3px of it) forwards to the real bar so
+  // selection, ghosts, and exact-time playback all use the existing action path.
+  // Programmatic clicks stay exact.
   seek.addEventListener('click', ev => {
     if (seek._suppressClick) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
     if (ev.detail === 0) return;
-    const bar = eventAt(ev);
+    const bar = hover.resolve(ev).bar;
     if (!bar || ev.target.closest?.('.evbar') === bar) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
@@ -3491,7 +3493,7 @@ function wireSeekBar() {
   }, true);
   seek.addEventListener('contextmenu', ev => {
     if (seek._suppressClick) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
-    const bar = eventAt(ev);
+    const bar = hover.resolve(ev).bar;
     if (!bar || ev.target.closest?.('.evbar') === bar) return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
@@ -3499,14 +3501,16 @@ function wireSeekBar() {
       bubbles: true, cancelable: true, button: 2, clientX: ev.clientX, clientY: ev.clientY,
     }));
   }, true);
-  seek.addEventListener('pointerleave', () => showEventHover(null));
+  seek.addEventListener('pointerleave', () => hover.hide());
 
-  // Ctrl+wheel → zoom at cursor. Plain wheel is left alone (page scroll).
+  // Ctrl+wheel → zoom at cursor. Plain wheel is left alone (page scroll). The first
+  // zoom retires the chip's zoom hint for good.
   seek.addEventListener('wheel', (ev) => {
     if (!ev.ctrlKey) return;
     ev.preventDefault();
     const factor = ev.deltaY < 0 ? 1.18 : 1 / 1.18;   // up = zoom in
-    zoomTimelineAt(ev.clientX, factor);
+    if (zoomTimelineAt(ev.clientX, factor)) hover.noteZoomed();
+    hover.queue(ev);
   }, { passive: false });
 
   // Drag-to-pan (only meaningful when zoomed). A movement threshold distinguishes a
@@ -3518,12 +3522,17 @@ function wireSeekBar() {
     down = { x: ev.clientX, pan: _tlPan, dragging: false };
   });
   seek.addEventListener('pointermove', (ev) => {
-    if (!down) { showEventHover(eventAt(ev)); return; }
+    // A press released outside the timeline never reached pointerup here: drop it, so
+    // the preview keeps working and a plain move never pans.
+    if (down && ev.buttons === 0) { down = null; seek.classList.remove('is-panning'); }
+    if (!down) { hover.queue(ev); return; }
     const dx = ev.clientX - down.x;
-    if (!down.dragging && Math.abs(dx) < DRAG_PX) return;
+    // Still a click (under the threshold, or nothing to pan at 1×): the preview follows
+    // the pointer to where the release will act.
+    if (!down.dragging && (Math.abs(dx) < DRAG_PX || _tlZoom <= 1.001)) { hover.queue(ev); return; }
     if (_tlZoom <= 1.001) return;                 // nothing to pan at 1×
     down.dragging = true;
-    showEventHover(null);
+    hover.hide();
     seek.classList.add('is-panning');
     try { seek.setPointerCapture(ev.pointerId); } catch (_) {}
     _tlPan = down.pan + dx;
@@ -3550,7 +3559,8 @@ function wireSeekBar() {
     const v = video();
     const dur = _T?.duration || _vod?.gameDurationSeconds || 0;
     if (!dur) return;
-    seekTo(timelineFractionFromClientX(ev.clientX) * dur);
+    // The exact time the hover chip showed for this pointer position.
+    seekTo(timelineFractionFromClientX(hover.clientX(ev)) * dur);
   });
 
   // Zoom badge → reset to whole game.

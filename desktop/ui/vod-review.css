@@ -82,8 +82,21 @@ html.framed .vod-review-page .shell{padding:20px 28px 40px}
 .vod-review-page .vp-tl-tick.is-start{transform:none}
 .vod-review-page .vp-tl-tick.is-end{transform:translateX(-100%)}
 .vod-review-page .vp-tl-zoombadge{border-color:var(--line-strong);border-radius:var(--r-sm);font:500 11px/1 var(--f-num)}
+/* Hover chip: sits on the clock row (the one row with no marks) and never takes the
+   pointer. "14:32" seeks there, "Kill at 14:27" selects that event; the muted zoom
+   hint is its second part. timeline-hover.mjs clamps it inside the track. */
+.vod-review-page .vp-tl-hover{position:absolute;left:0;bottom:1px;z-index:6;display:inline-flex;align-items:center;gap:6px;
+  height:16px;padding:0 5px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--bg);
+  pointer-events:none;white-space:nowrap;font:500 11px/14px var(--f-num);font-variant-numeric:tabular-nums;color:var(--t1);
+  transform:translateX(var(--hover-x,0px))}
+.vod-review-page .vp-tl-hover-hint{padding-left:6px;border-left:1px solid var(--line);font:400 11px/14px var(--f-body);color:var(--t3)}
+.vod-review-page :is(.vp-tl-hover,.vp-tl-hover-hint)[hidden],
+.vod-review-page .vp-timeline.is-panning .vp-tl-hover{display:none}
+/* Only the clock tick the chip would touch hides; every other tick keeps its contrast. */
+.vod-review-page .vp-tl-tick.is-under-hover{visibility:hidden}
 .vod-review-page .vp-timeline.is-event-hover{cursor:pointer}
-.vod-review-page .evbar.evbar-hit-hover{opacity:1;outline:1px solid var(--evc);outline-offset:3px}
+/* Above its neighbors, so a label-less event's revealed code is never covered. */
+.vod-review-page .evbar.evbar-hit-hover{z-index:8;opacity:1;outline:1px solid var(--evc);outline-offset:3px}
 .vod-review-page .evbar-nolabel.evbar-hit-hover::after{opacity:1}
 .vod-review-page .vp-timeline .evbar-sel{outline:2px solid var(--t1);outline-offset:2px}
 /* Aura: one soft pool of light under the playhead, behind every mark (the content
