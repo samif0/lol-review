@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import asar from '@electron/asar';
 import builderConfig from '../../electron-builder.config.mjs';
-import { activatePackage, bundledFonts, isAppFile, readFuseWire, requiredFuses, stageApp, verifyFuses, verifyPackage } from '../../scripts/package.mjs';
+import { activatePackage, bundledFonts, ffmpegNotices, isAppFile, readFuseWire, requiredFuses, stageApp, stageFfmpeg, verifyFuses,
+  verifyPackage } from '../../scripts/package.mjs';
 import { encoderBinaryPins, encoderDependencyProvenance, isRecorderFile, obsPin, recorderFiles, recorderManifest,
   recorderModules, recorderSourceLock, requiredRecorderFiles, verifyEncoderBinaryPins, verifyEncoderSourceProvenance,
   verifyRecorderRuntime } from '../../recorder/runtime/libobs.mjs';
@@ -131,6 +132,37 @@ test('layout verification requires self-contained sidecar next to the executable
   await asar.createPackage(source, archive);
   await rm(path.join(packaged, 'coreclr.dll'));
   await assert.rejects(verifyPackage(packaged), /ENOENT/);
+});
+
+test('a bundled ffmpeg.exe ships with its GPL notices, and verification refuses it without them', async t => {
+  const root = await scratch(t), repository = path.join(root, 'repository'), packaged = path.join(root, 'package');
+  const source = path.join(root, 'source');
+  await fixture(source);
+  for (const name of ['Revu.Sidecar.exe', 'Revu.Sidecar.dll',
+    'Revu.Sidecar.runtimeconfig.json', 'coreclr.dll', 'hostfxr.dll', 'resources/branding/revu.ico']) await file(packaged, name);
+  await file(packaged, 'revu-desktop.exe', fusedExecutable());
+  await asar.createPackage(source, path.join(packaged, 'resources/app.asar'));
+  const options = { verifyRecorder: async () => {} }; // the recorder layout has its own tests
+  // Local builds may omit ffmpeg.exe; nothing about it is staged then.
+  assert.equal(await stageFfmpeg(repository, packaged), false);
+  await assert.rejects(lstat(path.join(packaged, 'licenses')), /ENOENT/);
+  await verifyPackage(packaged, options);
+  await file(repository, 'deps/ffmpeg.exe', 'MZ ffmpeg');
+  for (const name of ffmpegNotices) await file(repository, name);
+  await file(repository, 'licenses/ffmpeg/third-party/x264/COPYING.txt', 'x264 license');
+  assert.equal(await stageFfmpeg(repository, packaged), true);
+  assert.equal(await readFile(path.join(packaged, 'ffmpeg.exe'), 'utf8'), 'MZ ffmpeg');
+  assert.equal(await readFile(path.join(packaged, 'licenses/ffmpeg/third-party/x264/COPYING.txt'), 'utf8'), 'x264 license');
+  await verifyPackage(packaged, options);
+  for (const name of ffmpegNotices) {
+    await rm(path.join(packaged, name));
+    await assert.rejects(verifyPackage(packaged, options), new RegExp(`ffmpeg\\.exe is packaged without ${name.replaceAll('.', '\\.')}`));
+    await file(packaged, name);
+  }
+});
+
+test('the repository carries every ffmpeg notice the package requires', async () => {
+  for (const name of ffmpegNotices) assert.ok((await lstat(new URL(`../../../${name}`, import.meta.url))).isFile(), name);
 });
 
 test('fuse verification requires RunAsNode, NODE_OPTIONS and inspect off and the ASAR fuses on', async t => {
