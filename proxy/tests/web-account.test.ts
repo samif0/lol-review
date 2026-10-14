@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addLoginRequest, addUser, FakeAuthState } from "./fake-auth";
-import { clip, makeRequest, nowSec, sha256Hex } from "./fakes";
+import { clip, makeRequest, nowSec, runScheduled, sha256Hex } from "./fakes";
+import worker from "../src/index";
 import {
   AUTH, CLEAR_COOKIE, body, call, resetWebLimiters, seedDesktopSession, seedWebUser, stubFetch, webReq, webSetup,
 } from "./web-fixtures";
@@ -38,11 +39,30 @@ describe("GET /auth/web/clips", () => {
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
     const clips = (await body(res)).clips as Array<Record<string, unknown>>;
     expect(clips.map((c) => c.id)).toEqual(["Mine002", "Mine001"]);
+    // 4.2 adds kind, quality and has_notes (full-game shares list here too).
     expect(Object.keys(clips[1]).sort()).toEqual([
-      "champion", "created_at", "duration_s", "expires_at", "has_transcript", "id", "narrated", "size_bytes", "status", "title", "url", "view_count",
+      "champion", "created_at", "duration_s", "expires_at", "has_notes", "has_transcript", "id", "kind", "narrated", "quality",
+      "size_bytes", "status", "title", "url", "view_count",
     ]);
-    expect(clips[1]).toMatchObject({ url: "https://clips.revu.lol/Mine001", narrated: true, has_transcript: true, status: "ready" });
+    expect(clips[1]).toMatchObject({
+      url: "https://clips.revu.lol/Mine001", narrated: true, has_transcript: true, status: "ready", kind: "clip", quality: null, has_notes: false,
+    });
     expect(clips[0]).toMatchObject({ status: "uploading", title: null, champion: null, duration_s: null, narrated: false });
+  });
+
+  it("lists full-game shares with kind, quality, has_notes and the revu.lol/v/ link", async () => {
+    const now = nowSec();
+    const { env, state } = webSetup({}, [
+      clip({ id: "Vod0001", user_id: 1, created_at: now - 5, kind: "vod", quality: "1080p", r2_key: "vods/Vod0001.mp4", title: "Jinx vs Caitlyn" }),
+      clip({ id: "Clip001", user_id: 1, created_at: now - 50 }),
+    ]);
+    state.vodShareMeta.set("Vod0001", { clip_id: "Vod0001", meta_json: "{}", has_notes: 1, created_at: now });
+    const { token } = await seedWebUser(state, "lister@example.com");
+    const clips = (await body(await call(env, webReq("/auth/web/clips", { cookie: token })))).clips as Array<Record<string, unknown>>;
+    expect(clips[0]).toMatchObject({
+      id: "Vod0001", kind: "vod", quality: "1080p", has_notes: true, url: "https://revu.lol/v/Vod0001", title: "Jinx vs Caitlyn",
+    });
+    expect(clips[1]).toMatchObject({ id: "Clip001", kind: "clip", quality: null, has_notes: false, url: "https://clips.revu.lol/Clip001" });
   });
 
   it("401s without a session", async () => {
@@ -70,6 +90,19 @@ describe("DELETE /auth/web/clips/:id", () => {
     expect(await body(res)).toEqual({ ok: true });
     expect(db._clips.has("Mine123")).toBe(false);
     expect(r2.store.has("clips/Mine123.mp4")).toBe(false);
+  });
+
+  it("stops sharing a full game: row, meta and object go", async () => {
+    const s = webSetup({}, [clip({ id: "Vod0001", user_id: 1, kind: "vod", quality: "720p", r2_key: "vods/Vod0001.mp4" })]);
+    s.r2.store.set("vods/Vod0001.mp4", new Uint8Array([1]));
+    s.state.vodShareMeta.set("Vod0001", { clip_id: "Vod0001", meta_json: "{}", has_notes: 0, created_at: 1 });
+    const { token } = await seedWebUser(s.state, "owner@example.com");
+    const res = await call(s.env, webReq("/auth/web/clips/Vod0001", { method: "DELETE", cookie: token }));
+    expect(res.status).toBe(200);
+    expect(await body(res)).toEqual({ ok: true });
+    expect(s.db._clips.has("Vod0001")).toBe(false);
+    expect(s.state.vodShareMeta.has("Vod0001")).toBe(false);
+    expect(s.r2.store.has("vods/Vod0001.mp4")).toBe(false);
   });
 
   it("404s another user's clip and leaves it intact", async () => {
@@ -230,6 +263,42 @@ describe("POST /auth/web/account/delete", () => {
     const res = await call(env, webReq("/auth/web/account/delete", { method: "POST", cookie: victim.token, body: { email: "leaving@example.com" } }));
     expect(res.status).toBe(200);
     expect(state.users.map((u) => u.email)).toEqual(["stay@example.com"]);
+  });
+
+  it("keeps a storage tombstone for every object R2 failed to delete, removes the VOD rows, and the purge retries", async () => {
+    const { env, state, db, r2, victim, keeper, uploadId } = await setup();
+    db._clips.set("Vod0001", { ...clip({ id: "Vod0001", user_id: victim.user.id, r2_key: "vods/Vod0001.mp4", size_bytes: 900 }), kind: "vod", quality: "1080p" });
+    r2.store.set("vods/Vod0001.mp4", new Uint8Array([9]));
+    state.vodShareMeta.set("Vod0001", { clip_id: "Vod0001", meta_json: "{}", has_notes: 1, created_at: 1 });
+    state.vodShareUsage.set(`${victim.user.id}|2026-10-13`, 2);
+    state.vodShareUsage.set(`${keeper.user.id}|2026-10-13`, 1);
+    state.vodSharers.set(victim.user.id, 1);
+    state.vodSharers.set(keeper.user.id, 1);
+    const realDelete = r2.bucket.delete.bind(r2.bucket);
+    r2.bucket.delete = async () => { throw new Error("r2 down"); };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const logs: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: unknown) => { logs.push(String(line)); });
+
+    const res = await call(env, webReq("/auth/web/account/delete", { method: "POST", cookie: victim.token, body: { email: "leaving@example.com" } }));
+    expect(res.status).toBe(200);
+    expect(state.users.map((u) => u.email)).toEqual(["stay@example.com"]);
+    expect([...db._clips.keys()]).toEqual(["Live001"]);
+    expect([...state.tombstones.values()].map((t) => [t.r2_key, t.size_bytes, t.kind, t.upload_id]).sort()).toEqual([
+      ["clips/Dead001.mp4", 10, "clip", null],
+      ["clips/Dead002.mp4", 10, "clip", uploadId],
+      ["vods/Vod0001.mp4", 900, "vod", null],
+    ]);
+    expect(state.vodShareMeta.size).toBe(0);
+    expect([...state.vodShareUsage.keys()]).toEqual([`${keeper.user.id}|2026-10-13`]);
+    expect([...state.vodSharers.keys()]).toEqual([keeper.user.id]);
+    expect(logs.join(" ")).toContain('"tombstones":3');
+
+    r2.bucket.delete = realDelete;
+    await runScheduled(worker, env);
+    expect(state.tombstones.size).toBe(0);
+    expect(r2.store.has("vods/Vod0001.mp4")).toBe(false);
+    expect(r2.calls.deleted).toEqual(expect.arrayContaining(["clips/Dead001.mp4", "clips/Dead002.mp4", "vods/Vod0001.mp4"]));
   });
 
   it("401s without a session and 403s without the CSRF header", async () => {

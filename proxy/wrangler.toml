@@ -77,6 +77,22 @@ TURNSTILE_HOSTNAMES = "revu.lol,www.revu.lol"
 # TURNSTILE_DEV_RELAX only takes effect while AUTH_BASE starts with
 # http://localhost:, so it can never relax production.
 
+# Storage budget in bytes. It covers EVERY stored object in the CLIPS bucket:
+# clips and full-game (VOD) shares, in every state (uploading reservations,
+# ready, purging rows) plus storage_tombstones. Clip uploads past the total are
+# refused (403 storage_full); VOD starts past either budget are 409 pool_full.
+# VOD_BUDGET_BYTES is clamped to the total. Raise both if storage becomes paid.
+TOTAL_BUDGET_BYTES = "9000000000"
+VOD_BUDGET_BYTES = "7000000000"
+# One account's share of the pool: clip bytes (ready plus pending reservations)
+# an account outside vod_sharers may hold, so no single account can fill it.
+# Over it, clip uploads get the usual 403 quota_exceeded. Raise with the total.
+USER_CLIP_BUDGET_BYTES = "3000000000"
+# Kill switches for full-game sharing. "0" or "off" turns off new VOD share
+# starts (VOD_SHARING) or VOD playback (VOD_SERVING); anything else is on.
+VOD_SHARING = "1"
+VOD_SERVING = "1"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "revu-db"
@@ -121,8 +137,10 @@ class_name = "GlobalRateLimiter"
 tag = "v1"
 new_sqlite_classes = ["GlobalRateLimiter"]
 
-# Hourly cleanup of expired clips (3-day retention) and expired pending uploads.
-# Purges R2 objects + D1 rows, then expired sessions, then transcribe_usage rows
-# older than 7 days.
+# Hourly cleanup: expired clips and VOD shares (3-day retention) and expired
+# pending uploads. Purges R2 objects + D1 rows, retries storage tombstones, then
+# expired sessions, then usage rows (transcribe, email, VOD starts, part uploads)
+# older than 7 days, and last discards at most 5 pending uploads of any account
+# idle for 30 minutes.
 [triggers]
 crons = ["0 * * * *"]

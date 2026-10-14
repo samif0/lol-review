@@ -97,6 +97,19 @@ public static class SidecarServices
                 sp.GetRequiredService<SidecarBackgroundWork>(), sp.GetRequiredService<RemoteClipCleanupStore>(),
                 sp.GetRequiredService<ILogger<ClipShareWorker>>());
         });
+        // 4.2 full-game sharing: the local link store and the one-job-at-a-time worker. Started by
+        // NarrationStartup only when not isolated (an isolated host denies its routes).
+        services.AddSingleton(sp => new VodShareStore(
+            AppDataPaths.VodSharesPath, sp.GetRequiredService<ILogger<VodShareStore>>()));
+        services.AddSingleton(sp =>
+        {
+            var w = sp.GetRequiredService<WriteServices>();
+            var snapshots = sp.GetRequiredService<VodSnapshotBuilder>();
+            return new VodShareWorker(w.VodShare, w.ClipUpload, w.VodShareEncoder, w.NarrationMixer, w.Vod, w.Games,
+                snapshots.BuildAsync, w.Config, sp.GetRequiredService<LcuLiveState>(), sp.GetRequiredService<VodShareStore>(),
+                sp.GetRequiredService<RemoteClipCleanupStore>(), sp.GetRequiredService<SidecarEventHub>(),
+                sp.GetRequiredService<SidecarBackgroundWork>(), sp.GetRequiredService<ILogger<VodShareWorker>>());
+        });
         services.AddSingleton(sp =>
         {
             var w = sp.GetRequiredService<WriteServices>();

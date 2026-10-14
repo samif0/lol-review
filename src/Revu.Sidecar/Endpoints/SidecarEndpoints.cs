@@ -22,6 +22,7 @@ public static partial class SidecarEndpoints
         MapEvidence(app, jsonOptions);
         MapMedia(app, jsonOptions);
         MapNarration(app, jsonOptions);
+        MapVodShare(app, jsonOptions);
         MapPatterns(app, jsonOptions);
         MapDiagnostics(app, jsonOptions);
         MapRecording(app, jsonOptions);

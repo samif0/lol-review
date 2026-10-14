@@ -16,7 +16,7 @@ const COPY_FILES = ['objectives.html', 'objectives.js', 'objective-labels.mjs', 
   'matchups.html', 'matchups.js', 'patterns.html', 'patterns.js', 'tutorial.js', 'first-review-guide.mjs',
   'pregame.html', 'ingame.html', 'audio-devices.mjs', 'audio-settings.mjs', 'appearance.mjs', 'appearance-settings.mjs',
   'meaning-tone.mjs', 'shell-recent.mjs', 'account-page.mjs', 'shell-patterns.mjs', 'pattern-bulk.mjs', 'pattern-bulk-review.mjs',
-  'home-patterns.mjs', 'journal-takeaway.mjs', 'vod-thread.mjs'];
+  'home-patterns.mjs', 'journal-takeaway.mjs', 'vod-thread.mjs', 'vod-share.mjs', 'vod-share-copy.mjs'];
 
 function copyLines(name) {
   let text = read(name);

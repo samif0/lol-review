@@ -36,6 +36,9 @@ public static class NarrationStartup
 
                 services.GetRequiredService<ClipShareWorker>().Start();
                 services.GetRequiredService<NarrationTranscriptionWorker>().Start();
+                // 4.2: no full-game share can be running yet, so every leftover share copy goes.
+                ClearVodShareTemp(AppDataPaths.VodShareTempDirectory, log);
+                services.GetRequiredService<VodShareWorker>().Start();
                 await OnSignedInAsync(services, log);
             }))
         {
@@ -217,6 +220,31 @@ public static class NarrationStartup
         }
         if (pushed > 0) log.LogInformation("Transcript catch-up: attached {Count} transcript(s) to shared clips", pushed);
         return pushed;
+    }
+
+    /// <summary>
+    /// Delete every file in the full-game share temp folder (top level only; never follows a
+    /// reparse point). Runs before the worker starts, so nothing in it can be in use by Revu.
+    /// Returns how many files were deleted.
+    /// </summary>
+    internal static int ClearVodShareTemp(string directory, ILogger log)
+    {
+        try
+        {
+            if (!Directory.Exists(directory)) return 0;
+            if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) return 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+        var removed = 0;
+        foreach (var file in SafeEnumerate(directory, "*"))
+        {
+            if (TryDelete(file.FullName, log)) removed++;
+        }
+        if (removed > 0) log.LogInformation("Full-game share: deleted {Count} leftover share file(s)", removed);
+        return removed;
     }
 
     private static bool IsStaleUnreferenced(FileInfo file, HashSet<string> referenced, DateTime cutoffUtc)

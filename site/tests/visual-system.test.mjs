@@ -10,9 +10,9 @@ const site = new URL('../', import.meta.url);
 const appUi = new URL('../../desktop/ui/', import.meta.url);
 const read = (name, base = site) => readFileSync(new URL(name, base), 'utf8').replace(/\r\n/g, '\n');
 const stripComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
-const PAGE_CSS = ['styles.css', 'landing.css', 'webapp.css', 'account.css', 'clip.css'];
+const PAGE_CSS = ['styles.css', 'landing.css', 'webapp.css', 'account.css', 'clip.css', 'vod.css'];
 const PAGES = ['index.html', 'review.html', 'privacy.html', 'terms.html', 'discord.html', 'discord/index.html',
-  'sign-in.html', 'my-clips.html', 'account.html', 'clip.html'];
+  'sign-in.html', 'my-clips.html', 'account.html', 'clip.html', 'vod.html'];
 
 const declarations = block => Object.fromEntries([...block.matchAll(/(--[\w-]+)\s*:\s*([^;}]+)/g)].map(m => [m[1], m[2].trim()]));
 

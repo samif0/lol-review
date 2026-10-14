@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -35,6 +36,21 @@ public sealed partial class ClipUploadService
     internal TimeSpan[] PartRetryDelays { get; set; } =
         [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
 
+    /// <summary>
+    /// Full-game (VOD) parts only: how long one part keeps retrying while the network is down
+    /// (connection failures never reach the proxy, so they don't count against its
+    /// 2 x part_count + 4 cap). Attempts that reach the proxy keep the clip limit of 4.
+    /// Kept well under the proxy's 30-minute idle sweep. Tests shorten it.
+    /// </summary>
+    internal TimeSpan VodPartOutageWindow { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>Full-game parts: backoff between connection-failure retries, the last one repeating (tests shorten these).</summary>
+    internal TimeSpan[] VodPartOutageDelays { get; set; } =
+    [
+        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20),
+        TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(60),
+    ];
+
     /// <summary>Delays between the 3 attempts of complete (tests shorten these).</summary>
     internal TimeSpan[] CompleteRetryDelays { get; set; } =
         [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)];
@@ -45,31 +61,47 @@ public sealed partial class ClipUploadService
     {
         var init = await InitAsync(size, contentType, sessionToken, title, champion, durationSeconds, narrated, ct)
             .ConfigureAwait(false);
+        return await UploadPartsAndCompleteAsync(ClipsRouteBase, init.id, init.part_size, init.part_count, filePath,
+            size, sessionToken, progress, onRemoteIdAssigned, "Clip", ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Route base of the clip multipart routes (<c>/clips/{id}/parts/{n}</c>, <c>/clips/{id}/complete</c>).</summary>
+    internal const string ClipsRouteBase = "clips";
+
+    /// <summary>
+    /// The sequential part loop and complete of an initialized multipart upload under
+    /// <paramref name="routeBase"/> (<c>clips</c> or <c>vod-shares</c>). Any terminal failure or
+    /// cancellation DELETEs the remote upload (kind-agnostic <c>DELETE /clips/{id}</c>).
+    /// </summary>
+    private async Task<ClipUploadResult> UploadPartsAndCompleteAsync(string routeBase, string id, long partSize,
+        int partCount, string filePath, long size, string sessionToken, IProgress<ClipUploadProgress>? progress,
+        Action<string>? onRemoteIdAssigned, string what, CancellationToken ct)
+    {
         try
         {
-            onRemoteIdAssigned?.Invoke(init.id);
+            onRemoteIdAssigned?.Invoke(id);
 
-            var expectedParts = (int)((size + init.part_size - 1) / init.part_size);
-            if (init.part_size <= 0 || init.part_count != expectedParts)
+            var expectedParts = partSize <= 0 ? -1 : (int)((size + partSize - 1) / partSize);
+            if (partSize <= 0 || partCount != expectedParts)
             {
                 throw new ClipUploadException("Server returned an unexpected response.");
             }
 
             progress?.Report(new ClipUploadProgress("uploading", 0, size));
-            var parts = new List<PartDto>(init.part_count);
-            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(init.part_size, size));
+            var parts = new List<PartDto>(partCount);
+            var buffer = ArrayPool<byte>.Shared.Rent((int)Math.Min(partSize, size));
             try
             {
                 await using var file = OpenShared(filePath);
                 long sent = 0;
-                for (var n = 1; n <= init.part_count; n++)
+                for (var n = 1; n <= partCount; n++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var length = (int)Math.Min(init.part_size, size - sent);
+                    var length = (int)Math.Min(partSize, size - sent);
                     file.Seek(sent, SeekOrigin.Begin);
                     await file.ReadExactlyAsync(buffer.AsMemory(0, length), ct).ConfigureAwait(false);
 
-                    var etag = await PutPartAsync(init.id, n, buffer, length, sessionToken, ct).ConfigureAwait(false);
+                    var etag = await PutPartAsync(routeBase, id, n, buffer, length, sessionToken, ct).ConfigureAwait(false);
                     parts.Add(new PartDto { part_number = n, etag = etag });
                     sent += length;
                     progress?.Report(new ClipUploadProgress("uploading", sent, size));
@@ -81,8 +113,8 @@ public sealed partial class ClipUploadService
             }
 
             progress?.Report(new ClipUploadProgress("finishing", size, size));
-            var result = await CompleteAsync(init.id, parts, sessionToken, ct).ConfigureAwait(false);
-            _logger.LogInformation("Clip uploaded (multipart, {Parts} parts): {Id}", parts.Count, result.Id);
+            var result = await CompleteAsync(routeBase, id, parts, sessionToken, ct).ConfigureAwait(false);
+            _logger.LogInformation("{What} uploaded (multipart, {Parts} parts): {Id}", what, parts.Count, result.Id);
             return result;
         }
         catch (Exception ex)
@@ -92,8 +124,8 @@ public sealed partial class ClipUploadService
             // shutdown) the abort gets only a short budget so it cannot hold up the shutdown
             // drain. The caller's onRemoteIdAssigned cleanup queue still holds the id.
             using var budget = new CancellationBudget(ct, AbortBudgetAfterCancel);
-            var deleted = await DeleteAsync(init.id, sessionToken, budget.Token).ConfigureAwait(false);
-            _logger.LogInformation(ex, "Multipart upload {Id} abandoned (remote delete {Deleted})", init.id, deleted);
+            var deleted = await DeleteAsync(id, sessionToken, budget.Token).ConfigureAwait(false);
+            _logger.LogInformation(ex, "Multipart upload {Id} abandoned (remote delete {Deleted})", id, deleted);
             throw;
         }
     }
@@ -164,13 +196,21 @@ public sealed partial class ClipUploadService
         }
     }
 
-    private async Task<string> PutPartAsync(string id, int partNumber, byte[] buffer, int length,
+    private async Task<string> PutPartAsync(string routeBase, string id, int partNumber, byte[] buffer, int length,
         string sessionToken, CancellationToken ct)
     {
-        var url = $"{_baseUrl}/clips/{Uri.EscapeDataString(id)}/parts/{partNumber.ToString(CultureInfo.InvariantCulture)}";
+        var url = $"{_baseUrl}/{routeBase}/{Uri.EscapeDataString(id)}/parts/{partNumber.ToString(CultureInfo.InvariantCulture)}";
+        // Clips: 4 attempts of any kind. Full games run for hours, so a short outage must not
+        // throw the whole upload away: attempts that reach the proxy keep the clip limit, and
+        // connection failures retry with backoff for up to VodPartOutageWindow.
+        var vod = routeBase == VodRouteBase;
+        var serverAttempts = 0;
+        var outageAttempts = 0;
+        var outageSince = 0L;
         for (var attempt = 1; ; attempt++)
         {
             var canRetry = attempt <= PartRetryDelays.Length;
+            var outage = false;
             try
             {
                 using var content = new ByteArrayContent(buffer, 0, length);
@@ -192,6 +232,11 @@ public sealed partial class ClipUploadService
                 }
 
                 var status = (int)res.StatusCode;
+                if (vod)
+                {
+                    outageAttempts = 0;
+                    canRetry = ++serverAttempts <= PartRetryDelays.Length;
+                }
                 if (canRetry && (status >= 500 || res.StatusCode == HttpStatusCode.TooManyRequests))
                 {
                     _logger.LogWarning("Part {Part} of {Id} returned {Status}; retrying", partNumber, id, status);
@@ -213,20 +258,48 @@ public sealed partial class ClipUploadService
             catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException or IOException
                                        or JsonException)
             {
+                if (vod)
+                {
+                    outage = IsConnectFailure(ex);
+                    if (outage)
+                    {
+                        if (outageAttempts++ == 0) outageSince = Stopwatch.GetTimestamp();
+                        canRetry = Stopwatch.GetElapsedTime(outageSince) < VodPartOutageWindow;
+                    }
+                    else
+                    {
+                        outageAttempts = 0;
+                        canRetry = ++serverAttempts <= PartRetryDelays.Length;
+                    }
+                }
                 if (!canRetry)
                     throw new ClipUploadException(ex is OperationCanceledException ? TimeoutMessage : NetworkMessage, ex);
                 _logger.LogWarning(ex, "Part {Part} of {Id} failed; retrying", partNumber, id);
             }
 
-            await Task.Delay(PartRetryDelays[attempt - 1], ct).ConfigureAwait(false);
+            var delay = !vod ? PartRetryDelays[attempt - 1]
+                : outage ? VodPartOutageDelays[Math.Min(outageAttempts, VodPartOutageDelays.Length) - 1]
+                : PartRetryDelays[serverAttempts - 1];
+            await Task.Delay(delay, ct).ConfigureAwait(false);
         }
     }
 
-    private async Task<ClipUploadResult> CompleteAsync(string id, IReadOnlyList<PartDto> parts, string sessionToken,
-        CancellationToken ct)
+    /// <summary>
+    /// A send that failed before any request reached the proxy (no DNS, no route, refused,
+    /// TLS never set up). Anything else may have been counted by the proxy's part cap.
+    /// </summary>
+    internal static bool IsConnectFailure(Exception ex) =>
+        ex is HttpRequestException
+        {
+            HttpRequestError: HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError
+                or HttpRequestError.SecureConnectionError or HttpRequestError.ProxyTunnelError,
+        };
+
+    private async Task<ClipUploadResult> CompleteAsync(string routeBase, string id, IReadOnlyList<PartDto> parts,
+        string sessionToken, CancellationToken ct)
     {
         var json = JsonSerializer.Serialize(new CompleteBodyDto { parts = parts.ToList() });
-        var url = $"{_baseUrl}/clips/{Uri.EscapeDataString(id)}/complete";
+        var url = $"{_baseUrl}/{routeBase}/{Uri.EscapeDataString(id)}/complete";
         for (var attempt = 1; ; attempt++)
         {
             var canRetry = attempt <= CompleteRetryDelays.Length;

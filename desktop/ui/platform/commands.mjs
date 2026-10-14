@@ -104,6 +104,12 @@ const definitions = {
   delete_clip_narration: post("/api/clip/narration/delete"),
   transcribe_clip_narration: post("/api/clip/narration/transcribe"),
   delete_clip: post("/api/clip/delete"),
+  // Full-game sharing runs as one sidecar background job: start answers at once and
+  // vodShareProgress SSE events carry the encode and upload; status is the fallback poll.
+  get_vod_share_status: get("/api/vod-share/status", {"gameId":"integer"}, { timeoutMs: 20_000 }),
+  start_vod_share: post("/api/vod-share/start", { timeoutMs: 60_000 }),
+  cancel_vod_share: post("/api/vod-share/cancel"),
+  stop_vod_share: post("/api/vod-share/stop", { timeoutMs: 30_000 }),
   // C0.7: no main-to-sidecar call may wait longer than 290 s (undici gives up on
   // response headers at 300 s), so the synchronous backfill is bounded just below it.
   run_backfill: post("/api/backfill/start", { payload: false, timeoutMs: 290_000 }),

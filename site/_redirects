@@ -4,3 +4,6 @@
 /learn       /  301
 /learn.html  /  301
 /learn/      /  301
+
+# Shared full games: revu.lol/v/<id> serves vod.html, which reads the id from the path.
+/v/:id       /vod  200

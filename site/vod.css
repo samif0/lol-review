@@ -1,0 +1,312 @@
+/*
+ * Shared full game page (vod.html at /v/<id>): an expiry banner, the native
+ * player, a clickable lane of game moments, the header, and the sharer's notes
+ * when they chose to include them. Same Neutral system as clip.css: tokens only
+ * (tokens.css), hairlines, no gradients or uppercase. Mobile first: one column,
+ * then a 340px notes column at 1024px and up.
+ */
+
+.vod-main {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 24px var(--gutter) 40px;
+}
+
+.vod-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.vod-layout > *,
+.vod-head > * {
+  min-width: 0;
+}
+
+.vod-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--surface);
+  color: var(--t2);
+  font-size: 14px;
+}
+
+/* Player */
+
+.vod-player {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: var(--video);
+}
+
+.vod-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--video);
+}
+
+.vod-layout.is-blocked .vod-video {
+  visibility: hidden;
+}
+
+.vod-player-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--on-video);
+  font-size: 15px;
+  text-align: center;
+}
+
+/* Lane: one tick per moment, at its place in the video. Notes are wider ticks. */
+
+.vod-lane {
+  margin-top: 12px;
+}
+
+.vod-lane-track {
+  position: relative;
+  height: 32px;
+  margin: 0 6px;
+  border-radius: var(--radius-chip);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.vod-lane-playhead {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--primary);
+  pointer-events: none;
+}
+
+.vod-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  margin: 0 0 0 -7px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.vod-mark::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--t2);
+}
+
+.vod-mark.is-win::before { background: var(--result-win); }
+.vod-mark.is-loss::before { background: var(--result-loss); }
+.vod-mark.is-gold::before { background: var(--pending); }
+.vod-mark.is-neutral::before { background: var(--muted); }
+
+.vod-mark.is-note::before {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: 6px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.vod-mark:hover,
+.vod-mark:focus-visible {
+  background: var(--hover);
+}
+
+.vod-mark:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* Header and footer */
+
+.vod-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 16px;
+}
+
+.vod-title {
+  font-size: clamp(22px, 4vw, 28px);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.vod-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.vod-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: var(--radius-chip);
+  background: var(--selected);
+  color: var(--t2);
+  font-size: 12px;
+}
+
+.vod-foot {
+  display: grid;
+  gap: 4px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.vod-foot a {
+  color: var(--text);
+  text-underline-offset: 3px;
+}
+
+.vod-foot-id {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Player notes */
+
+.vod-notes {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.vod-notes-title {
+  margin-bottom: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.vod-notes-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vod-note {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vod-note:hover,
+.vod-note:focus-visible {
+  background: var(--hover);
+}
+
+.vod-note-time {
+  color: var(--t2);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vod-note-kind {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.vod-note-text {
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+/* Loading and unavailable states */
+
+.vod-state {
+  max-width: 520px;
+  margin: 64px auto;
+  text-align: center;
+}
+
+.vod-state-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+}
+
+.vod-state-copy {
+  margin: 0 auto 24px;
+  color: var(--muted);
+}
+
+.vod-spinner {
+  width: 24px;
+  height: 24px;
+  margin: 0 auto 16px;
+  border: 2px solid var(--divider-raised);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: vod-spin .8s linear infinite;
+}
+
+@keyframes vod-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vod-spinner { animation: none; }
+}
+
+@media (min-width: 1024px) {
+  .vod-layout.has-notes {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+
+  .vod-notes {
+    position: sticky;
+    top: calc(var(--header-h) + 16px);
+    max-height: calc(100vh - var(--header-h) - 32px);
+    overflow: auto;
+  }
+}

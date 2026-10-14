@@ -3,7 +3,7 @@ import worker from "../src/index";
 import { MAX_ACTIVE_CLIPS_PER_USER, parseRange } from "../src/clips";
 import { CLIP_UPLOAD_PER_MINUTE_PER_USER, resetUserLimits } from "../src/user-limits";
 import { resetClipViews } from "../src/clip-views";
-import { clip, json, makeEnv, makeFakeDb, makeFakeR2, makeRequest, mp4Bytes, sha256Hex } from "./fakes";
+import { clip, json, makeEnv, makeFakeDb, makeFakeR2, makeRequest, mp4Bytes, runScheduled, sha256Hex } from "./fakes";
 
 // Shared hardened fakes (D1, R2 with known-length stream enforcement, helpers).
 // makeRequest registers a Content-Length request body as a known-length stream,
@@ -603,6 +603,58 @@ describe("clip sharing", () => {
       env({ DB: dbB }),
     );
     expect(ok.status).toBe(200);
+  });
+
+  it("an owner delete whose R2 delete fails keeps an expired purging row; the hourly purge finishes it", async () => {
+    const token = "sess-del-r2";
+    const hash = await sha256Hex(token);
+    const db = makeFakeDb([clip({ id: "Del1234", user_id: 4, r2_key: "clips/Del1234.mp4", size_bytes: 77 })], { [hash]: 4 });
+    db._transcripts.set("Del1234", { clip_id: "Del1234", language: "en", segments_json: "[]", vtt: "", segment_count: 0, created_at: 1 });
+    const r2 = makeFakeR2();
+    r2.store.set("clips/Del1234.mp4", new Uint8Array([1]));
+    const realDelete = r2.bucket.delete.bind(r2.bucket);
+    r2.bucket.delete = (async () => { throw new Error("R2 down"); }) as typeof r2.bucket.delete;
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => { errors.push(String(line)); });
+    const e = env({ DB: db, CLIPS: r2.bucket });
+
+    const res = await worker.fetch(
+      makeRequest("https://proxy.example/clips/Del1234", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }), e,
+    );
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({ ok: true });
+    expect(errors.join(" ")).toContain('"scope":"clips.delete.r2","id":"Del1234"');
+    const row = db._clips.get("Del1234")!;
+    expect(row.status).toBe("purging");
+    expect(row.expires_at).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+    expect((await worker.fetch(makeRequest("https://proxy.example/clip-meta/Del1234"), e)).status).toBe(404);
+
+    r2.bucket.delete = realDelete;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await runScheduled(worker, e);
+    expect(db._clips.has("Del1234")).toBe(false);
+    expect(db._transcripts.has("Del1234")).toBe(false);
+    expect(r2.store.has("clips/Del1234.mp4")).toBe(false);
+  });
+
+  it("lists VOD shares beside clips with kind, quality, has_notes and the watch-page url", async () => {
+    const token = "sess-list-vod";
+    const hash = await sha256Hex(token);
+    const db = makeFakeDb([
+      clip({ id: "Clip001", user_id: 5, created_at: 10 }),
+      clip({ id: "Vod0001", user_id: 5, created_at: 20, kind: "vod", quality: "720p", r2_key: "vods/Vod0001.mp4", title: "Jinx game" }),
+      clip({ id: "Vod0002", user_id: 5, created_at: 30, kind: "vod", quality: "1080p", r2_key: "vods/Vod0002.mp4", status: "uploading" }),
+    ], { [hash]: 5 });
+    db._vodMeta.set("Vod0001", { clip_id: "Vod0001", meta_json: "{}", has_notes: 1, created_at: 1 });
+    const res = await worker.fetch(
+      makeRequest("https://proxy.example/clips/mine", { headers: { Authorization: `Bearer ${token}` } }), env({ DB: db }),
+    );
+    const out = (await json(res)) as { clips: Array<Record<string, unknown>> };
+    expect(out.clips.map((c) => [c.id, c.kind, c.quality, c.has_notes, c.url, c.status])).toEqual([
+      ["Vod0002", "vod", "1080p", false, "https://revu.lol/v/Vod0002", "uploading"],
+      ["Vod0001", "vod", "720p", true, "https://revu.lol/v/Vod0001", "ready"],
+      ["Clip001", "clip", null, false, "https://clips.revu.lol/Clip001", "ready"],
+    ]);
   });
 
   it("lists the caller's own clips", async () => {

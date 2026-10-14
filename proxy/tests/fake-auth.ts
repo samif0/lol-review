@@ -11,7 +11,7 @@
  * and NOCASE fold ASCII only, like SQLite without ICU.
  */
 
-import type { FakeClip, FakeTranscript } from "./fakes";
+import type { FakeClip, FakeTombstone, FakeTranscript, FakeVodMeta } from "./fakes";
 
 export interface FakeUser { id: number; email: string; created_at: number; invite_code_used: string | null }
 export interface FakeLoginRequest {
@@ -32,6 +32,14 @@ export interface FakeAuthState {
   transcribeUsage: Map<string, { audio_seconds: number; requests: number }>;
   /** Linked to makeFakeDb's clip store when the state is passed to it. */
   clips: Map<string, FakeClip>;
+  /** storage_tombstones by r2_key, vod_share_meta by clip_id, vod_share_usage "user|day" -> starts. */
+  tombstones: Map<string, FakeTombstone>;
+  vodShareMeta: Map<string, FakeVodMeta>;
+  vodShareUsage: Map<string, number>;
+  /** upload_part_usage: "user|day" -> puts. */
+  uploadPartUsage: Map<string, number>;
+  /** vod_sharers: user_id -> added_at. */
+  vodSharers: Map<number, number>;
   nextUserId: number;
   nextIdentityId: number;
 }
@@ -42,6 +50,8 @@ export function makeAuthState(): FakeAuthState {
   return {
     users: [], loginRequests: [], identities: [], sessions: [],
     clipTranscripts: new Map(), transcribeUsage: new Map(), clips: new Map(),
+    tombstones: new Map(), vodShareMeta: new Map(), vodShareUsage: new Map(), uploadPartUsage: new Map(),
+    vodSharers: new Map(),
     nextUserId: 1, nextIdentityId: 1,
   };
 }
@@ -107,6 +117,7 @@ function deleteClipsWhere(state: FakeAuthState, pred: (c: FakeClip) => boolean):
   for (const c of [...state.clips.values()]) {
     if (!pred(c)) continue;
     state.clipTranscripts.delete(c.id); // ON DELETE CASCADE
+    state.vodShareMeta.delete(c.id); // ON DELETE CASCADE
     state.clips.delete(c.id);
     n++;
   }
@@ -166,8 +177,23 @@ export function handleAuthFirst(state: FakeAuthState, sql: string, args: unknown
   return { handled: false };
 }
 
+const TOMBSTONE_COPY = /^INSERT OR IGNORE INTO storage_tombstones \(r2_key, upload_id, size_bytes, kind, created_at\) SELECT r2_key, upload_id, size_bytes, kind, \?2 FROM clips WHERE user_id = \?1 AND id IN \((\?\d+(?:, \?\d+)*)\)$/;
+
 export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]): AuthResult {
   const [a1, a2, a3, a4, a5, a6] = args;
+  const copy = TOMBSTONE_COPY.exec(sql);
+  if (copy) {
+    const marks = copy[1].split(", ");
+    if (marks.some((m, i) => m !== `?${i + 3}`) || args.length !== marks.length + 2) throw new Error("fake D1: tombstone placeholder mismatch");
+    let n = 0;
+    for (const id of args.slice(2)) {
+      const c = state.clips.get(id as string);
+      if (!c || c.user_id !== a1 || state.tombstones.has(c.r2_key)) continue;
+      state.tombstones.set(c.r2_key, { r2_key: c.r2_key, upload_id: c.upload_id, size_bytes: c.size_bytes, kind: c.kind, created_at: a2 as number });
+      n++;
+    }
+    return ok(changes(n));
+  }
   switch (sql) {
     case "INSERT INTO login_requests (code, email, purpose, created_at, expires_at, consumed) VALUES (?1, ?2, ?3, ?4, ?5, 0)": {
       if (state.loginRequests.some((r) => r.code === a1)) throw new Error("UNIQUE constraint failed: login_requests.code");
@@ -243,8 +269,29 @@ export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]
       for (const c of state.clips.values()) if (c.user_id === a1 && state.clipTranscripts.delete(c.id)) n++;
       return ok(changes(n));
     }
+    case "DELETE FROM vod_share_meta WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)": {
+      let n = 0;
+      for (const c of state.clips.values()) if (c.user_id === a1 && state.vodShareMeta.delete(c.id)) n++;
+      return ok(changes(n));
+    }
     case "DELETE FROM clips WHERE user_id = ?1":
       return ok(changes(deleteClipsWhere(state, (c) => c.user_id === a1)));
+    case "DELETE FROM vod_share_usage WHERE user_id = ?1": {
+      let n = 0;
+      for (const key of [...state.vodShareUsage.keys()]) {
+        if (key.split("|")[0] === String(a1)) { state.vodShareUsage.delete(key); n++; }
+      }
+      return ok(changes(n));
+    }
+    case "DELETE FROM upload_part_usage WHERE user_id = ?1": {
+      let n = 0;
+      for (const key of [...state.uploadPartUsage.keys()]) {
+        if (key.split("|")[0] === String(a1)) { state.uploadPartUsage.delete(key); n++; }
+      }
+      return ok(changes(n));
+    }
+    case "DELETE FROM vod_sharers WHERE user_id = ?1":
+      return ok(changes(state.vodSharers.delete(a1 as number) ? 1 : 0));
     case "DELETE FROM sessions WHERE user_id = ?1":
       return ok(changes(deleteWhere(state.sessions, (s) => s.user_id === a1)));
     case "DELETE FROM identities WHERE user_id = ?1":
@@ -264,6 +311,7 @@ export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]
       deleteWhere(state.sessions, (s) => s.user_id === a1);
       deleteWhere(state.identities, (i) => i.user_id === a1);
       deleteClipsWhere(state, (c) => c.user_id === a1);
+      state.vodSharers.delete(a1 as number);
       return ok(changes(n));
     }
   }
@@ -280,9 +328,10 @@ export function handleAuthAll(state: FakeAuthState, sql: string, args: unknown[]
           .sort((x, y) => x.id - y.id)
           .map((i) => ({ provider: i.provider, email: i.email, display_name: i.display_name, created_at: i.created_at, last_used_at: i.last_used_at })),
       });
-    case "SELECT id, r2_key, upload_id FROM clips WHERE user_id = ?1":
+    case "SELECT id, r2_key, upload_id, size_bytes, kind FROM clips WHERE user_id = ?1":
       return ok({
-        results: [...state.clips.values()].filter((c) => c.user_id === a1).map((c) => ({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id })),
+        results: [...state.clips.values()].filter((c) => c.user_id === a1)
+          .map((c) => ({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id, size_bytes: c.size_bytes, kind: c.kind })),
       });
   }
   return { handled: false };
@@ -301,16 +350,24 @@ export function handleAuthBatch(state: FakeAuthState, statements: Array<{ sql: s
     clips: new Map(state.clips),
     clipTranscripts: new Map(state.clipTranscripts),
     transcribeUsage: new Map(state.transcribeUsage),
+    tombstones: new Map(state.tombstones),
+    vodShareMeta: new Map(state.vodShareMeta),
+    vodShareUsage: new Map(state.vodShareUsage),
+    vodSharers: new Map(state.vodSharers),
   };
   const restore = () => {
     state.users.splice(0, state.users.length, ...snapshot.users);
     state.loginRequests.splice(0, state.loginRequests.length, ...snapshot.loginRequests);
     state.identities.splice(0, state.identities.length, ...snapshot.identities);
     state.sessions.splice(0, state.sessions.length, ...snapshot.sessions);
-    for (const [name, saved] of [["clips", snapshot.clips], ["clipTranscripts", snapshot.clipTranscripts], ["transcribeUsage", snapshot.transcribeUsage]] as const) {
-      const live = state[name] as Map<string, unknown>;
+    for (const [name, saved] of [
+      ["clips", snapshot.clips], ["clipTranscripts", snapshot.clipTranscripts], ["transcribeUsage", snapshot.transcribeUsage],
+      ["tombstones", snapshot.tombstones], ["vodShareMeta", snapshot.vodShareMeta], ["vodShareUsage", snapshot.vodShareUsage],
+      ["vodSharers", snapshot.vodSharers],
+    ] as const) {
+      const live = state[name] as Map<unknown, unknown>;
       live.clear();
-      for (const [k, v] of saved as Map<string, unknown>) live.set(k, v);
+      for (const [k, v] of saved as Map<unknown, unknown>) live.set(k, v);
     }
   };
   const results: unknown[] = [];

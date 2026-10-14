@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shared game - Revu</title>
+  <meta name="description" content="A League of Legends game shared with Revu." />
+  <!-- Shared games are unlisted: never indexed, and no video card for link previews. -->
+  <meta name="robots" content="noindex, nofollow" />
+
+  <meta property="og:site_name" content="Revu" />
+  <meta property="og:title" content="Shared League game - Revu" />
+  <meta property="og:description" content="Watch a League of Legends game shared with Revu." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="https://revu.lol/og-image.jpg" />
+
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#1c1d1f" />
+
+  <link rel="icon" type="image/svg+xml" href="/revu.svg" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/vod.css" />
+
+  <script src="/vod.js" defer></script>
+</head>
+<body class="vod-watch">
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="12 18 77 64" aria-hidden="true" focusable="false"><path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/></svg><span>Revu</span></a>
+      <a class="btn-pill header-cta" href="/">Get Revu</a>
+    </div>
+  </header>
+
+  <main class="vod-main">
+    <section id="state-loading" class="vod-state" aria-live="polite">
+      <div class="vod-spinner" aria-hidden="true"></div>
+      <p class="vod-state-copy">Loading game...</p>
+    </section>
+
+    <section id="state-missing" class="vod-state" hidden>
+      <h1 id="state-title" class="vod-state-title">Game not available</h1>
+      <p id="state-copy" class="vod-state-copy">This shared game isn't available. Shared games stay up for 3 days.</p>
+      <a href="/" class="btn-primary">Back to Revu</a>
+    </section>
+
+    <section id="state-game" class="vod-layout" hidden>
+      <div class="vod-primary">
+        <p id="vod-expiry" class="vod-banner" role="status" hidden></p>
+
+        <div class="vod-player">
+          <video id="vod-video" class="vod-video" controls playsinline preload="metadata"></video>
+          <p id="vod-player-msg" class="vod-player-msg" role="status" hidden></p>
+        </div>
+
+        <div id="vod-lane" class="vod-lane" hidden>
+          <div id="vod-lane-track" class="vod-lane-track" role="group" aria-label="Moments in this game">
+            <span id="vod-lane-playhead" class="vod-lane-playhead" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <div class="vod-head">
+          <div class="vod-head-text">
+            <h1 id="vod-title" class="vod-title">Shared game</h1>
+            <p id="vod-meta" class="vod-meta" hidden></p>
+          </div>
+          <span id="vod-quality" class="vod-pill" hidden></span>
+        </div>
+
+        <div class="vod-foot">
+          <p>Only people with the link can see this page.</p>
+          <p>To report this video, contact us on <a href="/discord">Discord</a>. <span class="vod-foot-id">Video ID <span id="vod-id"></span></span></p>
+        </div>
+      </div>
+
+      <aside id="vod-notes" class="vod-notes" aria-labelledby="vod-notes-title" hidden>
+        <h2 id="vod-notes-title" class="vod-notes-title">Player notes</h2>
+        <ol id="vod-notes-list" class="vod-notes-list"></ol>
+      </aside>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <nav class="footer-links" aria-label="Footer">
+        <a href="https://github.com/samif0/lol-review" rel="noopener">GitHub</a>
+        <a href="/discord">Discord</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+      </nav>
+      <p class="riot-disclaimer">
+        Revu isn't endorsed by Riot Games and doesn't reflect the views
+        or opinions of anyone officially involved in producing or managing
+        League of Legends. League of Legends and Riot Games are trademarks
+        or registered trademarks of Riot Games, Inc.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -513,6 +513,46 @@ describe("multipart clip uploads", () => {
     expect((await json(denied)).message).toBe("Active clip quota reached. Delete old clips or let them expire.");
   });
 
+  it("caps part PUTs per row at 2 x part_count + 4; a refused PUT reaches no R2 call", async () => {
+    const s = await setup();
+    const up = await startUpload(s, 100); // 1 part: 6 attempts
+    const bytes = payload(100);
+    let last: Record<string, unknown> = {};
+    for (let i = 0; i < 6; i++) {
+      const res = await putPart(s.e, up.id, 1, bytes);
+      expect(res.status).toBe(200);
+      last = await json(res);
+    }
+    const capped = await putPart(s.e, up.id, 1, bytes);
+    expect(capped.status).toBe(429);
+    expect(await json(capped)).toEqual({
+      error: "too_many_part_uploads", message: "This upload retried too many times. Start the share again.",
+    });
+    expect(s.r2.calls.uploadPart).toBe(6);
+    expect(s.db._clips.get(up.id)!.part_puts).toBe(6);
+    // Validation refusals spend no attempt, and the upload can still complete.
+    expect((await putPart(s.e, up.id, 1, new Uint8Array(99))).status).toBe(400);
+    expect(s.db._clips.get(up.id)!.part_puts).toBe(6);
+    expect((await complete(s.e, up.id, [last])).status).toBe(201);
+  });
+
+  it("claims the attempt (and records activity) before the R2 part call", async () => {
+    const s = await setup();
+    const up = await startUpload(s, 100);
+    const row = s.db._clips.get(up.id)!;
+    row.last_activity_at = nowSec() - 600;
+    const handle = s.r2.bucket.resumeMultipartUpload.bind(s.r2.bucket);
+    s.r2.bucket.resumeMultipartUpload = ((key: string, uploadId: string) => ({
+      ...handle(key, uploadId),
+      uploadPart: async () => { throw new Error("R2 down"); },
+    })) as typeof s.r2.bucket.resumeMultipartUpload;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await putPart(s.e, up.id, 1, payload(100));
+    expect(res.status).toBe(502);
+    expect(row.part_puts).toBe(1);
+    expect(row.last_activity_at).toBeGreaterThanOrEqual(nowSec() - 2);
+  });
+
   it("the fake R2 rejects a stream without a known length (JS-wrapped bodies)", async () => {
     const { bucket } = makeFakeR2();
     const req = makeRequest(`${BASE}/x`, { method: "PUT", headers: { "Content-Length": "3" }, body: new Uint8Array([1, 2, 3]) });

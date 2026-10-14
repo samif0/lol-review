@@ -4,8 +4,8 @@
  *
  * These routes must NEVER call chargeRiot: that spends the Riot Durable
  * Object budget, which is reserved for the Riot passthrough. Multipart part
- * uploads are not bucketed at all; they are bounded by auth, row ownership and
- * part_count.
+ * uploads are not bucketed here; they are bounded by auth, row ownership, the
+ * per-row cap and the per-user daily budget in D1 (upload_part_usage).
  */
 
 import { jsonResponse } from "./http";
@@ -18,10 +18,14 @@ const MAX_TRACKED_BUCKETS = 10_000;
 export const UPLOAD_INIT_PER_MINUTE_PER_USER = 6;
 export const CLIP_UPLOAD_PER_MINUTE_PER_USER = 30;
 export const TRANSCRIBE_PER_MINUTE_PER_USER = 30;
+export const VOD_STATUS_PER_MINUTE_PER_USER = 30;
+export const VOD_INIT_PER_MINUTE_PER_USER = 6;
 
 const uploadInitBuckets = new Map<string, Bucket>();
 const clipUploadBuckets = new Map<string, Bucket>();
 const transcribeBuckets = new Map<string, Bucket>();
+const vodStatusBuckets = new Map<string, Bucket>();
+const vodInitBuckets = new Map<string, Bucket>();
 
 function pruneBuckets(map: Map<string, Bucket>, nowMs: number): void {
   if (map.size < MAX_TRACKED_BUCKETS) return;
@@ -70,9 +74,21 @@ export function transcribeLimitOrDeny(userId: number): Response | null {
   return takeOrDeny(transcribeBuckets, userId, TRANSCRIBE_PER_MINUTE_PER_USER);
 }
 
+/** GET /vod-shares/status: 30 per minute per user. */
+export function vodStatusLimitOrDeny(userId: number): Response | null {
+  return takeOrDeny(vodStatusBuckets, userId, VOD_STATUS_PER_MINUTE_PER_USER);
+}
+
+/** POST /vod-shares/uploads: 6 per minute per user, separate from clip init. */
+export function vodInitLimitOrDeny(userId: number): Response | null {
+  return takeOrDeny(vodInitBuckets, userId, VOD_INIT_PER_MINUTE_PER_USER);
+}
+
 /** Test hook: forget every bucket in this isolate. */
 export function resetUserLimits(): void {
   uploadInitBuckets.clear();
   clipUploadBuckets.clear();
   transcribeBuckets.clear();
+  vodStatusBuckets.clear();
+  vodInitBuckets.clear();
 }
