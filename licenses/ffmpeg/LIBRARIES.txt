@@ -1,0 +1,664 @@
+Libraries in ffmpeg.exe
+=======================
+
+ffmpeg.exe is one statically linked program. Besides FFmpeg itself it contains
+the libraries below, compiled by BtbN/FFmpeg-Builds at release
+autobuild-2026-08-31-13-27 (variant win64-gpl-8.1). Each entry names the
+source repository and the exact revision that was compiled (from scripts.d/ in
+the build scripts at that release), its license, and where its license texts
+are in this folder. Header-only entries are interfaces compiled into
+ffmpeg.exe; the libraries behind them are not shipped with Revu.
+
+FFmpeg
+  Source:    https://github.com/FFmpeg/FFmpeg.git
+  Revision:  1a748fe2cd43e3ead22fafb1b5b7d77f153898a8
+  License:   GPL-3.0-or-later for this build (--enable-gpl --enable-version3);
+             FFmpeg's own code is LGPL-2.1-or-later with optional GPL parts
+  Texts:     third-party/ffmpeg/LICENSE.md.txt,
+             third-party/ffmpeg/COPYING.LGPLv2.1.txt,
+             third-party/ffmpeg/COPYING.GPLv2.txt,
+             third-party/ffmpeg/COPYING.LGPLv3.txt
+  Note:      The GPLv3 text that covers this build is ../COPYING.GPLv3.txt.
+
+mingw-w64 (headers, CRT and winpthreads)
+  Source:    https://git.code.sf.net/p/mingw-w64/mingw-w64.git
+  Revision:  5ea8e9facd013b815f5f29f20ef26a566319a3de
+  License:   ZPL-2.1, with MIT (winpthreads) and public-domain parts
+  Texts:     third-party/mingw-w64/COPYING.txt,
+             third-party/mingw-w64/COPYING.MinGW-w64-runtime.txt,
+             third-party/mingw-w64/COPYING.winpthreads.txt
+
+mingw-std-threads
+  Source:    https://github.com/meganz/mingw-std-threads.git
+  Revision:  c931bac289dd431f1dd30fc4a5d1a7be36668073
+  License:   BSD-2-Clause
+  Texts:     third-party/mingw-std-threads/LICENSE.txt
+
+GCC 15.2.0 runtime libraries (libgcc, libstdc++, libgomp)
+  Source:    https://gcc.gnu.org/git/gcc.git
+  Revision:  releases/gcc-15.2.0 (commit 5115c7e447fc07457443df874bf57840e8316d5f)
+  License:   GPL-3.0-or-later WITH GCC-exception-3.1
+  Texts:     third-party/gcc-runtime/COPYING.RUNTIME.txt,
+             third-party/gcc-runtime/COPYING3.txt
+  Note:      Built with crosstool-NG 1.28.0.23_185f348 and binutils 2.46.0.
+
+AMD AMF headers
+  Source:    https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git
+  Revision:  c35f613aea2e5057a688c979e75b1cf24253297e
+  License:   MIT
+  Texts:     third-party/amf/LICENSE.txt
+
+aribb24
+  Source:    https://github.com/nkoriyama/aribb24.git
+  Revision:  5e9be272f96e00f15a2f3c5f8ba7e124862aec38
+  License:   LGPL-3.0-or-later
+  Texts:     third-party/aribb24/COPYING.txt
+
+AviSynth+ C interface header
+  Source:    https://github.com/AviSynth/AviSynthPlus.git
+  Revision:  de1d1fc0d69e6d308235491b24b8e9b26ac023ff
+  License:   GPL-2.0-or-later with the AviSynth C interface linking exception
+  Texts:     third-party/avisynth/avisynth_c.h-license.txt,
+             third-party/avisynth/gpl.txt
+  Note:      Header only; AviSynth itself is loaded at run time if installed.
+
+Brotli
+  Source:    https://github.com/google/brotli.git
+  Revision:  8e10eeb3378f6c459dbaf033ca6727e9816afccb
+  License:   MIT
+  Texts:     third-party/brotli/LICENSE.txt
+  Used by:   libjxl
+
+Chromaprint
+  Source:    https://github.com/acoustid/chromaprint.git
+  Revision:  aed8eba2202dd9d7b3b0a56c77904cc805490d72
+  License:   MIT, with LGPL-2.1-or-later parts
+  Texts:     third-party/chromaprint/LICENSE.md.txt
+
+dav1d
+  Source:    https://code.videolan.org/videolan/dav1d.git
+  Revision:  54706fc6bc0cdecab7e9593974a4039cc038fca7
+  License:   BSD-2-Clause
+  Texts:     third-party/dav1d/COPYING.txt
+
+davs2
+  Source:    https://github.com/pkuvcl/davs2.git
+  Revision:  b41cf117452e2d73d827f02d3e30aa20f1c721ac
+  License:   GPL-2.0-or-later
+  Texts:     third-party/davs2/COPYING.txt
+
+fast_float
+  Source:    https://github.com/fastfloat/fast_float.git
+  Revision:  97b54ca9e75f5303507699d27c6b4f4efe4641a1
+  License:   Apache-2.0 OR BSL-1.0 OR MIT
+  Texts:     third-party/fast_float/LICENSE-MIT.txt,
+             third-party/fast_float/LICENSE-APACHE.txt,
+             third-party/fast_float/LICENSE-BOOST.txt
+  Used by:   libplacebo
+
+FFTW 3
+  Source:    https://github.com/FFTW/fftw3.git
+  Revision:  93ed4c786934aec9946f8dda4b4e3eb08f8be41c
+  License:   GPL-2.0-or-later
+  Texts:     third-party/fftw3/COPYING.txt, third-party/fftw3/COPYRIGHT.txt
+  Used by:   Rubber Band, Chromaprint
+
+Fontconfig
+  Source:    https://gitlab.freedesktop.org/fontconfig/fontconfig.git
+  Revision:  d32a1911248576d01583557efcfe4b48fb2d0a5e
+  License:   HPND-sell-variant (MIT-style)
+  Texts:     third-party/fontconfig/COPYING.txt
+
+FreeType
+  Source:    https://gitlab.freedesktop.org/freetype/freetype.git
+  Revision:  9e9d3b73f31367dbb4261f93c727a277f6632c77
+  License:   FTL OR GPL-2.0-or-later (used under the FTL)
+  Texts:     third-party/freetype/LICENSE.TXT, third-party/freetype/FTL.TXT
+
+frei0r (plugin header)
+  Source:    https://github.com/dyne/frei0r.git
+  Revision:  253addfd4bea3c90b0bf765589ca28ea18f3ddc0
+  License:   GPL-2.0-or-later
+  Texts:     third-party/frei0r/COPYING.txt
+  Note:      Header only; frei0r plugins are loaded at run time if installed.
+
+Game_Music_Emu
+  Source:    https://github.com/libgme/game-music-emu.git
+  Revision:  fe8da4b6d3876d7542c2fb69d94487e19836d678
+  License:   LGPL-2.1-or-later (some parts GPL-2.0-or-later)
+  Texts:     third-party/game-music-emu/license.txt,
+             third-party/game-music-emu/license.gpl2.txt
+
+glad (generated loader)
+  Source:    https://github.com/Dav1dde/glad.git
+  Revision:  73db193f853e2ee079bf3ca8a64aa2eaf6459043
+  License:   MIT; generated code also derives from Khronos specifications
+             under Apache-2.0
+  Texts:     third-party/glad/LICENSE.txt
+  Used by:   libplacebo
+
+glslang
+  Source:    https://github.com/KhronosGroup/glslang.git
+  Revision:  2ee090f606ace31e07f584b1c1b9ddf4909ce202
+  License:   BSD-3-Clause, BSD-2-Clause, MIT and Apache-2.0 parts (see
+             LICENSE.txt)
+  Texts:     third-party/glslang/LICENSE.txt
+  Used by:   shaderc
+
+GNU FriBidi
+  Source:    https://github.com/fribidi/fribidi.git
+  Revision:  04a8cb7a3674717e509c79cd6ee3e127d0c75f4c
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/fribidi/COPYING.txt
+
+GNU libiconv (with gnulib)
+  Source:    https://git.savannah.gnu.org/git/libiconv.git
+  Revision:  5e517e5bf0e1b4575ad431e81d7a4750fa2b284e
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/libiconv/COPYING.LIB.txt
+  Note:      gnulib revision 09b1597470c456aeac7e7d19b214821d4526934d
+             (https://git.savannah.gnu.org/git/gnulib.git). COPYING.LIB.txt is
+             the standard LGPL-2.1 text.
+
+GNU MP
+  Source:    https://github.com/BtbN/gmplib.git
+  Revision:  9994908f090c694f8a152d660dc6852e0c48557a
+  License:   LGPL-3.0-or-later OR GPL-2.0-or-later
+  Texts:     third-party/gmp/COPYING.LESSERv3.txt,
+             third-party/gmp/COPYINGv3.txt, third-party/gmp/COPYINGv2.txt
+
+HarfBuzz
+  Source:    https://github.com/harfbuzz/harfbuzz.git
+  Revision:  d8dabe2594596c656b54c3b0072f3aa3093f30a9
+  License:   MIT-Modern-Variant ("Old MIT")
+  Texts:     third-party/harfbuzz/COPYING.txt
+
+Highway
+  Source:    https://github.com/google/highway.git
+  Revision:  457c891775a7397bdb0376bb1031e6e027af1c48
+  License:   Apache-2.0 OR BSD-3-Clause
+  Texts:     third-party/highway/LICENSE.txt,
+             third-party/highway/LICENSE-BSD3.txt
+  Used by:   libjxl
+
+Intel libvpl
+  Source:    https://github.com/intel/libvpl.git
+  Revision:  674d015bcb294bc39fa276e99a652ea045423e82
+  License:   MIT
+  Texts:     third-party/libvpl/LICENSE.txt
+
+Kvazaar
+  Source:    https://github.com/ultravideo/kvazaar.git
+  Revision:  d6815293f34a094e26ba6c50b8644660ddc13e09
+  License:   BSD-3-Clause
+  Texts:     third-party/kvazaar/LICENSE.txt
+
+LAME
+  Source:    https://svn.code.sf.net/p/lame/svn/trunk/lame
+  Revision:  r6761
+  License:   LGPL-2.0-or-later
+  Texts:     third-party/lame/COPYING.txt, third-party/lame/LICENSE.txt
+  Note:      Subversion revision 6761. COPYING.txt and LICENSE.txt are from
+             the LAME 4.0 release.
+
+LCEVCdec
+  Source:    https://github.com/v-novaltd/LCEVCdec.git
+  Revision:  a254bd474649e5dcd8182689ac414420bfe8d8c3
+  License:   BSD-3-Clause-Clear
+  Texts:     third-party/lcevcdec/COPYING.txt,
+             third-party/lcevcdec/LICENSE.md.txt
+
+libaom
+  Source:    https://aomedia.googlesource.com/aom
+  Revision:  95f420511f698ea201e8928464704dc30da4b568
+  License:   BSD-2-Clause, with the Alliance for Open Media Patent License 1.0
+  Texts:     third-party/aom/LICENSE.txt, third-party/aom/PATENTS.txt
+
+libaribcaption
+  Source:    https://github.com/xqq/libaribcaption.git
+  Revision:  c64c23b8905ba514b87c9789269e9f66f949ffe0
+  License:   MIT
+  Texts:     third-party/libaribcaption/LICENSE.txt
+
+libass
+  Source:    https://github.com/libass/libass.git
+  Revision:  3087d2b2ffda76602a17f9b09d25cb8addc8d313
+  License:   ISC
+  Texts:     third-party/libass/COPYING.txt
+
+libbluray
+  Source:    https://code.videolan.org/videolan/libbluray.git
+  Revision:  065247e5ef40ccf39857db81e2c1368354a23ef8
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/libbluray/COPYING.txt
+  Note:      COPYING.txt is from the libbluray 1.5.0 release.
+
+libdvdcss
+  Source:    https://code.videolan.org/videolan/libdvdcss.git
+  Revision:  811ce97a1d4d1c9d936f4b2707f533a9ef768251
+  License:   GPL-2.0-or-later
+  Texts:     third-party/libdvdcss/COPYING.txt
+  Used by:   libdvdread
+  Note:      COPYING.txt is the standard GPL-2.0 text.
+
+libdvdnav
+  Source:    https://code.videolan.org/videolan/libdvdnav.git
+  Revision:  2ffc50b5c37a6ddc086829203fc44e95588198dd
+  License:   GPL-2.0-or-later
+  Texts:     third-party/libdvdnav/COPYING.txt
+  Note:      COPYING.txt is from the libdvdnav 7.0.0 release.
+
+libdvdread
+  Source:    https://code.videolan.org/videolan/libdvdread.git
+  Revision:  ce9bdb7775601f4e6b95136b875bc72a53c5ba7d
+  License:   GPL-2.0-or-later
+  Texts:     third-party/libdvdread/COPYING.txt
+  Note:      COPYING.txt is from the libdvdread 7.1.1 release.
+
+libjxl
+  Source:    https://github.com/libjxl/libjxl.git
+  Revision:  d089091afeb7b00b3d0fec6f019d35eaa3b2b410
+  License:   BSD-3-Clause
+  Texts:     third-party/libjxl/LICENSE.txt, third-party/libjxl/PATENTS.txt
+
+libogg
+  Source:    https://github.com/xiph/ogg.git
+  Revision:  06a5e0262cdc28aa4ae6797627a783b5010440f0
+  License:   BSD-3-Clause
+  Texts:     third-party/libogg/COPYING.txt
+  Used by:   libvorbis, libtheora, libopenmpt
+
+libopenmpt
+  Source:    https://github.com/OpenMPT/openmpt.git
+  Revision:  1b000d4bca071364157b5d35940efe4feecd2e0a
+  License:   BSD-3-Clause
+  Texts:     third-party/libopenmpt/LICENSE.txt
+
+libplacebo
+  Source:    https://code.videolan.org/videolan/libplacebo.git
+  Revision:  22ee762e8e0890fc54068beb670310f0edce7263
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/libplacebo/LICENSE.txt
+  Note:      Submodules: fast_float 97b54ca9e75f5303507699d27c6b4f4efe4641a1,
+             glad 73db193f853e2ee079bf3ca8a64aa2eaf6459043, Vulkan-Headers
+             74d8a6cb930c68ef617b202c3ff3c59d919e086b.
+
+libpng
+  Source:    https://github.com/glennrp/libpng.git
+  Revision:  d1d0abeffede1cc898ddc3d0e600839cf026d749
+  License:   libpng-2.0
+  Texts:     third-party/libpng/LICENSE.md.txt
+  Used by:   aribb24
+
+librist
+  Source:    https://code.videolan.org/rist/librist.git
+  Revision:  4f45ef8f78983892d52ccd52d9f675435b23738f
+  License:   BSD-2-Clause
+  Texts:     third-party/librist/COPYING.txt
+  Note:      COPYING.txt is from the librist 0.2.20 release.
+
+libsamplerate
+  Source:    https://github.com/libsndfile/libsamplerate.git
+  Revision:  2ccde9568cca73c7b32c97fefca2e418c16ae5e3
+  License:   BSD-2-Clause
+  Texts:     third-party/libsamplerate/COPYING.txt
+  Used by:   Rubber Band, SDL2
+
+libssh
+  Source:    https://gitlab.com/libssh/libssh-mirror.git
+  Revision:  1dc52926c54b59ea7a3350a59a476bb76da3ff33
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/libssh/COPYING.txt
+
+libtheora
+  Source:    https://github.com/xiph/theora.git
+  Revision:  28fd5ec77f0ad0e07a371cef1047828116f6bd8a
+  License:   BSD-3-Clause
+  Texts:     third-party/libtheora/COPYING.txt,
+             third-party/libtheora/LICENSE.txt
+
+libudfread
+  Source:    https://code.videolan.org/videolan/libudfread.git
+  Revision:  0151d9d61e5f832664f502608d41a77c28846efa
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/libudfread/COPYING.txt
+  Used by:   libbluray
+  Note:      COPYING.txt is from the libudfread 1.2.0 release.
+
+libunibreak
+  Source:    https://github.com/adah1972/libunibreak.git
+  Revision:  3ce4bfa3129ff3738046a44a6db533d2ce25af2b
+  License:   Zlib
+  Texts:     third-party/libunibreak/LICENCE.txt
+  Used by:   libass
+
+libva
+  Source:    https://github.com/intel/libva.git
+  Revision:  6b07f7100512817f736967e899b8c26313c20623
+  License:   MIT
+  Texts:     third-party/libva/COPYING.txt
+
+libvmaf
+  Source:    https://github.com/Netflix/vmaf.git
+  Revision:  e80d6c593e6e2327687dccd00b7cc9c91036d79f
+  License:   BSD-2-Clause-Patent
+  Texts:     third-party/vmaf/LICENSE.txt
+
+libvorbis
+  Source:    https://github.com/xiph/vorbis.git
+  Revision:  1b75110b5a2754ba1931d82dd83cb822b266a21d
+  License:   BSD-3-Clause
+  Texts:     third-party/libvorbis/COPYING.txt
+
+libvpx
+  Source:    https://chromium.googlesource.com/webm/libvpx
+  Revision:  9cc8e1c18024d6b64422ecb7fdd7a43c8e873908
+  License:   BSD-3-Clause
+  Texts:     third-party/libvpx/LICENSE.txt, third-party/libvpx/PATENTS.txt
+
+libwebp
+  Source:    https://chromium.googlesource.com/webm/libwebp
+  Revision:  ba8358578ecbc4c75f0723163275de00dec0c704
+  License:   BSD-3-Clause
+  Texts:     third-party/libwebp/COPYING.txt, third-party/libwebp/PATENTS.txt
+
+libxml2
+  Source:    https://github.com/GNOME/libxml2.git
+  Revision:  c63248941708bc1d2e3a4292954593312212f6ca
+  License:   MIT
+  Texts:     third-party/libxml2/Copyright.txt
+
+Lilv
+  Source:    https://github.com/lv2/lilv.git
+  Revision:  4b8f30055fa5cb4134a2eb45fc1555bc04289314
+  License:   ISC
+  Texts:     third-party/lilv/COPYING.txt
+
+Little CMS
+  Source:    https://github.com/mm2/Little-CMS.git
+  Revision:  a5b898c7e3985550aab846a2abb4ae08904a857f
+  License:   MIT
+  Texts:     third-party/lcms2/LICENSE.txt
+  Used by:   libjxl
+
+LV2
+  Source:    https://github.com/lv2/lv2.git
+  Revision:  3c57dae600a5ad8d05acd53ee3490f7d91cb7be6
+  License:   ISC
+  Texts:     third-party/lv2/COPYING.txt
+  Used by:   Lilv
+
+Mbed TLS
+  Source:    https://github.com/ARMmbed/mbedtls.git
+  Revision:  v4.2.0 (commit ece41aa84d7879d7e55c59e955a5884b541f7f3b)
+  License:   Apache-2.0 OR GPL-2.0-or-later
+  Texts:     third-party/mbedtls/LICENSE.txt
+  Used by:   librist
+
+nv-codec-headers (sdk/13.0)
+  Source:    https://github.com/FFmpeg/nv-codec-headers.git
+  Revision:  ced4f8eba3ba5dd431932cba17928f0dffdaeb2b
+  License:   MIT
+  Texts:     third-party/nv-codec-headers/nvEncodeAPI.h-license.txt
+  Note:      Header only; the NVIDIA driver is loaded at run time if present.
+
+OpenAL Soft
+  Source:    https://github.com/kcat/openal-soft.git
+  Revision:  c157b87cb9eb58d747748e49f82ee4a64d1dcf8b
+  License:   LGPL-2.0-or-later (some parts BSD-3-Clause, Apache-2.0 and the
+             PFFFT license)
+  Texts:     third-party/openal-soft/COPYING.txt,
+             third-party/openal-soft/LICENSE-pffft.txt,
+             third-party/openal-soft/LICENSE.BSD-3-Clause.txt,
+             third-party/openal-soft/LICENSE.Apache-2.0.txt
+
+OpenAPV
+  Source:    https://github.com/AcademySoftwareFoundation/openapv.git
+  Revision:  d625af974550427e638574db61c270fe7f8c5a73
+  License:   BSD-3-Clause
+  Texts:     third-party/openapv/LICENSE.txt
+
+OpenCL Headers
+  Source:    https://github.com/KhronosGroup/OpenCL-Headers.git
+  Revision:  c9c8ccfab584f9f7610057c4633dbd3df7e012cc
+  License:   Apache-2.0
+  Texts:     third-party/opencl-headers/LICENSE.txt
+
+OpenCL ICD Loader
+  Source:    https://github.com/KhronosGroup/OpenCL-ICD-Loader.git
+  Revision:  18fdcd58286376124f938948aa8ed156079c1c16
+  License:   Apache-2.0
+  Texts:     third-party/opencl-icd-loader/LICENSE.txt
+
+OpenCORE AMR
+  Source:    https://git.code.sf.net/p/opencore-amr/code
+  Revision:  7dba8c32238418ce0b316a852b2224df586ca896
+  License:   Apache-2.0
+  Texts:     third-party/opencore-amr/LICENSE.txt,
+             third-party/opencore-amr/NOTICE.txt
+  Note:      LICENSE.txt and NOTICE.txt are from the opencore-amr 0.1.6
+             release.
+
+OpenH264
+  Source:    https://github.com/cisco/openh264.git
+  Revision:  98bc7cbbeb7381c94ef8f9a5d158327abbf6b8b9
+  License:   BSD-2-Clause
+  Texts:     third-party/openh264/LICENSE.txt
+  Note:      Compiled from source; this is not Cisco's binary distribution.
+
+OpenJPEG
+  Source:    https://github.com/uclouvain/openjpeg.git
+  Revision:  402ef5862195b177ea0a7788f2a6ef2804e62285
+  License:   BSD-2-Clause
+  Texts:     third-party/openjpeg/LICENSE.txt
+
+OpenSSL
+  Source:    https://github.com/openssl/openssl.git
+  Revision:  openssl-3.6.3 (commit aae016bfd52fcad2bc9657c2c782cfdf73b1ed5f)
+  License:   Apache-2.0
+  Texts:     third-party/openssl/LICENSE.txt
+  Used by:   libssh, SRT, libaribcaption
+
+Opus
+  Source:    https://github.com/xiph/opus.git
+  Revision:  3da9f7a6db1c05c3996cb363a9d1931a978bf1be
+  License:   BSD-3-Clause
+  Texts:     third-party/opus/COPYING.txt
+
+rav1e
+  Source:    https://github.com/xiph/rav1e.git
+  Revision:  564ae3b0007ae2b06893fd7166bf88c5a84c5b63
+  License:   BSD-2-Clause, with the Alliance for Open Media Patent License 1.0
+  Texts:     third-party/rav1e/LICENSE.txt, third-party/rav1e/PATENTS.txt
+  Note:      Its Rust crate dependencies are pinned by Cargo.lock at this
+             revision.
+
+Rubber Band Library
+  Source:    https://github.com/breakfastquay/rubberband.git
+  Revision:  e4296ac80b1170018a110bc326fd0d45a0eb27d6
+  License:   GPL-2.0-or-later
+  Texts:     third-party/rubberband/COPYING.txt
+
+SDL2
+  Source:    https://github.com/libsdl-org/SDL.git
+  Revision:  a2e7c76bda17c853ba93c7d2c9fdddf8a9d621d1
+  License:   Zlib
+  Texts:     third-party/sdl2/LICENSE.txt
+
+Serd
+  Source:    https://github.com/drobilla/serd.git
+  Revision:  b6053bb2a4533e6a8e3821c1061f140d5e666938
+  License:   ISC
+  Texts:     third-party/serd/COPYING.txt
+  Used by:   Lilv
+
+shaderc
+  Source:    https://github.com/google/shaderc.git
+  Revision:  7060a6615a1c6e2515e696651eea685524ecadb5
+  License:   Apache-2.0
+  Texts:     third-party/shaderc/LICENSE.txt
+
+Snappy
+  Source:    https://github.com/google/snappy.git
+  Revision:  747488a9f3d0daf9b639b6704d7188fba48af179
+  License:   BSD-3-Clause
+  Texts:     third-party/snappy/COPYING.txt
+
+Sord
+  Source:    https://github.com/drobilla/sord.git
+  Revision:  4b5232bb91e7f2f1b84df384494d073fabbcd312
+  License:   ISC
+  Texts:     third-party/sord/COPYING.txt
+  Used by:   Lilv
+
+SoX Resampler (libsoxr)
+  Source:    https://git.code.sf.net/p/soxr/code
+  Revision:  945b592b70470e29f917f4de89b4281fbbd540c0
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/soxr/LICENCE.txt, third-party/soxr/COPYING.LGPL.txt
+
+SPIRV-Cross
+  Source:    https://github.com/KhronosGroup/SPIRV-Cross.git
+  Revision:  9c3c8e2cefdd8194b193bb8ed2fdff4d5527e382
+  License:   Apache-2.0 (some files MIT)
+  Texts:     third-party/spirv-cross/LICENSE.txt
+
+SPIRV-Headers
+  Source:    https://github.com/KhronosGroup/SPIRV-Headers.git
+  Revision:  f0bf307f7c49d26484db596185cece53c37701fc
+  License:   MIT (Khronos)
+  Texts:     third-party/spirv-headers/LICENSE.txt
+  Note:      shaderc builds against SPIRV-Headers
+             942fe4b988359a0750b79f0ae7ed735994d3147d (same license).
+
+SPIRV-Tools
+  Source:    https://github.com/KhronosGroup/SPIRV-Tools.git
+  Revision:  f589ef005c49f6f19c8e78eb5269104ba293beb4
+  License:   Apache-2.0
+  Texts:     third-party/spirv-tools/LICENSE.txt
+  Used by:   shaderc
+
+Sratom
+  Source:    https://github.com/lv2/sratom.git
+  Revision:  9e8ee84eed502e6030ce8bb49694fd28542b08fc
+  License:   ISC
+  Texts:     third-party/sratom/COPYING.txt
+  Used by:   Lilv
+
+SRT
+  Source:    https://github.com/Haivision/srt.git
+  Revision:  fcae57145c000a9e7b72aa777adb8f85c2463242
+  License:   MPL-2.0
+  Texts:     third-party/srt/LICENSE.txt
+
+SVT-AV1
+  Source:    https://gitlab.com/AOMediaCodec/SVT-AV1.git
+  Revision:  fb0ed7e5999caef1c4b51b7b4c8dc2c8c10f9291
+  License:   BSD-3-Clause-Clear (older parts BSD-2-Clause), with the Alliance
+             for Open Media Patent License 1.0
+  Texts:     third-party/svt-av1/LICENSE.md.txt,
+             third-party/svt-av1/LICENSE-BSD2.md.txt,
+             third-party/svt-av1/PATENTS.md.txt
+
+TwoLAME
+  Source:    https://github.com/njh/twolame.git
+  Revision:  6fced852d4d5cfad58cf9dbe3ea619b08e87d398
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/twolame/COPYING.txt
+
+uavs3d
+  Source:    https://github.com/uavs3/uavs3d.git
+  Revision:  0e20d2c291853f196c68922a264bcd8471d75b68
+  License:   BSD-3-Clause
+  Texts:     third-party/uavs3d/COPYING.txt
+
+vid.stab
+  Source:    https://github.com/georgmartius/vid.stab.git
+  Revision:  c9985e75303da2ba1a78b37083a2bec2ed5baebc
+  License:   LGPL-2.1-or-later
+  Texts:     third-party/vidstab/LICENSE.txt,
+             third-party/vidstab/COPYING.LESSER.txt
+
+Vulkan-Headers
+  Source:    https://github.com/KhronosGroup/Vulkan-Headers.git
+  Revision:  v1.4.359 (commit f9973cd97e6f3584707e7ef1c425e336f1b92a5b)
+  License:   Apache-2.0 (some files also MIT)
+  Texts:     third-party/vulkan-headers/LICENSE.md.txt,
+             third-party/vulkan-headers/Apache-2.0.txt,
+             third-party/vulkan-headers/MIT.txt
+
+Vulkan-Shim-Loader
+  Source:    https://github.com/BtbN/Vulkan-Shim-Loader.git
+  Revision:  65b3936528cd92eb4ea3de485d03f858a3850484
+  License:   MIT
+  Texts:     third-party/vulkan-shim-loader/LICENSE.txt
+
+VVenC
+  Source:    https://github.com/fraunhoferhhi/vvenc.git
+  Revision:  0f2e874451d6b194615e5dfefdc96796a7da00f4
+  License:   BSD-3-Clause-Clear
+  Texts:     third-party/vvenc/LICENSE.txt
+
+x264
+  Source:    https://code.videolan.org/videolan/x264.git
+  Revision:  0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee
+  License:   GPL-2.0-or-later
+  Texts:     third-party/x264/COPYING.txt
+
+x265
+  Source:    https://bitbucket.org/multicoreware/x265_git.git
+  Revision:  b81f650e21e8aacbe6a9ad04ce14aefc05b932c0
+  License:   GPL-2.0-or-later
+  Texts:     third-party/x265/COPYING.txt
+
+xavs2
+  Source:    https://github.com/pkuvcl/xavs2.git
+  Revision:  eae1e8b9d12468059bdd7dee893508e470fa83d8
+  License:   GPL-2.0-or-later
+  Texts:     third-party/xavs2/COPYING.txt
+
+Xvid (xvidcore)
+  Source:    https://svn.xvid.org/trunk/xvidcore
+  Revision:  r2204
+  License:   GPL-2.0-or-later
+  Texts:     third-party/xvid/LICENSE.txt
+  Note:      Subversion revision 2204. LICENSE.txt is from the xvidcore 1.3.7
+             release.
+
+XZ Utils (liblzma)
+  Source:    https://github.com/tukaani-project/xz.git
+  Revision:  c8b8ab2ef1eb0a0217ad2027d7f5d242ceb944d3
+  License:   0BSD
+  Texts:     third-party/xz/COPYING.txt, third-party/xz/COPYING.0BSD.txt
+
+ZeroMQ (libzmq)
+  Source:    https://github.com/zeromq/libzmq.git
+  Revision:  46493370217ac135246617fa2f6ac819d8b61bfc
+  License:   MPL-2.0
+  Texts:     third-party/libzmq/LICENSE.txt
+
+zimg
+  Source:    https://github.com/sekrit-twc/zimg.git
+  Revision:  f6cc75ad23db1bb9c53673c15523e6b6e960ffc6
+  License:   WTFPL
+  Texts:     third-party/zimg/COPYING.txt
+
+Zix
+  Source:    https://github.com/drobilla/zix.git
+  Revision:  17d632393f5addb6fa24dda2927b96515407cca7
+  License:   ISC
+  Texts:     third-party/zix/COPYING.txt
+  Used by:   Lilv
+
+zlib
+  Source:    https://github.com/madler/zlib.git
+  Revision:  e3dc0a85b7032e98380dec011bc8f2c2ee0d8fca
+  License:   Zlib
+  Texts:     third-party/zlib/LICENSE.txt
+
+ZVBI
+  Source:    https://github.com/zapping-vbi/zvbi
+  Revision:  d3a5ee9f2b047bf16cd1ee5ccf6ec05ee75409d0
+  License:   LGPL-2.0-or-later library with GPL-2.0-or-later and GPL-2.0-only
+             files (see COPYING.md)
+  Texts:     third-party/zvbi/COPYING.md.txt

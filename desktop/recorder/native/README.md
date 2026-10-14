@@ -11,10 +11,12 @@ The host launches one short-lived process for `--probe` or `--discover`, and one
 process per recording:
 
 ```text
-revu-recorder.exe --record --pid 1234 --output C:\recordings\session\capture.mp4 --preset 720p30
+revu-recorder.exe --record --pid 1234 --output C:\recordings\session\capture.mp4 --preset 720p30 --priority below-normal
 ```
 
-The only presets are `720p30`, `1080p30`, and `1080p60`. JSON lines on stdout
+The only presets are `720p30`, `1080p30`, and `1080p60`. `--priority` is
+`below-normal` (the default when omitted) or `normal`. Revu always passes
+`below-normal`; `normal` exists only for manual diagnostics. JSON lines on stdout
 are protocol messages; diagnostics use stderr. `--probe` reports capabilities,
 and `--discover` reports live League game process IDs and available client dimensions.
 A loading or minimized game remains present with zero dimensions. Discovery uses
@@ -30,16 +32,44 @@ is confirmed when the selected encoder produces actual media at recording start.
 During a recording, send `{"command":"stop"}` followed by a newline to stdin.
 Input EOF and game process exit also stop the recording. The helper emits
 `started`, periodic `heartbeat`, then `stopped`. A heartbeat demonstrates the
-helper's liveness; `frames` is a separate encoded-video packet counter. Missing
-capabilities and failures emit `error` and are never silently replaced with
-software encoding, display capture, or game hooks.
+helper's liveness; `frames` is a separate encoded-video packet counter. `started`
+confirms the requested `priority` and reports the GPU scheduling class actually in
+effect as `gpuPriority` and the window capture pacing in effect as
+`captureMinIntervalHns` (hundred-nanosecond units, or `null` where Windows keeps its
+own default). Missing capabilities and failures emit `error` and are never
+silently replaced with software encoding, display capture, or game hooks.
+
+`stopped.stats` adds `repeatedFrames` and `perMinute`, three equal-length arrays
+indexed by movie minute (at most 300): `frames` encoded, `repeated` frames held by
+a capture stall, and `lagged` render ticks libobs missed after the output started.
+A repeated frame is one or two frames encoded below 20% of the per-frame bit budget
+between frames at or above 40% of it; longer runs are still screens and are not
+counted. This is an estimate calibrated on 1080p60 NVENC against decoded frames.
 
 ## Recording contract
 
 - Explicit WGC window capture, including the game cursor, with SDR output. A
-  small OBS source wraps the pinned `libobs-winrt.dll` capture API and binds the
-  selected HWND/PID for its lifetime. Capture starts only after the first actual
-  WGC texture arrives; there is no window-title search or target reacquisition.
+  small OBS source runs Revu's own Windows Graphics Capture session
+  (`wgc-session.hpp`) and binds the selected HWND/PID for its lifetime. It follows
+  the pinned libobs-winrt 32.2.2 window capture: the frame pool is created on the
+  libobs graphics thread and delivers frames through that thread's dispatcher
+  queue, two BGRA buffers, no capture border, client area only, and the cursor only
+  while League is the foreground window. `libobs-winrt.dll` stays loaded because
+  libobs creates that dispatcher queue with it; its capture functions are not used.
+  Capture starts only after the first actual WGC texture arrives; there is no
+  window-title search, target reacquisition or capture rebuild.
+- Windows paces each capture session by `MinUpdateInterval`; its default read back
+  as 16 ms on Windows 11 build 26200. Capture then takes only every
+  ceil(16 ms / frame time)-th game frame, so League at 160 to 240 FPS arrived at
+  53 to 60 FPS and a 60 FPS recording repeated the frames that never came. Where
+  Windows has the property (build 26100 and later), the helper sets it to half the
+  output frame interval: 8.33 ms at 60 FPS and 16.67 ms at 30 FPS. Each video tick
+  takes every waiting frame, copies only the newest one and returns them all to
+  Windows. The cost is compositor work: for a 240 FPS game, Windows copies about
+  110 frames per second instead of 60. Older builds keep the Windows pacing.
+- If Windows closes the capture item, a frame cannot be used, or the Direct3D
+  device is lost, the capture stops for good. The recording then ends with
+  `source-window-lost` after the same two-second grace as a destroyed window.
 - Separate League application audio source; no microphone or desktop mix.
 - Automatic NVIDIA NVENC, AMD AMF or Intel QSV H.264 hardware compression based
   on registered capabilities and the active render-adapter vendor. All use CBR,
@@ -70,9 +100,21 @@ software encoding, display capture, or game hooks.
   holds a final IO chunk in memory; recovery can require trimming an incomplete
   trailing fragment. Revu preserves the original partial file and never silently
   promotes it to complete.
-- Below-normal process priority; 2 GiB process / 3 GiB process-job commit
-  ceilings. The non-inheritable job handle stays open for the helper lifetime;
-  helper termination kills the FFmpeg muxer child as well.
+- The game always comes first. The helper and its muxer child run at below-normal
+  CPU priority and the helper at below-normal GPU scheduling priority; the
+  diagnostic `--priority normal` raises both to normal and never above. libobs raises its GPU
+  scheduling class to HIGH (REALTIME without hardware-accelerated GPU scheduling)
+  while creating its device, which Windows permits without administrator rights
+  even though libobs then logs that its GPU priority setup failed. The helper pins
+  the class right after video initialization, resets the device GPU thread
+  priority, and re-checks every second; if it cannot stay at or below normal, the
+  recording stops with `gpu-priority-unavailable`.
+- Windows power throttling is disabled for the helper. Otherwise Windows 11 can
+  ignore the 1 ms timer resolution libobs requests for this windowless process,
+  waking the 60 FPS render loop up to 15 ms late and repeating frames. This keeps
+  timers and clock speed normal without raising scheduling priority.
+- 2 GiB process / 3 GiB process-job commit ceilings. The non-inheritable job handle
+  stays open for the helper lifetime; helper termination kills the FFmpeg muxer child as well.
 - Startup is bounded to 30 seconds and stop/cleanup to 6 seconds. This includes
   unresponsive OBS modules; the watchdog can terminate the isolated helper.
 - The bundle omits the stock `win-capture` module, game hook, graphics-offset and
@@ -94,7 +136,11 @@ Those require the separately gated live acceptance run before release.
 CTest's `hardware-encoder-policy` uses fake registered metadata to verify all
 three vendors, mixed adapters, deterministic selection, missing modules/hardware,
 unknown/software/internal encoders and the vendor-specific recording settings.
-The helper does not need an OBS runtime to execute that policy test binary.
+`recording-frame-stats` verifies held-frame classification, still screens, minute
+buckets, the 300-minute bound and lagged-tick attribution. `wgc-capture-interval`
+verifies the capture pacing for 30 and 60 FPS output: two captures fit in every
+output frame, fewer than three do, and 60 FPS output captures faster than the
+Windows default. None of the test binaries needs an OBS runtime.
 
 `--self-test --output ABSOLUTE.mp4` runs a bounded five-second manual diagnostic
 using generated color video and a generated 440 Hz audio tone. It loads no capture

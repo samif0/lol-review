@@ -46,6 +46,16 @@ Measure stop-request to Recorder stop callback, registration/player-ready, and f
 
 Inspect A/V content at the beginning, middle and end of each full match. Preselect repeatable game events with sharp visual and audible transitions; count frames and audio-sample onset, retain annotated timestamps and estimated uncertainty. Compare drift of the same event class rather than assuming its animation and sound inherently have zero offset. For calibrated absolute synchronization, use a known paired visual/audio test source through the same capture path or independently timestamped hardware reference. Container stream start/end offsets from `media.mjs` are only structural checks, and must remain `avSyncVerified: false` until content measurements exist. Proposed acceptance criteria are calibrated absolute offset ≤80 ms and drift ≤40 ms per hour, with measurement uncertainty adequate to resolve those limits. These are project proposals, not established recorder guarantees.
 
+## Practice Tool A/B with League's own frame stats
+
+League writes per-game frame-time statistics to its `Logs/GameLogs` folder, and every built-in recording saves per-minute frames, repeated frames and lagged render ticks in its `session.json`. After a set of Practice Tool runs with recording off and on, one command pairs them:
+
+```powershell
+node scripts/recording-benchmark/practice-check.mjs --hours 3
+```
+
+Game smoothness is judged only from League's numbers (average FPS, share of frames over 7.5 ms, hitches over 18 and 35 ms). Repeated frames per minute measure the recording's own smoothness. Keep the champion, routine and settings the same across runs, and treat one run per mode as a quick check rather than a qualification.
+
 ## Synthetic experiment
 
 ```powershell

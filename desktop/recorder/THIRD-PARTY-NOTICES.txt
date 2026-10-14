@@ -28,9 +28,10 @@ FFmpeg and x264 carry GPL terms. LAME carries LGPL terms. SRT carries MPL terms.
 Opus, Ogg, Vorbis, Theora, libvpx, SVT-AV1, AOM, zlib, curl, librist and the codec
 headers retain their respective original licenses and copyright notices. Optional
 OBS browser, UI, scripting, win-capture, game-hook, VST and third-party plugins are
-not shipped. Revu's small source adapter binds an exact League window to the
-unmodified pinned libobs-winrt WGC backend, without loading OBS's win-capture
-plugin or its game-hook setup and compatibility updater.
+not shipped. Revu's small source adapter captures an exact League window with its
+own Windows Graphics Capture session, based on the unmodified pinned libobs-winrt,
+which libobs still loads for its graphics thread. It does not load OBS's
+win-capture plugin or its game-hook setup and compatibility updater.
 NVIDIA encoding uses the system's installed GPU driver; the driver is not bundled.
 AMD encoding uses the AMF interface in the pinned obs-ffmpeg module. Intel Quick
 Sync uses the pinned obs-qsv11 module and OBS adapter test helper, statically

@@ -23,6 +23,12 @@
 #include <thread>
 #include <vector>
 #include "encoder-policy.hpp"
+#include "frame-stats.hpp"
+#include "wgc-session.hpp"
+
+#ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+#define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
+#endif
 
 namespace {
 constexpr uint64_t filetimeEpoch = 116444736000000000ULL;
@@ -99,6 +105,16 @@ void boundProcess()
 {
   if (!SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS))
     throw Failure("process-priority", "Cannot lower the recorder priority");
+  // Windows 11 throttles a windowless background process: it can ignore the 1 ms timer
+  // request obs.dll makes when it loads, so the 60 FPS render loop wakes up to 15 ms late and
+  // the video repeats frames. Opting out keeps timers and clock speed normal. It does not
+  // raise the scheduling priority, so League still wins every contested core.
+  PROCESS_POWER_THROTTLING_STATE throttling{PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+    PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, 0};
+  if (!SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling))) {
+    throttling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED; // Windows 10 has no timer flag.
+    SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
+  }
   // Keep the job handle alive until process termination. Closing it would also
   // kill this process; on crash the OS closes it and kills the muxer child.
   HANDLE job = CreateJobObjectW(nullptr, nullptr);
@@ -225,40 +241,73 @@ Preset preset(const std::wstring &name)
   throw Failure("invalid-preset", "Unsupported recording preset");
 }
 
-struct WinrtCapture;
+// Below normal is the default: League gets the CPU and GPU first. Normal exists only to
+// compare recording smoothness against game smoothness; nothing ever runs above the game.
+enum class Priority { BelowNormal, Normal };
+Priority priority(const std::wstring &name)
+{
+  if (name == L"below-normal") return Priority::BelowNormal;
+  if (name == L"normal") return Priority::Normal;
+  throw Failure("invalid-priority", "Unsupported recorder priority");
+}
+const char *priorityName(Priority value) { return value == Priority::Normal ? "normal" : "below-normal"; }
+
+// D3DKMT_SCHEDULINGPRIORITYCLASS values used by the Windows GPU scheduler.
+constexpr int gpuBelowNormal = 1, gpuNormal = 2;
+const char *gpuClassName(int value)
+{
+  constexpr const char *names[] = {"idle", "below-normal", "normal", "above-normal", "high", "realtime"};
+  return value >= 0 && value <= 5 ? names[value] : "unknown";
+}
+
+// libobs raises its process above every game (HIGH with hardware-accelerated GPU scheduling,
+// otherwise REALTIME) when it creates its Direct3D device. Windows allows that without
+// administrator rights; only libobs's later thread-priority step needs them, so its "GPU
+// priority setup failed" log line does not mean the raise was undone. Recording must never
+// take GPU time ahead of League, so the class is pinned at or below normal.
+struct GpuScheduling {
+  LONG(APIENTRY *set)(HANDLE, int) = nullptr;
+  LONG(APIENTRY *get)(HANDLE, int *) = nullptr;
+  GpuScheduling()
+  {
+    const HMODULE gdi = LoadLibraryExW(L"gdi32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!gdi) return;
+    set = reinterpret_cast<decltype(set)>(GetProcAddress(gdi, "D3DKMTSetProcessSchedulingPriorityClass"));
+    get = reinterpret_cast<decltype(get)>(GetProcAddress(gdi, "D3DKMTGetProcessSchedulingPriorityClass"));
+  }
+  int current() const
+  {
+    int value = -1;
+    return get && get(GetCurrentProcess(), &value) == 0 && value >= 0 && value <= 5 ? value : -1;
+  }
+  // Returns the class now in effect, or -1 when Windows cannot report it.
+  int pin(int wanted) const
+  {
+    int value = current();
+    if (value != wanted && set) { set(GetCurrentProcess(), wanted); value = current(); }
+    return value;
+  }
+};
+const GpuScheduling gpuScheduling;
+
 struct WinrtApi {
   HMODULE module = nullptr;
   BOOL (*supported)() = nullptr;
-  WinrtCapture *(*initializeWindow)(BOOL, HWND, BOOL, BOOL) = nullptr;
-  void (*freeCapture)(WinrtCapture *) = nullptr;
-  BOOL (*active)(const WinrtCapture *) = nullptr;
-  BOOL (*showCursor)(WinrtCapture *, BOOL) = nullptr;
-  gs_color_space (*colorSpace)(const WinrtCapture *) = nullptr;
-  void (*render)(WinrtCapture *) = nullptr;
-  uint32_t (*width)(const WinrtCapture *) = nullptr;
-  uint32_t (*height)(const WinrtCapture *) = nullptr;
   bool initialize(const std::filesystem::path &runtime)
   {
     if (module) return true;
     module = LoadLibraryExW((runtime / L"libobs-winrt.dll").c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!module) return false;
     supported = reinterpret_cast<decltype(supported)>(GetProcAddress(module, "winrt_capture_supported"));
-    initializeWindow = reinterpret_cast<decltype(initializeWindow)>(GetProcAddress(module, "winrt_capture_init_window"));
-    freeCapture = reinterpret_cast<decltype(freeCapture)>(GetProcAddress(module, "winrt_capture_free"));
-    active = reinterpret_cast<decltype(active)>(GetProcAddress(module, "winrt_capture_active"));
-    showCursor = reinterpret_cast<decltype(showCursor)>(GetProcAddress(module, "winrt_capture_show_cursor"));
-    colorSpace = reinterpret_cast<decltype(colorSpace)>(GetProcAddress(module, "winrt_capture_get_color_space"));
-    render = reinterpret_cast<decltype(render)>(GetProcAddress(module, "winrt_capture_render"));
-    width = reinterpret_cast<decltype(width)>(GetProcAddress(module, "winrt_capture_width"));
-    height = reinterpret_cast<decltype(height)>(GetProcAddress(module, "winrt_capture_height"));
-    if (supported && initializeWindow && freeCapture && active && showCursor && colorSpace && render && width && height) return true;
+    if (supported) return true;
     FreeLibrary(module);
     module = nullptr;
     return false;
   }
 };
-// Keep the pinned WGC backend loaded until process exit, including deferred
-// graphics cleanup. No stock win-capture module, game hook or updater is loaded.
+// Keep the pinned libobs-winrt loaded until process exit: libobs uses it to give its graphics
+// thread the dispatcher queue Revu's capture session runs on (wgc-session.hpp). Its capture
+// functions are not used. No stock win-capture module, game hook or updater is loaded.
 WinrtApi winrtApi;
 void registerWgcSource(const std::filesystem::path &runtime);
 
@@ -281,11 +330,26 @@ RenderAdapter renderAdapter()
   return {description.VendorId, (static_cast<uint64_t>(static_cast<uint32_t>(description.AdapterLuid.HighPart)) << 32) | description.AdapterLuid.LowPart};
 }
 
+void resetGpuThreadPriority()
+{
+  // libobs's thread-priority step only succeeds in an elevated process; undo it there too.
+  Microsoft::WRL::ComPtr<IDXGIDevice> device;
+  obs_enter_graphics();
+  auto *d3d = static_cast<ID3D11Device *>(gs_get_device_obj());
+  if (d3d && SUCCEEDED(d3d->QueryInterface(IID_PPV_ARGS(device.GetAddressOf())))) device->SetGPUThreadPriority(0);
+  obs_leave_graphics();
+}
+
 struct ObsContext {
   bool initialized = false;
   RenderAdapter adapter;
+  int gpuWanted = gpuBelowNormal;
+  int gpuClass = -1;
   ~ObsContext() { if (initialized) obs_shutdown(); }
-  void initialize(const std::filesystem::path &runtime, const Preset &quality, uint32_t baseWidth, uint32_t baseHeight, bool captureModules = true)
+  // Re-applied every second while recording: a Direct3D device rebuild raises it again.
+  bool keepGpuPriority() { gpuClass = gpuScheduling.pin(gpuWanted); return gpuClass <= gpuNormal; }
+  void initialize(const std::filesystem::path &runtime, const Preset &quality, uint32_t baseWidth, uint32_t baseHeight,
+    bool captureModules = true, Priority priority = Priority::BelowNormal)
   {
     base_set_log_handler(obsLog, nullptr);
     if (!obs_startup("en-US", nullptr, nullptr)) throw Failure("obs-startup", "OBS recording engine could not initialize");
@@ -307,6 +371,9 @@ struct ObsContext {
     video.scale_type = OBS_SCALE_BILINEAR;
     if (obs_reset_video(&video) != OBS_VIDEO_SUCCESS) throw Failure("video-unavailable", "Direct3D video initialization failed");
     adapter = renderAdapter();
+    gpuWanted = priority == Priority::Normal ? gpuNormal : gpuBelowNormal;
+    resetGpuThreadPriority();
+    if (!keepGpuPriority()) throw Failure("gpu-priority-unavailable", "The recorder could not keep its GPU priority at or below the game's");
     obs_audio_info2 audio{48000, SPEAKERS_STEREO, 1000, false};
     if (!obs_reset_audio2(&audio)) throw Failure("audio-unavailable", "48 kHz stereo audio initialization failed");
     // Never search the user's OBS plugin directories or load the UI/browser.
@@ -364,7 +431,7 @@ bool captureSourcesSupported()
 
 struct WgcSource {
   GameWindow game;
-  std::atomic<WinrtCapture *> capture{nullptr};
+  std::atomic<revu::WgcWindowCapture *> capture{nullptr};
   bool attempted = false;
   bool identityValid() const
   {
@@ -375,7 +442,7 @@ struct WgcSource {
   bool ready() const
   {
     const auto *current = capture.load();
-    return current && identityValid() && winrtApi.active(current) && winrtApi.width(current) && winrtApi.height(current);
+    return current && identityValid() && current->active() && current->width() && current->height();
   }
   static void hooked(void *parameter, calldata_t *call)
   {
@@ -384,6 +451,11 @@ struct WgcSource {
     calldata_set_string(call, "title", self.game.title.c_str());
     calldata_set_string(call, "class", self.game.windowClass.c_str());
     calldata_set_string(call, "executable", self.game.executable.c_str());
+  }
+  static void pacing(void *parameter, calldata_t *call)
+  {
+    const auto *current = static_cast<WgcSource *>(parameter)->capture.load();
+    calldata_set_int(call, "min_update_interval_hns", current ? current->minUpdateIntervalHns() : 0);
   }
 };
 
@@ -406,12 +478,13 @@ void registerWgcSource(const std::filesystem::path &runtime)
     data->game.executable = obs_data_get_string(settings, "executable");
     if (!data->identityValid() || !leagueProcess(data->game.pid) || !winrtApi.supported()) { delete data; return nullptr; }
     proc_handler_add(obs_source_get_proc_handler(source), "void get_hooked(out bool hooked, out string title, out string class, out string executable)", WgcSource::hooked, data);
+    proc_handler_add(obs_source_get_proc_handler(source), "void get_capture_pacing(out int min_update_interval_hns)", WgcSource::pacing, data);
     return data;
   };
   source.destroy = [](void *data) {
     obs_queue_task(OBS_TASK_GRAPHICS, [](void *parameter) {
       auto *source = static_cast<WgcSource *>(parameter);
-      if (source->capture) winrtApi.freeCapture(source->capture);
+      delete source->capture.load();
       delete source;
     }, data, false);
   };
@@ -420,17 +493,19 @@ void registerWgcSource(const std::filesystem::path &runtime)
     if (!self.identityValid()) return;
     if (!self.attempted && !IsIconic(self.game.window)) {
       self.attempted = true;
+      obs_video_info video{};
+      const uint32_t fps = obs_get_video_info(&video) && video.fps_den ? video.fps_num / video.fps_den : 0;
       obs_enter_graphics();
       // Fixed HWND, client area, cursor included, SDR. There is no search or
       // reacquisition of another window and no alternative capture method.
-      self.capture = winrtApi.initializeWindow(TRUE, self.game.window, TRUE, TRUE);
+      self.capture = revu::WgcWindowCapture::start(self.game.window, fps);
       obs_leave_graphics();
     }
     auto *capture = self.capture.load();
     if (capture) {
       DWORD foregroundPid = 0;
       GetWindowThreadProcessId(GetForegroundWindow(), &foregroundPid);
-      winrtApi.showCursor(capture, foregroundPid == self.game.pid);
+      capture->showCursor(foregroundPid == self.game.pid);
     }
   };
   source.get_width = [](void *data) -> uint32_t {
@@ -444,13 +519,13 @@ void registerWgcSource(const std::filesystem::path &runtime)
   source.video_render = [](void *data, gs_effect_t *) {
     auto &self = *static_cast<WgcSource *>(data);
     if (!self.ready() || IsIconic(self.game.window)) return;
-    auto *capture = self.capture.load();
-    const auto width = winrtApi.width(capture), height = winrtApi.height(capture);
+    const auto *capture = self.capture.load();
+    const auto width = capture->width(), height = capture->height();
     const float scale = std::min(static_cast<float>(self.game.width) / width, static_cast<float>(self.game.height) / height);
     gs_matrix_push();
     gs_matrix_translate3f((self.game.width - width * scale) / 2, (self.game.height - height * scale) / 2, 0);
     gs_matrix_scale3f(scale, scale, 1);
-    winrtApi.render(capture);
+    capture->render();
     gs_matrix_pop();
   };
   source.video_get_color_space = [](void *, size_t, const gs_color_space *) -> gs_color_space { return GS_CS_SRGB; };
@@ -468,6 +543,16 @@ bool sourceHooked(obs_source_t *source, const GameWindow &game)
   const bool hooked = called && calldata_bool(&call, "hooked") && title && windowClass && executable && game.title == title && game.windowClass == windowClass && _stricmp(game.executable.c_str(), executable) == 0;
   calldata_free(&call);
   return hooked;
+}
+
+// The capture pacing in effect as JSON: hundred-nanosecond units, or null for the Windows default.
+std::string capturePacing(obs_source_t *source)
+{
+  calldata_t call{};
+  const bool called = proc_handler_call(obs_source_get_proc_handler(source), "get_capture_pacing", &call);
+  const long long interval = called ? calldata_int(&call, "min_update_interval_hns") : 0;
+  calldata_free(&call);
+  return interval > 0 ? std::to_string(interval) : "null";
 }
 
 struct ClockAnchor {
@@ -523,6 +608,13 @@ struct Recording {
   std::atomic<bool> stopped{false};
   std::atomic<int> stopCode{OBS_OUTPUT_SUCCESS};
   bool outputStarted = false;
+  std::mutex statsMutex;
+  revu::FrameStats frameStats{0, 0};
+  void sampleLagged()
+  {
+    std::lock_guard lock(statsMutex);
+    frameStats.countLagged(obs_get_lagged_frames(), lastVideoPtsNs.load());
+  }
   ~Recording()
   {
     if (output) {
@@ -552,6 +644,10 @@ struct Recording {
     const auto ptsNs = static_cast<int64_t>(static_cast<long double>(packet->pts) * packet->timebase_num * 1000000000.0L / packet->timebase_den);
     self.lastVideoPtsNs = ptsNs;
     ++self.videoPackets;
+    {
+      std::lock_guard lock(self.statsMutex);
+      self.frameStats.countPacket(ptsNs, packet->size, packet->keyframe);
+    }
     if (!self.firstPacketSeen.exchange(true) && timing && timing->cts && self.clock.uncertaintyNs <= 1000000) {
       // PTS here is the final interleaved PTS, after libobs start alignment.
       // CTS is OBS composition time, not the WGC source frame timestamp.
@@ -707,6 +803,7 @@ void configureOutput(Recording &recording, const std::filesystem::path &file, co
   const auto config = revu::encoderConfiguration(encoder, quality.bitrate);
   if (!config) throw Failure("hardware-encoder-unavailable", "A compatible NVIDIA, AMD or Intel H.264 hardware encoder is required");
   recording.encoderId = config->encoder.id;
+  recording.frameStats = revu::FrameStats(quality.bitrate, quality.fps);
   obs_data_t *settings = obs_encoder_defaults(recording.encoderId.c_str());
   if (!settings) throw Failure("hardware-encoder-unavailable", "The selected H.264 hardware encoder is unavailable");
   for (const auto &setting : config->settings) {
@@ -742,7 +839,8 @@ void configureOutput(Recording &recording, const std::filesystem::path &file, co
   obs_output_add_packet_callback(recording.output, Recording::packet, &recording);
 }
 
-void record(const std::filesystem::path &runtime, DWORD pid, const std::filesystem::path &file, const Preset &requestedQuality, bool selfTest = false)
+void record(const std::filesystem::path &runtime, DWORD pid, const std::filesystem::path &file, const Preset &requestedQuality,
+  bool selfTest = false, Priority level = Priority::BelowNormal)
 {
   if (!file.is_absolute() || _wcsicmp(file.extension().c_str(), L".mp4") || std::filesystem::exists(file))
     throw Failure("invalid-output", "Recording output must be a new absolute MP4 path");
@@ -767,8 +865,11 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
   }
   Handle gameProcess(selfTest ? nullptr : OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid));
   if (!selfTest && !gameProcess) throw Failure("game-process-unavailable", "Cannot observe the League game process");
+  // Set before libobs starts its threads and the muxer child, which inherit it.
+  if (level == Priority::Normal && !SetPriorityClass(GetCurrentProcess(), NORMAL_PRIORITY_CLASS))
+    throw Failure("process-priority", "Cannot set the recorder priority");
   ObsContext obs;
-  obs.initialize(runtime, quality, game.width, game.height, !selfTest);
+  obs.initialize(runtime, quality, game.width, game.height, !selfTest, level);
   if (!selfTest && (!wgcSupported(runtime) || !captureSourcesSupported())) throw Failure("wgc-unavailable", "Windows Graphics Capture or application audio is unavailable; no other capture method is allowed");
   const auto hardware = encoders(obs.adapter.vendor());
   if (hardware.empty()) throw Failure("hardware-encoder-unavailable", "A compatible NVIDIA, AMD or Intel H.264 hardware encoder is required");
@@ -785,6 +886,11 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
   configureOutput(recording, file, quality, hardware.front());
   if (!obs_output_start(recording.output)) throw Failure("recording-start-failed", "Hardware recording output could not start");
   recording.outputStarted = true;
+  {
+    // Ticks missed while modules loaded happened before the movie began.
+    std::lock_guard lock(recording.statsMutex);
+    recording.frameStats.startLagged(obs_get_lagged_frames());
+  }
   bool emittedStart = false;
   bool requestedStop = false;
   std::string failureCode;
@@ -792,12 +898,14 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
   const uint64_t mediaDeadline = GetTickCount64() + 10000;
   uint64_t selfTestDeadline = 0;
   uint64_t nextIdentityCheck = GetTickCount64() + 1000;
+  uint64_t nextPriorityCheck = GetTickCount64() + 1000;
   uint64_t identityLostAt = 0;
   while (!recording.stopped) {
     const auto now = GetTickCount64();
+    recording.sampleLagged();
     if (!emittedStart && recording.movieEpochMs.load() > 0 && recording.videoPackets.load() > 0) {
       const auto startedAt = recording.movieEpochMs.load();
-      emit("{\"type\":\"started\",\"encoder\":" + quote(recording.encoderId) + ",\"width\":" + std::to_string(quality.width) + ",\"height\":" + std::to_string(quality.height) + ",\"fps\":" + std::to_string(quality.fps) + ",\"bitrate\":" + std::to_string(quality.bitrate) + ",\"sourceWidth\":" + std::to_string(game.width) + ",\"sourceHeight\":" + std::to_string(game.height) + ",\"startedAtVerified\":true,\"startedAt\":" + quote(isoTime(startedAt)) + ",\"startTimeEpoch\":" + std::to_string(startedAt) + ",\"clockSource\":\"obs-composition-packet-pts\",\"clockUncertaintyMs\":1}");
+      emit("{\"type\":\"started\",\"encoder\":" + quote(recording.encoderId) + ",\"width\":" + std::to_string(quality.width) + ",\"height\":" + std::to_string(quality.height) + ",\"fps\":" + std::to_string(quality.fps) + ",\"bitrate\":" + std::to_string(quality.bitrate) + ",\"sourceWidth\":" + std::to_string(game.width) + ",\"sourceHeight\":" + std::to_string(game.height) + ",\"priority\":" + quote(priorityName(level)) + ",\"gpuPriority\":" + quote(gpuClassName(obs.gpuClass)) + ",\"captureMinIntervalHns\":" + capturePacing(recording.video) + ",\"startedAtVerified\":true,\"startedAt\":" + quote(isoTime(startedAt)) + ",\"startTimeEpoch\":" + std::to_string(startedAt) + ",\"clockSource\":\"obs-composition-packet-pts\",\"clockUncertaintyMs\":1}");
       emittedStart = true;
       if (selfTest) selfTestDeadline = now + 5000;
       watchdogDeadline = 0;
@@ -807,7 +915,9 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
     if (!requestedStop && !selfTest) {
       DWORD currentPid = 0;
       GetWindowThreadProcessId(game.window, &currentPid);
-      if (!IsWindow(game.window) || currentPid != game.pid) {
+      // Windows closes the capture with its window, and a lost Direct3D device ends it for good;
+      // nothing rebuilds or reacquires it, so a stopped capture counts as a lost window.
+      if (!IsWindow(game.window) || currentPid != game.pid || !sourceHooked(recording.video, game)) {
         if (!identityLostAt) identityLostAt = now;
         // A normal game exit can destroy its HWND just before the process exits.
         // The source stops drawing immediately and never retargets another HWND;
@@ -818,6 +928,11 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
         if (leaguePids().size() > 1) { failureCode = "game-process-ambiguous"; requestedStop = true; }
         nextIdentityCheck = now + 1000;
       }
+    }
+    if (!requestedStop && now >= nextPriorityCheck) {
+      // Stopping is better than letting a recording outrank the game for GPU time.
+      if (!obs.keepGpuPriority()) { failureCode = "gpu-priority-unavailable"; requestedStop = true; }
+      nextPriorityCheck = now + 1000;
     }
     if (requestedStop) {
       // Set once; a continually moving deadline would fail to bound shutdown.
@@ -837,7 +952,15 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
   const bool hasError = recording.stopCode != OBS_OUTPUT_SUCCESS || !emittedStart || !failureCode.empty();
   const auto frames = recording.videoPackets.load();
   const double duration = frames ? static_cast<double>(recording.lastVideoPtsNs.load()) / 1e6 + 1000.0 / quality.fps : 0;
-  emit("{\"type\":\"stopped\",\"hasError\":" + std::string(hasError ? "true" : "false") + ",\"filePath\":" + quote(utf8(file.wstring())) + ",\"duration\":" + std::to_string(duration) + ",\"startTimeEpoch\":" + std::to_string(recording.movieEpochMs.load()) + ",\"splitCount\":0,\"stats\":{\"frames\":" + std::to_string(frames) + ",\"droppedFrames\":" + std::to_string(std::max(0, obs_output_get_frames_dropped(recording.output))) + ",\"laggedFrames\":" + std::to_string(obs_get_lagged_frames()) + ",\"stopCode\":" + std::to_string(recording.stopCode.load()) + "}}");
+  recording.sampleLagged();
+  std::string perMinute;
+  uint64_t repeated = 0;
+  {
+    std::lock_guard lock(recording.statsMutex);
+    perMinute = recording.frameStats.json();
+    repeated = recording.frameStats.repeatedTotal();
+  }
+  emit("{\"type\":\"stopped\",\"hasError\":" + std::string(hasError ? "true" : "false") + ",\"filePath\":" + quote(utf8(file.wstring())) + ",\"duration\":" + std::to_string(duration) + ",\"startTimeEpoch\":" + std::to_string(recording.movieEpochMs.load()) + ",\"splitCount\":0,\"stats\":{\"frames\":" + std::to_string(frames) + ",\"droppedFrames\":" + std::to_string(std::max(0, obs_output_get_frames_dropped(recording.output))) + ",\"laggedFrames\":" + std::to_string(obs_get_lagged_frames()) + ",\"repeatedFrames\":" + std::to_string(repeated) + ",\"perMinute\":" + perMinute + ",\"stopCode\":" + std::to_string(recording.stopCode.load()) + "}}");
 }
 } // namespace
 
@@ -866,13 +989,13 @@ int wmain(int argc, wchar_t **argv)
       emit("{\"type\":\"capabilities\",\"protocol\":1,\"available\":" + std::string(supported ? "true" : "false") + ",\"encoders\":[" + list + "],\"selectedEncoder\":" + selected + ",\"adapterVendor\":" + quote(std::string(revu::vendorName(obs.adapter.vendor()))) + ",\"adapterVendorId\":" + std::to_string(obs.adapter.vendorId) + ",\"adapterLuid\":" + quote(std::to_string(obs.adapter.luid)) + ",\"version\":\"32.2.2\",\"capture\":\"wgc-window\",\"audio\":\"application-only\"" + unavailable + '}');
     } else if (argc == 4 && std::wstring(argv[1]) == L"--self-test" && std::wstring(argv[2]) == L"--output") {
       record(runtime, 0, argv[3], preset(L"720p30"), true);
-    } else if (argc == 8 && std::wstring(argv[1]) == L"--record" && std::wstring(argv[2]) == L"--pid" && std::wstring(argv[4]) == L"--output" && std::wstring(argv[6]) == L"--preset") {
+    } else if ((argc == 8 || (argc == 10 && std::wstring(argv[8]) == L"--priority")) && std::wstring(argv[1]) == L"--record" && std::wstring(argv[2]) == L"--pid" && std::wstring(argv[4]) == L"--output" && std::wstring(argv[6]) == L"--preset") {
       const std::wstring value = argv[3];
       if (value.empty() || value.find_first_not_of(L"0123456789") != std::wstring::npos) throw Failure("invalid-pid", "A positive game process id is required");
       const auto pid = std::stoull(value);
       if (!pid || pid > MAXDWORD) throw Failure("invalid-pid", "A positive game process id is required");
-      record(runtime, static_cast<DWORD>(pid), argv[5], preset(argv[7]));
-    } else throw Failure("invalid-arguments", "Use --probe, --discover, or --record --pid PID --output ABSOLUTE.mp4 --preset 720p30|1080p30|1080p60");
+      record(runtime, static_cast<DWORD>(pid), argv[5], preset(argv[7]), false, argc == 10 ? priority(argv[9]) : Priority::BelowNormal);
+    } else throw Failure("invalid-arguments", "Use --probe, --discover, or --record --pid PID --output ABSOLUTE.mp4 --preset 720p30|1080p30|1080p60 [--priority below-normal|normal]");
     CoUninitialize();
     watchdogDone = true;
     return 0;
