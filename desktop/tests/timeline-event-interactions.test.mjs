@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createCorrections } from '../ui/vodcorrections.js';
-import { findTimelineEventAtPoint } from '../ui/timeline-event-hit.mjs';
+import { createTimelineHover, ZOOM_LEARNED_KEY } from '../ui/timeline-hover.mjs';
 
 // Exercise the real timeline wiring, delegated jump, and corrections controller
 // together. The small DOM below models capture/bubble ordering; geometry is fixed
@@ -27,7 +27,7 @@ class InputEvent {
   stopImmediatePropagation() { this.immediate = true; this.stopped = true; }
 }
 
-function fixture(t) {
+function fixture(t, { saved = {} } = {}) {
   const oldDocument = globalThis.document, oldOption = globalThis.Option;
   const ids = new Map(), timers = [], seeks = [], plays = [], focus = [];
   let document, controller;
@@ -103,6 +103,13 @@ function fixture(t) {
   const content = seek.appendChild(node('div', 'vp-tl-content'));
   const markers = content.appendChild(node('div', 'vp-markers', 'vp-markers'));
   const badge = seek.appendChild(node('button', 'vp-tl-zoom', 'vp-tl-zoombadge', { left: 650, top: 105, width: 40, height: 25 }));
+  const chip = seek.appendChild(node('span', 'vp-tl-hover', 'vp-tl-hover'));
+  const chipText = chip.appendChild(node('span', 'vp-tl-hover-text'));
+  const chipHint = chip.appendChild(node('span', 'vp-tl-hover-hint', 'vp-tl-hover-hint'));
+  chip.hidden = true; chipHint.hidden = true; chip.offsetWidth = 80;
+  const items = new Map(Object.entries(saved));
+  const storage = { items, getItem: key => items.get(key) ?? null, setItem: (key, value) => items.set(key, String(value)) };
+  const clock = seconds => { const s = Math.max(0, Math.floor(seconds || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const details = document.appendChild(node('details', 'vp-event-tools'));
   details.appendChild(node('div', 'vp-fix-form'));
   const events = [
@@ -113,14 +120,33 @@ function fixture(t) {
   bar.dataset = { action: 'jump', seconds: '123', eventKey: 'death-7', eventId: '7', eventType: 'DEATH', anchor: '123', label: 'Death' };
   const label = bar.appendChild(node('span', '', 'evbar-code', { left: 280, top: 120, width: 40, height: 23 }));
   const ghost = markers.appendChild(node('span', '', 'evbar evbar-ghost', { left: 449, top: 166, width: 2, height: 20 }));
-  ghost.dataset = { action: 'jump', seconds: '260', eventKey: 'removed-8', eventId: '8', eventType: 'DEATH', anchor: '260', ghost: '1', correctionId: 'fix-8' };
+  ghost.dataset = { action: 'jump', seconds: '260', eventKey: 'removed-8', eventId: '8', eventType: 'DEATH', anchor: '260', ghost: '1', correctionId: 'fix-8', label: 'Death' };
   const bookmark = markers.appendChild(node('span', '', 'ev ev-bm', { left: 296, top: 195, width: 8, height: 8 }));
   bookmark.dataset = { action: 'jump', seconds: '127' };
   const media = { paused: true, play() { plays.push(true); this.paused = false; } };
   const transport = { duration: 600, handleAction: () => false };
   const scope = { addEventListener() {}, getComputedStyle: element => ({ display: element.hidden ? 'none' : 'block', visibility: 'visible', opacity: '1' }) };
   document.defaultView = scope;
-  const context = vm.createContext({ $, document, window: scope, MouseEvent: InputEvent, findTimelineEventAtPoint,
+  // The topmost element under a point, skipping the chip (it never takes the pointer).
+  document.elementFromPoint = (x, y) => {
+    let hit = null;
+    const walk = el => { for (const child of el.children) {
+      if (child === chip || child.hidden) continue;
+      const r = child.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) hit = child;
+      walk(child);
+    } };
+    walk(document);
+    return hit;
+  };
+  // A stand-in MutationObserver: tests fire it after changing marker geometry.
+  const observers = [];
+  class Observer {
+    constructor(callback) { this.callback = callback; this.watched = []; observers.push(this); }
+    observe(target, options) { this.watched.push([target, options]); }
+  }
+  const context = vm.createContext({ $, document, window: scope, MouseEvent: InputEvent, clock,
+    createTimelineHover: options => createTimelineHover({ ...options, storage, requestFrame: fn => { fn(); return 0; }, Observer }),
     _T: transport, _vod: { gameDurationSeconds: 600 }, _selectedReviewEvent: 'previous-queue-event',
     video: () => media, seekTo: seconds => seeks.push({ seconds, selected: controller.captureState().selection?.eventKey || null }),
     highlightReviewEvent() {}, watchReviewEvent() {}, show: (element, visible) => { element.hidden = !visible; },
@@ -140,18 +166,39 @@ function fixture(t) {
     const event = new InputEvent(type, { detail: type === 'click' ? 1 : 0, ...values });
     target.dispatchEvent(event); return event;
   };
+  const chipState = () => ({ hidden: chip.hidden, text: chipText.textContent, hint: !chipHint.hidden, x: chip.style['--hover-x'] });
+  // Move everything drawn in the timeline, as a page scroll does under a resting pointer.
+  const moveTimeline = (dx, dy) => {
+    const walk = el => { el.rect.left += dx; el.rect.top += dy; el.children.forEach(walk); };
+    walk(seek);
+  };
   return { $, seek, content, markers, bar, label, ghost, bookmark, badge, details, controller, seeks, plays, focus,
-    hooks: context.hooks, dispatch, flushTimers: () => { while (timers.length) timers.shift()(); } };
+    chip, chipState, storage, hooks: context.hooks, dispatch, make: node, document, observers, moveTimeline,
+    scroll: () => document.dispatchEvent(new InputEvent('scroll', { bubbles: false, cancelable: false })),
+    mutate: () => observers.forEach(observer => observer.callback([], observer)),
+    flushTimers: () => { while (timers.length) timers.shift()(); } };
 }
 
-test('a click beside an event selects its real identity before exactly one timestamp jump', t => {
+test('a click within three pixels of an event selects its real identity before exactly one timestamp jump', t => {
   const f = fixture(t);
-  const event = f.dispatch(f.content, 'click', { clientX: 310, clientY: 160 });
+  const event = f.dispatch(f.content, 'click', { clientX: 303, clientY: 160 });
   assert.equal(event.defaultPrevented, true);
   assert.deepEqual(f.seeks, [{ seconds: 123, selected: 'death-7' }]);
   assert.equal(f.plays.length, 1);
   assert.equal(f.hooks.queueSelection, '', 'Fix must not prefer the previous queue event');
   assert.equal(f.details.open, false, 'selecting a timeline event does not open the editor');
+});
+
+test('a click five pixels or more from any mark seeks the exact pointer time and selects nothing', t => {
+  const f = fixture(t);
+  const near = f.dispatch(f.content, 'click', { clientX: 306, clientY: 160 });
+  assert.equal(near.defaultPrevented, false);
+  f.dispatch(f.content, 'click', { clientX: 310.6, clientY: 175 });
+  f.dispatch(f.content, 'click', { clientX: 290, clientY: 150 });
+  assert.deepEqual(f.seeks.map(item => item.selected), [null, null, null]);
+  assert.deepEqual(f.seeks.map(item => Math.round(item.seconds * 10) / 10), [206, 210.6, 190]);
+  assert.equal(f.controller.captureState().selection, null);
+  assert.equal(f.plays.length, 0, 'a scrub does not start playback');
 });
 
 test('direct line, visible label and programmatic activation never add coordinate seeks', t => {
@@ -190,9 +237,9 @@ test('a pan trailing click is stopped before corrections capture and document ju
   assert.deepEqual(f.seeks, [{ seconds: 123, selected: 'death-7' }]);
 });
 
-test('nearby context menu delegates to the real event editor without seeking or playing', t => {
+test('a right-click within three pixels delegates to the real event editor without seeking or playing', t => {
   const f = fixture(t);
-  const event = f.dispatch(f.content, 'contextmenu', { button: 2, clientX: 310, clientY: 160 });
+  const event = f.dispatch(f.content, 'contextmenu', { button: 2, clientX: 303, clientY: 160 });
   assert.equal(event.defaultPrevented, true);
   assert.equal(f.controller.captureState().selection.eventKey, 'death-7');
   assert.equal(f.controller.captureState().form.start, '2:03');
@@ -202,9 +249,22 @@ test('nearby context menu delegates to the real event editor without seeking or 
   assert.equal(f.plays.length, 0);
 });
 
+test('a right-click on empty space opens no editor and selects nothing', t => {
+  const f = fixture(t);
+  const event = f.dispatch(f.content, 'contextmenu', { button: 2, clientX: 310, clientY: 160 });
+  assert.equal(event.defaultPrevented, false);
+  assert.equal(f.controller.captureState().selection, null);
+  assert.equal(f.controller.captureState().form, null);
+  assert.equal(f.details.open, false);
+  assert.deepEqual(f.seeks, []);
+});
+
 test('removed event hit keeps ghost identity and does not open an editable live subject', t => {
   const f = fixture(t);
   f.dispatch(f.content, 'click', { clientX: 461, clientY: 177 });
+  assert.deepEqual(f.seeks, [{ seconds: 361, selected: null }], 'ten pixels away is a time');
+  f.seeks.length = 0;
+  f.dispatch(f.content, 'click', { clientX: 453, clientY: 177 });
   assert.deepEqual(f.seeks, [{ seconds: 260, selected: 'removed-8' }]);
   f.dispatch(f.ghost, 'contextmenu', { button: 2, clientX: 450, clientY: 177 });
   assert.equal(f.controller.captureState().form, null);
@@ -227,12 +287,197 @@ test('zoom badge and wheel retain their actions without selecting or seeking an 
   assert.deepEqual(f.seeks, []);
 });
 
-test('forgiving hover highlights the same event and clears when the pointer leaves', t => {
+test('hover rings exactly what a click selects and the chip names it', t => {
   const f = fixture(t);
-  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160 });
+  f.dispatch(f.content, 'pointermove', { clientX: 303, clientY: 160 });
   assert.equal(f.bar.classList.contains('evbar-hit-hover'), true);
+  assert.deepEqual(f.chipState(), { hidden: false, text: 'Death at 2:03', hint: false, x: '160px' }, 'centered on the stem');
+  f.dispatch(f.content, 'pointermove', { clientX: 306, clientY: 160 });
+  assert.equal(f.bar.classList.contains('evbar-hit-hover'), false, 'no ring where a click would seek');
+  assert.equal(f.chipState().text, '3:26');
+  f.dispatch(f.label, 'pointermove', { clientX: 283, clientY: 129 });
+  assert.equal(f.bar.classList.contains('evbar-hit-hover'), true);
+  assert.equal(f.chipState().text, 'Death at 2:03');
+  f.dispatch(f.ghost, 'pointermove', { clientX: 450, clientY: 177 });
+  assert.equal(f.ghost.classList.contains('evbar-hit-hover'), true);
+  assert.equal(f.chipState().text, 'Removed Death at 4:20');
   f.dispatch(f.seek, 'pointerleave', { bubbles: false });
-  assert.equal(f.bar.classList.contains('evbar-hit-hover'), false);
+  assert.equal(f.ghost.classList.contains('evbar-hit-hover'), false);
+  assert.equal(f.chipState().hidden, true);
   assert.equal(f.controller.captureState().selection, null);
   assert.deepEqual(f.seeks, []);
+});
+
+test('the chip time is the time a click seeks to, and the chip stays inside the track', t => {
+  const f = fixture(t);
+  for (const x of [101, 310.6, 512.9, 699]) {
+    f.dispatch(f.content, 'pointermove', { clientX: x, clientY: 175 });
+    const shown = f.chipState().text;
+    f.dispatch(f.content, 'click', { clientX: x, clientY: 175 });
+    const seconds = f.seeks.at(-1).seconds;
+    assert.equal(shown, `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`);
+  }
+  f.dispatch(f.content, 'pointermove', { clientX: 101, clientY: 175 });
+  assert.equal(f.chipState().x, '0px', 'clamped at the left edge');
+  f.dispatch(f.content, 'pointermove', { clientX: 699, clientY: 175 });
+  assert.equal(f.chipState().x, '520px', 'clamped at the right edge (600 - 80)');
+  f.hooks.setZoom(4);
+  f.dispatch(f.content, 'pointermove', { clientX: 400, clientY: 175 });
+  f.dispatch(f.content, 'click', { clientX: 400, clientY: 175 });
+  assert.equal(f.chipState().text, '1:15', 'zoomed 4x, 300px into a 2400px track');
+  assert.equal(Math.floor(f.seeks.at(-1).seconds), 75);
+});
+
+test('a click reported in whole pixels acts at the fractional pointer position the chip showed', t => {
+  const f = fixture(t);
+  // A scaled display: the pointer is at 310.8, the click arrives floored to 310.
+  f.dispatch(f.content, 'pointermove', { clientX: 310.8, clientY: 175 });
+  f.dispatch(f.content, 'pointerup', { clientX: 310.8, clientY: 175 });
+  f.dispatch(f.content, 'click', { clientX: 310, clientY: 175 });
+  assert.equal(f.chipState().text, '3:30');
+  assert.equal(Math.round(f.seeks.at(-1).seconds * 10) / 10, 210.8, 'the precise time, not the floored pixel');
+  // At the 3px edge the floored pixel would leave the stem's reach (the stem starts at
+  // 299.5, so 296 is 3.5px away); the click still selects the event the ring showed.
+  f.bar.rect.left = 299.5;
+  f.dispatch(f.content, 'pointermove', { clientX: 296.6, clientY: 160 });
+  assert.equal(f.bar.classList.contains('evbar-hit-hover'), true);
+  f.dispatch(f.content, 'pointerup', { clientX: 296.6, clientY: 160 });
+  f.dispatch(f.content, 'click', { clientX: 296, clientY: 160 });
+  assert.equal(f.seeks.at(-1).selected, 'death-7');
+  assert.equal(f.seeks.at(-1).seconds, 123);
+  // A click that is not where the pointer was keeps its own coordinates.
+  f.dispatch(f.content, 'click', { clientX: 500, clientY: 175 });
+  assert.equal(f.seeks.at(-1).seconds, 400);
+});
+
+test('bookmarks name themselves, and the chip hides over the zoom badge and while panning', t => {
+  const f = fixture(t);
+  f.dispatch(f.bookmark, 'pointermove', { clientX: 300, clientY: 198 });
+  assert.equal(f.chipState().text, 'Bookmark at 2:07');
+  f.bookmark.dataset.tone = 'clip';
+  f.dispatch(f.bookmark, 'pointermove', { clientX: 300, clientY: 198 });
+  assert.equal(f.chipState().text, 'Clip at 2:07');
+  f.hooks.setZoom(2);
+  f.dispatch(f.badge, 'pointermove', { clientX: 667, clientY: 114 });
+  assert.equal(f.chipState().hidden, true);
+  f.dispatch(f.content, 'pointermove', { clientX: 400, clientY: 175 });
+  assert.equal(f.chipState().hidden, false);
+  f.dispatch(f.content, 'pointerdown', { clientX: 400, clientY: 175 });
+  f.dispatch(f.content, 'pointermove', { clientX: 370, clientY: 175 });
+  assert.equal(f.seek.classList.contains('is-panning'), true);
+  assert.equal(f.chipState().hidden, true);
+  f.dispatch(f.content, 'pointerup', { clientX: 370, clientY: 175 });
+});
+
+test('the zoom hint shows near events below 4x and never again after the first zoom', t => {
+  const f = fixture(t);
+  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160 });
+  assert.deepEqual([f.chipState().text, f.chipState().hint], ['3:30', true], '9px from a stem');
+  f.dispatch(f.content, 'pointermove', { clientX: 400, clientY: 160 });
+  assert.equal(f.chipState().hint, false, 'far from every event');
+  f.dispatch(f.content, 'pointermove', { clientX: 303, clientY: 160 });
+  assert.equal(f.chipState().hint, false, 'never over an event');
+  f.hooks.setZoom(4);
+  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160 });
+  assert.equal(f.chipState().hint, false, 'not at 4x and above');
+  f.hooks.setZoom(1);
+  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160 });
+  assert.equal(f.chipState().hint, true);
+  f.dispatch(f.seek, 'wheel', { ctrlKey: true, clientX: 310, clientY: 160, deltaY: -1 });
+  assert.equal(f.storage.items.get(ZOOM_LEARNED_KEY), '1');
+  assert.equal(f.chipState().hint, false);
+  f.dispatch(f.seek, 'wheel', { ctrlKey: true, clientX: 310, clientY: 160, deltaY: 1 });
+  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160 });
+  assert.equal(f.hooks.zoom, 1);
+  assert.equal(f.chipState().hint, false, 'back at 1x the hint stays retired');
+});
+
+test('a viewer who zoomed before never sees the hint', t => {
+  const f = fixture(t, { saved: { [ZOOM_LEARNED_KEY]: '1' } });
+  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160 });
+  assert.deepEqual([f.chipState().hidden, f.chipState().hint], [false, false]);
+});
+
+test('a scroll that moves the timeline under a resting pointer moves the preview with it', t => {
+  const f = fixture(t);
+  f.dispatch(f.content, 'pointermove', { clientX: 303, clientY: 160 });
+  assert.equal(f.chipState().text, 'Death at 2:03');
+  // The page scrolls 32px: the stem now ends 6px above the pointer, which did not move.
+  f.moveTimeline(0, -32);
+  f.scroll();
+  assert.deepEqual([f.bar.classList.contains('evbar-hit-hover'), f.chipState().text], [false, '3:23']);
+  f.dispatch(f.content, 'click', { clientX: 303, clientY: 160 });
+  assert.deepEqual(f.seeks, [{ seconds: 203, selected: null }], 'the click does what the chip said');
+  // Scrolled back, the stem is under the pointer again: ringed, named, and what a click selects.
+  f.moveTimeline(0, 32);
+  f.scroll();
+  assert.deepEqual([f.bar.classList.contains('evbar-hit-hover'), f.chipState().text], [true, 'Death at 2:03']);
+  f.dispatch(f.content, 'click', { clientX: 303, clientY: 160 });
+  assert.deepEqual(f.seeks.at(-1), { seconds: 123, selected: 'death-7' });
+  // Something else scrolled over the pointer: nothing is previewed.
+  const header = f.document.appendChild(f.make('div', '', 'sticky', { left: 0, top: 150, width: 800, height: 20 }));
+  f.scroll();
+  assert.deepEqual([f.chipState().hidden, f.bar.classList.contains('evbar-hit-hover')], [true, false]);
+  header.hidden = true;
+  // The timeline scrolled out from under the pointer entirely.
+  f.moveTimeline(0, 200);
+  f.scroll();
+  assert.equal(f.chipState().hidden, true);
+  // Once the pointer has left, a scroll previews nothing.
+  f.moveTimeline(0, -200);
+  f.dispatch(f.seek, 'pointerleave', { bubbles: false });
+  f.scroll();
+  assert.equal(f.chipState().hidden, true);
+});
+
+test('markers nudged or rebuilt under a resting pointer keep the chip and ring on what a click does', t => {
+  const f = fixture(t);
+  const [watch] = f.observers;
+  assert.ok(watch.watched.some(([target, o]) => target === f.markers && o.childList && o.subtree && o.attributeFilter.includes('style')));
+  assert.ok(watch.watched.some(([target, o]) => target === f.content && o.attributeFilter.includes('style')), 'zoom and pan');
+  f.dispatch(f.content, 'pointermove', { clientX: 303, clientY: 160 });
+  assert.equal(f.chipState().text, 'Death at 2:03');
+  // A nudge moves the bar 8px right, away from the pointer.
+  f.bar.rect.left = 307;
+  f.mutate();
+  assert.deepEqual([f.bar.classList.contains('evbar-hit-hover'), f.chipState().text], [false, '3:23']);
+  // A rebuild (the event was removed): the new ghost under the pointer is ringed and named.
+  f.markers.children = f.markers.children.filter(child => child !== f.bar);
+  const ghost = f.markers.appendChild(f.make('span', '', 'evbar evbar-ghost', { left: 302, top: 148, width: 2, height: 38 }));
+  ghost.dataset = { action: 'jump', seconds: '123', eventKey: 'death-7', eventId: '7', eventType: 'DEATH', anchor: '123', ghost: '1', label: 'Death' };
+  f.mutate();
+  assert.deepEqual([ghost.classList.contains('evbar-hit-hover'), f.chipState().text], [true, 'Removed Death at 2:03']);
+  f.dispatch(f.seek, 'pointerleave', { bubbles: false });
+  f.mutate();
+  assert.equal(f.chipState().hidden, true, 'no preview once the pointer has left');
+});
+
+test('a press released outside the timeline neither freezes the preview nor pans on a plain move', t => {
+  const f = fixture(t);
+  // At 1x: pressed on the timeline, dragged off and released elsewhere.
+  f.dispatch(f.content, 'pointerdown', { clientX: 400, clientY: 175, buttons: 1 });
+  f.dispatch(f.seek, 'pointerleave', { bubbles: false, buttons: 1 });
+  f.dispatch(f.content, 'pointermove', { clientX: 310, clientY: 160, buttons: 0 });
+  assert.deepEqual([f.chipState().hidden, f.chipState().text, f.chipState().hint], [false, '3:30', true]);
+  f.dispatch(f.content, 'pointermove', { clientX: 303, clientY: 160, buttons: 0 });
+  assert.equal(f.bar.classList.contains('evbar-hit-hover'), true);
+  // The same, then a zoom before the pointer returns: a move with no button never pans.
+  f.dispatch(f.content, 'pointerdown', { clientX: 400, clientY: 175, buttons: 1 });
+  f.dispatch(f.seek, 'pointerleave', { bubbles: false, buttons: 1 });
+  f.hooks.setZoom(2);
+  f.dispatch(f.content, 'pointermove', { clientX: 330, clientY: 175, buttons: 0 });
+  assert.equal(f.hooks.pan, 0);
+  assert.equal(f.seek.classList.contains('is-panning'), false);
+  assert.deepEqual([f.chipState().hidden, f.chipState().text], [false, '1:55']);
+});
+
+test('while the button is held at 1x the chip follows the pointer to where the release acts', t => {
+  const f = fixture(t);
+  f.dispatch(f.content, 'pointermove', { clientX: 400, clientY: 175 });
+  f.dispatch(f.content, 'pointerdown', { clientX: 400, clientY: 175, buttons: 1 });
+  f.dispatch(f.content, 'pointermove', { clientX: 420, clientY: 175, buttons: 1 });
+  assert.equal(f.chipState().text, '5:20');
+  f.dispatch(f.content, 'pointerup', { clientX: 420, clientY: 175, buttons: 0 });
+  f.dispatch(f.content, 'click', { clientX: 420, clientY: 175 });
+  assert.deepEqual(f.seeks, [{ seconds: 320, selected: null }]);
 });

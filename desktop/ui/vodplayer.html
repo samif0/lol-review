@@ -146,7 +146,7 @@
                  and drag pans it (--tl-pan). Everything positioned by left:% lives in
                  the content, so it scales for free, including the game-clock ticks
                  that placeMarkers() writes into #vp-tl-axis. -->
-            <div class="vp-timeline" id="vp-seek" title="Click an event label or near its line to select · Click empty space to scrub · Ctrl+wheel to zoom · drag to pan">
+            <div class="vp-timeline" id="vp-seek" title="Click an event to select it. Click anywhere else to jump to that time. Ctrl+scroll to zoom, drag to pan.">
               <div class="vp-tl-content" id="vp-tl-content">
                 <div class="track"></div>
                 <div class="prog" id="vp-seek-fill"></div>
@@ -161,6 +161,10 @@
               </div>
               <!-- Zoom indicator — shows current zoom level + a reset; hidden at 1x. -->
               <button class="vp-tl-zoombadge" id="vp-tl-zoom" type="button" hidden title="Reset zoom">1.0×</button>
+              <!-- Hover chip in the clock row: what a click here does ("14:32", "Kill at 14:27"),
+                   plus the zoom hint near events until the first zoom (timeline-hover.mjs).
+                   It never takes the pointer. -->
+              <span class="vp-tl-hover" id="vp-tl-hover" aria-hidden="true" hidden><span id="vp-tl-hover-text"></span><span class="vp-tl-hover-hint" id="vp-tl-hover-hint" hidden>Ctrl+scroll to zoom in</span></span>
             </div>
             <!-- In-objective marker stepper — steps between the FOCUSED objective's
                  markers (◀ ▶ + "marker i/N"). Built/updated by JS; hidden when unframed. -->
@@ -183,7 +187,7 @@
           <details class="vp-tools-disclosure" id="vp-event-tools">
             <summary><span>Edit timeline events</span><kbd>E</kbd></summary>
           <div class="mini vp-fix" id="vp-fix">
-            <div class="vp-fix-keys">Click an event label or near its line to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
+            <div class="vp-fix-keys">Click an event or its label to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
             <div class="vp-fix-sel" id="vp-fix-sel">No event selected.</div>
             <div class="vp-fix-form" id="vp-fix-form" hidden>
               <div class="row">
