@@ -9,8 +9,9 @@ namespace Revu.Sidecar;
 
 /// <summary>
 /// Full-game (VOD) sharing, 4.2 (contract 7.5): one job at a time, globally. A job encodes the
-/// game's linked recording into a share copy under <c>ShareTemp</c>, uploads it in 16 MiB
-/// parts, attaches the timeline markers and records the link in <see cref="VodShareStore"/>.
+/// game's linked recording into a share copy under <c>ShareTemp</c> at the recording's frame
+/// rate, uploads it in 16 MiB parts while it encodes (4.3), attaches the timeline markers and
+/// records the link in <see cref="VodShareStore"/>.
 /// Each job runs through <see cref="SidecarBackgroundWork.TryRun"/> on a token linked to
 /// shutdown. Progress goes out as <c>vodShareProgress</c> SSE events (percent throttled to
 /// 4 per second, phase changes always) and is kept per game for the status poll.
@@ -41,7 +42,7 @@ public sealed partial class VodShareWorker
     private readonly object _gate = new();
     private readonly SemaphoreSlim _startGate = new(1, 1);
     private readonly Dictionary<long, VodShareJobDto> _last = new();
-    private readonly Dictionary<string, double> _durations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SourceInfo> _sources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> _storedAt = new(StringComparer.Ordinal);
     private (string Token, bool Allowed, long At)? _allowed;
     private VodShareJob? _running;
@@ -84,6 +85,8 @@ public sealed partial class VodShareWorker
     internal Func<long, Task<string?>> ResolveRecordingAsync { get; set; }
     internal Func<long, CancellationToken, Task<VodDto>> LoadSnapshotAsync { get; set; }
     internal Func<string, long> FreeDiskBytes { get; set; } = DefaultFreeDiskBytes;
+    /// <summary>Pads an encoded copy to the size its upload reserved (tests skip the real padding).</summary>
+    internal Func<string, long, bool> PadCopy { get; set; } = VodShareEncoder.TryPadTo;
     internal Func<long> Now { get; set; } = () => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     internal TimeSpan[] MarkerRetryDelays { get; set; } = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)];
     internal TimeSpan GameCheckInterval { get; set; } = TimeSpan.FromSeconds(5);
@@ -92,12 +95,17 @@ public sealed partial class VodShareWorker
     /// <summary>How long a start waits for a cancelled share of the same game to finish cleaning up.</summary>
     internal TimeSpan CancelledJobWait { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>The recording's length and the share copy's frame rate (60 or 30).</summary>
+    internal readonly record struct SourceInfo(double Seconds, int Fps);
+
     /// <summary>One queued or running share.</summary>
     internal sealed class VodShareJob
     {
         public required long GameId { get; init; }
         public required string SourcePath { get; init; }
         public required double DurationSeconds { get; init; }
+        /// <summary>The share copy's frame rate: 60 for a 60 fps recording, else 30.</summary>
+        public required int Fps { get; init; }
         public required bool IncludeNotes { get; init; }
         public required CancellationTokenSource Cts { get; init; }
         public VodShareQuality Quality { get; set; }
@@ -120,13 +128,14 @@ public sealed partial class VodShareWorker
     public async Task<VodShareStatusDto> GetStatusAsync(long gameId, CancellationToken ct)
     {
         var path = await ResolveRecordingAsync(gameId).ConfigureAwait(false);
-        var duration = path is null ? null : await DurationAsync(gameId, path, ct).ConfigureAwait(false);
-        var d = duration ?? 0;
+        var source = path is null ? null : await SourceAsync(gameId, path, ct).ConfigureAwait(false);
+        var d = source?.Seconds ?? 0;
+        var fps = source?.Fps ?? 30;
         var recording = new VodShareRecordingDto(path is not null, path is not null && IsBuiltIn(path),
-            d > 0 ? (int)Math.Ceiling(d) : null, d > 0 && VodShareEncoderArgs.IsTooLong(d));
+            d > 0 ? (int)Math.Ceiling(d) : null, d > 0 && VodShareEncoderArgs.IsTooLong(d), source?.Fps);
         var estimates = d > 0
-            ? new VodShareEstimatesDto(VodShareQualityPolicy.Estimate(VodShareQuality.P1080, d),
-                VodShareQualityPolicy.Estimate(VodShareQuality.P720, d))
+            ? new VodShareEstimatesDto(VodShareQualityPolicy.Estimate(VodShareQuality.P1080, fps, d),
+                VodShareQualityPolicy.Estimate(VodShareQuality.P720, fps, d))
             : null;
 
         var signedIn = false;
@@ -150,8 +159,8 @@ public sealed partial class VodShareWorker
                 {
                     // The same 3% margin as the start decision, so the sheet never offers a
                     // quality that start would then lower or refuse.
-                    var at1080 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P1080, d), status.Now);
-                    var at720 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P720, d), status.Now);
+                    var at1080 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P1080, fps, d), status.Now);
+                    var at720 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P720, fps, d), status.Now);
                     var fits1080 = at1080 == status.Now;
                     var fits720 = at720 == status.Now;
                     pool = new VodSharePoolDto(p.FreeBytes, fits1080, fits720, fits1080 ? null : at1080, fits720 ? null : at720);
@@ -253,7 +262,9 @@ public sealed partial class VodShareWorker
 
             var source = await ResolveRecordingAsync(gameId).ConfigureAwait(false);
             if (source is null) return Refuse("no_recording");
-            var duration = await DurationAsync(gameId, source, ct).ConfigureAwait(false) ?? 0;
+            var info = await SourceAsync(gameId, source, ct).ConfigureAwait(false);
+            var duration = info?.Seconds ?? 0;
+            var fps = info?.Fps ?? 30;
             if (duration <= 0) return Refuse("no_recording");
             if (VodShareEncoderArgs.IsTooLong(duration)) return Refuse("too_long");
             if (_live.IsGameInProgress) return Refuse("game_in_progress");
@@ -291,7 +302,7 @@ public sealed partial class VodShareWorker
                 if (usage.Live >= limits.MaxLive) return Refuse("live_limit");
                 if (usage.StartsToday >= limits.MaxStartsPerDay) return Refuse("daily_limit", retryAt: usage.DayResetsAt);
             }
-            var decision = VodShareQualityPolicy.Decide(requested, duration, status.Pool, status.Now);
+            var decision = VodShareQualityPolicy.Decide(requested, fps, duration, status.Pool, status.Now);
             if (!decision.Ok) return Refuse(decision.ErrorCode!, retryAt: decision.RetryAt);
 
             long free;
@@ -301,13 +312,14 @@ public sealed partial class VodShareWorker
                 _logger.LogDebug(ex, "Free disk check failed for {Dir}", TempDirectory);
                 free = 0;
             }
-            if (free < VodShareQualityPolicy.DiskNeeded(decision.Quality, duration)) return Refuse("disk_full");
+            if (free < VodShareQualityPolicy.DiskNeeded(decision.Quality, fps, duration)) return Refuse("disk_full");
 
             var job = new VodShareJob
             {
                 GameId = gameId,
                 SourcePath = source,
                 DurationSeconds = duration,
+                Fps = fps,
                 IncludeNotes = includeNotes,
                 Cts = CancellationTokenSource.CreateLinkedTokenSource(_work.Stopping),
                 Quality = decision.Quality,
@@ -326,7 +338,7 @@ public sealed partial class VodShareWorker
                 return Refuse("closing");
             }
             _logger.LogInformation("Full-game share queued: game {GameId} at {Quality} (reason {Reason}, notes {Notes})",
-                gameId, VodShareEncoderArgs.Wire(decision.Quality), decision.Reason ?? "none", includeNotes);
+                gameId, VodShareEncoderArgs.Label(decision.Quality, fps), decision.Reason ?? "none", includeNotes);
             return VodShareStartReply.Accepted(VodShareEncoderArgs.Wire(decision.Quality), decision.Reason);
         }
         finally
@@ -397,8 +409,11 @@ public sealed partial class VodShareWorker
         long? busyGameId = null) =>
         VodShareStartReply.Refuse(code, error ?? Message(code), retryAt, needsLogin, busyGameId);
 
-    /// <summary>The recording's length: an ffmpeg probe (5 s, cached by path, size and time), else the game's.</summary>
-    private async Task<double?> DurationAsync(long gameId, string path, CancellationToken ct)
+    /// <summary>
+    /// The recording's length and share frame rate: an ffmpeg probe (5 s, cached by path, size
+    /// and time), else the game's length at 30 fps.
+    /// </summary>
+    private async Task<SourceInfo?> SourceAsync(long gameId, string path, CancellationToken ct)
     {
         string key;
         try
@@ -410,9 +425,10 @@ public sealed partial class VodShareWorker
         {
             return null;
         }
-        lock (_gate) if (_durations.TryGetValue(key, out var cached)) return cached;
+        lock (_gate) if (_sources.TryGetValue(key, out var cached)) return cached;
 
         double? seconds = null;
+        double? frameRate = null;
         using (var timeout = new CancellationTokenSource(DurationProbeTimeout))
         using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token))
         {
@@ -420,6 +436,7 @@ public sealed partial class VodShareWorker
             {
                 var probe = await _mixer.ProbeAsync(path, linked.Token).ConfigureAwait(false);
                 if (probe?.DurationSeconds is { } p && double.IsFinite(p) && p > 0) seconds = p;
+                frameRate = probe?.FrameRate;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -442,8 +459,10 @@ public sealed partial class VodShareWorker
                 _logger.LogDebug(ex, "Full-game share: game {GameId} lookup failed", gameId);
             }
         }
-        if (seconds is { } s) lock (_gate) _durations[key] = s;
-        return seconds;
+        if (seconds is not { } s) return null;
+        var source = new SourceInfo(s, VodShareEncoderArgs.Fps(frameRate));
+        lock (_gate) _sources[key] = source;
+        return source;
     }
 
     private bool IsBuiltIn(string path)

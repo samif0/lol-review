@@ -2,11 +2,21 @@
 
 namespace Revu.Core.Services;
 
-/// <summary>What to ask the proxy for at VOD upload init. Quality is the wire string "1080p" or "720p".</summary>
-public sealed record VodUploadRequest(string Quality, int DurationSeconds);
+/// <summary>
+/// What to ask the proxy for at VOD upload init. Quality is the wire string "1080p" or "720p";
+/// Fps (60 or 30) is sent alongside it, and a proxy that predates it ignores it.
+/// </summary>
+public sealed record VodUploadRequest(string Quality, int DurationSeconds, int Fps = 30);
 
 /// <summary>A finished VOD share: the slug, the revu.lol/v/&lt;id&gt; link and when it expires (unix seconds).</summary>
 public sealed record VodUploadResult(string Id, string Url, long ExpiresAt);
+
+/// <summary>
+/// An upload that started while its share copy was being encoded was given up by the encoding
+/// side (the encode failed or restarted, or the copy did not fit the reserved size). The remote
+/// upload has been deleted (best effort); the caller decides what comes next.
+/// </summary>
+public sealed class VodCopyAbandonedException() : Exception("The share copy changed while it was uploading.");
 
 /// <summary>Bytes the hourly purge frees at <see cref="At"/> (all kinds, and the VOD subset).</summary>
 public sealed record VodSharePoolRelease(long At, long Bytes, long VodBytes);
@@ -72,6 +82,18 @@ public interface IVodShareClient
     Task<VodUploadResult> UploadVodAsync(string filePath, string sessionToken, VodUploadRequest request,
         IProgress<ClipUploadProgress>? progress = null, Action<string>? onRemoteIdAssigned = null,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// The same upload while the share copy is still being encoded (4.3): init reserves
+    /// <paramref name="declaredSize"/> bytes at once, and each part goes up as soon as the file
+    /// has grown past it. <paramref name="written"/> completes true once the file is final at
+    /// exactly <paramref name="declaredSize"/> bytes; false (or a fault) abandons the upload,
+    /// which then throws <see cref="VodCopyAbandonedException"/> after deleting the remote.
+    /// Other failures throw <see cref="ClipUploadException"/> with Code set.
+    /// </summary>
+    Task<VodUploadResult> UploadVodWhileWritingAsync(string filePath, long declaredSize, Task<bool> written,
+        string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress = null,
+        Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default);
 
     /// <summary>PUT /vod-shares/{id}/markers (30 s). Throws <see cref="ClipUploadException"/> with Code.</summary>
     Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default);

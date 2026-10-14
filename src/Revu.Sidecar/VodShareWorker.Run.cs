@@ -28,23 +28,7 @@ public sealed partial class VodShareWorker
             Directory.CreateDirectory(TempDirectory);
             file = Path.Combine(TempDirectory, $"game-{job.GameId}-{Guid.NewGuid():N}.mp4");
 
-            var encoded = await EncodeAsync(job, file, ct).ConfigureAwait(false);
-            if (encoded.SizeBytes > GameConstants.MaxVodShareBytes && job.Quality == VodShareQuality.P1080)
-            {
-                _logger.LogInformation("Full-game share copy for game {GameId} is {Bytes} bytes; preparing 720p", job.GameId,
-                    encoded.SizeBytes);
-                TryDelete(file);
-                job.Quality = VodShareQuality.P720;
-                job.QualityReason = "size";
-                Report(job, "running", "preparing", 0);
-                encoded = await EncodeAsync(job, file, ct).ConfigureAwait(false);
-            }
-            if (encoded.SizeBytes > GameConstants.MaxVodShareBytes)
-            {
-                Fail(job, "too_large");
-                return;
-            }
-
+            // The upload starts with the encode, so the session is needed first.
             var session = await ClipShareLinks.SessionAsync(_config).ConfigureAwait(false);
             if (!session.SignedIn)
             {
@@ -53,20 +37,15 @@ public sealed partial class VodShareWorker
             }
             token = session.Token;
 
-            Report(job, "running", "uploading", 0);
             long createdAt = 0;
-            var progress = new InlineProgress<ClipUploadProgress>(p =>
+            void Assigned(string id)
             {
-                if (p.Phase == "finishing") Report(job, "running", "finishing", 100);
-                else Report(job, "running", "uploading", Percent(p.SentBytes, p.TotalBytes));
-            });
-            uploaded = await _client.UploadVodAsync(file, token,
-                new VodUploadRequest(VodShareEncoderArgs.Wire(job.Quality), (int)Math.Ceiling(job.DurationSeconds)),
-                progress, id =>
-                {
-                    createdAt = Now();
-                    _cleanup.Add(id);
-                }, ct).ConfigureAwait(false);
+                createdAt = Now();
+                _cleanup.Add(id);
+            }
+            if (await EncodeAndUploadAsync(job, file, token, Assigned, ct).ConfigureAwait(false) is not { } done) return;
+            var encoded = done.Encoded;
+            uploaded = done.Uploaded;
             // From here a game starting no longer matters: the upload is done.
             watch.Cancel();
             ct.ThrowIfCancellationRequested();
@@ -136,11 +115,143 @@ public sealed partial class VodShareWorker
         }
     }
 
+    /// <summary>
+    /// Encode the share copy and upload it at the same time (4.3). The upload reserves the
+    /// copy's expected size plus 3% (<see cref="VodShareEncoderArgs.ReserveBytes"/>) and sends
+    /// each 16 MiB part as soon as the encoder has written past it. Once encoded, the copy is
+    /// padded to exactly that size and the header and last parts follow, so the link is ready
+    /// moments after the encode instead of a whole upload later. A copy that came out larger,
+    /// or an encode that restarted on another encoder, gives that upload up (its remote copy is
+    /// deleted) and the finished file is uploaded on its own. Null when the job already failed
+    /// with a reported code.
+    /// </summary>
+    private async Task<(VodEncodeResult Encoded, VodUploadResult Uploaded)?> EncodeAndUploadAsync(VodShareJob job,
+        string file, string token, Action<string> assigned, CancellationToken ct)
+    {
+        var declared = VodShareEncoderArgs.ReserveBytes(job.Quality, job.Fps, job.DurationSeconds);
+        if (declared <= 0 || declared > GameConstants.MaxVodShareBytes)
+            return await EncodeThenUploadAsync(job, file, token, assigned, ct).ConfigureAwait(false);
+
+        var written = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var showUpload = 0;
+        long lastSent = 0;
+        var progress = new InlineProgress<ClipUploadProgress>(p =>
+        {
+            Interlocked.Exchange(ref lastSent, p.SentBytes);
+            // While the encode runs the sheet shows its percent; the upload's shows from then on.
+            if (Volatile.Read(ref showUpload) == 1) ReportUpload(job, p);
+        });
+        using var encodeStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var upload = _client.UploadVodWhileWritingAsync(file, declared, written.Task, token, Request(job), progress,
+            assigned, ct);
+        // An upload refused at init, or failed for good, stops the encode: there is nowhere to send it.
+        _ = upload.ContinueWith(t =>
+        {
+            if (t.Exception?.InnerException is VodCopyAbandonedException) return;
+            try { encodeStop.Cancel(); } catch (ObjectDisposedException) { }
+        }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        var pipelined = true;
+        async Task GiveUpAsync()
+        {
+            if (!pipelined) return;
+            pipelined = false;
+            written.TrySetResult(false);
+            try { await upload.ConfigureAwait(false); }
+            catch (Exception ex) when (ex is VodCopyAbandonedException or OperationCanceledException or ClipUploadException)
+            {
+                // Given up on purpose; the remote copy was deleted (or queued for cleanup).
+            }
+        }
+
+        VodEncodeResult encoded;
+        try
+        {
+            var encodeProgress = new InlineProgress<int>(p => Report(job, "running", "preparing", Math.Clamp(p, 0, 99)));
+            encoded = await _encoder.EncodeAsync(job.SourcePath, file, job.Quality, job.Fps, job.DurationSeconds,
+                encodeProgress, encodeStop.Token, beforeRetry: _ => GiveUpAsync()).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && upload.IsFaulted)
+        {
+            // The upload failed first and stopped the encode: its error is the one to report.
+            written.TrySetResult(false);
+            await upload.ConfigureAwait(false);
+            throw;
+        }
+        catch
+        {
+            await GiveUpAsync().ConfigureAwait(false);
+            throw;
+        }
+
+        if (pipelined)
+        {
+            if (encoded.SizeBytes <= declared && PadCopy(file, declared))
+            {
+                Volatile.Write(ref showUpload, 1);
+                ReportUpload(job, new ClipUploadProgress("uploading", Interlocked.Read(ref lastSent), declared));
+                written.TrySetResult(true);
+                return (encoded, await upload.ConfigureAwait(false));
+            }
+            _logger.LogInformation("Full-game share copy for game {GameId} is {Bytes} bytes, past the {Declared} reserved; "
+                + "uploading it on its own", job.GameId, encoded.SizeBytes, declared);
+            await GiveUpAsync().ConfigureAwait(false);
+        }
+        return await UploadFinishedAsync(job, file, token, assigned, encoded, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Encode, then upload the finished copy (the path when the size can't be reserved up front).</summary>
+    private async Task<(VodEncodeResult Encoded, VodUploadResult Uploaded)?> EncodeThenUploadAsync(VodShareJob job,
+        string file, string token, Action<string> assigned, CancellationToken ct)
+    {
+        var encoded = await EncodeAsync(job, file, ct).ConfigureAwait(false);
+        return await UploadFinishedAsync(job, file, token, assigned, encoded, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Upload an encoded copy on its own. An oversized 1080p copy is prepared again at 720p
+    /// first; one still over 2 GiB fails as too_large (null).
+    /// </summary>
+    private async Task<(VodEncodeResult Encoded, VodUploadResult Uploaded)?> UploadFinishedAsync(VodShareJob job,
+        string file, string token, Action<string> assigned, VodEncodeResult encoded, CancellationToken ct)
+    {
+        if (encoded.SizeBytes > GameConstants.MaxVodShareBytes && job.Quality == VodShareQuality.P1080)
+        {
+            _logger.LogInformation("Full-game share copy for game {GameId} is {Bytes} bytes; preparing 720p", job.GameId,
+                encoded.SizeBytes);
+            TryDelete(file);
+            job.Quality = VodShareQuality.P720;
+            job.QualityReason = "size";
+            Report(job, "running", "preparing", 0);
+            encoded = await EncodeAsync(job, file, ct).ConfigureAwait(false);
+        }
+        if (encoded.SizeBytes > GameConstants.MaxVodShareBytes)
+        {
+            Fail(job, "too_large");
+            return null;
+        }
+
+        Report(job, "running", "uploading", 0);
+        var progress = new InlineProgress<ClipUploadProgress>(p => ReportUpload(job, p));
+        var uploaded = await _client.UploadVodAsync(file, token, Request(job), progress, assigned, ct).ConfigureAwait(false);
+        return (encoded, uploaded);
+    }
+
     private async Task<VodEncodeResult> EncodeAsync(VodShareJob job, string file, CancellationToken ct)
     {
         var progress = new InlineProgress<int>(p => Report(job, "running", "preparing", Math.Clamp(p, 0, 99)));
-        return await _encoder.EncodeAsync(job.SourcePath, file, job.Quality, job.DurationSeconds, progress, ct)
+        return await _encoder.EncodeAsync(job.SourcePath, file, job.Quality, job.Fps, job.DurationSeconds, progress, ct)
             .ConfigureAwait(false);
+    }
+
+    private static VodUploadRequest Request(VodShareJob job) =>
+        new(VodShareEncoderArgs.Wire(job.Quality), (int)Math.Ceiling(job.DurationSeconds), job.Fps);
+
+    private void ReportUpload(VodShareJob job, ClipUploadProgress p)
+    {
+        if (p.Phase == "finishing") Report(job, "running", "finishing", 100);
+        else Report(job, "running", "uploading", Percent(p.SentBytes, p.TotalBytes));
     }
 
     /// <summary>Build and PUT the markers document; 3 attempts. False leaves the share without markers.</summary>

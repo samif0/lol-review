@@ -143,7 +143,8 @@ public sealed class ClipUploadServiceMultipartTests : IDisposable
         Assert.Contains("narrated=0", init.Query);
         Assert.Contains("duration=300", init.Query);
 
-        var parts = proxy.Parts.ToList();
+        // Parts go up several at a time, so they may arrive in any order.
+        var parts = proxy.Parts.OrderBy(p => int.Parse(p.Path.Split('/')[^1])).ToList();
         Assert.Equal(7, parts.Count);
         Assert.Equal(Enumerable.Range(1, 7).Select(n => $"/clips/mp1/parts/{n}"), parts.Select(p => p.Path));
         Assert.All(parts.Take(6), p => Assert.Equal(PartSize, p.ContentLength));
@@ -160,6 +161,80 @@ public sealed class ClipUploadServiceMultipartTests : IDisposable
 
         Assert.Equal(new ClipUploadProgress("finishing", size, size), progress.Items[^1]);
         Assert.Contains(new ClipUploadProgress("uploading", size, size), progress.Items);
+        var sent = progress.Items.Where(p => p.Phase == "uploading").Select(p => p.SentBytes).ToList();
+        Assert.Equal(sent.OrderBy(b => b), sent);
+    }
+
+    [Fact]
+    public async Task Parts_GoUpFourAtATime_AndTheBytesMatchTheFile()
+    {
+        var inFlight = 0;
+        var most = 0;
+        var hashes = new Dictionary<int, string>();
+        var proxy = new GatedProxy(HappyProxy());
+        var service = new ClipUploadService(new HttpClient(proxy) { Timeout = Timeout.InfiniteTimeSpan },
+            NullLogger<ClipUploadService>.Instance, "https://proxy.test");
+        proxy.OnPart = async (n, body) =>
+        {
+            var now = Interlocked.Increment(ref inFlight);
+            lock (hashes)
+            {
+                most = Math.Max(most, now);
+                hashes[n] = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(body));
+            }
+            await Task.Delay(40);
+            Interlocked.Decrement(ref inFlight);
+        };
+        var size = 100 * MiB;
+        var file = Path.Combine(_dir, "patterned.mp4");
+        var bytes = new byte[size];
+        for (var i = 0; i < bytes.Length; i += 4096) bytes[i] = (byte)(i / 4096 % 251);
+        await File.WriteAllBytesAsync(file, bytes);
+
+        await service.UploadAsync(file, "tok", durationSeconds: 300);
+
+        Assert.Equal(4, most);
+        Assert.Equal(7, hashes.Count);
+        for (var n = 1; n <= 7; n++)
+        {
+            var offset = (int)((n - 1) * PartSize);
+            Assert.Equal(HashOf(bytes, offset, (int)Math.Min(PartSize, size - offset)), hashes[n]);
+        }
+    }
+
+    private static string HashOf(byte[] bytes, int offset, int count) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes.AsSpan(offset, count)));
+
+    [Fact]
+    public async Task AFailedPart_StopsTheOthers_AndItsErrorIsTheOneReported()
+    {
+        var (service, proxy) = Create(HappyProxy(seen =>
+            seen.Path == "/clips/mp1/parts/2" ? Json(HttpStatusCode.BadRequest, new { error = "part_size_mismatch" }) : null));
+
+        var ex = await Assert.ThrowsAsync<ClipUploadException>(() => service.UploadAsync(MakeFile(400 * MiB), "tok", durationSeconds: 300));
+
+        Assert.Equal("Sharing is temporarily unavailable. Try again in a moment.", ex.Message);
+        // 25 parts: the pumps stop soon after part 2 fails instead of sending the rest.
+        Assert.True(proxy.Parts.Count() < 25, $"{proxy.Parts.Count()} parts were sent");
+        Assert.Contains(proxy.Requests, r => r.Method == "DELETE" && r.Path == "/clips/mp1");
+        Assert.DoesNotContain(proxy.Requests, r => r.Path.EndsWith("/complete"));
+    }
+
+    /// <summary>A fake proxy whose part responses wait on <see cref="OnPart"/> (to observe overlap).</summary>
+    private sealed class GatedProxy(Func<Seen, CancellationToken, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public Func<int, byte[], Task>? OnPart { get; set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
+        {
+            var body = req.Content is null ? Array.Empty<byte>() : await req.Content.ReadAsByteArrayAsync(ct);
+            var path = req.RequestUri!.AbsolutePath;
+            if (req.Method == HttpMethod.Put && path.Contains("/parts/") && OnPart is { } onPart)
+                await onPart(int.Parse(path.Split('/')[^1]), body);
+            var media = req.Content?.Headers.ContentType?.MediaType;
+            return respond(new Seen(req.Method.Method, path, req.RequestUri.Query, req.Content?.Headers.ContentLength,
+                body.Length, media == "application/json" ? Encoding.UTF8.GetString(body) : null, media), ct);
+        }
     }
 
     [Fact]

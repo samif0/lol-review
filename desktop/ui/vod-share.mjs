@@ -11,7 +11,7 @@ import {
 
 export {
   SHARE_LINK, CHECKING, KEEP_REVIEWING, LINK_READY, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED,
-  formatShareSize, formatShareTime, safeShareUrl, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
+  formatShareSize, formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
   vodShareProgressLabel, vodShareTtlText,
 } from './vod-share-copy.mjs';
 
@@ -317,6 +317,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       const q1080 = hook(sheet, 'q1080'), q720 = hook(sheet, 'q720');
       if (q1080) { q1080.checked = plan.quality === '1080p'; q1080.disabled = plan.disable1080 || starting; }
       if (q720) { q720.checked = plan.quality === '720p'; q720.disabled = starting; }
+      setText(hook(sheet, 'q1080-label'), plan.labels.p1080);
+      setText(hook(sheet, 'q720-label'), plan.labels.p720);
       showText(hook(sheet, 'hint'), plan.hint);
       setText(hook(sheet, 'ttl'), vodShareTtlText(status?.ttlSeconds));
       setHidden(hook(sheet, 'imported'), !plan.imported);

@@ -10,10 +10,13 @@ internal sealed record VodShareStartBody(long GameId, string? Quality, bool? Inc
 /// <summary>POST /api/vod-share/cancel and /api/vod-share/stop.</summary>
 internal sealed record VodShareGameBody(long GameId);
 
-/// <summary>The game's linked recording as the share sheet needs it.</summary>
-public sealed record VodShareRecordingDto(bool Available, bool BuiltIn, int? DurationSeconds, bool TooLong);
+/// <summary>
+/// The game's linked recording as the share sheet needs it. Fps is the share copy's frame rate
+/// (60 for a 60 fps recording, else 30); null when the recording could not be read.
+/// </summary>
+public sealed record VodShareRecordingDto(bool Available, bool BuiltIn, int? DurationSeconds, bool TooLong, int? Fps = null);
 
-/// <summary>Estimated share copy sizes (bytes).</summary>
+/// <summary>Estimated share copy sizes (bytes) at the recording's share frame rate.</summary>
 public sealed record VodShareEstimatesDto(long P1080Bytes, long P720Bytes);
 
 /// <summary>The proxy pool for this game's estimates. *At = when it would fit, when it does not fit now.</summary>

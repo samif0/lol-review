@@ -9,7 +9,8 @@ namespace Revu.Core.Services;
 public sealed record VodEncoderChoice(string FfmpegPath, string Encoder);
 
 /// <summary>A verified share copy on disk.</summary>
-public sealed record VodEncodeResult(string OutputPath, long SizeBytes, string Encoder, VodShareQuality Quality, int VideoKbps);
+public sealed record VodEncodeResult(string OutputPath, long SizeBytes, string Encoder, VodShareQuality Quality, int Fps,
+    int VideoKbps);
 
 /// <summary>An encode that failed (<c>encode_failed</c>) or a game too long to share (<c>too_long</c>).</summary>
 public sealed class VodEncodeException(string code, string message) : Exception(message)
@@ -24,12 +25,15 @@ public interface IVodShareEncoder
     Task<VodEncoderChoice?> SelectAsync(CancellationToken ct);
 
     /// <summary>
-    /// Encode <paramref name="sourcePath"/> to <paramref name="outputPath"/>. Percent progress is
-    /// 0..99 while encoding and 100 at the end. Throws <see cref="VodEncodeException"/>; the
-    /// output is deleted on any failure or cancellation.
+    /// Encode <paramref name="sourcePath"/> to <paramref name="outputPath"/> at
+    /// <paramref name="fps"/> (60 or 30). Percent progress is 0..99 while encoding and 100 at the
+    /// end. <paramref name="beforeRetry"/> runs (and is awaited) after a failed run deleted the
+    /// output and before a second encoder writes it again from the start. Throws
+    /// <see cref="VodEncodeException"/>; the output is deleted on any failure or cancellation.
     /// </summary>
-    Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality,
-        double durationSeconds, IProgress<int>? percent, CancellationToken ct);
+    Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality, int fps,
+        double durationSeconds, IProgress<int>? percent, CancellationToken ct,
+        Func<CancellationToken, Task>? beforeRetry = null);
 }
 
 /// <summary>One ffmpeg run as the encoder sees it.</summary>
@@ -143,11 +147,13 @@ public sealed class VodShareEncoder : IVodShareEncoder
         return probe.Succeeded;
     }
 
-    public async Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality,
-        double durationSeconds, IProgress<int>? percent, CancellationToken ct)
+    public async Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality, int fps,
+        double durationSeconds, IProgress<int>? percent, CancellationToken ct,
+        Func<CancellationToken, Task>? beforeRetry = null)
     {
         if (quality == VodShareQuality.P720 && VodShareEncoderArgs.IsTooLong(durationSeconds))
             throw new VodEncodeException("too_long", "Games longer than 2 hours can't be shared.");
+        fps = VodShareEncoderArgs.Fps(fps);
         var dir = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
@@ -155,7 +161,7 @@ public sealed class VodShareEncoder : IVodShareEncoder
         {
             var choice = await SelectAsync(ct).ConfigureAwait(false) ?? throw Failed("no encoder");
             var start = await SourceStartAsync(choice.FfmpegPath, sourcePath, ct).ConfigureAwait(false);
-            var run = await RunEncodeAsync(choice, sourcePath, outputPath, quality, durationSeconds, start, percent, ct)
+            var run = await RunEncodeAsync(choice, sourcePath, outputPath, quality, fps, durationSeconds, start, percent, ct)
                 .ConfigureAwait(false);
             if (!run.Succeeded)
             {
@@ -172,7 +178,8 @@ public sealed class VodShareEncoder : IVodShareEncoder
                     ? await SelectAsync(ct).ConfigureAwait(false)
                     : await SelectOtherAsync(choice, ct).ConfigureAwait(false);
                 choice = next ?? throw Failed("no other encoder");
-                run = await RunEncodeAsync(choice, sourcePath, outputPath, quality, durationSeconds, start, percent, ct)
+                if (beforeRetry is not null) await beforeRetry(ct).ConfigureAwait(false);
+                run = await RunEncodeAsync(choice, sourcePath, outputPath, quality, fps, durationSeconds, start, percent, ct)
                     .ConfigureAwait(false);
                 if (!run.Succeeded)
                 {
@@ -186,8 +193,8 @@ public sealed class VodShareEncoder : IVodShareEncoder
 
             var size = await VerifyAsync(choice.FfmpegPath, sourcePath, outputPath, durationSeconds, ct).ConfigureAwait(false);
             percent?.Report(100);
-            var kbps = VodShareEncoderArgs.Rates(quality, durationSeconds).Bitrate;
-            return new VodEncodeResult(outputPath, size, choice.Encoder, quality, kbps);
+            var kbps = VodShareEncoderArgs.VideoKbps(quality, fps, durationSeconds);
+            return new VodEncodeResult(outputPath, size, choice.Encoder, quality, fps, kbps);
         }
         catch
         {
@@ -197,7 +204,7 @@ public sealed class VodShareEncoder : IVodShareEncoder
     }
 
     private async Task<VodEncoderRun> RunEncodeAsync(VodEncoderChoice choice, string source, string output,
-        VodShareQuality quality, double duration, double sourceStart, IProgress<int>? percent, CancellationToken ct)
+        VodShareQuality quality, int fps, double duration, double sourceStart, IProgress<int>? percent, CancellationToken ct)
     {
         var last = -1;
         void OnLine(string line)
@@ -209,14 +216,14 @@ public sealed class VodShareEncoder : IVodShareEncoder
             percent?.Report(p.Value);
         }
 
-        var args = VodShareEncoderArgs.EncodeArgs(choice.Encoder, source, output, quality, duration, sourceStart);
+        var args = VodShareEncoderArgs.EncodeArgs(choice.Encoder, source, output, quality, fps, duration, sourceStart);
         var watch = Stopwatch.StartNew();
         var run = await _run(choice.FfmpegPath, args, VodShareEncoderArgs.TimeoutSeconds(duration), OnLine, ct)
             .ConfigureAwait(false);
         if (run.Succeeded && duration > 0)
         {
             _logger.LogInformation("Share copy encoded with {Encoder} at {Quality} in {Seconds:F0} s ({Speed:F1}x)",
-                choice.Encoder, VodShareEncoderArgs.Wire(quality), watch.Elapsed.TotalSeconds,
+                choice.Encoder, VodShareEncoderArgs.Label(quality, fps), watch.Elapsed.TotalSeconds,
                 duration / Math.Max(0.001, watch.Elapsed.TotalSeconds));
         }
         return run;
@@ -287,6 +294,28 @@ public sealed class VodShareEncoder : IVodShareEncoder
         lock (lines) result = run.Succeeded ? lines.ToArray() : Array.Empty<string>();
         _encoderLists[binary] = result;
         return result;
+    }
+
+    /// <summary>
+    /// Pad the copy at <paramref name="path"/> to exactly <paramref name="size"/> bytes with a
+    /// trailing MP4 <c>free</c> box (players skip it; checked in Chromium on a moov-at-end copy,
+    /// including seeking). False when the copy is already larger, or short by 1 to 7 bytes (too
+    /// few for a box header).
+    /// </summary>
+    public static bool TryPadTo(string path, long size)
+    {
+        var gap = size - new FileInfo(path).Length;
+        if (gap == 0) return true;
+        if (gap < 8 || gap > uint.MaxValue) return false;
+        using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read | FileShare.Delete);
+        Span<byte> header = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(header, (uint)gap);
+        "free"u8.CopyTo(header[4..]);
+        fs.Write(header);
+        var zeros = new byte[1 << 16];
+        for (var left = gap - 8; left > 0; left -= zeros.Length)
+            fs.Write(zeros, 0, (int)Math.Min(zeros.Length, left));
+        return true;
     }
 
     internal static bool HasFtyp(string path)

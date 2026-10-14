@@ -58,20 +58,46 @@ public sealed partial class ClipUploadService : IVodShareClient
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(sessionToken)) throw VodError("unauthorized");
-        if (request is null || request.Quality is not ("1080p" or "720p"))
-            throw VodError("bad_request", "Unsupported share quality.");
+        ValidateVodRequest(sessionToken, request);
         if (!File.Exists(filePath)) throw VodError("upload_failed", "The prepared video is missing. Share again.");
         var size = new FileInfo(filePath).Length;
         if (size <= 0) throw VodError("upload_failed", "The prepared video is empty. Share again.");
+        return await UploadVodCoreAsync(filePath, size, null, sessionToken, request, progress, onRemoteIdAssigned, ct)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<VodUploadResult> UploadVodWhileWritingAsync(string filePath, long declaredSize, Task<bool> written,
+        string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress = null,
+        Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(written);
+        ValidateVodRequest(sessionToken, request);
+        if (declaredSize <= 0) throw VodError("upload_failed", "The prepared video is empty. Share again.");
+        return await UploadVodCoreAsync(filePath, declaredSize, written, sessionToken, request, progress, onRemoteIdAssigned,
+            ct).ConfigureAwait(false);
+    }
+
+    private static void ValidateVodRequest(string sessionToken, VodUploadRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(sessionToken)) throw VodError("unauthorized");
+        if (request is null || request.Quality is not ("1080p" or "720p"))
+            throw VodError("bad_request", "Unsupported share quality.");
+    }
+
+    private async Task<VodUploadResult> UploadVodCoreAsync(string filePath, long size, Task<bool>? written,
+        string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress,
+        Action<string>? onRemoteIdAssigned, CancellationToken ct)
+    {
         if (size > GameConstants.MaxVodShareBytes) throw VodError("payload_too_large");
         var duration = Math.Clamp(request.DurationSeconds, 1, GameConstants.MaxVodShareSeconds);
 
-        var init = await VodInitAsync(size, request.Quality, duration, sessionToken, ct).ConfigureAwait(false);
+        var fps = VodShareEncoderArgs.Fps(request.Fps);
+        var init = await VodInitAsync(size, request.Quality, fps, duration, sessionToken, ct).ConfigureAwait(false);
         try
         {
             var done = await UploadPartsAndCompleteAsync(VodRouteBase, init.id, init.part_size, init.part_count, filePath,
-                size, sessionToken, progress, onRemoteIdAssigned, "VOD", ct).ConfigureAwait(false);
+                size, sessionToken, progress, onRemoteIdAssigned, "VOD", ct, written).ConfigureAwait(false);
             return new VodUploadResult(done.Id, done.Url, done.ExpiresAt > 0 ? done.ExpiresAt : init.share_expires_at);
         }
         catch (ClipUploadException ex) when (ex.Code is null)
@@ -100,13 +126,14 @@ public sealed partial class ClipUploadService : IVodShareClient
         if (!res.Response.IsSuccessStatusCode) throw await VodErrorAsync(res.Response, res.Token).ConfigureAwait(false);
     }
 
-    private async Task<VodInitDto> VodInitAsync(long size, string quality, int duration, string sessionToken,
+    private async Task<VodInitDto> VodInitAsync(long size, string quality, int fps, int duration, string sessionToken,
         CancellationToken ct)
     {
         var query = string.Join("&",
             $"size={size.ToString(CultureInfo.InvariantCulture)}",
             $"duration={duration.ToString(CultureInfo.InvariantCulture)}",
-            $"quality={Uri.EscapeDataString(quality)}");
+            $"quality={Uri.EscapeDataString(quality)}",
+            $"fps={fps.ToString(CultureInfo.InvariantCulture)}");
         using var content = new ByteArrayContent(Array.Empty<byte>());
         content.Headers.ContentType = new MediaTypeHeaderValue("video/mp4");
         content.Headers.ContentLength = 0;

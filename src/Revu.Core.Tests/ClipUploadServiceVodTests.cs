@@ -49,7 +49,8 @@ public sealed class ClipUploadServiceVodTests : IDisposable
     private static HttpResponseMessage Json(HttpStatusCode status, object body) =>
         new(status) { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
 
-    private static Func<Seen, HttpResponseMessage> HappyVodProxy(Func<Seen, HttpResponseMessage?>? overrideWith = null) =>
+    private static Func<Seen, HttpResponseMessage> HappyVodProxy(Func<Seen, HttpResponseMessage?>? overrideWith = null,
+        long partSize = PartSize) =>
         seen =>
         {
             var custom = overrideWith?.Invoke(seen);
@@ -59,7 +60,7 @@ public sealed class ClipUploadServiceVodTests : IDisposable
                 var size = long.Parse(System.Web.HttpUtility.ParseQueryString(seen.Query)["size"]!);
                 return Json(HttpStatusCode.Created, new
                 {
-                    id = "vod1234", part_size = PartSize, part_count = (int)((size + PartSize - 1) / PartSize),
+                    id = "vod1234", part_size = partSize, part_count = (int)((size + partSize - 1) / partSize),
                     expires_at = 1_760_421_600, share_expires_at = 1_760_659_200, url = "https://revu.lol/v/vod1234",
                 });
             }
@@ -82,6 +83,7 @@ public sealed class ClipUploadServiceVodTests : IDisposable
             PartRetryDelays = [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero],
             CompleteRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
             VodPartOutageDelays = [TimeSpan.Zero],
+            GrowPollInterval = TimeSpan.FromMilliseconds(10),
         };
         return (service, proxy);
     }
@@ -200,9 +202,10 @@ public sealed class ClipUploadServiceVodTests : IDisposable
         Assert.Equal(new[] { "vod1234" }, assigned);
         var init = proxy.Requests[0];
         Assert.Equal(("POST", "/vod-shares/uploads"), (init.Method, init.Path));
-        Assert.Equal($"?size={size}&duration=2256&quality=720p", init.Query);
+        Assert.Equal($"?size={size}&duration=2256&quality=720p&fps=30", init.Query);
         Assert.Equal(("video/mp4", 0L, 0L), (init.MediaType, init.ContentLength, init.BodyLength));
-        var parts = proxy.Requests.Where(r => r.Method == "PUT").ToList();
+        // Parts go up several at a time, so they may arrive in any order.
+        var parts = proxy.Requests.Where(r => r.Method == "PUT").OrderBy(r => int.Parse(r.Path.Split('/')[^1])).ToList();
         Assert.Equal(new[] { "/vod-shares/vod1234/parts/1", "/vod-shares/vod1234/parts/2", "/vod-shares/vod1234/parts/3" },
             parts.Select(p => p.Path));
         Assert.Equal(new long[] { PartSize, PartSize, 8 * MiB }, parts.Select(p => p.BodyLength));
@@ -386,6 +389,140 @@ public sealed class ClipUploadServiceVodTests : IDisposable
         Assert.Equal("unauthorized", (await Assert.ThrowsAsync<ClipUploadException>(() =>
             service.UploadVodAsync(MakeFile(MiB), " ", new VodUploadRequest("720p", 600)))).Code);
         Assert.Empty(proxy.Requests);
+    }
+
+    [Fact]
+    public async Task TheFrameRate_GoesUpWithTheQuality()
+    {
+        var (service, proxy) = Create(HappyVodProxy());
+        await service.UploadVodAsync(MakeFile(MiB), "tok", new VodUploadRequest("1080p", 600, 60));
+        Assert.EndsWith("&quality=1080p&fps=60", proxy.Requests[0].Query);
+    }
+
+    // ── Uploading while the copy is written (4.3) ────────────────────────────
+
+    /// <summary>Appends <paramref name="bytes"/> of a pattern to <paramref name="path"/> (the encoder writing).</summary>
+    private static void Grow(string path, long bytes)
+    {
+        using var fs = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        var start = fs.Length;
+        var chunk = new byte[bytes];
+        for (var i = 0; i < chunk.Length; i++) chunk[i] = (byte)((start + i) / 4096 % 251);
+        fs.Write(chunk);
+    }
+
+    private static int PartOf(Seen seen) => int.Parse(seen.Path.Split('/')[^1]);
+
+    [Fact]
+    public async Task WhileWriting_MiddlePartsGoUpAsTheFileGrows_ThenTheHeaderAndTheEnd()
+    {
+        // 1 MiB parts so a test file stays small: 10 parts, the guard is 4 MiB.
+        var (service, proxy) = Create(HappyVodProxy(partSize: MiB));
+        var file = Path.Combine(_dir, "growing.mp4");
+        var written = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var progress = new Collect();
+
+        // The upload starts before the encoder has created the file.
+        var upload = service.UploadVodWhileWritingAsync(file, 10 * MiB, written.Task, "tok",
+            new VodUploadRequest("1080p", 600, 60), progress);
+        await WaitUntilAsync(() => proxy.Requests.Count >= 1);
+        Grow(file, 8 * MiB);
+
+        // Parts 2..4 end at least 4 MiB before the end of what is written; nothing else may go yet.
+        await WaitUntilAsync(() => Parts(proxy).Count >= 3);
+        await Task.Delay(100);
+        Assert.Equal(new[] { 2, 3, 4 }, Parts(proxy).Select(PartOf).Order());
+
+        Grow(file, 2 * MiB);   // the rest, then the header rewrite the encoder does at the end
+        using (var fs = new FileStream(file, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+            fs.Write([0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p']);
+        written.SetResult(true);
+        var result = await upload;
+
+        Assert.Equal("vod1234", result.Id);
+        Assert.Equal($"?size={10 * MiB}&duration=600&quality=1080p&fps=60", proxy.Requests[0].Query);
+        var parts = Parts(proxy);
+        Assert.Equal(Enumerable.Range(1, 10), parts.Select(PartOf).Order());
+        Assert.All(parts, p => Assert.Equal(MiB, p.BodyLength));
+        // The header part went after the file was written, so it carries the patched header.
+        Assert.True(parts.FindIndex(p => PartOf(p) == 1) > parts.FindIndex(p => PartOf(p) == 4));
+        Assert.Equal("/vod-shares/vod1234/complete", proxy.Requests[^1].Path);
+        Assert.Equal(("finishing", 10 * MiB), (progress.Items[^1].Phase, progress.Items[^1].SentBytes));
+        Assert.DoesNotContain(proxy.Requests, r => r.Method == "DELETE");
+    }
+
+    [Fact]
+    public async Task WhileWriting_AGivenUpCopy_IsDeleted_AndNeverCompleted()
+    {
+        var (service, proxy) = Create(HappyVodProxy(partSize: MiB));
+        var file = Path.Combine(_dir, "given-up.mp4");
+        Grow(file, 6 * MiB);
+        var written = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var upload = service.UploadVodWhileWritingAsync(file, 10 * MiB, written.Task, "tok", new VodUploadRequest("720p", 600, 60));
+        await WaitUntilAsync(() => Parts(proxy).Count >= 1);
+        written.SetResult(false);
+
+        await Assert.ThrowsAsync<VodCopyAbandonedException>(() => upload);
+        Assert.Contains(proxy.Requests, r => r.Method == "DELETE" && r.Path == "/clips/vod1234");
+        Assert.DoesNotContain(proxy.Requests, r => r.Path.EndsWith("/complete"));
+        Assert.DoesNotContain(Parts(proxy), p => PartOf(p) is 1 or 10);
+    }
+
+    [Fact]
+    public async Task WhileWriting_ARefusedInit_FailsAtOnce_WithItsCode()
+    {
+        var (service, proxy) = Create(HappyVodProxy(seen => seen.Path == "/vod-shares/uploads"
+            ? Json(HttpStatusCode.Conflict, new { error = "pool_full", retry_at = 1_760_403_600 })
+            : null));
+        var never = new TaskCompletionSource<bool>();
+
+        var ex = await Assert.ThrowsAsync<ClipUploadException>(() => service.UploadVodWhileWritingAsync(
+            Path.Combine(_dir, "not-yet.mp4"), 10 * MiB, never.Task, "tok", new VodUploadRequest("1080p", 600, 60)));
+
+        Assert.Equal(("pool_full", (long?)1_760_403_600), (ex.Code, ex.RetryAt));
+        Assert.Single(proxy.Requests);
+    }
+
+    [Fact]
+    public async Task WhileWriting_ACancelledShare_DeletesTheRemote()
+    {
+        var (service, proxy) = Create(HappyVodProxy(partSize: MiB));
+        using var cts = new CancellationTokenSource();
+        var never = new TaskCompletionSource<bool>();
+        var upload = service.UploadVodWhileWritingAsync(Path.Combine(_dir, "cancelled.mp4"), 10 * MiB, never.Task, "tok",
+            new VodUploadRequest("1080p", 600, 60), ct: cts.Token);
+        await WaitUntilAsync(() => proxy.Requests.Count >= 1);
+
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => upload);
+        Assert.Contains(proxy.Requests, r => r.Method == "DELETE" && r.Path == "/clips/vod1234");
+    }
+
+    [Theory]
+    [InlineData(1, false, new[] { 1 })]
+    [InlineData(2, true, new[] { 1, 2 })]
+    [InlineData(5, true, new[] { 2, 3, 4, 1, 5 })]
+    [InlineData(4, false, new[] { 1, 2, 3, 4 })]
+    public void PartOrder_SendsTheHeaderAndTheEndLast_WhileWriting(int count, bool growing, int[] expected)
+    {
+        Assert.Equal(expected, ClipUploadService.PartOrder(count, growing));
+    }
+
+    private static List<Seen> Parts(FakeProxy proxy)
+    {
+        lock (proxy.Requests) return proxy.Requests.Where(r => r.Method == "PUT" && r.Path.Contains("/parts/")).ToList();
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("condition not met");
+            await Task.Delay(10);
+        }
     }
 
     // ── Markers ──────────────────────────────────────────────────────────────

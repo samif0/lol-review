@@ -154,13 +154,78 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var output = Path.Combine(_dir, "out", "game-1.mp4");
         var progress = new Collect();
 
-        var result = await encoder.EncodeAsync(Source(), output, VodShareQuality.P1080, 60, progress, CancellationToken.None);
+        var result = await encoder.EncodeAsync(Source(), output, VodShareQuality.P1080, 30, 60, progress, CancellationToken.None);
 
-        Assert.Equal((output, "h264_nvenc", VodShareQuality.P1080, 4500), (result.OutputPath, result.Encoder, result.Quality, result.VideoKbps));
+        Assert.Equal((output, "h264_nvenc", VodShareQuality.P1080, 30, 4500),
+            (result.OutputPath, result.Encoder, result.Quality, result.Fps, result.VideoKbps));
         Assert.Equal(12, result.SizeBytes);
         Assert.Equal(new[] { 25, 50, 100 }, progress.Items);
         var encode = fake.Calls.Single(c => c.Kind.StartsWith("encode"));
         Assert.Equal(output, encode.Args[^1]);
+    }
+
+    [Fact]
+    public async Task A60FpsEncode_KeepsSixtyFrames_AndItsBitrate()
+    {
+        var fake = new FakeFfmpeg();
+        fake.Listed["A"] = ["h264_nvenc"];
+
+        var result = await Create(fake, "A").EncodeAsync(Source(), Path.Combine(_dir, "sixty.mp4"), VodShareQuality.P1080, 60,
+            60, null, CancellationToken.None);
+
+        Assert.Equal((60, 5000), (result.Fps, result.VideoKbps));
+        var args = string.Join(" ", fake.Calls.Single(c => c.Kind.StartsWith("encode")).Args);
+        Assert.Contains("-vf fps=60,", args);
+        Assert.Contains("-b:v 5000k -maxrate 7500k -bufsize 10000k", args);
+        Assert.Contains("-g 120", args);
+    }
+
+    [Fact]
+    public async Task BeforeRetry_RunsOnce_AfterTheFailedOutputIsGone_AndBeforeTheSecondEncoderWrites()
+    {
+        var fake = new FakeFfmpeg();
+        fake.Listed["A"] = ["h264_nvenc", "libx264"];
+        fake.EncodeExits.Enqueue(1);
+        var output = Path.Combine(_dir, "retry-hook.mp4");
+        var seen = new List<(int Encodes, bool OutputExists)>();
+
+        var result = await Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 60, 60, null,
+            CancellationToken.None, beforeRetry: _ =>
+            {
+                seen.Add((fake.Calls.Count(c => c.Kind.StartsWith("encode")), File.Exists(output)));
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal("libx264", result.Encoder);
+        Assert.Equal(new[] { (1, false) }, seen);
+
+        // A first run that succeeds never calls it.
+        var clean = new FakeFfmpeg();
+        clean.Listed["A"] = ["h264_nvenc"];
+        var calls = 0;
+        await Create(clean, "A").EncodeAsync(Source(), Path.Combine(_dir, "clean.mp4"), VodShareQuality.P1080, 60, 60, null,
+            CancellationToken.None, beforeRetry: _ => { calls++; return Task.CompletedTask; });
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public void Padding_AddsATrailingFreeBox_OfExactlyTheGap()
+    {
+        var path = Path.Combine(_dir, "pad.mp4");
+        File.WriteAllBytes(path, [0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p', 1, 2, 3, 4]);
+
+        Assert.True(VodShareEncoder.TryPadTo(path, 12 + 70_000));
+
+        var bytes = File.ReadAllBytes(path);
+        Assert.Equal(12 + 70_000, bytes.Length);
+        Assert.Equal(70_000u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12, 4)));
+        Assert.Equal("free", System.Text.Encoding.ASCII.GetString(bytes, 16, 4));
+        Assert.All(bytes.Skip(20), b => Assert.Equal(0, b));
+        // Already the size: nothing to add. Larger, or short by fewer bytes than a box header: no.
+        Assert.True(VodShareEncoder.TryPadTo(path, bytes.Length));
+        Assert.False(VodShareEncoder.TryPadTo(path, bytes.Length - 1));
+        Assert.False(VodShareEncoder.TryPadTo(path, bytes.Length + 7));
+        Assert.Equal(12 + 70_000, new FileInfo(path).Length);
     }
 
     [Fact]
@@ -173,7 +238,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var encoder = Create(fake, "A");
         var output = Path.Combine(_dir, "retry.mp4");
 
-        var result = await encoder.EncodeAsync(Source(), output, VodShareQuality.P720, 60, null, CancellationToken.None);
+        var result = await encoder.EncodeAsync(Source(), output, VodShareQuality.P720, 30, 60, null, CancellationToken.None);
 
         Assert.Equal("libx264", result.Encoder);
         Assert.Equal(new[] { "encode:h264_nvenc", "encode:libx264" },
@@ -192,12 +257,12 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         fake.EncodeExits.Enqueue(1);
         var encoder = Create(fake, "A");
 
-        var result = await encoder.EncodeAsync(Source(), Path.Combine(_dir, "bad-source.mp4"), VodShareQuality.P1080, 60, null,
+        var result = await encoder.EncodeAsync(Source(), Path.Combine(_dir, "bad-source.mp4"), VodShareQuality.P1080, 30, 60, null,
             CancellationToken.None);
 
         Assert.Equal("libx264", result.Encoder);
         Assert.Equal(new VodEncoderChoice("A", "h264_nvenc"), await encoder.SelectAsync(CancellationToken.None));
-        var next = await encoder.EncodeAsync(Source(), Path.Combine(_dir, "next.mp4"), VodShareQuality.P1080, 60, null,
+        var next = await encoder.EncodeAsync(Source(), Path.Combine(_dir, "next.mp4"), VodShareQuality.P1080, 30, 60, null,
             CancellationToken.None);
         Assert.Equal("h264_nvenc", next.Encoder);
     }
@@ -212,7 +277,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var output = Path.Combine(_dir, "slow.mp4");
 
         var ex = await Assert.ThrowsAsync<VodEncodeException>(() =>
-            encoder.EncodeAsync(Source(), output, VodShareQuality.P1080, 60, null, CancellationToken.None));
+            encoder.EncodeAsync(Source(), output, VodShareQuality.P1080, 30, 60, null, CancellationToken.None));
 
         Assert.Equal("encode_failed", ex.Code);
         Assert.Single(fake.Calls, c => c.Kind.StartsWith("encode"));
@@ -226,13 +291,13 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var fake = new FakeFfmpeg { SourceStart = 4.956 };
         fake.Listed["A"] = ["h264_nvenc"];
         var encoder = Create(fake, "A");
-        await encoder.EncodeAsync(Source(), Path.Combine(_dir, "late.mp4"), VodShareQuality.P1080, 60, null, CancellationToken.None);
+        await encoder.EncodeAsync(Source(), Path.Combine(_dir, "late.mp4"), VodShareQuality.P1080, 30, 60, null, CancellationToken.None);
         var args = fake.Calls.Single(c => c.Kind.StartsWith("encode")).Args.ToList();
         Assert.Equal("4.956", args[args.IndexOf("-output_ts_offset") + 1]);
 
         var zero = new FakeFfmpeg();
         zero.Listed["A"] = ["h264_nvenc"];
-        await Create(zero, "A").EncodeAsync(Source(), Path.Combine(_dir, "zero.mp4"), VodShareQuality.P1080, 60, null,
+        await Create(zero, "A").EncodeAsync(Source(), Path.Combine(_dir, "zero.mp4"), VodShareQuality.P1080, 30, 60, null,
             CancellationToken.None);
         Assert.DoesNotContain("-output_ts_offset", zero.Calls.Single(c => c.Kind.StartsWith("encode")).Args);
     }
@@ -247,7 +312,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var output = Path.Combine(_dir, "fail.mp4");
 
         var ex = await Assert.ThrowsAsync<VodEncodeException>(() =>
-            Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 60, null, CancellationToken.None));
+            Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 30, 60, null, CancellationToken.None));
 
         Assert.Equal("encode_failed", ex.Code);
         Assert.Equal(2, fake.Calls.Count(c => c.Kind.StartsWith("encode")));
@@ -258,7 +323,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
     public async Task NoEncoder_IsEncodeFailed()
     {
         var ex = await Assert.ThrowsAsync<VodEncodeException>(() =>
-            Create(new FakeFfmpeg()).EncodeAsync(Source(), Path.Combine(_dir, "x.mp4"), VodShareQuality.P1080, 60, null,
+            Create(new FakeFfmpeg()).EncodeAsync(Source(), Path.Combine(_dir, "x.mp4"), VodShareQuality.P1080, 30, 60, null,
                 CancellationToken.None));
         Assert.Equal("encode_failed", ex.Code);
     }
@@ -278,7 +343,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var output = Path.Combine(_dir, "cancel.mp4");
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 60, null, cts.Token));
+            Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 30, 60, null, cts.Token));
         Assert.False(File.Exists(output));
     }
 
@@ -289,7 +354,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         fake.Listed["A"] = ["h264_nvenc"];
         var output = Path.Combine(_dir, "noftyp.mp4");
         var ex = await Assert.ThrowsAsync<VodEncodeException>(() =>
-            Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 60, null, CancellationToken.None));
+            Create(fake, "A").EncodeAsync(Source(), output, VodShareQuality.P1080, 30, 60, null, CancellationToken.None));
         Assert.Equal("encode_failed", ex.Code);
         Assert.False(File.Exists(output));
 
@@ -297,13 +362,13 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         shortFake.Listed["A"] = ["h264_nvenc"];
         var shortOut = Path.Combine(_dir, "short.mp4");
         await Assert.ThrowsAsync<VodEncodeException>(() =>
-            Create(shortFake, "A").EncodeAsync(Source(), shortOut, VodShareQuality.P1080, 60, null, CancellationToken.None));
+            Create(shortFake, "A").EncodeAsync(Source(), shortOut, VodShareQuality.P1080, 30, 60, null, CancellationToken.None));
         Assert.False(File.Exists(shortOut));
 
         // Within max(2 s, 1%) passes.
         var close = new FakeFfmpeg { OutputDuration = 61, SourceDuration = 60 };
         close.Listed["A"] = ["h264_nvenc"];
-        var ok = await Create(close, "A").EncodeAsync(Source(), Path.Combine(_dir, "close.mp4"), VodShareQuality.P1080, 60,
+        var ok = await Create(close, "A").EncodeAsync(Source(), Path.Combine(_dir, "close.mp4"), VodShareQuality.P1080, 30, 60,
             null, CancellationToken.None);
         Assert.True(File.Exists(ok.OutputPath));
     }
@@ -314,7 +379,7 @@ public sealed class VodShareEncoderSelectionTests : IDisposable
         var fake = new FakeFfmpeg();
         fake.Listed["A"] = ["h264_nvenc"];
         var ex = await Assert.ThrowsAsync<VodEncodeException>(() =>
-            Create(fake, "A").EncodeAsync(Source(), Path.Combine(_dir, "long.mp4"), VodShareQuality.P720, 7300, null,
+            Create(fake, "A").EncodeAsync(Source(), Path.Combine(_dir, "long.mp4"), VodShareQuality.P720, 30, 7300, null,
                 CancellationToken.None));
         Assert.Equal("too_long", ex.Code);
         Assert.Empty(fake.Calls);
@@ -390,7 +455,7 @@ public sealed class VodShareEncoderRealTests(Xunit.Abstractions.ITestOutputHelpe
 
         var outPath = Path.Combine(dir, "synthetic-share.mp4");
         var watch = System.Diagnostics.Stopwatch.StartNew();
-        var result = await encoder.EncodeAsync(source, outPath, VodShareQuality.P1080, 12, null, CancellationToken.None);
+        var result = await encoder.EncodeAsync(source, outPath, VodShareQuality.P1080, 30, 12, null, CancellationToken.None);
         output.WriteLine($"synthetic: {choice.Encoder} via {choice.FfmpegPath}: {result.SizeBytes} bytes in {watch.Elapsed.TotalSeconds:F1} s");
         Assert.True(VodShareEncoder.HasFtyp(outPath));
     }
@@ -410,7 +475,7 @@ public sealed class VodShareEncoderRealTests(Xunit.Abstractions.ITestOutputHelpe
         Assert.True(made.Succeeded, made.StderrTail);
 
         var outPath = Path.Combine(dir, "late-share.mp4");
-        await encoder.EncodeAsync(source, outPath, VodShareQuality.P720, 10, null, CancellationToken.None);
+        await encoder.EncodeAsync(source, outPath, VodShareQuality.P720, 30, 10, null, CancellationToken.None);
         var sourceStart = await StartTimeAsync(choice.FfmpegPath, source);
         var outStart = await StartTimeAsync(choice.FfmpegPath, outPath);
         output.WriteLine($"late start: source {sourceStart} share {outStart} ({choice.Encoder})");
@@ -437,19 +502,20 @@ public sealed class VodShareEncoderRealTests(Xunit.Abstractions.ITestOutputHelpe
         Assert.True(copied.Succeeded, copied.StderrTail);
 
         var cutStart = await StartTimeAsync(choice.FfmpegPath, cut);
+        var fps = VodShareEncoderArgs.Fps((await new NarrationMixer(NullLogger<NarrationMixer>.Instance).ProbeAsync(cut, CancellationToken.None))?.FrameRate);
         foreach (var quality in new[] { VodShareQuality.P1080, VodShareQuality.P720 })
         {
-            var outPath = Path.Combine(dir, $"cut60-{VodShareEncoderArgs.Wire(quality)}.mp4");
+            var outPath = Path.Combine(dir, $"cut60-{VodShareEncoderArgs.Label(quality, fps)}.mp4");
             var progress = new List<int>();
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            var result = await encoder.EncodeAsync(cut, outPath, quality, 60, new Progress<int>(p => { lock (progress) progress.Add(p); }),
+            var result = await encoder.EncodeAsync(cut, outPath, quality, fps, 60, new Progress<int>(p => { lock (progress) progress.Add(p); }),
                 CancellationToken.None);
             var seconds = watch.Elapsed.TotalSeconds;
             var outStart = await StartTimeAsync(choice.FfmpegPath, outPath);
-            output.WriteLine($"{VodShareEncoderArgs.Wire(quality)} {result.Encoder} ({choice.FfmpegPath}): {result.SizeBytes} bytes "
+            output.WriteLine($"{VodShareEncoderArgs.Label(quality, fps)} {result.Encoder} ({choice.FfmpegPath}): {result.SizeBytes} bytes "
                 + $"({result.SizeBytes / 1e6:F1} MB/min), {seconds:F1} s ({60 / seconds:F1}x), start {outStart} vs cut {cutStart}");
             await File.AppendAllTextAsync(Path.Combine(dir, "results.txt"),
-                $"{DateTime.Now:O} {VodShareEncoderArgs.Wire(quality)} encoder={result.Encoder} binary={choice.FfmpegPath} "
+                $"{DateTime.Now:O} {VodShareEncoderArgs.Label(quality, fps)} encoder={result.Encoder} binary={choice.FfmpegPath} "
                 + $"bytes={result.SizeBytes} mbPerMin={result.SizeBytes / 1e6:F2} seconds={seconds:F2} speed={60 / seconds:F1}x "
                 + $"start={outStart} cutStart={cutStart}{Environment.NewLine}");
             Assert.NotNull(outStart);
