@@ -200,6 +200,8 @@ export interface ClipObjectRow {
   id: string;
   r2_key: string;
   upload_id: string | null;
+  size_bytes: number;
+  kind: string;
 }
 
 export async function findWebSession(db: D1Database, tokenHash: string): Promise<WebSessionRow | null> {
@@ -335,24 +337,57 @@ export async function deleteExpiredLoginRequests(db: D1Database): Promise<void> 
 
 export async function listClipObjectsForUser(db: D1Database, userId: number): Promise<ClipObjectRow[]> {
   const res = await db
-    .prepare("SELECT id, r2_key, upload_id FROM clips WHERE user_id = ?1")
+    .prepare("SELECT id, r2_key, upload_id, size_bytes, kind FROM clips WHERE user_id = ?1")
     .bind(userId)
     .all<ClipObjectRow>();
   return res.results ?? [];
 }
 
+// D1 allows at most 100 bound parameters per statement.
+const TOMBSTONE_ID_CHUNK = 90;
+
 /**
  * Remove every D1 row of an account in ONE batch (a single transaction):
- * transcripts, clips, sessions of every kind, identities, transcribe usage,
- * login codes for the email, then the user. R2 objects are deleted by the caller.
+ * tombstones first for the rows whose R2 delete failed (`tombstoneIds`), then
+ * transcripts, VOD share meta, clips, sessions of every kind, identities,
+ * transcribe usage, VOD share and part upload usage, allowlist rows, login codes for the
+ * email, then the user. R2 objects are deleted by the caller.
+ *
+ * A tombstone (storage_tombstones) outlives the user, stays counted in the
+ * storage budget and is retried by the hourly purge. The tombstones are copied
+ * with INSERT ... SELECT in chunks, not one statement per row, so the batch
+ * stays small whatever the number of clips.
  */
-export async function deleteAccountRows(db: D1Database, userId: number, email: string): Promise<void> {
+export async function deleteAccountRows(
+  db: D1Database,
+  userId: number,
+  email: string,
+  tombstoneIds: string[] = [],
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const tombstones: D1PreparedStatement[] = [];
+  for (let i = 0; i < tombstoneIds.length; i += TOMBSTONE_ID_CHUNK) {
+    const ids = tombstoneIds.slice(i, i + TOMBSTONE_ID_CHUNK);
+    const marks = ids.map((_, j) => `?${j + 3}`).join(", ");
+    tombstones.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at) SELECT r2_key, upload_id, size_bytes, kind, ?2 FROM clips WHERE user_id = ?1 AND id IN (${marks})`,
+        )
+        .bind(userId, now, ...ids),
+    );
+  }
   await db.batch([
+    ...tombstones,
     db.prepare("DELETE FROM clip_transcripts WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
+    db.prepare("DELETE FROM vod_share_meta WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
     db.prepare("DELETE FROM clips WHERE user_id = ?1").bind(userId),
     db.prepare("DELETE FROM sessions WHERE user_id = ?1").bind(userId),
     db.prepare("DELETE FROM identities WHERE user_id = ?1").bind(userId),
     db.prepare("DELETE FROM transcribe_usage WHERE user_id = ?1").bind(userId),
+    db.prepare("DELETE FROM vod_share_usage WHERE user_id = ?1").bind(userId),
+    db.prepare("DELETE FROM upload_part_usage WHERE user_id = ?1").bind(userId),
+    db.prepare("DELETE FROM vod_sharers WHERE user_id = ?1").bind(userId),
     db.prepare("DELETE FROM login_requests WHERE email = ?2").bind(userId, email),
     db.prepare("DELETE FROM users WHERE id = ?1").bind(userId),
   ]);

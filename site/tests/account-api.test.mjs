@@ -322,3 +322,20 @@ test('Clip ids and URLs', () => {
   assert.equal(api.clipShareUrl({ id: 'Abc1234' }), 'https://clips.revu.lol/Abc1234');
   assert.equal(api.watchHref('Abc1234'), '/clip?id=Abc1234');
 });
+
+test('Game share URLs: revu.lol/v/<id>, plus loopback dev links only on a local page', () => {
+  const { api } = load();
+  assert.equal(api.vodShareUrl({ id: 'Game123', url: 'https://revu.lol/v/Game123' }), 'https://revu.lol/v/Game123');
+  for (const url of ['https://evil.example/v/Game123', 'https://revu.lol/v/Game123/../x', 'https://clips.revu.lol/Game123',
+    'http://revu.lol/v/Game123', 'http://localhost:8788/v/Game123', 'javascript:alert(1)', undefined]) {
+    assert.equal(api.vodShareUrl({ id: 'Game123', url }), 'https://revu.lol/v/Game123', String(url));
+  }
+  for (const hostname of ['localhost', '127.0.0.1']) {
+    const local = load({ hostname }).api;
+    assert.equal(local.vodShareUrl({ id: 'Game123', url: 'http://localhost:8788/v/Game123' }), 'http://localhost:8788/v/Game123');
+    assert.equal(local.vodShareUrl({ id: 'Game123', url: 'http://127.0.0.1:8788/v/Game123' }), 'http://127.0.0.1:8788/v/Game123');
+    assert.equal(local.vodShareUrl({ id: 'Game123', url: 'http://evil.example:8788/v/Game123' }), 'https://revu.lol/v/Game123');
+  }
+  // The clip URL rule is unchanged: a game link is never a clip link.
+  assert.equal(api.clipShareUrl({ id: 'Game123', url: 'https://revu.lol/v/Game123' }), 'https://clips.revu.lol/Game123');
+});

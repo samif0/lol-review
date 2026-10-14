@@ -106,12 +106,14 @@ test('the staged production site keeps every page and asset its HTML and CSS ref
       assert.ok(servedBy(published, sheet, reference), `${sheet} references missing ${reference}`);
     }
   }
-  // Every redirect lands on a published page, and none hides a published file.
+  // Every redirect lands on a published page, and none hides a published file. A 200 is a
+  // rewrite (/v/:id serves /vod), so it may only match placeholder paths.
   const redirects = (await readFile(path.join(destination, '_redirects'), 'utf8')).split(/\r?\n/)
     .map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => line.split(/\s+/));
   assert.ok(redirects.length > 0);
   for (const [from, to, status] of redirects) {
-    assert.match(status, /^30[1278]$/, from);
+    assert.match(status, /^(?:30[1278]|200)$/, from);
+    if (status === '200') assert.match(from, /\/:[a-z]+$/, `${from} rewrites a fixed path`);
     assert.ok(servedBy(published, 'index.html', to), `_redirects sends ${from} to missing ${to}`);
     assert.equal(servedBy(published, 'index.html', from), false, `_redirects hides the published ${from}`);
   }

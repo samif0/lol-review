@@ -155,6 +155,10 @@ public sealed class WriteServices : IDisposable
         services.AddHttpClient<IRiotMatchClient, RiotMatchClient>(c => c.Timeout = TimeSpan.FromSeconds(30));
         services.AddHttpClient<IClipUploadService, ClipUploadService>(c => c.Timeout = Timeout.InfiniteTimeSpan);
         services.AddHttpClient<ITranscriptionClient, TranscriptionClient>(c => c.Timeout = Timeout.InfiniteTimeSpan);
+        // 4.2 full-game sharing: the same typed ClipUploadService speaks the /vod-shares routes,
+        // and the share copy encoder caches its probed (ffmpeg, H.264 encoder) pair for the process.
+        services.AddTransient<IVodShareClient>(sp => (ClipUploadService)sp.GetRequiredService<IClipUploadService>());
+        services.AddSingleton<IVodShareEncoder, VodShareEncoder>();
         // Backfill services walk games missing enemy_laner / laning@10 / map state
         // and resolve them via Match-V5 (through IRiotMatchClient). All write to
         // GameRepository; the map-state leg also writes derived game_events rows.
@@ -257,6 +261,10 @@ public sealed class WriteServices : IDisposable
     // POST /api/clip/upload — IClipUploadService.UploadAsync(clipPath, token, ...)
     // returns the public revu.lol URL, then SetBookmarkShareUrlAsync persists it.
     public IClipUploadService ClipUpload => _provider.GetRequiredService<IClipUploadService>();
+    // 4.2 full-game sharing: status, the share copy's multipart upload and its markers
+    // (the remote delete is ClipUpload.DeleteAsync, kind-agnostic on the proxy).
+    public IVodShareClient VodShare => _provider.GetRequiredService<IVodShareClient>();
+    public IVodShareEncoder VodShareEncoder => _provider.GetRequiredService<IVodShareEncoder>();
 
     // ── 3.14 narrated clips ───────────────────────────────────────────────────
     // clip_narrations rows (POST /api/clip/narration/*, the share and transcription

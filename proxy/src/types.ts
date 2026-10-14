@@ -46,6 +46,18 @@ export interface Env {
   // "1" skips the Turnstile action and hostname checks, but ONLY while
   // AUTH_BASE starts with http://localhost: (local dev via .dev.vars).
   TURNSTILE_DEV_RELAX?: string;
+  // Storage budgets in bytes over EVERY stored object (clips and VODs, every
+  // state, plus tombstones). Digits only; invalid or unset uses the defaults in
+  // share-limits.ts (9e9 total, 7e9 for VODs, the VOD budget clamped to total).
+  TOTAL_BUDGET_BYTES?: string;
+  VOD_BUDGET_BYTES?: string;
+  // Clip bytes one account outside vod_sharers may hold (ready plus pending
+  // reservations). Digits only; default 3e9 (share-limits.ts).
+  USER_CLIP_BUDGET_BYTES?: string;
+  // Kill switches: "0" or "off" turns off VOD share starts / VOD playback.
+  // Unset or anything else means on.
+  VOD_SHARING?: string;
+  VOD_SERVING?: string;
 
   // Bindings
   DB: D1Database;

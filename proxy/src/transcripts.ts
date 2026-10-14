@@ -355,7 +355,7 @@ export async function handlePutTranscript(
 
   const now = Math.floor(Date.now() / 1000);
   const row = await env.DB
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND status IN ('uploading', 'ready') LIMIT 1")
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND status IN ('uploading', 'ready') AND kind = 'clip' LIMIT 1")
     .bind(id, userId, now)
     .first<ClipRow>();
   if (!row) return notFound();
@@ -409,8 +409,8 @@ export async function handlePutTranscript(
 export async function handleDeleteTranscript(env: Env, userId: number | undefined, id: string): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
   // Owner check without the expiry filter (like DELETE /clips/:id), so an owner
-  // can clean up an expired-but-not-yet-purged clip.
-  const row = await env.DB.prepare("SELECT * FROM clips WHERE id = ?1 LIMIT 1").bind(id).first<ClipRow>();
+  // can clean up an expired-but-not-yet-purged clip. VOD shares never have one.
+  const row = await env.DB.prepare("SELECT * FROM clips WHERE id = ?1 AND kind = 'clip' LIMIT 1").bind(id).first<ClipRow>();
   if (!row || row.user_id !== userId) return notFound();
   await env.DB.prepare("DELETE FROM clip_transcripts WHERE clip_id = ?1").bind(id).run();
   await env.DB.prepare("UPDATE clips SET has_transcript = 0 WHERE id = ?1").bind(id).run();
@@ -451,7 +451,7 @@ export async function handleGetTranscript(request: Request, env: Env, id: string
   const now = Math.floor(Date.now() / 1000);
   const row = await env.DB
     .prepare(
-      "SELECT t.language, t.segments_json FROM clip_transcripts t JOIN clips c ON c.id = t.clip_id WHERE c.id = ?1 AND c.expires_at > ?2 AND c.status = 'ready'",
+      "SELECT t.language, t.segments_json FROM clip_transcripts t JOIN clips c ON c.id = t.clip_id WHERE c.id = ?1 AND c.expires_at > ?2 AND c.status = 'ready' AND c.kind = 'clip'",
     )
     .bind(id, now)
     .first<{ language: string | null; segments_json: string }>();

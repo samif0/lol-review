@@ -14,6 +14,10 @@
  *
  * Pending rows (status 'uploading') are invisible to every public route because
  * findClip filters on status = 'ready'.
+ *
+ * Full-game (VOD) shares (vod-shares.ts) reuse the part and complete handlers
+ * here with kind 'vod'; every row lookup is scoped to its kind so a clip route
+ * can never touch a VOD row and the reverse.
  */
 
 import { Env } from "./types";
@@ -38,12 +42,31 @@ import {
   uniqueSlug,
 } from "./clips";
 import { uploadInitLimitOrDeny } from "./user-limits";
+import { clipFits, overAccountShare, storageFull, storageUsage } from "./storage-budget";
+import {
+  IDLE_SWEEP_ON_START,
+  nextUtcMidnight,
+  PART_PUT_FACTOR,
+  PART_PUT_SLACK,
+  PART_PUTS_PER_DAY,
+  utcDayOf,
+  VOD_TTL_SECONDS,
+  vodWatchUrl,
+} from "./share-limits";
+import { abortUpload, discardRow, sweepIdleUploads, tombstoneObject } from "./upload-cleanup";
+
+export { discardRow } from "./upload-cleanup";
+
+/** Which multipart family a row belongs to (clips.kind). */
+export type UploadKind = "clip" | "vod";
 
 export const COMPLETE_MAX_BODY_BYTES = 64 * 1024;
 const MAX_ETAG_CHARS = 256;
 const SNIFF_BYTES = 16;
 
 const TOO_MANY_PENDING_MESSAGE = "Another long clip is still uploading. Try again when it finishes.";
+const TOO_MANY_PART_UPLOADS_MESSAGE = "This upload retried too many times. Start the share again.";
+const DAILY_PART_LIMIT_MESSAGE = "You've uploaded a lot today. Try again tomorrow.";
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -61,47 +84,9 @@ function quotaExceeded(): Response {
   return jsonResponse({ error: "quota_exceeded", message: QUOTA_EXCEEDED_MESSAGE }, 403);
 }
 
-/** Best-effort abort of a row's multipart upload (may be completed or gone). */
-async function abortQuietly(env: Env, r2Key: string, uploadId: string | null | undefined): Promise<void> {
-  if (!uploadId) return;
-  try {
-    await env.CLIPS.resumeMultipartUpload(r2Key, uploadId).abort();
-  } catch {
-    // Already completed, already aborted, or unknown to R2.
-  }
-}
-
-/**
- * Remove a still-pending row everywhere: abort its upload, delete its key,
- * transcript, row. The row is first claimed with a guarded UPDATE (status
- * 'uploading' → 'purging', expired as of now), so a row that a concurrent
- * complete just finalized to 'ready' is never touched. A claimed row can't be
- * finalized (complete requires 'uploading'), is hidden from every route
- * (expired), and is retried by the hourly purge if this cleanup stops midway.
- */
-async function discardRow(env: Env, id: string): Promise<void> {
-  const claimed = await env.DB
-    .prepare(
-      "UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1 AND status = 'uploading' RETURNING r2_key, upload_id",
-    )
-    .bind(id, nowSeconds())
-    .first<{ r2_key: string; upload_id: string | null }>();
-  if (!claimed) return;
-  await abortQuietly(env, claimed.r2_key, claimed.upload_id);
-  try {
-    await env.CLIPS.delete(claimed.r2_key);
-  } catch {
-    // Keep the claimed (expired) row so the hourly purge retries the delete
-    // instead of orphaning the object.
-    return;
-  }
-  await env.DB.prepare("DELETE FROM clip_transcripts WHERE clip_id = ?1").bind(id).run();
-  await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run();
-}
-
 async function countPending(env: Env, userId: number, now: number): Promise<number> {
   const row = await env.DB
-    .prepare("SELECT COUNT(*) AS n FROM clips WHERE user_id = ?1 AND status = 'uploading' AND expires_at > ?2")
+    .prepare("SELECT COUNT(*) AS n FROM clips WHERE user_id = ?1 AND kind = 'clip' AND status = 'uploading' AND expires_at > ?2")
     .bind(userId, now)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -151,7 +136,7 @@ export async function handleUploadInit(request: Request, env: Env, userId: numbe
   // block the next long share for the whole upload window).
   const idle = await env.DB
     .prepare(
-      "SELECT id FROM clips WHERE user_id = ?1 AND status = 'uploading' AND COALESCE(last_activity_at, created_at) <= ?2",
+      "SELECT id FROM clips WHERE user_id = ?1 AND status = 'uploading' AND kind = 'clip' AND COALESCE(last_activity_at, created_at) <= ?2",
     )
     .bind(userId, now - UPLOAD_IDLE_ABORT_SECONDS)
     .all<{ id: string }>();
@@ -164,6 +149,14 @@ export async function handleUploadInit(request: Request, env: Env, userId: numbe
   const usage = await activeClipUsage(env.DB, userId, now);
   if (usage && (usage.n >= MAX_ACTIVE_CLIPS_PER_USER || usage.total + size > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
     return quotaExceeded();
+  }
+  // One account's share of the pool (reservations count from init).
+  if (await overAccountShare(env, userId, (usage?.total ?? 0) + size)) return quotaExceeded();
+  // Global storage budget: the declared size is reserved by the row below.
+  // Idle reservations of any account are released first when they are in the way.
+  if (!clipFits(env, await storageUsage(env.DB), size)) {
+    if ((await sweepIdleUploads(env, now, IDLE_SWEEP_ON_START)) === 0
+      || !clipFits(env, await storageUsage(env.DB), size)) return storageFull();
   }
 
   const id = await uniqueSlug(env.DB);
@@ -178,14 +171,14 @@ export async function handleUploadInit(request: Request, env: Env, userId: numbe
       .prepare(
         `INSERT INTO clips
           (id, user_id, r2_key, content_type, size_bytes, duration_s, title, champion, created_at, expires_at, view_count, status,
-           upload_id, part_size, part_count, last_activity_at, narrated, has_transcript)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 'uploading', ?11, ?12, ?13, ?14, ?15, 0)`,
+           upload_id, part_size, part_count, last_activity_at, narrated, has_transcript, kind)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 'uploading', ?11, ?12, ?13, ?14, ?15, 0, 'clip')`,
       )
       .bind(id, userId, r2Key, contentType, size, duration, title, champion, now, expiresAt,
         mpu.uploadId, PART_SIZE_BYTES, partCount, now, narrated)
       .run();
   } catch (err) {
-    await abortQuietly(env, r2Key, mpu.uploadId);
+    await abortUpload(env, r2Key, mpu.uploadId); // no part was uploaded yet
     throw err; // dispatch catch → 502 clip_error
   }
 
@@ -196,10 +189,13 @@ export async function handleUploadInit(request: Request, env: Env, userId: numbe
   const usageAfter = await activeClipUsage(env.DB, userId, now);
   const overPending = pendingAfter > MAX_PENDING_UPLOADS_PER_USER;
   const overQuota = !!usageAfter
-    && (usageAfter.n > MAX_ACTIVE_CLIPS_PER_USER || usageAfter.total > MAX_ACTIVE_CLIP_BYTES_PER_USER);
-  if (overPending || overQuota) {
+    && (usageAfter.n > MAX_ACTIVE_CLIPS_PER_USER || usageAfter.total > MAX_ACTIVE_CLIP_BYTES_PER_USER
+      || (await overAccountShare(env, userId, usageAfter.total)));
+  const overStorage = !overPending && !overQuota && !clipFits(env, await storageUsage(env.DB), 0);
+  if (overPending || overQuota || overStorage) {
     await discardRow(env, id);
-    return overPending ? tooManyPending() : quotaExceeded();
+    if (overPending) return tooManyPending();
+    return overQuota ? quotaExceeded() : storageFull();
   }
 
   return jsonResponse({ id, part_size: PART_SIZE_BYTES, part_count: partCount, expires_at: expiresAt }, 201);
@@ -213,14 +209,12 @@ export async function handleUploadPart(
   userId: number | undefined,
   id: string,
   partNumberRaw: string,
+  kind: UploadKind = "clip",
 ): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
 
   const now = nowSeconds();
-  const row = await env.DB
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 LIMIT 1")
-    .bind(id, userId, now)
-    .first<ClipRow>();
+  const row = await findOwnedUploading(env, userId, id, kind, now);
   if (!row || !row.upload_id || !row.part_count) return notFound();
 
   const n = parseStrictInt(partNumberRaw);
@@ -240,13 +234,62 @@ export async function handleUploadPart(
     return jsonResponse({ error: "bad_request", message: "empty body" }, 400);
   }
 
+  // Count one attempt against the account's daily part budget first. It is
+  // kept per user and day, not per row, so deleting an upload and starting
+  // another can't reset it: one account's Class A operations stay bounded.
+  const day = utcDayOf(now);
+  const counted = await env.DB
+    .prepare(
+      "INSERT INTO upload_part_usage (user_id, day, puts) VALUES (?1, ?2, 1) ON CONFLICT (user_id, day) DO UPDATE SET puts = puts + 1 WHERE puts < ?3 RETURNING puts",
+    )
+    .bind(userId, day, PART_PUTS_PER_DAY)
+    .first<{ puts: number }>();
+  if (!counted) {
+    const resetsAt = nextUtcMidnight(now);
+    return jsonResponse(
+      { error: "daily_part_limit", message: DAILY_PART_LIMIT_MESSAGE, retry_at: resetsAt },
+      429,
+      { "Retry-After": String(Math.max(1, resetsAt - now)) },
+    );
+  }
+
+  // Claim one attempt BEFORE the upload (this also records activity). Each row
+  // gets at most 2 x part_count + 4 part PUTs, so a looping client can't turn
+  // one reservation into unbounded Class A operations.
+  const claimed = await env.DB
+    .prepare(
+      `UPDATE clips SET part_puts = part_puts + 1, last_activity_at = ?3 WHERE id = ?1 AND user_id = ?2 AND kind = ?4 AND status = 'uploading' AND expires_at > ?3 AND part_puts < ${PART_PUT_FACTOR} * part_count + ${PART_PUT_SLACK} RETURNING r2_key, upload_id`,
+    )
+    .bind(id, userId, now, kind)
+    .first<{ r2_key: string; upload_id: string | null }>();
+  if (!claimed || !claimed.upload_id) {
+    const still = await findOwnedUploading(env, userId, id, kind, now);
+    if (still) {
+      return jsonResponse({ error: "too_many_part_uploads", message: TOO_MANY_PART_UPLOADS_MESSAGE }, 429);
+    }
+    return notFound();
+  }
+
   // Known-length request body straight into R2: consumed natively, no JS per
   // chunk. An R2 throw propagates to the dispatch catch (502 clip_error, retryable).
-  const part = await env.CLIPS.resumeMultipartUpload(row.r2_key, row.upload_id).uploadPart(n, request.body);
-
-  await env.DB.prepare("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2").bind(now, id).run();
+  const part = await env.CLIPS.resumeMultipartUpload(claimed.r2_key, claimed.upload_id).uploadPart(n, request.body);
 
   return jsonResponse({ part_number: part.partNumber, etag: part.etag }, 200);
+}
+
+/** The caller's own still-uploading, unexpired row of `kind`, or null. */
+async function findOwnedUploading(
+  env: Env,
+  userId: number,
+  id: string,
+  kind: UploadKind,
+  now: number,
+): Promise<ClipRow | null> {
+  const row = await env.DB
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 LIMIT 1")
+    .bind(id, userId, now, kind)
+    .first<ClipRow>();
+  return row ?? null;
 }
 
 // ── POST /clips/:id/complete ───────────────────────────────────────────────
@@ -254,7 +297,7 @@ export async function handleUploadPart(
 type ParsedParts = { part_number: number; etag: string }[];
 
 /** Validate the complete body: exactly part_count unique parts 1..part_count. */
-function parseParts(text: string, partCount: number): ParsedParts | null {
+export function parseParts(text: string, partCount: number): ParsedParts | null {
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -286,17 +329,42 @@ export async function handleUploadComplete(
   userId: number | undefined,
   id: string,
 ): Promise<Response> {
+  return completeUpload(request, env, userId, id, "clip");
+}
+
+/** The share link a completed row hands back. */
+function shareUrl(env: Env, kind: UploadKind, id: string): string {
+  return kind === "vod" ? vodWatchUrl(env, id) : clipPublicUrl(env, id);
+}
+
+async function findOwnedLive(env: Env, userId: number, id: string, kind: UploadKind, now: number): Promise<ClipRow | null> {
+  const row = await env.DB
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND kind = ?4 LIMIT 1")
+    .bind(id, userId, now, kind)
+    .first<ClipRow>();
+  return row ?? null;
+}
+
+/**
+ * Assemble, check and finalize a multipart row of `kind`. Clips start their
+ * 3-day TTL at complete; a VOD keeps created_at (its INIT time) and expires
+ * VOD_TTL_SECONDS after it.
+ */
+export async function completeUpload(
+  request: Request,
+  env: Env,
+  userId: number | undefined,
+  id: string,
+  kind: UploadKind,
+): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
 
   const now = nowSeconds();
-  const row = await env.DB
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 LIMIT 1")
-    .bind(id, userId, now)
-    .first<ClipRow>();
+  const row = await findOwnedLive(env, userId, id, kind, now);
   if (!row) return notFound();
   if (row.status === "ready") {
     // Idempotent: a retried complete after a lost response gets the same 201.
-    return jsonResponse({ id, url: clipPublicUrl(env, id), expires_at: row.expires_at }, 201);
+    return jsonResponse({ id, url: shareUrl(env, kind, id), expires_at: row.expires_at }, 201);
   }
   if (row.status !== "uploading" || !row.part_count) return notFound();
 
@@ -353,25 +421,47 @@ export async function handleUploadComplete(
     return jsonResponse({ error: "not_video", message: "file content does not match the declared video type" }, 415);
   }
 
-  // The share TTL starts now, at complete.
-  const expiresAt = now + CLIP_TTL_SECONDS;
-  const meta = await env.DB
-    .prepare(
-      "UPDATE clips SET status = 'ready', upload_id = NULL, created_at = ?3, expires_at = ?4 WHERE id = ?1 AND user_id = ?2 AND status = 'uploading'",
-    )
-    .bind(id, userId, now, expiresAt)
-    .run();
-  if (meta.meta.changes !== 1) {
+  let expiresAt: number;
+  let changes: number;
+  if (kind === "vod") {
+    // The share TTL runs from INIT (created_at is never rewritten), so the D1
+    // expiry never outlives the bucket's 3-day lifecycle rule.
+    expiresAt = row.created_at + VOD_TTL_SECONDS;
+    const meta = await env.DB
+      .prepare(
+        "UPDATE clips SET status = 'ready', upload_id = NULL, expires_at = created_at + ?3 WHERE id = ?1 AND user_id = ?2 AND kind = 'vod' AND status = 'uploading'",
+      )
+      .bind(id, userId, VOD_TTL_SECONDS)
+      .run();
+    changes = meta.meta.changes;
+  } else {
+    // The clip share TTL starts now, at complete.
+    expiresAt = now + CLIP_TTL_SECONDS;
+    const meta = await env.DB
+      .prepare(
+        "UPDATE clips SET status = 'ready', upload_id = NULL, created_at = ?3, expires_at = ?4 WHERE id = ?1 AND user_id = ?2 AND status = 'uploading'",
+      )
+      .bind(id, userId, now, expiresAt)
+      .run();
+    changes = meta.meta.changes;
+  }
+  if (changes !== 1) {
     // A concurrent complete won the race (or the row vanished). Report what's there.
-    const again = await env.DB
-      .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 LIMIT 1")
-      .bind(id, userId, now)
-      .first<ClipRow>();
+    const again = await findOwnedLive(env, userId, id, kind, now);
     if (again && again.status === "ready") {
-      return jsonResponse({ id, url: clipPublicUrl(env, id), expires_at: again.expires_at }, 201);
+      return jsonResponse({ id, url: shareUrl(env, kind, id), expires_at: again.expires_at }, 201);
+    }
+    // An owner delete, a discard or the purge claimed the row while this call
+    // assembled the object (possible when that path's abort failed, so the
+    // upload stayed live). Delete what this call just built; if that fails, a
+    // tombstone keeps it counted and retried.
+    try {
+      await env.CLIPS.delete(row.r2_key);
+    } catch {
+      await tombstoneObject(env, row.r2_key, null, row.size_bytes, kind);
     }
     return notFound();
   }
 
-  return jsonResponse({ id, url: clipPublicUrl(env, id), expires_at: expiresAt }, 201);
+  return jsonResponse({ id, url: shareUrl(env, kind, id), expires_at: expiresAt }, 201);
 }

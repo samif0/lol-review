@@ -14,6 +14,7 @@
  */
 
 import { Env } from "../src/types";
+import { PART_PUT_FACTOR, PART_PUT_SLACK } from "../src/share-limits";
 import { makeFakeR2 } from "./fake-r2";
 import { FakeAuthState, handleAuthAll, handleAuthBatch, handleAuthFirst, handleAuthRun } from "./fake-auth";
 
@@ -40,6 +41,27 @@ export interface FakeClip {
   last_activity_at: number | null;
   narrated: number;
   has_transcript: number;
+  // Migration 0006.
+  kind: string;
+  part_puts: number;
+  quality: string | null;
+  play_day: string | null;
+  play_count: number;
+}
+
+export interface FakeTombstone {
+  r2_key: string;
+  upload_id: string | null;
+  size_bytes: number;
+  kind: string;
+  created_at: number;
+}
+
+export interface FakeVodMeta {
+  clip_id: string;
+  meta_json: string;
+  has_notes: number;
+  created_at: number;
 }
 
 export interface FakeTranscript {
@@ -54,6 +76,14 @@ export interface FakeTranscript {
 export type FakeDb = D1Database & {
   _clips: Map<string, FakeClip>;
   _transcripts: Map<string, FakeTranscript>;
+  /** storage_tombstones by r2_key. */
+  _tombstones: Map<string, FakeTombstone>;
+  /** vod_share_meta by clip_id. */
+  _vodMeta: Map<string, FakeVodMeta>;
+  /** vod_share_usage: "user|day" -> starts. */
+  _vodUsage: Map<string, number>;
+  /** upload_part_usage: "user|day" -> puts. */
+  _partUsage: Map<string, number>;
   _usage: Map<string, { audio_seconds: number; requests: number }>;
   /** email_send_usage: day → sends. */
   _emailSends: Map<string, number>;
@@ -75,6 +105,11 @@ const CLIP_DEFAULTS: Omit<FakeClip, "id" | "user_id" | "r2_key" | "content_type"
   last_activity_at: null,
   narrated: 0,
   has_transcript: 0,
+  kind: "clip",
+  part_puts: 0,
+  quality: null,
+  play_day: null,
+  play_count: 0,
 };
 
 /** Map `INSERT INTO x (cols) VALUES (vals)` onto a record (?N, numbers, 'strings'). */
@@ -109,6 +144,10 @@ export function makeFakeDb(
   for (const c of seedClips) clips.set(c.id, { ...CLIP_DEFAULTS, ...(c as FakeClip) });
   const transcripts = auth?.clipTranscripts ?? new Map<string, FakeTranscript>();
   const usage = auth?.transcribeUsage ?? new Map<string, { audio_seconds: number; requests: number }>();
+  const tombstones = auth?.tombstones ?? new Map<string, FakeTombstone>();
+  const vodMeta = auth?.vodShareMeta ?? new Map<string, FakeVodMeta>();
+  const vodUsage = auth?.vodShareUsage ?? new Map<string, number>();
+  const partUsage = auth?.uploadPartUsage ?? new Map<string, number>();
   if (auth) auth.clips = clips;
   const emailSends = new Map<string, number>();
   const sqlLog: string[] = [];
@@ -153,6 +192,17 @@ export function makeFakeDb(
           emailSends.set(args[0] as string, sends);
           return { sends } as T;
         }
+        if (sql === "INSERT INTO upload_part_usage (user_id, day, puts) VALUES (?1, ?2, 1) ON CONFLICT (user_id, day) DO UPDATE SET puts = puts + 1 WHERE puts < ?3 RETURNING puts") {
+          const key = `${args[0]}|${args[1]}`;
+          const cur = partUsage.get(key);
+          if (cur !== undefined && cur >= (args[2] as number)) return null;
+          const puts = (cur ?? 0) + 1;
+          partUsage.set(key, puts);
+          return { puts } as T;
+        }
+        if (sql === "SELECT 1 AS ok FROM vod_sharers WHERE user_id = ?1 LIMIT 1") {
+          return auth?.vodSharers.has(args[0] as number) ? ({ ok: 1 } as T) : null;
+        }
         if (sql.startsWith("INSERT INTO transcribe_usage") && sql.includes("RETURNING audio_seconds")) {
           const key = `${args[0]}|${args[1]}`;
           const row = usage.get(key) ?? { audio_seconds: 0, requests: 0 };
@@ -161,12 +211,21 @@ export function makeFakeDb(
           usage.set(key, row);
           return { audio_seconds: row.audio_seconds } as T;
         }
-        if (sql.includes("COALESCE(SUM(size_bytes)")) {
-          const mine = live(args[1] as number).filter((c) => c.user_id === args[0]);
+        if (sql.includes("FROM storage_tombstones) AS b")) {
+          // Global storage budget: every clips row (any kind, any status, expired
+          // or not) plus every tombstone.
+          const all = [...clips.values(), ...tombstones.values()];
+          return {
+            used: all.reduce((s, c) => s + c.size_bytes, 0),
+            vod_used: all.filter((c) => c.kind === "vod").reduce((s, c) => s + c.size_bytes, 0),
+          } as T;
+        }
+        if (sql.includes("COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND kind = 'clip' AND expires_at > ?2")) {
+          const mine = live(args[1] as number).filter((c) => c.user_id === args[0] && c.kind === "clip");
           return { n: mine.length, total: mine.reduce((s, c) => s + c.size_bytes, 0) } as T;
         }
-        if (sql.includes("SELECT COUNT(*) AS n FROM clips WHERE user_id = ?1 AND status = 'uploading' AND expires_at > ?2")) {
-          const n = live(args[1] as number).filter((c) => c.user_id === args[0] && c.status === "uploading").length;
+        if (sql.includes("SELECT COUNT(*) AS n FROM clips WHERE user_id = ?1 AND kind = 'clip' AND status = 'uploading' AND expires_at > ?2")) {
+          const n = live(args[1] as number).filter((c) => c.user_id === args[0] && c.kind === "clip" && c.status === "uploading").length;
           return { n } as T;
         }
         if (sql.startsWith("SELECT id FROM clips WHERE id")) {
@@ -176,31 +235,57 @@ export function makeFakeDb(
           const t = transcripts.get(args[0] as string);
           return t ? ({ language: t.language } as T) : null;
         }
-        if (sql.includes("FROM clip_transcripts t JOIN clips c ON c.id = t.clip_id WHERE c.id = ?1 AND c.expires_at > ?2 AND c.status = 'ready'")) {
+        if (sql.includes("FROM clip_transcripts t JOIN clips c ON c.id = t.clip_id WHERE c.id = ?1 AND c.expires_at > ?2 AND c.status = 'ready' AND c.kind = 'clip'")) {
           const c = clips.get(args[0] as string);
           const t = transcripts.get(args[0] as string);
-          if (!c || !t || c.expires_at <= (args[1] as number) || c.status !== "ready") return null;
+          if (!c || !t || c.expires_at <= (args[1] as number) || c.status !== "ready" || c.kind !== "clip") return null;
           return { language: t.language, segments_json: t.segments_json, vtt: t.vtt } as T;
         }
-        if (sql.includes("FROM clips WHERE id = ?1 AND expires_at > ?2 AND status = 'ready' LIMIT 1")) {
+        if (sql.includes("FROM clips WHERE id = ?1 AND expires_at > ?2 AND status = 'ready' AND kind = 'clip' LIMIT 1")) {
           const c = clips.get(args[0] as string);
-          return c && c.expires_at > (args[1] as number) && c.status === "ready" ? (c as T) : null;
+          return c && c.expires_at > (args[1] as number) && c.status === "ready" && c.kind === "clip" ? (c as T) : null;
         }
-        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 LIMIT 1")) {
+        if (sql.includes("FROM clips WHERE id = ?1 AND kind = 'vod' AND status = 'ready' AND expires_at > ?2 LIMIT 1")) {
           const c = clips.get(args[0] as string);
-          return c && c.user_id === args[1] && c.status === "uploading" && c.expires_at > (args[2] as number) ? (c as T) : null;
+          return c && c.kind === "vod" && c.status === "ready" && c.expires_at > (args[1] as number) ? (c as T) : null;
         }
-        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND status IN ('uploading', 'ready') LIMIT 1")) {
+        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 LIMIT 1")) {
           const c = clips.get(args[0] as string);
-          return c && c.user_id === args[1] && c.expires_at > (args[2] as number) && (c.status === "uploading" || c.status === "ready")
+          return c && c.user_id === args[1] && c.status === "uploading" && c.expires_at > (args[2] as number) && c.kind === args[3]
             ? (c as T) : null;
         }
-        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 LIMIT 1")) {
+        if (sql.startsWith("UPDATE clips SET part_puts = part_puts + 1, last_activity_at = ?3 WHERE id = ?1 AND user_id = ?2 AND kind = ?4 AND status = 'uploading' AND expires_at > ?3")) {
+          if (!sql.endsWith(`AND part_puts < ${PART_PUT_FACTOR} * part_count + ${PART_PUT_SLACK} RETURNING r2_key, upload_id`)) {
+            throw new Error(`fake D1: unexpected part claim SQL: ${sql}`);
+          }
           const c = clips.get(args[0] as string);
-          return c && c.user_id === args[1] && c.expires_at > (args[2] as number) ? (c as T) : null;
+          if (!c || c.user_id !== args[1] || c.kind !== args[3] || c.status !== "uploading" || c.expires_at <= (args[2] as number)) return null;
+          if (c.part_puts >= PART_PUT_FACTOR * (c.part_count ?? 0) + PART_PUT_SLACK) return null;
+          c.part_puts += 1;
+          c.last_activity_at = args[2] as number;
+          return { r2_key: c.r2_key, upload_id: c.upload_id } as T;
+        }
+        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND status IN ('uploading', 'ready') AND kind = 'clip' LIMIT 1")) {
+          const c = clips.get(args[0] as string);
+          return c && c.user_id === args[1] && c.expires_at > (args[2] as number) && (c.status === "uploading" || c.status === "ready")
+            && c.kind === "clip" ? (c as T) : null;
+        }
+        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND kind = ?4 LIMIT 1")) {
+          const c = clips.get(args[0] as string);
+          return c && c.user_id === args[1] && c.expires_at > (args[2] as number) && c.kind === args[3] ? (c as T) : null;
         }
         if (sql.startsWith("SELECT * FROM clips WHERE id = ?1 LIMIT")) {
           return (clips.get(args[0] as string) as T) ?? null;
+        }
+        if (sql.startsWith("SELECT * FROM clips WHERE id = ?1 AND kind = 'clip' LIMIT")) {
+          const c = clips.get(args[0] as string);
+          return c && c.kind === "clip" ? (c as T) : null;
+        }
+        if (sql.startsWith("UPDATE clips SET status = 'purging', expires_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING r2_key, upload_id")) {
+          const c = clips.get(args[0] as string);
+          if (!c || c.user_id !== args[1]) return null;
+          Object.assign(c, { status: "purging", expires_at: args[2] });
+          return { r2_key: c.r2_key, upload_id: c.upload_id } as T;
         }
         if (sql.startsWith("UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1 AND status = 'uploading' RETURNING r2_key, upload_id")) {
           const c = clips.get(args[0] as string);
@@ -235,6 +320,26 @@ export function makeFakeDb(
           if (!clips.has(rec.clip_id)) throw new Error("FOREIGN KEY constraint failed");
           transcripts.set(rec.clip_id, rec);
           return changes(1);
+        }
+        if (sql === "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at) VALUES (?1, ?2, ?3, ?4, ?5)") {
+          if (tombstones.has(args[0] as string)) return changes(0);
+          tombstones.set(args[0] as string, {
+            r2_key: args[0] as string, upload_id: args[1] as string | null, size_bytes: args[2] as number,
+            kind: args[3] as string, created_at: args[4] as number,
+          });
+          return changes(1);
+        }
+        if (sql === "UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1") {
+          const c = clips.get(args[0] as string);
+          if (c) Object.assign(c, { status: "purging", expires_at: args[1] });
+          return changes(c ? 1 : 0);
+        }
+        if (sql === "DELETE FROM upload_part_usage WHERE day < ?1") {
+          let n = 0;
+          for (const key of [...partUsage.keys()]) {
+            if (key.split("|")[1] < (args[0] as string)) { partUsage.delete(key); n++; }
+          }
+          return changes(n);
         }
         if (sql.startsWith("UPDATE clips SET view_count = view_count + 1 WHERE id = ?1")) {
           const c = clips.get(args[0] as string);
@@ -271,10 +376,31 @@ export function makeFakeDb(
         if (sql.startsWith("DELETE FROM clip_transcripts WHERE clip_id = ?1")) {
           return changes(transcripts.delete(args[0] as string) ? 1 : 0);
         }
+        if (sql.startsWith("DELETE FROM vod_share_meta WHERE clip_id IN (")) {
+          let n = 0;
+          for (const id of args) if (vodMeta.delete(id as string)) n++;
+          return changes(n);
+        }
+        if (sql === "DELETE FROM vod_share_meta WHERE clip_id = ?1") {
+          return changes(vodMeta.delete(args[0] as string) ? 1 : 0);
+        }
+        if (sql.startsWith("DELETE FROM storage_tombstones WHERE r2_key IN (")) {
+          let n = 0;
+          for (const key of args) if (tombstones.delete(key as string)) n++;
+          return changes(n);
+        }
+        if (sql === "DELETE FROM vod_share_usage WHERE day < ?1") {
+          let n = 0;
+          for (const key of [...vodUsage.keys()]) {
+            if (key.split("|")[1] < (args[0] as string)) { vodUsage.delete(key); n++; }
+          }
+          return changes(n);
+        }
         if (sql.startsWith("DELETE FROM clips WHERE id IN (")) {
           let n = 0;
           for (const id of args) {
             if (transcripts.has(id as string)) throw new Error("fake D1: transcript must be deleted before its clip");
+            if (vodMeta.has(id as string)) throw new Error("fake D1: VOD meta must be deleted before its clip");
             if (clips.delete(id as string)) n++;
           }
           return changes(n);
@@ -321,23 +447,44 @@ export function makeFakeDb(
             .sort((a, b) => b.created_at - a.created_at);
           return { results: results as T[] };
         }
-        if (sql.includes("SELECT id FROM clips WHERE user_id = ?1 AND status = 'uploading' AND COALESCE(last_activity_at, created_at) <= ?2")) {
+        const idle = /^SELECT id FROM clips WHERE user_id = \?1 AND status = 'uploading' AND kind = '(clip|vod)' AND COALESCE\(last_activity_at, created_at\) <= \?2$/.exec(sql);
+        if (idle) {
           const results = [...clips.values()]
-            .filter((c) => c.user_id === args[0] && c.status === "uploading" && (c.last_activity_at ?? c.created_at) <= (args[1] as number))
+            .filter((c) => c.user_id === args[0] && c.status === "uploading" && c.kind === idle[1]
+              && (c.last_activity_at ?? c.created_at) <= (args[1] as number))
             .map((c) => ({ id: c.id }));
           return { results: results as T[] };
         }
-        const claim = /^UPDATE clips SET status = 'purging' WHERE id IN \((\?\d+(?:, \?\d+)*)\) AND expires_at <= \?(\d+) RETURNING id, r2_key, upload_id$/.exec(sql);
+        const sweep = /^SELECT id FROM clips WHERE status = 'uploading' AND COALESCE\(last_activity_at, created_at\) <= \?1 LIMIT (\d+)$/.exec(sql);
+        if (sweep) {
+          const results = [...clips.values()]
+            .filter((c) => c.status === "uploading" && (c.last_activity_at ?? c.created_at) <= (args[0] as number))
+            .slice(0, Number(sweep[1]))
+            .map((c) => ({ id: c.id }));
+          return { results: results as T[] };
+        }
+        if (sql.startsWith("SELECT clip_id, has_notes FROM vod_share_meta WHERE clip_id IN (")) {
+          const results = args.map((id) => vodMeta.get(id as string)).filter((m): m is FakeVodMeta => !!m)
+            .map((m) => ({ clip_id: m.clip_id, has_notes: m.has_notes }));
+          return { results: results as T[] };
+        }
+        const tombs = /^SELECT r2_key, upload_id, created_at FROM storage_tombstones LIMIT (\d+)$/.exec(sql);
+        if (tombs) {
+          const results = [...tombstones.values()].slice(0, Number(tombs[1]))
+            .map((t) => ({ r2_key: t.r2_key, upload_id: t.upload_id, created_at: t.created_at }));
+          return { results: results as T[] };
+        }
+        const claim = /^UPDATE clips SET status = 'purging' WHERE id IN \((\?\d+(?:, \?\d+)*)\) AND expires_at <= \?(\d+) RETURNING id, r2_key, upload_id, created_at$/.exec(sql);
         if (claim) {
           const n = claim[1].split(", ").length;
           if (Number(claim[2]) !== n + 1 || args.length !== n + 1) throw new Error("fake D1: claim placeholder mismatch");
           const now = args[n] as number;
-          const results: { id: string; r2_key: string; upload_id: string | null }[] = [];
+          const results: { id: string; r2_key: string; upload_id: string | null; created_at: number }[] = [];
           for (const id of args.slice(0, n)) {
             const c = clips.get(id as string);
             if (!c || c.expires_at > now) continue;
             c.status = "purging";
-            results.push({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id });
+            results.push({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id, created_at: c.created_at });
           }
           return { results: results as T[] };
         }
@@ -373,6 +520,10 @@ export function makeFakeDb(
     batch,
     _clips: clips,
     _transcripts: transcripts,
+    _tombstones: tombstones,
+    _vodMeta: vodMeta,
+    _vodUsage: vodUsage,
+    _partUsage: partUsage,
     _usage: usage,
     _emailSends: emailSends,
     _sql: sqlLog,
@@ -382,8 +533,18 @@ export function makeFakeDb(
 
 // ── misc helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Default test Env. The storage budgets (and one account's share of them)
+ * are set far above anything a test stores, so the per-user clip quota tests
+ * stay about per-user quotas; tests of the global budget pass
+ * TOTAL_BUDGET_BYTES / VOD_BUDGET_BYTES / USER_CLIP_BUDGET_BYTES explicitly
+ * (or `undefined` for the production defaults).
+ */
 export function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
+    TOTAL_BUDGET_BYTES: "9999999999999",
+    VOD_BUDGET_BYTES: "9999999999999",
+    USER_CLIP_BUDGET_BYTES: "9999999999999",
     RIOT_API_KEY: "riot-key",
     RESEND_API_KEY: "",
     AGGREGATE_RPS: "100",

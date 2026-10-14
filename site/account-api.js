@@ -24,6 +24,11 @@
   var NEXT_PATHS = ['/my-clips', '/account'];
   var CLIP_ID = /^[0-9A-Za-z]{7}$/;
   var CLIP_URL = /^https:\/\/clips\.revu\.lol\/[0-9A-Za-z]{7}$/;
+  // Shared full games play on revu.lol/v/<id>. wrangler pages dev serves the same
+  // page on a loopback port, which is accepted only while this page is local too.
+  var VOD_URL = /^https:\/\/revu\.lol\/v\/[0-9A-Za-z]{7}$/;
+  var DEV_VOD_URL = /^http:\/\/(localhost|127\.0\.0\.1):\d{1,5}\/v\/[0-9A-Za-z]{7}$/;
+  var LOCAL_PAGE = hostname === 'localhost' || hostname === '127.0.0.1';
 
   var COPY = {
     invalid_email: "That email address doesn't look valid.",
@@ -209,6 +214,12 @@
     return '/clip?id=' + id;
   }
 
+  function vodShareUrl(share) {
+    var url = share && share.url;
+    if (typeof url === 'string' && (VOD_URL.test(url) || (LOCAL_PAGE && DEV_VOD_URL.test(url)))) return url;
+    return 'https://revu.lol/v/' + (share && share.id);
+  }
+
   root.RevuAccount = {
     API_BASE: API_BASE,
     TURNSTILE_SITE_KEY: TURNSTILE_SITE_KEY,
@@ -234,6 +245,7 @@
     formatMemberSince: formatMemberSince,
     isClipId: isClipId,
     clipShareUrl: clipShareUrl,
-    watchHref: watchHref
+    watchHref: watchHref,
+    vodShareUrl: vodShareUrl
   };
 })(globalThis);

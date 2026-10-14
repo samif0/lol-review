@@ -10,7 +10,7 @@ const read = name => readFileSync(new URL(name, ui), 'utf8');
 const withoutComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const SHARED_CSS = ['styles.css', 'kit.css', 'shell.css', 'appearance.css', 'learning-pages.css', 'objective-progress.css',
   'matchups-page.css', 'patterns-page.css', 'patterns-player.css', 'tutorial.css', 'dashboard.css', 'games-page.css',
-  'settings.css', 'review-launchpad.css', 'vod-review.css', 'vod-cinema.css', 'vod-composer.css', 'vod-narration.css',
+  'settings.css', 'review-launchpad.css', 'vod-review.css', 'vod-cinema.css', 'vod-composer.css', 'vod-narration.css', 'vod-share.css',
   'rules.css', 'tiltcheck.css', 'pregame.css', 'manualentry.css'];
 const ALL_CSS = readdirSync(ui).filter(name => name.endsWith('.css')).sort();
 

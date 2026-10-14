@@ -24,6 +24,17 @@ public sealed class UserFacingCopyTests
     }
 
     [Fact]
+    public void FullGameShareFallbackCopy_HasNoDashes()
+    {
+        string[] copy = [.. VodShareWorker.ErrorCodes.Select(VodShareWorker.Message), VodShareWorker.Message("unknown_code")];
+        Assert.All(copy, text =>
+        {
+            Assert.DoesNotContain('—', text);
+            Assert.DoesNotContain('–', text);
+        });
+    }
+
+    [Fact]
     public async Task DashboardStatSubs_AreSentenceCase()
     {
         using var scope = new SidecarWriteScope();

@@ -17,6 +17,12 @@
 
 import { Env } from "./types";
 import { jsonResponse, badRequest, mediaTypeOf, parseStrictInt } from "./http";
+import { clipFits, overAccountShare, storageFull, storageUsage } from "./storage-budget";
+import { IDLE_SWEEP_ON_START, vodWatchUrl } from "./share-limits";
+import { abortUpload, sweepIdleUploads, tombstoneObject } from "./upload-cleanup";
+import { serveR2Object } from "./r2-serve";
+
+export { parseRange } from "./r2-serve";
 
 export { purgeExpiredClips } from "./clip-purge";
 
@@ -162,6 +168,12 @@ export interface ClipRow {
   part_size?: number | null;
   part_count?: number | null;
   last_activity_at?: number | null;
+  // Added by migration 0006. Every pre-0006 row reads back as kind 'clip'.
+  kind?: string;
+  part_puts?: number;
+  quality?: string | null;
+  play_day?: string | null;
+  play_count?: number;
 }
 
 /** Public share URL for a clip slug (what POST /clips and complete return). */
@@ -172,7 +184,8 @@ export function clipPublicUrl(env: Env, id: string): string {
 
 /**
  * Active (unexpired) clip usage for a user: COUNT and SUM(size_bytes) over every
- * live row, pending multipart reservations included (no status filter).
+ * live kind 'clip' row, pending multipart reservations included (no status
+ * filter). VOD shares have their own limits (vod-shares.ts).
  */
 export async function activeClipUsage(
   db: D1Database,
@@ -180,7 +193,7 @@ export async function activeClipUsage(
   now: number,
 ): Promise<{ n: number; total: number } | null> {
   return db
-    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND expires_at > ?2")
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total FROM clips WHERE user_id = ?1 AND kind = 'clip' AND expires_at > ?2")
     .bind(userId, now)
     .first<{ n: number; total: number }>();
 }
@@ -189,8 +202,8 @@ async function insertClip(db: D1Database, row: ClipRow): Promise<void> {
   await db
     .prepare(
       `INSERT INTO clips
-        (id, user_id, r2_key, content_type, size_bytes, duration_s, title, champion, created_at, expires_at, view_count, status, narrated)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+        (id, user_id, r2_key, content_type, size_bytes, duration_s, title, champion, created_at, expires_at, view_count, status, narrated, kind)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'clip')`,
     )
     .bind(
       row.id,
@@ -211,13 +224,14 @@ async function insertClip(db: D1Database, row: ClipRow): Promise<void> {
 }
 
 /**
- * Look up a PUBLIC clip by slug. Returns null if missing, expired, or still a
- * pending multipart upload (status 'uploading'), so every public route 404s it.
+ * Look up a PUBLIC clip by slug. Returns null if missing, expired, still a
+ * pending multipart upload (status 'uploading'), or a full-game (VOD) share, so
+ * every public clip route (meta, file, view, transcript, OG page) 404s it.
  */
 export async function findClip(db: D1Database, id: string): Promise<ClipRow | null> {
   const now = Math.floor(Date.now() / 1000);
   const row = await db
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND expires_at > ?2 AND status = 'ready' LIMIT 1")
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND expires_at > ?2 AND status = 'ready' AND kind = 'clip' LIMIT 1")
     .bind(id, now)
     .first<ClipRow>();
   return row ?? null;
@@ -392,6 +406,18 @@ export async function handleUploadClip(
       403,
     );
   }
+  // One account's share of the pool, then the global storage budget
+  // (storage-budget.ts). This path cannot reserve before streaming, so
+  // concurrent single PUTs may overshoot by their own bytes until the
+  // post-insert recount below rolls the loser back. Idle reservations of any
+  // account are released first when they are in the way.
+  if (await overAccountShare(env, userId, (usage?.total ?? 0) + declaredLen)) {
+    return jsonResponse({ error: "quota_exceeded", message: QUOTA_EXCEEDED_MESSAGE }, 403);
+  }
+  if (!clipFits(env, await storageUsage(env.DB), declaredLen)) {
+    if ((await sweepIdleUploads(env, now, IDLE_SWEEP_ON_START)) === 0
+      || !clipFits(env, await storageUsage(env.DB), declaredLen)) return storageFull();
+  }
 
   const url = new URL(request.url);
   const title = clampText(url.searchParams.get("title"), 120);
@@ -443,12 +469,12 @@ export async function handleUploadClip(
     if (!head) throw new Error("uploaded clip object is missing");
     leading = new Uint8Array(await head.arrayBuffer());
   } catch (err) {
-    // Best-effort delete any partial object R2 may have started.
-    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    // Delete any partial object R2 may have started.
+    await dropUnrowedObject(env, r2Key, declaredLen);
     throw err; // genuine R2 failure → bubbles to the dispatch catch (clean 502)
   }
   if (!hasVideoMagicBytes(leading, contentType)) {
-    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    await dropUnrowedObject(env, r2Key, declaredLen);
     return jsonResponse(
       { error: "unsupported_media_type", message: "file content does not match the declared video type" },
       415,
@@ -474,7 +500,7 @@ export async function handleUploadClip(
     });
   } catch (err) {
     // Roll back the orphaned object if the row insert fails.
-    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
+    await dropUnrowedObject(env, r2Key, declaredLen);
     throw err;
   }
 
@@ -485,9 +511,20 @@ export async function handleUploadClip(
   // check is caught here and rolled back — the cap can be momentarily reached
   // but not exceeded.
   const postUsage = await activeClipUsage(env.DB, userId, now);
-  if (postUsage && (postUsage.n > MAX_ACTIVE_CLIPS_PER_USER || postUsage.total > MAX_ACTIVE_CLIP_BYTES_PER_USER)) {
-    try { await env.CLIPS.delete(r2Key); } catch { /* best effort */ }
-    try { await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run(); } catch { /* best effort */ }
+  const overUser = !!postUsage
+    && (postUsage.n > MAX_ACTIVE_CLIPS_PER_USER || postUsage.total > MAX_ACTIVE_CLIP_BYTES_PER_USER
+      || (await overAccountShare(env, userId, postUsage.total)));
+  const overStorage = !overUser && !clipFits(env, await storageUsage(env.DB), 0);
+  if (overUser || overStorage) {
+    let objectGone = true;
+    try { await env.CLIPS.delete(r2Key); } catch { objectGone = false; }
+    try {
+      // A failed R2 delete keeps the row as an expired 'purging' row: still
+      // counted in the budget, hidden everywhere, retried by the hourly purge.
+      if (objectGone) await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run();
+      else await env.DB.prepare("UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1").bind(id, now).run();
+    } catch { /* best effort */ }
+    if (overStorage) return storageFull();
     return jsonResponse(
       { error: "quota_exceeded", message: QUOTA_EXCEEDED_MESSAGE },
       403,
@@ -495,6 +532,18 @@ export async function handleUploadClip(
   }
 
   return jsonResponse({ id, url: clipPublicUrl(env, id), expires_at: expiresAt }, 201);
+}
+
+/**
+ * Delete an object that has no clips row (a failed or refused single PUT). If
+ * R2 refuses the delete, a tombstone keeps the bytes counted and retried.
+ */
+async function dropUnrowedObject(env: Env, r2Key: string, sizeBytes: number): Promise<void> {
+  try {
+    await env.CLIPS.delete(r2Key);
+  } catch {
+    await tombstoneObject(env, r2Key, null, sizeBytes, "clip");
+  }
 }
 
 /** GET /clip-meta/:id — public JSON for the watch page. 404 if missing/expired. */
@@ -530,23 +579,10 @@ export async function handleClipMeta(env: Env, id: string): Promise<Response> {
   );
 }
 
-/** True when an If-None-Match / If-Range value names `etag` (weak tags compare equal). */
-function etagMatches(header: string, etag: string): boolean {
-  if (header.trim() === "*") return true;
-  const strip = (t: string) => t.trim().replace(/^W\//, "");
-  return header.split(",").some((t) => strip(t) === strip(etag));
-}
-
 /**
  * GET|HEAD /clip-file/:id — the video bytes from R2. 404 if missing/expired.
- *
- *   - Range: a single `bytes=` range is a 206; one that starts past the end is a
- *     416 whose Content-Range is the unsatisfied form (an asterisk, then the
- *     size); anything unparseable is ignored (full 200), as RFC 9110 allows.
- *   - If-None-Match matching the ETag is a 304 with no body.
- *   - If-Range that no longer matches the ETag ignores the Range (full 200).
- *   - HEAD reads only the object's metadata (R2 head), never its body.
- * Conditional requests and HEAD cost one R2 head; a plain GET costs one get.
+ * Range, conditional and HEAD semantics live in r2-serve.ts (shared with
+ * /vod-file).
  */
 export async function handleClipFile(request: Request, env: Env, id: string): Promise<Response> {
   if (!SLUG_REGEX.test(id)) return jsonResponse({ error: "not_found" }, 404);
@@ -568,72 +604,62 @@ export async function handleClipFile(request: Request, env: Env, id: string): Pr
     `inline; filename="revu-clip-${clip.id}.${clip.content_type === "video/webm" ? "webm" : "mp4"}"`,
   );
 
-  const isHead = request.method === "HEAD";
-  const ifNoneMatch = request.headers.get("If-None-Match");
-  const ifRange = request.headers.get("If-Range");
-  let range = parseRange(request.headers.get("Range"), size);
-
-  // Metadata first when the answer depends on the ETag, or no body is wanted.
-  let etag: string | null = null;
-  if (isHead || ifNoneMatch !== null || (range !== null && ifRange !== null)) {
-    const meta = await env.CLIPS.head(clip.r2_key);
-    if (!meta) return jsonResponse({ error: "not_found" }, 404);
-    etag = meta.httpEtag || null;
-    if (etag) headers.set("ETag", etag);
-    if (etag && ifNoneMatch !== null && etagMatches(ifNoneMatch, etag)) {
-      headers.delete("Content-Type");
-      return new Response(null, { status: 304, headers });
-    }
-    // If-Range carries an ETag here (we send no Last-Modified); a stale one
-    // means "send the whole current file".
-    if (range !== null && ifRange !== null && !(etag && etagMatches(ifRange, etag))) range = null;
-  }
-
-  if (range === "unsatisfiable") {
-    headers.set("Content-Range", `bytes */${size}`);
-    headers.delete("Content-Type");
-    return new Response(null, { status: 416, headers });
-  }
-
-  if (range) {
-    headers.set("Content-Length", String(range.length));
-    headers.set("Content-Range", `bytes ${range.offset}-${range.offset + range.length - 1}/${size}`);
-  } else {
-    headers.set("Content-Length", String(size));
-  }
-  const status = range ? 206 : 200;
-  if (isHead) return new Response(null, { status, headers });
-
-  const obj = await env.CLIPS.get(clip.r2_key, range ? { range: { offset: range.offset, length: range.length } } : undefined);
-  if (!obj) return jsonResponse({ error: "not_found" }, 404);
-  if (obj.httpEtag) headers.set("ETag", obj.httpEtag);
-  return new Response(obj.body, { status, headers });
+  return serveR2Object(request, env.CLIPS, clip.r2_key, size, headers);
 }
 
-/** DELETE /clips/:id — owner-only delete. Requires a session (userId). */
+/**
+ * DELETE /clips/:id: owner-only delete of a clip OR a full-game (VOD) share.
+ * Kind-agnostic on purpose: the desktop's remote cleanup queue and the web
+ * "Stop sharing" both use it. Requires a session (userId).
+ *
+ *   1. Look the row up without the expiry filter, so an owner can still delete
+ *      an expired-but-not-yet-purged row.
+ *   2. Claim it (status 'purging', expired as of now): it vanishes from every
+ *      route at once and a concurrent complete can no longer finalize it.
+ *   3. Abort any pending multipart upload, then delete the key. R2 orders the
+ *      abort against a complete in flight: either the complete fails, or its
+ *      object already exists when the key delete below runs.
+ *   4. If the abort really failed (not "already gone") or the R2 delete fails,
+ *      KEEP the claimed row as an expired tombstone: it stays counted in the
+ *      storage budget and the hourly purge retries both.
+ *   5. Otherwise delete the transcript, the VOD meta, then the row.
+ */
 export async function handleDeleteClip(env: Env, id: string, userId: number | undefined): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
   if (!SLUG_REGEX.test(id)) return jsonResponse({ error: "not_found" }, 404);
 
-  // Look up without the expiry filter so an owner can still delete an
-  // already-expired-but-not-yet-purged clip.
   const clip = await env.DB.prepare("SELECT * FROM clips WHERE id = ?1 LIMIT 1").bind(id).first<ClipRow>();
   if (!clip) return jsonResponse({ error: "not_found" }, 404);
   if (clip.user_id !== userId) return jsonResponse({ error: "forbidden" }, 403);
 
+  const now = Math.floor(Date.now() / 1000);
+  const claimed = await env.DB
+    .prepare("UPDATE clips SET status = 'purging', expires_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING r2_key, upload_id")
+    .bind(id, userId, now)
+    .first<{ r2_key: string; upload_id: string | null }>();
+  if (!claimed) return jsonResponse({ error: "not_found" }, 404);
+
   // A pending multipart upload is aborted first (it may already be completed or
-  // gone, so this is best effort), then the key is ALWAYS deleted: that removes
-  // a completed-but-unfinalized object as well as a normal ready clip.
-  if (clip.upload_id) {
-    try { await env.CLIPS.resumeMultipartUpload(clip.r2_key, clip.upload_id).abort(); } catch { /* best effort */ }
+  // gone), then the key is ALWAYS deleted: that removes a completed-but-
+  // unfinalized object as well as a normal ready one.
+  if (!(await abortUpload(env, claimed.r2_key, claimed.upload_id))) return jsonResponse({ ok: true }, 200);
+  try {
+    await env.CLIPS.delete(claimed.r2_key);
+  } catch (err) {
+    console.error(JSON.stringify({ scope: "clips.delete.r2", id, error: (err as Error)?.message ?? String(err) }));
+    return jsonResponse({ ok: true }, 200);
   }
-  try { await env.CLIPS.delete(clip.r2_key); } catch { /* best effort; row removal is the source of truth */ }
   await env.DB.prepare("DELETE FROM clip_transcripts WHERE clip_id = ?1").bind(id).run();
+  await env.DB.prepare("DELETE FROM vod_share_meta WHERE clip_id = ?1").bind(id).run();
   await env.DB.prepare("DELETE FROM clips WHERE id = ?1").bind(id).run();
   return jsonResponse({ ok: true }, 200);
 }
 
-/** GET /clips/mine — list the caller's own clips (newest first). */
+/**
+ * GET /clips/mine (and GET /auth/web/clips): the caller's own clips AND VOD
+ * shares, newest first. Each item carries `kind`, `quality` and `has_notes`;
+ * VOD items link to the watch page (${WATCH_BASE}/v/<id>).
+ */
 export async function handleListMyClips(env: Env, userId: number | undefined): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
   const now = Math.floor(Date.now() / 1000);
@@ -641,20 +667,42 @@ export async function handleListMyClips(env: Env, userId: number | undefined): P
     .prepare("SELECT * FROM clips WHERE user_id = ?1 AND expires_at > ?2 ORDER BY created_at DESC LIMIT 200")
     .bind(userId, now)
     .all<ClipRow>();
-  const clips = (res.results ?? []).map((c) => ({
-    id: c.id,
-    url: clipPublicUrl(env, c.id),
-    title: c.title,
-    champion: c.champion,
-    duration_s: c.duration_s,
-    size_bytes: c.size_bytes,
-    created_at: c.created_at,
-    expires_at: c.expires_at,
-    view_count: c.view_count,
-    status: c.status,
-    narrated: !!c.narrated,
-    has_transcript: !!c.has_transcript,
-  }));
+  const rows = res.results ?? [];
+
+  // has_notes lives in vod_share_meta; only VOD rows can have it (at most a
+  // handful per account), so look them up only when there are any.
+  const vodIds = rows.filter((c) => c.kind === "vod").map((c) => c.id);
+  const withNotes = new Set<string>();
+  for (let i = 0; i < vodIds.length; i += 90) {
+    const ids = vodIds.slice(i, i + 90);
+    const marks = ids.map((_, j) => `?${j + 1}`).join(", ");
+    const meta = await env.DB
+      .prepare(`SELECT clip_id, has_notes FROM vod_share_meta WHERE clip_id IN (${marks})`)
+      .bind(...ids)
+      .all<{ clip_id: string; has_notes: number }>();
+    for (const m of meta.results ?? []) if (m.has_notes) withNotes.add(m.clip_id);
+  }
+
+  const clips = rows.map((c) => {
+    const kind = c.kind === "vod" ? "vod" : "clip";
+    return {
+      id: c.id,
+      url: kind === "vod" ? vodWatchUrl(env, c.id) : clipPublicUrl(env, c.id),
+      title: c.title,
+      champion: c.champion,
+      duration_s: c.duration_s,
+      size_bytes: c.size_bytes,
+      created_at: c.created_at,
+      expires_at: c.expires_at,
+      view_count: c.view_count,
+      status: c.status,
+      narrated: !!c.narrated,
+      has_transcript: !!c.has_transcript,
+      kind,
+      quality: c.quality ?? null,
+      has_notes: withNotes.has(c.id),
+    };
+  });
   return jsonResponse({ clips }, 200);
 }
 
@@ -665,41 +713,4 @@ export function clampText(value: string | null, max: number): string | null {
   const t = value.trim();
   if (!t) return null;
   return t.length > max ? t.slice(0, max) : t;
-}
-
-/**
- * Parse a single-range `Range: bytes=start-end` header into an R2-friendly
- * { offset, length }. Returns "unsatisfiable" for a well-formed range that
- * starts at or past the end (or a zero-length suffix), and null for an absent,
- * malformed, inverted or multi-range header (caller serves the whole object).
- */
-export function parseRange(header: string | null, size: number): { offset: number; length: number } | "unsatisfiable" | null {
-  if (!header) return null;
-  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!m) return null;
-  const startStr = m[1];
-  const endStr = m[2];
-
-  if (startStr === "" && endStr === "") return null;
-
-  let offset: number;
-  let end: number;
-  if (startStr === "") {
-    // suffix range: last N bytes
-    const suffix = parseInt(endStr, 10);
-    if (!Number.isFinite(suffix)) return null;
-    if (suffix <= 0 || size <= 0) return "unsatisfiable";
-    offset = Math.max(0, size - suffix);
-    end = size - 1;
-  } else {
-    offset = parseInt(startStr, 10);
-    end = endStr === "" ? size - 1 : parseInt(endStr, 10);
-  }
-
-  if (!Number.isFinite(offset) || !Number.isFinite(end)) return null;
-  if (endStr !== "" && startStr !== "" && end < offset) return null;
-  if (offset >= size) return "unsatisfiable";
-  if (end >= size) end = size - 1;
-
-  return { offset, length: end - offset + 1 };
 }
