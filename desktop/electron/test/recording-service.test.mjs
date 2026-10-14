@@ -46,7 +46,9 @@ async function start(f) {
 
 test('recording preferences are explicit and cannot smuggle sources or encoder flags', () => {
   assert.deepEqual(recordingSettings({ enabled: true, preset: '1080p30' }), { enabled: true, preset: '1080p30' });
-  for (const value of [{ enabled: 1, preset: '720p30' }, { enabled: true, preset: '4k' }, { enabled: true, preset: '720p30', microphone: true }]) assert.throws(() => recordingSettings(value));
+  // Recording is always game first, so a saved preference can never raise the recorder's priority.
+  for (const value of [{ enabled: 1, preset: '720p30' }, { enabled: true, preset: '4k' }, { enabled: true, preset: '720p30', microphone: true },
+    { enabled: true, preset: '720p30', priority: 'normal' }]) assert.throws(() => recordingSettings(value));
 });
 test('no access leaves app usable and preserves the opt-in without starting capture', async t => {
   const f = await fixture(t);
@@ -478,6 +480,16 @@ test('terminal recorder metrics and callback latency are durable without per-fra
   const disk = JSON.parse(await readFile(path.join(f.registrations[0].filePath, '../session.json'), 'utf8'));
   assert.deepEqual(disk.finalStats, { outputSkippedFrames: 2, renderSkippedFrames: 3, outputTotalFrames: 1800 });
   assert.equal(disk.requestToCallbackMs, 123);
+});
+
+test('per-minute repeated and lagged frame counts are saved with the recording', async t => {
+  const f = await fixture(t); const original = f.driver.start;
+  const perMinute = { frames: [3600, 3600], repeated: [41, 2], lagged: [3, 0] };
+  f.driver.start = args => original({ ...args, onStopped: result => args.onStopped({ ...result,
+    stats: { frames: 7200, laggedFrames: 3, repeatedFrames: 43, perMinute } }) });
+  await start(f); f.context.lastEndedGameId = 501; await f.service.tick(); await settle(f.service);
+  const disk = JSON.parse(await readFile(path.join(f.registrations[0].filePath, '../session.json'), 'utf8'));
+  assert.deepEqual(disk.finalStats, { frames: 7200, laggedFrames: 3, repeatedFrames: 43, perMinute });
 });
 
 test('an intent timestamp never substitutes for the missing provider video-start timestamp', async t => {
