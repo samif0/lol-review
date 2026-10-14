@@ -15,6 +15,9 @@ const finite = value => typeof value === 'number' && Number.isFinite(value);
 // There is no user setting; the helper must confirm this priority when it starts.
 const GAME_FIRST = 'below-normal';
 const gpuClasses = new Set(['idle', 'below-normal', 'normal', 'above-normal', 'high', 'realtime', 'unknown']);
+// Window capture pacing the helper applied, in hundred-nanosecond units; null where Windows keeps
+// its own (an older helper omits it). It only labels the recording, so a bad value never fails one.
+const captureInterval = value => Number.isSafeInteger(value) && value > 0 && value <= 10_000_000 ? value : null;
 const minuteSeries = value => Array.isArray(value) && value.length > 0 && value.length <= 300
   && value.every(count => Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000);
 // Per movie minute: encoded frames, frames repeated by a capture hold, and render ticks the
@@ -266,7 +269,8 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
         checkRecordingAbort(signal);
         return { encoder: started.encoder, width: started.width, height: started.height, fps: started.fps,
           bitrate: started.bitrate, sourceWidth: started.sourceWidth, sourceHeight: started.sourceHeight,
-          priority: started.priority, gpuPriority: gpuClasses.has(started.gpuPriority) ? started.gpuPriority : 'unknown' };
+          priority: started.priority, gpuPriority: gpuClasses.has(started.gpuPriority) ? started.gpuPriority : 'unknown',
+          captureMinIntervalHns: captureInterval(started.captureMinIntervalHns) };
       } catch (error) { await stopOwned(owned).catch(() => {}); throw error; }
     },
     stop() { return stopOwned(session); },

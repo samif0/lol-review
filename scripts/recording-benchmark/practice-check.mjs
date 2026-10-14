@@ -32,10 +32,12 @@ export function folderTime(name) {
 export function recordingSummary(session) {
   const stats = session.finalStats ?? {}, minutes = stats.perMinute?.frames?.length ?? 0;
   const sum = key => stats.perMinute?.[key]?.reduce((total, count) => total + count, 0) ?? null;
-  const frames = sum('frames');
+  const frames = sum('frames'), interval = session.resolvedSettings?.captureMinIntervalHns;
   return { startedAt: Date.parse(session.startedAt),
     priority: session.resolvedSettings?.priority ?? session.priority ?? 'before fix',
     gpuPriority: session.resolvedSettings?.gpuPriority ?? 'high (before fix)', preset: session.preset,
+    // null is Windows' own capture pacing; a missing value comes from a host that did not save it.
+    capturePacing: typeof interval === 'number' ? `${(interval / 10_000).toFixed(2)} ms` : interval === null ? 'default' : 'unknown',
     repeatedPerMinute: minutes ? sum('repeated') / (frames / ((session.resolvedSettings?.fps ?? 60) * 60)) : null,
     repeatedPercent: frames ? 100 * sum('repeated') / frames : null, lagged: sum('lagged') ?? stats.laggedFrames ?? null };
 }
@@ -79,7 +81,7 @@ function main(argv) {
   if (!games.length) { console.log(`No finished League games with performance stats in the last ${hours} hours.`); return; }
   const rows = matchGames(games, sessions(roots)).map(({ name, perf, recording }) => ({
     game: name.replace('T', ' '), minutes: (perf.seconds / 60).toFixed(1),
-    recording: recording ? `${recording.priority} (GPU ${recording.gpuPriority})` : 'off',
+    recording: recording ? `${recording.priority} (GPU ${recording.gpuPriority}), WGC ${recording.capturePacing}` : 'off',
     'avg FPS': perf.averageFps.toFixed(1), 'frames >7.5 ms': `${(100 * perf.slowFrames / perf.frames).toFixed(2)}%`,
     'hitches >18 ms': perf.hitches, 'hitches >35 ms': perf.bigHitches, 'max frame ms': perf.maxFrameMs,
     'GPU ms/frame': perf.gpuFrameMs,

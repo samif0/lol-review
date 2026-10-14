@@ -34,13 +34,13 @@ async function fixture(t, options = {}) {
     pollMs: 10, deadlines: { start: 200, stop: 100, heartbeat: 100 }, ...driverOptions });
   await driver.initialize();
   t.after(async () => { await driver.dispose().catch(() => {}); await rm(directory, { recursive: true, force: true }); });
-  const start = async (encoder = 'obs_nvenc_h264_tex') => {
+  const start = async (encoder = 'obs_nvenc_h264_tex', reported = {}) => {
     const previous = child;
     const pending = driver.start({ pid: 123, preset: '720p30', outputDirectory: directory,
       onStopped: result => stopped.push(result) });
     while (!child || child === previous) await wait(1);
     child.send({ type: 'started', encoder, width: 1280, height: 720, fps: 30, bitrate: 5000, sourceWidth: 1920, sourceHeight: 1080,
-      priority: 'below-normal', gpuPriority: 'below-normal', startedAtVerified: true, startedAt: new Date().toISOString() });
+      priority: 'below-normal', gpuPriority: 'below-normal', startedAtVerified: true, startedAt: new Date().toISOString(), ...reported });
     return pending;
   };
   return { driver, directory, calls, games, failures, stopped, start, child: () => child };
@@ -159,6 +159,22 @@ test('per-minute frame stats are kept when well formed and dropped otherwise', a
     const { stats } = f.stopped[0];
     assert.equal(stats.repeatedFrames, 41);
     assert.deepEqual(stats.perMinute, expected);
+  }
+});
+
+test('reported capture pacing is kept when plausible and becomes null otherwise without failing the recording', async t => {
+  for (const [reported, expected] of [
+    [{ captureMinIntervalHns: 166666 }, 166666], [{ captureMinIntervalHns: 10_000_000 }, 10_000_000],
+    [{ captureMinIntervalHns: null }, null], [{}, null],
+    ...[0, -166666, 166666.5, '166666', 10_000_001, true].map(value => [{ captureMinIntervalHns: value }, null]),
+  ]) {
+    const f = await fixture(t);
+    const settings = await f.start('obs_nvenc_h264_tex', reported);
+    assert.equal(settings.captureMinIntervalHns, expected);
+    f.child().send({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0 });
+    while (!f.stopped.length) await wait(1);
+    f.child().close();
+    assert.equal(f.stopped[0].hasError, false); assert.deepEqual(f.failures, []);
   }
 });
 

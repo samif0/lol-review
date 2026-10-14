@@ -26,13 +26,16 @@ test('log folders are local start times and recordings attach to the game they s
   assert.ok(Number.isNaN(folderTime('notes')));
   const start = folderTime('2026-10-14T11-24-56');
   const recording = recordingSummary({ startedAt: new Date(start + 6000).toISOString(), priority: 'below-normal', preset: '1080p60',
-    resolvedSettings: { fps: 60, gpuPriority: 'below-normal' },
+    resolvedSettings: { fps: 60, gpuPriority: 'below-normal', captureMinIntervalHns: 83333 },
     finalStats: { laggedFrames: 1, perMinute: { frames: [3600, 1800], repeated: [6, 3], lagged: [1, 0] } } });
   assert.equal(recording.repeatedPerMinute, 6); assert.equal(recording.repeatedPercent, 100 * 9 / 5400);
-  assert.equal(recording.lagged, 1);
+  assert.equal(recording.lagged, 1); assert.equal(recording.capturePacing, '8.33 ms');
+  assert.equal(recordingSummary({ startedAt: new Date(start).toISOString(),
+    resolvedSettings: { fps: 60, captureMinIntervalHns: null } }).capturePacing, 'default');
   const [matched, unrecorded] = matchGames([{ startedAt: start, perf: { seconds: 300 } },
     { startedAt: start + 900_000, perf: { seconds: 300 } }], [recording]);
   assert.equal(matched.recording, recording); assert.equal(unrecorded.recording, null);
   const before = recordingSummary({ startedAt: new Date(start).toISOString(), finalStats: { laggedFrames: 410 } });
   assert.equal(before.priority, 'before fix'); assert.equal(before.repeatedPerMinute, null); assert.equal(before.lagged, 410);
+  assert.equal(before.capturePacing, 'unknown');
 });
