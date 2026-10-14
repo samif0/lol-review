@@ -56,7 +56,20 @@
       "criteriaHitRateText": "HIT 6/8 GAMES",
       "criteriaHitRateHex": "#8ee7ba",
       "criteriaText": "Success: CS per minute ≥ 7",
-      "hasCriteriaText": true
+      "hasCriteriaText": true,
+      "masteryPct": 75,
+      "masteryMet": false,
+      "masteryGateText": "80% OVER 3+ GAMES & 5+ DAYS",
+      "masteryText": "MASTERY 75%  •  LOCKED",
+      "masteryQualifyingGames": 8,
+      "masteryDetails": {
+        "successThresholdPct": 80,
+        "minGames": 3,
+        "minSpanDays": 5,
+        "spanDays": 4,
+        "recentSuccessMet": false,
+        "successRateMet": false
+      }
     },
     {
       "id": 11,

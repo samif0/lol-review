@@ -8,33 +8,46 @@ No build step. The deploy uploads the public files in this directory as-is;
 
 ## Look
 
-The site mirrors the desktop app's flat charcoal system: dark only, system
-fonts (Segoe UI on Windows), monochrome, a white pill for the primary action
-and outlined radius-12 buttons for everything else. No webfonts, glass, blur,
-shadows, gradients, uppercase labels or letter-spacing.
+The site uses the desktop app's Neutral theme in dark mode: cool greys, Geist
+and Geist Mono, hairlines instead of boxes, pill buttons, and one filled
+accent for the primary action. On the home page the product screenshots are
+the only raised surfaces. Dark only, like the screenshots; no glass, blur,
+gradients or uppercase labels.
 
-`tokens.css` mirrors the `:root` token block at `desktop/ui/styles.css:3374`
-(the "Shared application system" layer) with the same variable names, plus
-named literals, radii and layout tokens. When the app's palette changes,
-update `tokens.css` to match.
+`tokens.css` copies the `[data-theme="neutral"]` block of
+`desktop/ui/appearance.css` value for value, with the same variable names,
+then bridges the site's older names (`--text`, `--surface`, `--chrome`, ...)
+onto them. It is the only site stylesheet with color literals; every other
+stylesheet reads tokens. When the app's Neutral dark palette changes, update
+`tokens.css` to match. `tests/visual-system.test.mjs` checks the values, the
+literals and the fonts.
+
+Geist and Geist Mono are self-hosted from `fonts/`: byte-identical copies of
+`desktop/ui/fonts/geist.woff2` and `geist-mono.woff2` with their SIL Open
+Font License texts. `tokens.css` declares them with `font-display: swap`, and
+every page preloads `geist.woff2`. The CSP's `font-src 'self'` covers them.
 
 ## Files
 
-- `index.html` + `app.js`: home page and the in-browser web review tool;
+- `index.html` + `landing.css` + `download.js`: the home page, a
+  download-first landing. Every `a[data-download]` links the latest
+  `Revu-Setup.exe` statically; `download.js` swaps in the exact asset URL
+  from the latest GitHub release, fills the version and size, notes on
+  phones and Macs that Revu is a Windows app, and keeps the static links if
+  GitHub can't be reached. The header Download pill on every page goes to
+  `/#download`
+- `review.html` + `app.js`: the in-browser web review tool at `/review`;
   `web-review-lib.js` holds its DOM-free helpers (review notes kept per
-  match id, error copy) so `tests/` can run them; `turnstile-ready.js`
-  reserves the Turnstile onload callback before the async loader runs, and
-  `version-chip.js` refreshes the header pill version. The region list in
-  `index.html` must match the platforms in `proxy/src/riot.ts` (a test
-  checks it)
-- `learn.html` + `download.js`: desktop app page; `download.js` rewrites the
-  download button href from the latest GitHub release on page load and falls
-  back to the static installer URL
+  match id, error copy) so `tests/` can run them, and `turnstile-ready.js`
+  reserves the Turnstile onload callback before the async loader runs. The
+  region list in `review.html` must match the platforms in
+  `proxy/src/riot.ts` (a test checks it)
+- `_redirects`: `/learn`, the old desktop app page, goes to `/` with a 301
 - `clip.html`: shared clip watch page (player, captions, transcript); all of
   its JS lives in the first inline `<script>` so `tests/` can run it
 - `privacy.html`, `terms.html`, `discord.html` (`discord/index.html` is an
   identical copy for the `/discord/` route)
-- `lightbox.js`: screenshot lightbox on the desktop app page
+- `lightbox.js`: screenshot lightbox on the home page
 - Web accounts (email code sign-in, served at `/sign-in`, `/my-clips`,
   `/account`):
   - `account-api.js`: the only client for `clips.revu.lol/auth/web/*`
@@ -49,18 +62,22 @@ update `tokens.css` to match.
 - `_headers`: security headers and CSPs (the clip page has its own)
 - `revu.svg`, `favicon.ico`, `icon-*.png`, `revu-mark.png`: brand assets
   copied from `desktop/electron/branding/`
-- `shot-*.png`: desktop app screenshots captured from `desktop/ui` sample data
+- `fonts/`: Geist and Geist Mono (see Look)
+- `shot-*.webp` (1600x1000) and `og-image.jpg` (1200x630): Neutral dark
+  screenshots of the desktop app's sample data, made by
+  `scripts/capture-site-shots.mjs` (see Screenshots). `og-image.jpg` is also
+  the image on shared clip cards (`proxy/src/clips.ts`)
 
 ### CSS
 
 Every page loads the stylesheets in this order:
 
 1. `tokens.css`: design tokens
-2. `styles.css`: base, header, footer, buttons, forms, cards, lightbox, legal
-   pages and the desktop app page
-3. the page stylesheet, if any: `webapp.css` (web review tool on the home
-   page), `clip.css` (clip page) or `account.css` (sign-in, My clips and
-   Account pages)
+2. `styles.css`: base, header, footer, buttons, forms, cards, lightbox and
+   legal pages
+3. the page stylesheet, if any: `landing.css` (home page), `webapp.css` (web
+   review tool), `clip.css` (clip page) or `account.css` (sign-in, My clips
+   and Account pages)
 
 ## Scripts and CSP
 
@@ -106,6 +123,26 @@ cd site && npx wrangler pages dev . --port 8788
 Open http://localhost:8788 (not 127.0.0.1) in Chrome or Firefox. On
 localhost the account pages call `http://localhost:8787` and use the
 Turnstile test key.
+
+## Screenshots
+
+The screenshots and `og-image.jpg` are generated, never edited by hand:
+
+```sh
+node scripts/capture-site-shots.mjs            # every shot plus og-image.jpg
+node scripts/capture-site-shots.mjs --list     # what it captures
+```
+
+It starts the desktop Vite dev server on a free port (or uses `--base
+<url>`), opens each page of the app shell in headless Edge or Chrome with
+`?appearance=neutral-dark`, and writes 1600x1000 `shot-<name>.webp` files
+into this folder. The Home shot is the whole 1600x1000 window; each
+feature shot is one 800x500 part of a page at twice the pixel density, so
+its text stays readable at the size the landing shows it. Outside the desktop host the pages read
+`desktop/ui/sample-*.json`, so no database or personal data is involved;
+the capture still stops before writing a shot if a Riot name, Riot ID or
+email address renders. The clock is fixed, so reruns are reproducible.
+Look at every image before committing it.
 
 ## Tests
 

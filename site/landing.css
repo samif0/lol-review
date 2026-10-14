@@ -1,0 +1,128 @@
+/*
+ * Home (index.html): a download-first landing in the app's Neutral theme.
+ *
+ * Loaded after tokens.css and styles.css. Tokens only (tests/visual-system.test.mjs).
+ * One centered hero with the download, the Home screenshot as the one raised
+ * surface, three feature rows split by hairlines, and a closing download band.
+ * download.js fills [data-download-*]; lightbox.js opens .screenshot-hero and
+ * .screenshot-tile figures.
+ */
+.landing {
+  width: 100%;
+  max-width: var(--container-home);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* Hero. #download is the header's Download target, so keep it clear of the
+   sticky header when the browser scrolls to it. */
+.hero {
+  display: grid;
+  justify-items: center;
+  padding: 72px 0 0;
+  text-align: center;
+  scroll-margin-top: var(--header-h);
+}
+.hero > * { max-width: 100%; }
+.hero-eyebrow { margin: 0 0 16px; color: var(--t3); font-size: 14px; }
+.hero-title {
+  font-size: clamp(38px, 6vw, 64px);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+  line-height: 1.06;
+  text-wrap: balance;
+}
+.hero-lead {
+  max-width: 40rem;
+  margin-top: 20px;
+  color: var(--t2);
+  font-size: 18px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.download-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 32px;
+}
+.download-meta {
+  margin-top: 14px;
+  color: var(--t3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.download-note { max-width: 46ch; margin-top: 8px; color: var(--t2); font-size: 14px; line-height: 1.5; }
+.hero-trust { margin-top: 4px; color: var(--t3); font-size: 13px; }
+
+/* Screenshots (1600x1000): the whole app window in the hero, one part of a page at
+   twice the pixel density in the feature rows. Framed like the app's raised surfaces. */
+.shot {
+  margin: 0;
+  overflow: hidden;
+  border: var(--raised-border);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+  box-shadow: var(--raised-shadow);
+}
+.shot img { display: block; width: 100%; height: auto; }
+.shot-hero { margin-top: 56px; }
+
+/* Feature rows: copy beside a screenshot, split by hairlines. */
+.feature {
+  display: grid;
+  gap: 28px;
+  padding: 64px 0;
+  border-top: 1px solid var(--line);
+}
+.shot-hero + .feature { margin-top: 72px; }
+.feature h2 {
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+  line-height: 1.2;
+}
+.feature-copy p { max-width: 46ch; margin-top: 14px; color: var(--t2); font-size: 16px; line-height: 1.65; }
+.feature-copy .feature-note { margin-top: 18px; color: var(--t3); font-size: 14px; line-height: 1.6; }
+
+/* Closing band. */
+.closing {
+  display: grid;
+  justify-items: center;
+  padding: 88px 0 24px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+.closing-title {
+  max-width: 22ch;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+  line-height: 1.15;
+  text-wrap: balance;
+}
+.closing .download-actions { margin-top: 28px; }
+
+@media (min-width: 900px) {
+  .feature {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    gap: 56px;
+    align-items: center;
+    padding: 88px 0;
+  }
+  .feature.is-flipped { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); }
+  .feature.is-flipped .feature-copy { order: 2; }
+}
+
+/* Phones: both download actions go full width as 44px+ tap targets. */
+@media (max-width: 639.98px) {
+  .hero { padding-top: 40px; }
+  .hero-lead { font-size: 17px; }
+  .download-actions { width: 100%; }
+  .download-actions > * { flex: 1 1 100%; }
+  .shot-hero { margin-top: 40px; }
+  .shot-hero + .feature { margin-top: 48px; }
+  .feature { padding: 48px 0; }
+  .closing { padding-top: 64px; }
+}

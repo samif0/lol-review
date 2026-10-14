@@ -8,7 +8,7 @@
   <meta name="description" content="What data Revu reads, where it stores it, and what leaves your machine." />
   <meta name="robots" content="index, follow" />
   <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#171717" />
+  <meta name="theme-color" content="#1c1d1f" />
 
   <link rel="canonical" href="https://revu.lol/privacy" />
 
@@ -17,20 +17,20 @@
   <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="site-header">
     <div class="site-header-inner">
-      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="12 18 77 64" aria-hidden="true" focusable="false"><path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/></svg><span>Revu</span></a>
       <nav class="site-nav" aria-label="Primary">
-        <a href="/">Review a game</a>
-        <a href="/learn">Desktop app</a>
+        <a href="/review">Review a game</a>
         <a href="/discord">Discord</a>
       </nav>
       <a class="header-account" href="/sign-in" data-header-account>Sign in</a>
-      <a class="btn-primary header-cta" href="/learn">Download</a>
+      <a class="btn-primary header-cta" href="/#download">Download</a>
     </div>
   </header>
 
@@ -38,7 +38,7 @@
     <article class="legal">
       <p class="eyebrow">Legal</p>
       <h1 class="legal-h1">Privacy policy</h1>
-      <p class="legal-meta">Last updated: 2026-10-12</p>
+      <p class="legal-meta">Last updated: 2026-10-14</p>
 
       <p>
         Revu is a Windows desktop app. Your review data, game history,
@@ -208,7 +208,7 @@
         We do not run any analytics on this site.
       </p>
       <p>
-        The web review tool on this site's home page stores your recent
+        The web review tool at <a href="/review">revu.lol/review</a> stores your recent
         searches, cached match lists, review notes, and the name and size
         of the file you attached in your browser's local storage. It does not upload ROFL files, VODs, or other media.
         Clearing your browser data for this site removes that local web
