@@ -6,6 +6,12 @@
 # archive SHA-256 against the upstream checksums.sha256 and GitHub release asset digest
 # before bumping either value.
 #
+# The binary is a GPLv3 build and ships with licenses/ffmpeg (license, build identity,
+# every statically linked library with its revision and license text, and the source
+# offer). A bump must regenerate that folder from scripts.d/ in BtbN's build scripts at
+# the new release tag, and update the build line in desktop/ui/settings.html and
+# site/terms.html; desktop/tests/ffmpeg-notices.test.mjs fails until they match the pin.
+#
 # -ArchiveCache keeps the verified archive in that directory between runs (CI restores
 # it with actions/cache). A cached archive is hashed against the pin before every use
 # and downloaded again on a mismatch, so the cache can only save time. Without it the
