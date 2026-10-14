@@ -46,7 +46,7 @@ function node(id = '', tag = 'DIV', action = '') {
 }
 
 async function fixture({ native = true, ascentFolder = '', handler } = {}) {
-  const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [];
+  const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [], shellEvents = [];
   const sections = { ascent: 'recording', clips: 'playback', account: 'account', review: 'playback' };
   const add = (id, tag, action) => { const element = node(id, tag, action); ids.set(id, element); return element; };
   const group = (name, fieldNames) => {
@@ -94,7 +94,9 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
         ? { click: () => categoryClicks.push(selector.match(/"(.*?)"/)[1]) } : null,
   };
   const context = vm.createContext({
-    document, window: {}, $: id => ids.get(id) || null,
+    document, $: id => ids.get(id) || null,
+    window: { top: { dispatchEvent: event => { shellEvents.push(event.type); return true; } } },
+    CustomEvent: class { constructor(type) { this.type = type; } },
     show: (element, visible) => { if (element) element.hidden = !visible; },
     clearEl: element => { element.children = []; },
     getInvoke: async () => native ? invoke : null,
@@ -109,7 +111,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     for (const listener of listeners.get(type) || []) await listener({ target, preventDefault() {} });
   };
   return {
-    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks,
+    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks, shellEvents,
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
@@ -173,6 +175,33 @@ test('automatic matchup notes default off, save only review preferences and keep
   await f.click('autoMatchupNotesEnabled');
   await f.click('review-save');
   assert.equal(f.config.autoMatchupNotesEnabled, false);
+});
+
+test('a saved Riot account updates the sidebar account row at once; other cards do not', async () => {
+  const f = await fixture();
+  await f.click('autoMatchupNotesEnabled');
+  await f.click('review-save');
+  assert.deepEqual(f.shellEvents, [], 'a review preference is not the account');
+  await f.edit('riotId', 'bye#NA1');
+  await f.click('account-save');
+  assert.deepEqual(f.requests.at(-2).args, { payload: { riotId: 'bye#NA1', region: 'na1' } });
+  assert.deepEqual(f.shellEvents, ['revu:account-changed']);
+});
+
+test('signed in with no Riot ID, the Riot account card says so instead of a blank attached account', async () => {
+  const f = await fixture();
+  for (const id of ['acct-state', 'acct-email']) f.ids.set(id, node(id));
+  Object.assign(f.config, { riotId: '', region: 'na1', riotAuthState: 'loggedIn', riotSessionEmail: 'you@example.com' });
+  f.render();
+  assert.equal(f.$('acct-state').textContent, 'No Riot ID linked yet', 'Home and the Account page send this player here');
+  assert.equal(f.$('acct-email').textContent, 'Signed in as you@example.com');
+  Object.assign(f.config, { riotId: 'bye#NA1' });
+  f.render();
+  assert.equal(f.$('acct-state').textContent, 'Account attached: bye#NA1 · NA1');
+  Object.assign(f.config, { riotId: '', riotAuthState: 'loggedOut', riotSessionEmail: '' });
+  f.render();
+  assert.equal(f.$('acct-state').textContent, 'No account attached');
+  assert.equal(f.$('acct-email').hidden, true);
 });
 
 test('browser preview disables folder access, scanning and connection writes without implying local availability', async () => {

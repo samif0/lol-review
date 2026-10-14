@@ -516,7 +516,12 @@ export async function checkDesktopUi(window, dataRoot, grantFixture) {
     await capture(page);
     if(page==='tiltcheck') await captureResetSteps(child);
     if(page==='onboarding') {
+      // The Account page (the sidebar's account row). Its email step has no Back, which
+      // would open the first-launch card, so Back is hovered on the first-launch flow.
       child=await navigate('onboarding.html?signin=1');
+      await capture('account');
+      child=await navigate('onboarding.html');
+      await child.executeJavaScript(`document.querySelector('#card-welcome:not([hidden]) #welcome-login')?.click()`);
       const point=await contents.executeJavaScript(`(() => {
         const frame=document.querySelector('#app-frame');
         const rect=frame.contentDocument.querySelector('#email-back').getBoundingClientRect();

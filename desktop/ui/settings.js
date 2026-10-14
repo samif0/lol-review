@@ -198,9 +198,14 @@ function render(d, { savedFields = [] } = {}) {
   const dotEl = $('acct-dot');
   const statusEl = $('acct-status');
   if (stateEl) {
-    if (attached) {
+    const riotId = String(d.riotId || '').trim();
+    if (attached && !riotId) {
+      // Signed in (to share a clip, say) before any Riot ID was linked: Home's
+      // "Link your Riot account" and the Account page both send the player here.
+      stateEl.textContent = 'No Riot ID linked yet';
+    } else if (attached) {
       const region = d.region ? ` · ${String(d.region).toUpperCase()}` : '';
-      stateEl.textContent = `Account attached: ${d.riotId}${region}`;
+      stateEl.textContent = `Account attached: ${riotId}${region}`;
     } else {
       stateEl.textContent = 'No account attached';
     }
@@ -612,6 +617,10 @@ async function doSave(invoke, target, { disconnectAscent = false } = {}) {
     catch { canonical = { ..._data, ...payload, ...(disconnectAscent ? { ascentFolder: '' } : {}) }; }
     if (isAscent) _ascentScanResult = null;
     render(canonical, { savedFields: fields });
+    // A new Riot ID shows in the sidebar's account row right away (shell-recent.mjs).
+    if (group.dataset.configGroup === 'account') {
+      try { window.top?.dispatchEvent(new CustomEvent('revu:account-changed')); } catch (_) { /* no shell */ }
+    }
     cardStatus(group, disconnectAscent ? 'Disconnected. Existing videos and match links are kept.' : 'Changes saved.', 'good');
     loadStatus();
   } catch (err) {

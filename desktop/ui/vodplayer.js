@@ -2507,6 +2507,7 @@ async function shareVerify() {
   shareLoginMsg('Verifying…');
   try {
     await _core.invoke('auth_verify', { payload: { code, email: _shareEmail } });
+    try { window.top?.dispatchEvent(new CustomEvent('revu:account-changed')); } catch (_) { /* no shell */ }
     // Session persisted server-side — now upload the clip we stashed at Share time.
     const bmId = _pendingShareBmId;
     cancelShareLogin(true);

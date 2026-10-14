@@ -46,7 +46,7 @@ function setCrumb(page, navId) {
   if (context) context.textContent = current;
 }
 
-// The rail items live in the nav and in the sidebar footer (Settings, Account).
+// The rail items live in the nav and in the sidebar footer (the account row, Settings).
 function markActive(navId) {
   (side || document).querySelectorAll('.nav-i').forEach((a) => {
     const active = a.dataset.nav === navId;
@@ -133,7 +133,7 @@ document.addEventListener('click', (ev) => {
   frameGoto(href);
 });
 
-// The shell's sidebar data: recent matches, the review count and the account name.
+// The shell's sidebar data: recent matches, the review count and the account row.
 const sidebar = createShellSidebar();
 
 // ── Sync active item whenever the iframe finishes loading a page ─────────────
@@ -276,14 +276,14 @@ document.getElementById('updbar-x')?.addEventListener('click', hideUpdateBanner)
 setTimeout(checkForUpdateOnLaunch, 2500);
 
 // ── LCU (League Client) connection indicator ─────────────────────────────────
-// Toggles the appbar's LCU chip between connected (green dot) and not. Called from
-// the SSE listener below: seeded by the replayed liveState, updated live by the
-// lcuConnection event. Pure DOM toggle — safe to call before the stream is wired.
+// Toggles the League Client line of the sidebar's account row between connected
+// (green dot) and not. Called from the SSE listener below: seeded by the replayed
+// liveState, updated live by the lcuConnection event. Pure DOM toggle, safe to call
+// before the stream is wired. No title: the account link reads it as its description.
 function setLcuIndicator(connected) {
   const el = document.getElementById('appbar-lcu');
   if (!el) return;
   el.classList.toggle('on', !!connected);
-  el.title = connected ? 'League Client: connected' : 'League Client: not connected';
   const text = el.querySelector('.appbar-lcu-txt');
   if (text) text.textContent = connected ? 'League connected' : 'League offline';
 }

@@ -1,6 +1,8 @@
 import { $, show } from './dom.mjs';
 import { getInvoke, platform } from './platform/index.mjs';
+import { readSnapshot } from './data.mjs';
 import { canOpenExternal, openMyClips } from './web-links.mjs';
+import { announceAccountChange, applyAccountPage, isAccountPage, linkedLine, needsRiotId, signedInFor } from './account-page.mjs';
 
 // Revu desktop — first-launch ONBOARDING wizard.
 //
@@ -56,6 +58,8 @@ const AUTH_CMD = {
 // 'signedIn' is the returning-user confirmation card (added so the page reflects an
 // existing session instead of always re-showing the first-boot 'welcome' intro).
 const STATES = ['signedIn', 'welcome', 'emailEntry', 'codeSent', 'account', 'role', 'done'];
+// ?signin=1 is the Account page (account-page.mjs): explicit sign-in intent.
+const SIGNIN_INTENT = isAccountPage(window.location.search);
 
 // ── module state (mirrors the VM's observable fields) ────────────────────────
 const vm = {
@@ -136,14 +140,14 @@ function render() {
     }
   }
 
-  // Signed-in card: show the account email + (if linked) the Riot ID · region.
+  // Signed-in card: the account email, then the linked Riot ID · region, or a link to
+  // the Riot ID field in Settings when none is linked.
   const acctEmail = $('onb-acct-email');
   if (acctEmail) acctEmail.textContent = vm.acctEmail || 'Signed in';
   const acctSub = $('onb-acct-sub');
-  if (acctSub) {
-    const linked = [vm.acctRiotId, (vm.acctRegion || '').toUpperCase()].filter(Boolean).join(' · ');
-    acctSub.textContent = linked ? `Linked: ${linked}` : 'Your account is linked.';
-  }
+  if (acctSub) acctSub.textContent = linkedLine(vm.acctRiotId, vm.acctRegion);
+  show($('onb-acct-add'), needsRiotId(vm.acctRiotId));
+  if (SIGNIN_INTENT) applyAccountPage(document, signedInFor(vm.state));
 
   // Footer error + spinner.
   const err = $('onb-error');
@@ -225,6 +229,7 @@ async function verifyCode() {
     // verify exchanges the OTP for a session and persists the session triplet
     // (RiotSessionToken/Email/ExpiresAt) server-side, exactly like VerifyAsync.
     await call(AUTH_CMD.verify, { code: vm.otpCode, email: vm.email });
+    announceAccountChange(); // the sidebar's account row now reads signed in
     vm.error = '';
     vm.info = '';
     // A RETURNING user (already linked Riot ID + picked a role) shouldn't be marched
@@ -276,15 +281,18 @@ async function finishAccount() {
     // display-only — empty rank just hides the RANK DETECTED line.
     const detected = res && (res.rank ?? res.detectedRank);
     if (detected) vm.detectedRank = String(detected);
+    announceAccountChange(); // the account row shows the linked game name
     vm.error = '';
     vm.info = '';
     setState('role');
   } catch (err) {
     console.error('[onboarding] finish-account failed:', err);
     // Missing-session guard: the server reports an unauthenticated/expired session
-    // → reset to welcome (mirrors the VM's "Session missing. Start over." branch).
+    // → reset to welcome (mirrors the VM's "Session missing. Start over." branch). The
+    // Account page restarts at its email step instead of the first-launch card.
     if (/session (missing|expired|invalid|no longer valid)|unauthorized|start over/i.test(String(err && err.message || err))) {
-      vm.state = 'welcome';
+      vm.state = SIGNIN_INTENT ? 'emailEntry' : 'welcome';
+      announceAccountChange();
       setError('Session missing. Start over.');
     } else {
       setError(friendlyError(err, "Couldn't validate that account."));
@@ -338,6 +346,7 @@ async function clearPartialSession() {
   } catch (err) {
     console.warn('[onboarding] could not clear partial session:', err);
   }
+  announceAccountChange();
 }
 
 // ── back navigation ──────────────────────────────────────────────────────────
@@ -390,6 +399,7 @@ async function signOut() {
     vm.email = ''; vm.otpCode = ''; vm.error = ''; vm.info = '';
     vm.chosenLoginPath = true;
     setState('emailEntry');
+    announceAccountChange();
   }
 }
 
@@ -402,21 +412,31 @@ async function signOut() {
 // AND onboarding wasn't explicitly skipped. Everyone else who lands here logged-out
 // is a returning user choosing to sign in, so we skip the intro card for them.
 //
-// EXPLICIT SIGN-IN INTENT (?signin=1): the nav rail's "Sign in" item carries this
-// param. Clicking it means "I want to sign in", never "show me the first-launch
-// pitch", so it bypasses the first-boot heuristic entirely — signed-in users see
-// the confirmation card, everyone else lands straight on the email step. The
-// GET STARTED intro stays reserved for a genuine auto-show on first launch, where
-// onboarding is opened with NO param.
+// EXPLICIT SIGN-IN INTENT (?signin=1): the Account page, opened from the sidebar's
+// account row. It means "show my account", never the first-launch pitch: signed-in
+// users see the confirmation card, everyone else lands straight on the email step.
+// The GET STARTED intro stays reserved for a genuine first-launch auto-show (NO param).
 async function chooseInitialState() {
-  const signinIntent = new URLSearchParams(window.location.search).get('signin') === '1';
-
   const invoke = await getInvoke();
   if (!invoke) {
-    // Preview (no backend): with explicit sign-in intent show the email step;
-    // otherwise keep the standalone first-boot intro so the flow is browsable.
-    if (signinIntent) vm.chosenLoginPath = true;
-    setState(signinIntent ? 'emailEntry' : 'welcome');
+    // Preview (no backend): the Account page shows the sample account the shell's
+    // account row reads (sample-settings.json), so the two agree; signed out, or with
+    // no fixture, it shows the email step. First launch keeps the standalone intro so
+    // the flow is browsable.
+    if (SIGNIN_INTENT) {
+      let cfg = null;
+      try { cfg = await readSnapshot('get_config', 'sample-settings.json'); } catch (_) { cfg = null; }
+      const email = typeof cfg?.riotSessionEmail === 'string' ? cfg.riotSessionEmail.trim() : '';
+      if (cfg?.riotAuthState === 'loggedIn' && email) {
+        vm.acctEmail = email;
+        vm.acctRiotId = cfg.riotId || '';
+        vm.acctRegion = cfg.region || '';
+        setState('signedIn');
+        return;
+      }
+      vm.chosenLoginPath = true;
+    }
+    setState(SIGNIN_INTENT ? 'emailEntry' : 'welcome');
     return;
   }
   // Retry on sidecar cold-start: opening Sign-in while the sidecar is still binding
@@ -449,7 +469,7 @@ async function chooseInitialState() {
   }
 
   // Logged out. Explicit sign-in intent skips the first-boot pitch entirely.
-  if (signinIntent) {
+  if (SIGNIN_INTENT) {
     vm.chosenLoginPath = true; // returning user is on the login path
     setState('emailEntry');
     return;
@@ -535,7 +555,14 @@ document.addEventListener('keydown', (ev) => {
 // Pick the initial card from the live auth status (signed-in / first-boot /
 // returning), then render. chooseInitialState calls setState (which renders), so a
 // first paint of 'welcome' is avoided by rendering only after the decision resolves.
-async function boot() { await chooseInitialState(); render(); }
+// The hero shows once its heading is final (onboarding.html), before the status read,
+// which can wait out a sidecar cold start.
+async function boot() {
+  if (SIGNIN_INTENT) applyAccountPage(document, null);
+  $('onb-hero')?.setAttribute('data-ready', '');
+  await chooseInitialState();
+  render();
+}
 // The My clips link shows only where the host can open external links; render()
 // never touches it.
 canOpenExternal(platform).then((ok) => { const b = document.getElementById('signedin-my-clips'); if (b) b.hidden = !ok; });
