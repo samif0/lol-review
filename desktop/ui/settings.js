@@ -2,6 +2,7 @@ import { $, show, clear as clearEl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { initializeRecordingSettings } from './recording-settings.mjs';
+import { initializeRecordingSpeedUp } from './recording-optimize.mjs';
 import { initializeSettingsNavigation, preserveSettingsDraft } from './settings-navigation.mjs';
 import { registerLeaveGuard } from './leave-guard.mjs';
 import { initializeAudioSettings } from './audio-settings.mjs';
@@ -197,9 +198,14 @@ function render(d, { savedFields = [] } = {}) {
   const dotEl = $('acct-dot');
   const statusEl = $('acct-status');
   if (stateEl) {
-    if (attached) {
+    const riotId = String(d.riotId || '').trim();
+    if (attached && !riotId) {
+      // Signed in (to share a clip, say) before any Riot ID was linked: Home's
+      // "Link your Riot account" and the Account page both send the player here.
+      stateEl.textContent = 'No Riot ID linked yet';
+    } else if (attached) {
       const region = d.region ? ` · ${String(d.region).toUpperCase()}` : '';
-      stateEl.textContent = `Account attached: ${d.riotId}${region}`;
+      stateEl.textContent = `Account attached: ${riotId}${region}`;
     } else {
       stateEl.textContent = 'No account attached';
     }
@@ -355,11 +361,19 @@ function clearError() { show($('errpanel'), false); }
 // Electron waits for the sidecar before it loads the shell, so a failed read is
 // a real error: show it rather than retrying.
 let _loading = false;
+// Home's "Link your Riot account" and the Account page's "Add it in Settings" open
+// #settings-account to link a Riot ID: once the field can be edited, the cursor waits there.
+let _focusRiotId = globalThis.location?.hash === '#settings-account';
 async function loadConfig() {
   if (_loading) return;
   _loading = true;
   try {
     render(await fetchConfig());
+    if (_focusRiotId) {
+      _focusRiotId = false;
+      const field = $('riotId');
+      if (field && !field.disabled && !String(field.value || '').trim()) field.focus();
+    }
     // Status is a best-effort second read — never blocks the editable page.
     loadStatus();
   } catch (err) {
@@ -611,6 +625,10 @@ async function doSave(invoke, target, { disconnectAscent = false } = {}) {
     catch { canonical = { ..._data, ...payload, ...(disconnectAscent ? { ascentFolder: '' } : {}) }; }
     if (isAscent) _ascentScanResult = null;
     render(canonical, { savedFields: fields });
+    // A new Riot ID shows in the sidebar's account row right away (shell-recent.mjs).
+    if (group.dataset.configGroup === 'account') {
+      try { window.top?.dispatchEvent(new CustomEvent('revu:account-changed')); } catch (_) { /* no shell */ }
+    }
     cardStatus(group, disconnectAscent ? 'Disconnected. Existing videos and match links are kept.' : 'Changes saved.', 'good');
     loadStatus();
   } catch (err) {
@@ -797,7 +815,7 @@ function showFirstUnsavedCard() {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 function boot() {
-  initializeSettingsNavigation();
+  const navigation = initializeSettingsNavigation();
   registerLeaveGuard({ isDirty: settingsDirty, flush: saveDirtySettings });
   window.addEventListener('revu:update-download-progress', event => showUpdateDownloadProgress(event.detail));
   for (const id of CONFIG_FIELDS) if ($(id)) $(id).disabled = true;
@@ -813,6 +831,9 @@ function boot() {
   loadConfig(); loadAppVersion(); loadAscentAccess();
   try { initializeAppearanceSettings(); } catch (err) { console.warn('[settings] appearance unavailable:', err); }
   try { initializeAudioSettings(); } catch (err) { console.warn('[settings] audio devices unavailable:', err); }
+  // Speed up sits outside the save groups: each row acts at once, so it never marks the page unsaved.
+  initializeRecordingSpeedUp({ getInvoke, onAvailability: () => navigation?.refresh() })
+    .catch(err => console.warn('[settings] speed up unavailable:', err));
   initializeRecordingSettings().then(() => {
     for (const group of document.querySelectorAll('[data-native-group]')) {
       _nativeBaseline.set(group.id, nativeValues(group));

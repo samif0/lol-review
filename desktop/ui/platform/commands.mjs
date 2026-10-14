@@ -30,6 +30,7 @@ const definitions = {
   get_rules: get("/api/rules"),
   get_tiltcheck: get("/api/tiltcheck"),
   get_patterns: get("/api/patterns"),
+  get_pattern_nudge: get("/api/patterns/nudge"),
   get_vod: get("/api/vod", {"gameId":"integer"}),
   get_config: get("/api/config"),
   start_block: post("/api/block/start"),
@@ -121,7 +122,9 @@ const definitions = {
   save_recording_settings: native({ payload: 'object' }),
   open_recordings_folder: native(),
   // "Speed up" for a linked built-in recording: the host resolves the file from the
-  // game's own VOD snapshot and never accepts a path from the page.
+  // game's own VOD snapshot and never accepts a path from the page. Settings lists the
+  // recordings that still open slowly; the answer names games only, never a path.
+  list_recording_optimizations: native({}),
   get_recording_optimization: native({ gameId: 'integer' }),
   optimize_recording: native({ gameId: 'integer' }),
   get_background_settings: native(),

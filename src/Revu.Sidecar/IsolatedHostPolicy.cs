@@ -100,7 +100,7 @@ public static class IsolatedHostPolicy
         // /api/host/health only describes the scratch database, so isolated launches keep its reason.
         "/api/health", "/api/host", "/api/host/health", "/api/dashboard", "/api/events", "/api/games", "/api/objectives",
         "/api/objective/games", "/api/objective/notes", "/api/objective", "/api/vod", "/api/derived", "/api/review",
-        "/api/rules", "/api/tiltcheck", "/api/matchups", "/api/matchups/export", "/api/patterns", "/api/config",
+        "/api/rules", "/api/tiltcheck", "/api/matchups", "/api/matchups/export", "/api/patterns", "/api/patterns/nudge", "/api/config",
         "/api/settings/status", "/api/review/export", "/api/stint",
         "/api/corrections/export", "/api/objectives/active", "/api/diagnostics/practice/status",
         // In-memory list only. Saving one (POST /api/missed-games/resolve) also runs the

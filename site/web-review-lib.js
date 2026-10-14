@@ -1,5 +1,5 @@
 /*
- * Pure helpers for the web review tool on the home page (app.js): review
+ * Pure helpers for the web review tool at /review (app.js): review
  * notes kept per match in localStorage, the user-facing error copy, and the
  * match list title. No DOM, so tests/web-review.test.mjs runs it in node:vm.
  */

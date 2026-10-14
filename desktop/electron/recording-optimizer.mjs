@@ -17,6 +17,11 @@ const GiB = 1024 ** 3;
 const MARGIN = 4 * GiB;
 // About 8 minutes at two fragments a second; shorter recordings already open in about a second.
 export const MIN_FRAGMENTS = 1000;
+// Settings checks at most this many linked sessions, newest first, each against its game's snapshot.
+export const LIST_LIMIT = 50;
+// Settings asks again every 10 s while a game, a recording, a speed-up or a full drive holds its
+// rows. A row that cannot be offered reuses what a full check found for an unchanged session for this long.
+const CHECK_TTL = 60_000;
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const SESSION = new RegExp(`^${UUID}$`, 'i');
 const CAPTURE = /^capture[^\\/]*\.mp4$/i;
@@ -52,9 +57,14 @@ export function runTool(tool, args, { signal, timeout, onStdout } = {}) {
 
 export function createRecordingOptimizer({ recording, backend, media, ffmpegPath, ffprobePath, log = {},
   available = () => true, run = runTool, inspect = mp4Summary, repair = restoreFragmentedLayout, now = () => Date.now(),
-  renameFile = rename, pollMs = 1000, minFragments = MIN_FRAGMENTS,
+  renameFile = rename, pollMs = 1000, minFragments = MIN_FRAGMENTS, listLimit = LIST_LIMIT,
+  readText = file => readFile(file, 'utf8'),
   space = async directory => { const fs = await statfs(directory); return fs.bavail * fs.bsize; } }) {
   let job = null, closing = false;
+  const summaries = new Map(), checks = new Map(), metadata = new Map();
+  // The recorder rewrites an active or pending session's session.json by renaming a new copy over
+  // it. On Windows even a read handle makes that rename fail, so such a session is never opened here.
+  const recorderOwns = sessionId => recording.current?.sessionId === sessionId || !!recording.pending?.has?.(sessionId);
   const info = message => log.info?.(message), warn = message => log.warn?.(message);
   const layout = async (file, signal) => (await inspect(file, signal))?.layout ?? null;
   const interrupted = () => !available() || closing ? 'app-closing'
@@ -69,11 +79,14 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
   };
   const blocked = async () => interrupted() ?? (await inGame() ? 'game-running' : null);
 
-  // The linked built-in session behind a game's VOD, or { reason } when it is not one.
-  async function candidate(gameId, signal) {
+  // The linked built-in session behind a game's VOD, or { reason } when it is not one. Only the
+  // Settings list passes the snapshot it already read and a cached layout; status and a speed-up read afresh.
+  async function candidate(gameId, signal, { vod, summarize = inspect } = {}) {
     if (!Number.isSafeInteger(gameId) || gameId <= 0) return { reason: 'not-eligible' };
-    const request = commandRequest('get_vod', { gameId });
-    const vod = await backend.request(request.route, { timeoutMs: request.timeoutMs });
+    if (vod === undefined) {
+      const request = commandRequest('get_vod', { gameId });
+      vod = await backend.request(request.route, { timeoutMs: request.timeoutMs });
+    }
     if (!vod?.hasVod || Number(vod.gameId) !== gameId || typeof vod.filePath !== 'string' || !path.isAbsolute(vod.filePath))
       return { reason: 'no-recording' };
     let root, file;
@@ -84,18 +97,19 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
     const directory = path.join(root, sessionId), sessionFile = path.join(directory, 'session.json');
     const video = await lstat(file);
     if (!video.isFile() || video.nlink !== 1 || !Number.isSafeInteger(video.size) || video.size < 24) return { reason: 'not-built-in' };
+    if (recorderOwns(sessionId)) return { reason: 'not-linked' };
     let session;
     try {
-      const metadata = await lstat(sessionFile);
-      if (!metadata.isFile() || metadata.size > 64 * 1024) return { reason: 'not-built-in' };
-      session = JSON.parse(await readFile(sessionFile, 'utf8'));
+      const stats = await lstat(sessionFile);
+      if (!stats.isFile() || stats.size > 64 * 1024) return { reason: 'not-built-in' };
+      session = JSON.parse(await readText(sessionFile));
     } catch { return { reason: 'not-built-in' }; }
     if (session?.sessionId !== sessionId || session.testCapture === true || !['saved', 'partial'].includes(session.state)
         || !LINKED.has(session.registrationStatus) || session.registration?.sessionId !== sessionId
         || session.registration.gameId !== gameId || !samePath(session.registration.filePath, file)
-        || recording.current?.sessionId === sessionId || recording.pending?.has?.(sessionId)) return { reason: 'not-linked' };
+        || recorderOwns(sessionId)) return { reason: 'not-linked' };
     const found = { file, directory, sessionId, sessionFile, fileSize: video.size };
-    const summary = await inspect(file, signal);
+    const summary = await summarize(file, signal, video);
     if (summary?.layout === 'progressive') return { ...found, reason: 'already-optimized' };
     if (summary?.layout !== 'fragmented') return { reason: 'not-eligible' };
     return summary.fragments < minFragments ? { reason: 'opens-quickly' } : found;
@@ -111,6 +125,109 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
     const freeBytes = await space(found.directory).catch(() => null), requiredBytes = found.fileSize + MARGIN;
     const reason = job ? 'busy' : await blocked() ?? (freeBytes === null ? 'unavailable' : freeBytes < requiredBytes ? 'not-enough-space' : null);
     return { eligible: true, ready: !reason, reason, fileSize: found.fileSize, freeBytes, requiredBytes };
+  }
+
+  // While Settings waits it lists the same files every few seconds. A file's layout changes only
+  // with its size or write time, so the list reads each layout once; a speed-up never uses this.
+  async function cachedSummary(file, signal, video) {
+    const key = `${file}|${video.size}|${video.mtimeMs}`;
+    if (!summaries.has(key)) {
+      const value = await inspect(file, signal);
+      if (summaries.size >= 256) summaries.delete(summaries.keys().next().value);
+      summaries.set(key, value);
+    }
+    return summaries.get(key);
+  }
+
+  // Linked built-in sessions that may still be fragmented, newest first, one per game. session.json
+  // only narrows the search; candidate() decides from the game's own snapshot, as a speed-up does.
+  // A session.json is read again only after its size or write time changes. The running speed-up's
+  // own session keeps what was read before it started: its bookkeeping rewrites that file.
+  async function linkedSessions(root, working) {
+    let entries;
+    try { entries = await readdir(root, { withFileTypes: true }); } catch { return []; }
+    const found = [], present = new Set();
+    for (const entry of entries.filter(value => value.isDirectory() && SESSION.test(value.name)).slice(0, 1000)) {
+      if (recorderOwns(entry.name)) continue;
+      const directory = path.join(root, entry.name), sessionFile = path.join(directory, 'session.json');
+      present.add(entry.name);
+      try {
+        if ((await realpath(directory)).toLowerCase() !== directory.toLowerCase()) continue;
+        const stats = await lstat(sessionFile);
+        if (!stats.isFile() || stats.size > 64 * 1024) continue;
+        const key = `${entry.name}|${stats.size}|${stats.mtimeMs}`, known = metadata.get(entry.name);
+        let session = known && (known.key === key || entry.name === job?.sessionId) ? known.session : undefined;
+        if (session === undefined) {
+          if (recorderOwns(entry.name)) continue;
+          const value = JSON.parse(await readText(sessionFile)), gameId = value?.registration?.gameId;
+          session = value?.sessionId === entry.name && value.testCapture !== true && ['saved', 'partial'].includes(value.state)
+            && LINKED.has(value.registrationStatus) && Number.isSafeInteger(gameId) && gameId > 0
+            ? { gameId, progressive: value.container === 'progressive', started: Date.parse(value.startedAt), fileSize: value.fileSize }
+            : null;
+          metadata.set(entry.name, { key, session });
+        }
+        if (!session || (session.progressive && session.gameId !== working)) continue;
+        found.push({ gameId: session.gameId, key: metadata.get(entry.name).key, fileSize: session.fileSize,
+          started: Number.isFinite(session.started) ? session.started : stats.mtimeMs });
+      } catch { /* unreadable metadata is never a candidate */ }
+    }
+    for (const name of metadata.keys()) if (!present.has(name)) metadata.delete(name);
+    const seen = new Set();
+    return found.sort((a, b) => b.started - a.started).filter(value => !seen.has(value.gameId) && seen.add(value.gameId))
+      .slice(0, listLimit);
+  }
+
+  // One session's row, or null when its game is not one a speed-up would accept. A full check reads
+  // the game's snapshot and runs candidate(). A row that cannot be offered right now (held, or too
+  // big for the drive) reuses an unchanged session's check for CHECK_TTL; a row that could be offered
+  // is always checked afresh. The running copy's file is never opened here: a handle would block its swap.
+  async function describe({ gameId, key, fileSize }, working, offerable) {
+    const cached = checks.get(gameId);
+    if (cached?.key === key && now() - cached.at < CHECK_TTL && !offerable(cached.item)) return cached.item;
+    const request = commandRequest('get_vod', { gameId });
+    const vod = await backend.request(request.route, { timeoutMs: request.timeoutMs });
+    const text = value => typeof value === 'string' ? value.trim().slice(0, 120) : '';
+    let item = null;
+    if (vod?.hasVod && Number(vod.gameId) === gameId) {
+      const found = gameId === working ? { fileSize: Number.isSafeInteger(fileSize) ? fileSize : 0 }
+        : await candidate(gameId, undefined, { vod, summarize: cachedSummary });
+      if (!found.reason) item = { gameId, championName: text(vod.championName), enemyChampion: text(vod.enemyChampion),
+        datePlayed: text(vod.datePlayed), durationSeconds: Math.max(0, Math.round(Number(vod.gameDurationSeconds) || 0)),
+        fileSize: found.fileSize };
+    }
+    if (gameId !== working) checks.set(gameId, { key, at: now(), item });
+    return item;
+  }
+
+  // Settings: every linked built-in recording that still opens slowly, with what its row shows.
+  // The game id is the only handle; a path never leaves the host. Readiness is always fresh.
+  async function list() {
+    const none = { available: false, blocked: null, working: null, items: [] };
+    if (!available() || closing) return none;
+    let root;
+    try { root = await realpath(recording.root); } catch { return { ...none, available: true }; }
+    const working = job?.gameId ?? null, sessions = await linkedSessions(root, working);
+    const listed = new Set(sessions.map(value => value.gameId));
+    for (const gameId of checks.keys()) if (!listed.has(gameId)) checks.delete(gameId);
+    const reason = await blocked(), freeBytes = await space(root).catch(() => null);
+    const offerable = item => working === null && !reason && freeBytes !== null && (!item || freeBytes >= item.fileSize + MARGIN);
+    const items = new Array(sessions.length);
+    let next = 0;
+    const check = async () => {
+      while (next < sessions.length) {
+        const index = next++;
+        try {
+          const item = await describe(sessions[index], working, offerable);
+          if (!item) continue;
+          const requiredBytes = item.fileSize + MARGIN;
+          const why = item.gameId === working ? 'working' : working !== null ? 'busy' : reason
+            ?? (freeBytes === null ? 'unavailable' : freeBytes < requiredBytes ? 'not-enough-space' : null);
+          items[index] = { ...item, requiredBytes, ready: !why, reason: why };
+        } catch { /* a game whose snapshot or file cannot be read right now is left out of this answer */ }
+      }
+    };
+    await Promise.all(Array.from({ length: 4 }, check));
+    return { available: true, blocked: reason, working, items: items.filter(Boolean) };
   }
 
   // Remove only this feature's abandoned copies: <capture*.mp4>.<uuid>.optimizing regular files.
@@ -192,7 +309,7 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
       registered = result?.ok === true;
     } catch (error) { warn(`The sped-up recording ${sessionId} plays, but its match record keeps the old size (${error.status ?? 'unavailable'})`); }
     try {
-      const session = JSON.parse(await readFile(sessionFile, 'utf8'));
+      const session = JSON.parse(await readText(sessionFile));
       if (session?.sessionId !== sessionId) throw new Error('Recording metadata changed');
       Object.assign(session, { fileSize, container: 'progressive', optimizedAt: new Date(now()).toISOString() });
       // The registration mirrors the sidecar receipt; it changes only when the receipt did.
@@ -212,7 +329,7 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
     const reason = () => CODES.has(signal.reason?.code) ? signal.reason.code : 'app-closing';
     if (signal.aborted) return { ok: false, code: reason() };
     const { file, fileSize } = found, copy = `${file}.${randomUUID()}.optimizing`, timeout = toolTimeout(fileSize);
-    job.copy = copy;
+    job.copy = copy; job.sessionId = found.sessionId;
     // No page streams the file while it is copied and replaced; a reopened page shows the work instead.
     const release = await media.revoke(file);
     // A League game, a new recording or closing Revu stops the work: the disk belongs to capture.
@@ -258,11 +375,11 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
     if (!available() || closing) return { ok: false, code: 'unavailable' };
     if (job) return { ok: false, code: 'busy' };
     let finish;
-    job = { gameId, copy: null, abort: new AbortController(), done: new Promise(resolve => { finish = resolve; }) };
+    job = { gameId, copy: null, sessionId: null, abort: new AbortController(), done: new Promise(resolve => { finish = resolve; }) };
     try {
       const code = await blocked();
       return code ? { ok: false, code } : await perform(gameId, job.abort.signal);
-    } finally { job = null; finish(); }
+    } finally { job = null; checks.delete(gameId); finish(); }
   }
 
   // Quit stops a running copy at once and waits only for its cleanup.
@@ -276,5 +393,5 @@ export function createRecordingOptimizer({ recording, backend, media, ffmpegPath
     return free + (copy ? await stat(copy).then(value => value.size, () => 0) : 0);
   }
 
-  return { status, optimize, init, cancel, recordingSpace, get running() { return !!job; } };
+  return { status, list, optimize, init, cancel, recordingSpace, get running() { return !!job; } };
 }

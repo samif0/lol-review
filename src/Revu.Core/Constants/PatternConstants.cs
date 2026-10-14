@@ -38,6 +38,18 @@ public static class PatternConstants
     public const int BadObjectiveMinGames = 2;
     public const int BadObjectiveHighBad = 5;
 
+    // ── Review nudge (PatternReviewGate.Readiness): a stricter bar than the trend ──
+
+    /// <summary>Unreviewed, watchable moments a trend needs before Revu says it is
+    /// ready to review. Two can be a coincidence; four is a habit.</summary>
+    public const int NudgeMinMoments = 4;
+
+    /// <summary>Distinct games among those unreviewed, watchable moments.</summary>
+    public const int NudgeMinGames = 3;
+
+    /// <summary>After any trend review, Revu stays quiet this long before it nudges again.</summary>
+    public const int NudgeQuietHours = 48;
+
     // ── Detected pattern kinds (card.Kind / pattern_reviews.kind values) ────
 
     public const string KindBadObjectiveEvidence = "bad_objective_evidence";

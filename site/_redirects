@@ -1,0 +1,6 @@
+# Cloudflare Pages redirects (published with the site by scripts/deploy-site.mjs).
+# /learn was the desktop app page. The home page is the download page now, so
+# old /learn links land there.
+/learn       /  301
+/learn.html  /  301
+/learn/      /  301

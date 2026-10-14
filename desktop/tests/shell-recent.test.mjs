@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import {
-  RECENT_LIMIT, LOAD_THROTTLE_MS, EVENT_DEBOUNCE_MS, avatarInitial, createShellSidebar, crumbFor, frameGameId, matchHref,
-  matchLabel, ownerName, pageOf, pendingCount, recentRows, refreshesOn, shouldRefreshAfter,
+  RECENT_LIMIT, LOAD_THROTTLE_MS, EVENT_DEBOUNCE_MS, accountView, avatarInitial, createShellSidebar, crumbFor, frameGameId,
+  matchHref, matchLabel, ownerName, pageOf, pendingCount, recentRows, refreshesOn, shouldRefreshAfter,
 } from '../ui/shell-recent.mjs';
 
 const ui = new URL('../ui/', import.meta.url);
@@ -101,6 +101,27 @@ test('the footer shows the game name of the Riot ID and its initial', () => {
   assert.equal(avatarInitial(''), '');
 });
 
+test('the account row shows a live Revu sign-in, never a saved Riot ID on its own', () => {
+  const signedIn = { riotAuthState: 'loggedIn', riotSessionEmail: 'you@example.com' };
+  assert.deepEqual(accountView({ ...signedIn, riotId: 'bye#NA1' }),
+    { signedIn: true, name: 'bye', initial: 'B', state: 'Signed in as you@example.com.' });
+  assert.deepEqual(accountView(signedIn), { signedIn: true, name: 'you@example.com', initial: 'Y', state: 'Signed in as you@example.com.' },
+    'no Riot ID linked yet: the email');
+  assert.equal(accountView({ ...signedIn, riotId: '   ' }).name, 'you@example.com', 'a blank Riot ID is no Riot ID');
+  assert.equal(accountView({ ...signedIn, riotSessionEmail: '  you@example.com ' }).state, 'Signed in as you@example.com.');
+  const signedOut = { signedIn: false, name: 'Sign in', initial: '', state: 'Not signed in.' };
+  assert.deepEqual(accountView({ riotAuthState: 'loggedOut', riotId: 'bye#NA1' }), signedOut, 'signing out keeps the Riot ID, not the session');
+  // An expired 30-day session keeps its email; get_config reports it loggedOut.
+  assert.deepEqual(accountView({ riotAuthState: 'loggedOut', riotSessionEmail: 'you@example.com', riotId: 'bye#NA1' }), signedOut);
+  assert.deepEqual(accountView({ riotAuthState: 'loggedIn', riotSessionEmail: '', riotId: 'bye#NA1' }), signedOut);
+  assert.deepEqual(accountView({ riotAuthState: 'loggedIn', riotSessionEmail: '   ', riotId: 'bye#NA1' }), signedOut);
+  assert.deepEqual(accountView(null), signedOut);
+  assert.deepEqual(accountView(undefined), signedOut);
+  for (const view of [accountView({ ...signedIn, riotId: 'bye#NA1' }), accountView(signedIn), accountView(null)]) {
+    assert.doesNotMatch(`${view.name} ${view.state}`, /[–—]/);
+  }
+});
+
 test('the title-bar crumb: nothing on Home, the library above a match, the rail label elsewhere', () => {
   assert.deepEqual(crumbFor('dashboard', 'dashboard', LABELS), { parent: '', current: '' });
   assert.deepEqual(crumbFor('index', 'dashboard', LABELS), { parent: '', current: '' });
@@ -168,20 +189,21 @@ function fakeShell() {
     els: {},
     getElementById: id => doc.els[id] || null,
   };
-  for (const id of ['side-recent', 'side-recent-list', 'nav-games-count', 'nav-games-count-text', 'side-name', 'side-avatar', 'side-avatar-i']) {
+  for (const id of ['side-recent', 'side-recent-list', 'nav-games-count', 'nav-games-count-text', 'side-acct', 'side-acct-state', 'side-name', 'side-avatar', 'side-avatar-i']) {
     doc.els[id] = new FakeElement('span', doc);
   }
   doc.els['side-recent'].hidden = true;
   doc.els['nav-games-count'].hidden = true;
   return doc;
 }
-function harness({ history = sample, queue = { view: 'queue', totalCount: 3, items: [] }, config = { riotId: 'bye#NA1' }, listen = true } = {}) {
+const SIGNED_IN = Object.freeze({ riotId: 'bye#NA1', riotAuthState: 'loggedIn', riotSessionEmail: 'you@example.com' });
+function harness({ history = sample, queue = { view: 'queue', totalCount: 3, items: [] }, config = SIGNED_IN, listen = true } = {}) {
   const doc = fakeShell(), calls = [], timers = [], winListeners = {};
   let clock = 100_000, callback = null;
   const sources = { history, queue, config };
   const read = async (command, file, args) => {
     calls.push([command, file, args]);
-    const value = command === 'get_config' ? sources.config : sources[args.view];
+    const value = await (command === 'get_config' ? sources.config : sources[args.view]);
     if (value instanceof Error) throw value;
     return structuredClone(value);
   };
@@ -225,6 +247,9 @@ test('the sidebar renders recent matches, the review count and the account from 
   assert.equal(h.doc.els['side-name'].textContent, 'bye');
   assert.equal(h.doc.els['side-avatar-i'].textContent, 'B');
   assert.ok(h.doc.els['side-avatar'].classList.contains('has-initial'));
+  assert.equal(h.doc.els['side-acct-state'].textContent, 'Signed in as you@example.com.');
+  assert.equal(h.doc.els['side-acct'].getAttribute('data-account'), 'signed-in');
+  assert.equal(h.doc.els['side-acct'].getAttribute('aria-label'), null, 'the row keeps its markup name, Account');
 });
 
 test('no account, no matches and a failed read degrade without blanking what is shown', async () => {
@@ -233,8 +258,21 @@ test('no account, no matches and a failed read degrade without blanking what is 
   await h.settle(); await h.settle();
   assert.equal(h.doc.els['side-recent'].hidden, true, 'an empty history hides the section');
   assert.equal(h.doc.els['nav-games-count'].hidden, true, 'nothing to review shows no count');
-  assert.equal(h.doc.els['side-name'].textContent, 'Account');
+  assert.equal(h.doc.els['side-name'].textContent, 'Sign in');
   assert.ok(!h.doc.els['side-avatar'].classList.contains('has-initial'));
+  assert.equal(h.doc.els['side-acct-state'].textContent, 'Not signed in.');
+
+  // Signing out clears the session but keeps the Riot ID: the row still says Sign in.
+  const out = harness({ config: { riotId: 'bye#NA1', riotAuthState: 'loggedOut' } });
+  await out.sidebar.refreshIdentity();
+  assert.equal(out.doc.els['side-name'].textContent, 'Sign in');
+  assert.equal(out.doc.els['side-avatar-i'].textContent, '');
+  assert.ok(!out.doc.els['side-avatar'].classList.contains('has-initial'));
+  assert.equal(out.doc.els['side-acct'].getAttribute('data-account'), 'signed-out');
+  out.sources.config = new Error('sidecar restarting');
+  await out.sidebar.refreshIdentity();
+  assert.equal(out.doc.els['side-name'].textContent, 'Sign in', 'a failed read keeps the last state');
+  assert.equal(out.doc.els['side-acct'].getAttribute('data-account'), 'signed-out');
 
   const kept = harness();
   await kept.sidebar.refresh();
@@ -277,7 +315,7 @@ test('frame loads mark the shown match and refresh only after listing pages, at 
   h.sidebar.frameLoaded('/dashboard.html', '');
   await h.settle();
   const configReads = h.calls.filter(([command]) => command === 'get_config').length;
-  assert.equal(configReads, 1, 'leaving Settings rereads the account name');
+  assert.equal(configReads, 2, 'opening and leaving Settings each reread the account name');
   assert.equal(reads(), 6);
   h.doc.visibilityState = 'hidden';
   h.tick(LOAD_THROTTLE_MS);
@@ -315,6 +353,78 @@ test('live events refresh once per burst, wait while the window is hidden, and n
   for (const [command] of h.calls) assert.match(command, /^get_(games|config)$/, 'the sidebar only reads');
 });
 
+test('a page that signs in or out updates the account row in place, without rereading matches', async () => {
+  const h = harness();
+  h.sidebar.start();
+  await h.settle(); await h.settle();
+  const count = command => h.calls.filter(([name]) => name === command).length;
+  assert.equal(h.doc.els['side-acct'].getAttribute('data-account'), 'signed-in');
+  h.sources.config = { riotId: 'bye#NA1', riotAuthState: 'loggedOut', riotSessionEmail: '' };
+  h.winListeners['revu:account-changed']();
+  await h.settle(); await h.settle();
+  assert.equal(count('get_config'), 2, 'one more config read');
+  assert.equal(count('get_games'), 2, 'no match reads');
+  assert.equal(h.timers.filter(t => t.fn).length, 0);
+  assert.equal(h.doc.els['side-name'].textContent, 'Sign in');
+  assert.ok(!h.doc.els['side-avatar'].classList.contains('has-initial'));
+  assert.equal(h.doc.els['side-acct-state'].textContent, 'Not signed in.');
+  assert.equal(h.doc.els['side-acct'].getAttribute('data-account'), 'signed-out');
+
+  // Signing back in flips it back the same way, before any Riot ID is linked.
+  h.sources.config = { riotId: '', riotAuthState: 'loggedIn', riotSessionEmail: 'you@example.com' };
+  h.winListeners['revu:account-changed']();
+  await h.settle(); await h.settle();
+  assert.equal(h.doc.els['side-name'].textContent, 'you@example.com');
+  assert.equal(h.doc.els['side-avatar-i'].textContent, 'Y');
+  assert.ok(h.doc.els['side-avatar'].classList.contains('has-initial'));
+  assert.equal(h.doc.els['side-acct-state'].textContent, 'Signed in as you@example.com.');
+  assert.equal(h.doc.els['side-acct'].getAttribute('data-account'), 'signed-in');
+  assert.equal(count('get_games'), 2, 'still no match reads');
+
+  // Overlapping reads (sign in, then link a Riot ID): the latest one is what shows.
+  let release;
+  const slow = harness();
+  slow.sources.config = new Promise(resolve => { release = resolve; });
+  const first = slow.sidebar.refreshIdentity();
+  slow.sources.config = SIGNED_IN;
+  await slow.sidebar.refreshIdentity();
+  release({ riotAuthState: 'loggedIn', riotSessionEmail: 'you@example.com' });
+  await first;
+  assert.equal(slow.doc.els['side-name'].textContent, 'bye', 'an older read never overwrites a newer one');
+});
+
+test('the row rereads the sign-in when the window is shown again and when the Account page opens', async () => {
+  const h = harness();
+  h.sidebar.start();
+  await h.settle(); await h.settle();
+  const configReads = () => h.calls.filter(([command]) => command === 'get_config').length;
+  assert.equal(configReads(), 1);
+  // The 30-day session runs out while Revu sits in the tray.
+  h.doc.visibilityState = 'hidden';
+  h.doc.fire('visibilitychange');
+  assert.equal(configReads(), 1, 'nothing is read while hidden');
+  h.sources.config = { riotId: 'bye#NA1', riotAuthState: 'loggedOut', riotSessionEmail: 'you@example.com' };
+  h.doc.visibilityState = 'visible';
+  h.doc.fire('visibilitychange');
+  await h.settle(); await h.settle();
+  assert.equal(configReads(), 2);
+  assert.equal(h.doc.els['side-name'].textContent, 'Sign in');
+  assert.equal(h.doc.els['side-acct-state'].textContent, 'Not signed in.');
+  assert.equal(h.doc.els['side-acct'].getAttribute('data-account'), 'signed-out');
+  assert.equal(h.calls.filter(([command]) => command === 'get_games').length, 2, 'a list that is not stale is not reread');
+
+  // Opening the Account page rereads it too, so the row and the page agree.
+  h.sources.config = SIGNED_IN;
+  h.sidebar.frameLoaded('/dashboard.html', '');
+  await h.settle();
+  assert.equal(configReads(), 2, 'Home does not touch the account');
+  h.sidebar.frameLoaded('/onboarding.html', '?signin=1');
+  await h.settle(); await h.settle();
+  assert.equal(configReads(), 3);
+  assert.equal(h.doc.els['side-name'].textContent, 'bye');
+  assert.equal(h.doc.els['side-acct'].getAttribute('data-account'), 'signed-in');
+});
+
 test('a refresh requested while one is running runs once more afterwards', async () => {
   const h = harness();
   const first = h.sidebar.refresh();
@@ -332,7 +442,7 @@ test('no live bridge (browser preview) still fills the sidebar from the fixtures
 });
 
 test('the shell markup carries the sidebar the module fills and routes every link through the frame', () => {
-  for (const id of ['side-recent', 'side-recent-list', 'nav-games-count', 'nav-games-count-text', 'side-name', 'side-avatar', 'side-avatar-i', 'appbar-lcu', 'appbar-ver', 'appbar-context', 'app-frame']) {
+  for (const id of ['side-recent', 'side-recent-list', 'nav-games-count', 'nav-games-count-text', 'side-acct', 'side-acct-state', 'side-name', 'side-avatar', 'side-avatar-i', 'appbar-lcu', 'appbar-lcu-txt', 'appbar-ver', 'appbar-context', 'app-frame']) {
     assert.match(shell, new RegExp(`id="${id}"`), id);
   }
   assert.match(shell, /<a class="side-new" data-shell-goto data-start-session href="dashboard\.html\?intent=startblock">/);
@@ -341,6 +451,21 @@ test('the shell markup carries the sidebar the module fills and routes every lin
   assert.doesNotMatch(brand, /<(a|button|input|select|textarea)\b/, 'the brand drag area holds nothing interactive');
   const body = shell.slice(shell.indexOf('<body>'));
   for (const [, tag] of body.matchAll(/<a\b([^>]*)>/g)) assert.match(tag, /class="nav-i\b|data-shell-goto/, `shell link ${tag} must stay in the frame`);
+  // One account control: the footer row is the only way to Account, and it holds the
+  // avatar, the name and the League Client line. The person glyph appears once.
+  assert.equal(shell.match(/data-nav="onboarding"/g).length, 1);
+  // Its name is "Account" (the tooltip) then the visible name, so "Sign in" or the game
+  // name is part of it (WCAG 2.5.3, voice control).
+  assert.match(shell, /<a class="nav-i side-acct" id="side-acct" data-nav="onboarding" href="onboarding\.html\?signin=1" aria-labelledby="side-acct-tip side-name" aria-describedby="side-acct-state appbar-lcu-txt"/);
+  assert.doesNotMatch(shell.match(/<a class="nav-i side-acct"[^>]*>/)[0], /aria-label=/, 'aria-label would hide the visible name');
+  const foot = shell.slice(shell.indexOf('<div class="side-foot">'), shell.indexOf('</aside>'));
+  assert.equal(foot.match(/<a /g).length, 2, 'the account row and Settings');
+  const row = foot.slice(foot.indexOf('id="side-acct"'), foot.indexOf('</a>', foot.indexOf('id="side-acct"')));
+  for (const id of ['side-avatar', 'side-avatar-i', 'side-name', 'appbar-lcu', 'appbar-lcu-txt', 'side-acct-state']) assert.match(row, new RegExp(`id="${id}"`), `${id} sits inside the account row`);
+  assert.match(row, /<span class="tip" id="side-acct-tip">Account<\/span>\s*$/);
+  assert.equal(shell.split('<circle cx="12" cy="8.5" r="3.5"/>').length - 1, 1);
+  assert.doesNotMatch(shell.match(/<span class="appbar-lcu"[^>]*>/)[0], /\stitle=/, 'no native tooltip stacked on the row label');
+  assert.doesNotMatch(outer.slice(outer.indexOf('function setLcuIndicator'), outer.indexOf('\n}', outer.indexOf('function setLcuIndicator'))), /\.title\s*=/);
   // One delegated handler covers rail items and every [data-shell-goto] link.
   assert.match(outer, /closest\('\.nav-i,\[data-shell-goto\]'\)/);
   assert.match(outer, /setAttribute\('data-frame-page', page\)/);

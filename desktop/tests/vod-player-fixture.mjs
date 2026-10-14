@@ -8,6 +8,7 @@ import { shareProgressLabel } from '../ui/clip-share-wait.mjs';
 import { eventTone, polarityTone, resultOf } from '../ui/meaning-tone.mjs';
 import { buildThread, renderThread, moveNow } from '../ui/vod-thread.mjs';
 import { takeawayText } from '../ui/journal-takeaway.mjs';
+import { SPEED_UP_HELD, speedUpHoldsRecording } from '../ui/recording-optimize.mjs';
 
 // Shared VOD player fixture: executes the page's real render/action handlers.
 // Electron smoke covers native button activation and layout; this fixture covers
@@ -39,7 +40,7 @@ function listenerStore() {
   };
 }
 
-export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'Plan the fight' }, { objectiveId: 11, title: 'Keep a safe position' }], search = '', noVod = false, initialLoading = false, invokeReply, invokeWrite, timers, shareWait, narrationOk = false } = {}) {
+export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'Plan the fight' }, { objectiveId: 11, title: 'Keep a safe position' }], search = '', noVod = false, initialLoading = false, invokeReply, invokeWrite, timers, shareWait, narrationOk = false, assetUrl } = {}) {
   const studios = [];
   const ids = new Map(), listeners = listenerStore(), windowListeners = new Map(), writes = [], reads = [], seeks = [], selections = [], confirmations = [];
   let navOptions, restoreState = null, snapshot;
@@ -258,7 +259,9 @@ export function fixture({ events = [], objectives = [{ objectiveId: 7, title: 'P
     createVodViewRestorer, createVodWriteBarrier, sameVodDraft, vodRestorePlan,
     objectiveTypeLabel, objectivePhaseLabel, URLSearchParams,
     setTimeout: timers?.setTimeout || (() => 0), clearTimeout: timers?.clearTimeout || (() => {}),
-    resolveAssetUrl: (_core, path) => `revu-media://fixture/${path}`,
+    // assetUrl: null stands for a file the host will not grant (a speed-up holds it, or it is gone).
+    resolveAssetUrl: (_core, path) => assetUrl !== undefined ? assetUrl : `revu-media://fixture/${path}`,
+    SPEED_UP_HELD, speedUpHoldsRecording,
     console: { error() {}, warn() {} }, CustomEvent: class {},
     clipRowNarrationContext, renderClipTranscript, noteTranscriptProgress, shareProgressLabel,
     eventTone, polarityTone, resultOf, buildThread, renderThread, moveNow, takeawayText,

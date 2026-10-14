@@ -80,7 +80,32 @@ public sealed record PatternCardDto(
     int UnwatchableMomentCount = 0,
     // Saved collections are always available for revision; only trends have a
     // pending/reviewed lifecycle.
-    string ReviewMode = "trend");
+    string ReviewMode = "trend",
+    // A trend with enough unreviewed, watchable mistakes across enough games for a
+    // back-to-back review (PatternReviewGate.Readiness). Always false for a collection.
+    bool ReadyToReview = false,
+    // 1-based ordinals into Moments that the back-to-back review plays: the moments
+    // since the last review that can be watched, oldest first. Empty unless ready.
+    IReadOnlyList<int>? ReviewMomentOrdinals = null);
+
+/// <summary>
+/// GET /api/patterns/nudge: the quiet "ready to review" notice behind the Patterns
+/// nav count and the Home pill. Counts and one title only; never file paths.
+/// </summary>
+public sealed record PatternNudgeDto(
+    // True when a trend is ready and nothing holds the nudge back.
+    bool Notify,
+    // Ready trends (also reported while the nudge is held back).
+    int ReadyCount,
+    // The first ready trend in severity order: the one the Home pill opens.
+    string PatternKey,
+    string Title,
+    int MomentCount,
+    int GameCount,
+    // "" | "live" (champ select or a game) | "recent_review" (a review in the quiet period).
+    string QuietReason,
+    // Non-empty when the check failed; callers keep the nudge hidden.
+    string ErrorText = "");
 
 /// <summary>
 /// One moment composing a pattern — an evidence item joined to its game's

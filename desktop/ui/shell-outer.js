@@ -1,6 +1,7 @@
 import { getInvoke, getListen, getWindow } from './platform/index.mjs';
 import { createMatchViewStore } from './match-navigation.mjs';
 import { createShellSidebar, crumbFor, pageOf } from './shell-recent.mjs';
+import { createPatternNudge } from './shell-patterns.mjs';
 
 // Own the snapshot store in the persistent shell's realm, so its methods never
 // retain a discarded content window. Entries contain cloned plain data only.
@@ -46,7 +47,7 @@ function setCrumb(page, navId) {
   if (context) context.textContent = current;
 }
 
-// The rail items live in the nav and in the sidebar footer (Settings, Account).
+// The rail items live in the nav and in the sidebar footer (the account row, Settings).
 function markActive(navId) {
   (side || document).querySelectorAll('.nav-i').forEach((a) => {
     const active = a.dataset.nav === navId;
@@ -133,8 +134,10 @@ document.addEventListener('click', (ev) => {
   frameGoto(href);
 });
 
-// The shell's sidebar data: recent matches, the review count and the account name.
+// The shell's sidebar data: recent matches, the review count and the account row.
 const sidebar = createShellSidebar();
+// The Patterns count: trends ready for a back-to-back review (shell-patterns.mjs).
+const patternNudge = createPatternNudge();
 
 // ── Sync active item whenever the iframe finishes loading a page ─────────────
 // Covers in-page navigations (a page doing location.href=... inside the iframe,
@@ -151,10 +154,12 @@ frame?.addEventListener('load', () => {
     setCrumb(page, navId);
     frame.title = pageLabels[page] || pageLabels[navId] || 'Revu';
     sidebar.frameLoaded(pathname, search);
+    patternNudge.frameLoaded();
   }
   catch (_) { /* cross-origin (shouldn't happen in-app); leave as-is */ }
 });
 sidebar.start();
+patternNudge.start();
 
 // ── Deep-link support on the shell URL ───────────────────────────────────────
 // index.html#vodplayer.html?gameId=5 opens that page in the iframe at startup, and
@@ -276,14 +281,14 @@ document.getElementById('updbar-x')?.addEventListener('click', hideUpdateBanner)
 setTimeout(checkForUpdateOnLaunch, 2500);
 
 // ── LCU (League Client) connection indicator ─────────────────────────────────
-// Toggles the appbar's LCU chip between connected (green dot) and not. Called from
-// the SSE listener below: seeded by the replayed liveState, updated live by the
-// lcuConnection event. Pure DOM toggle — safe to call before the stream is wired.
+// Toggles the League Client line of the sidebar's account row between connected
+// (green dot) and not. Called from the SSE listener below: seeded by the replayed
+// liveState, updated live by the lcuConnection event. Pure DOM toggle, safe to call
+// before the stream is wired. No title: the account link reads it as its description.
 function setLcuIndicator(connected) {
   const el = document.getElementById('appbar-lcu');
   if (!el) return;
   el.classList.toggle('on', !!connected);
-  el.title = connected ? 'League Client: connected' : 'League Client: not connected';
   const text = el.querySelector('.appbar-lcu-txt');
   if (text) text.textContent = connected ? 'League connected' : 'League offline';
 }

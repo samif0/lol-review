@@ -5,6 +5,7 @@ import { objectiveMetaText } from './objective-labels.mjs';
 import { mountMissedGames } from './missed-games.mjs';
 import { registerLeaveGuard } from './leave-guard.mjs';
 import { mountJournalTakeaway, relativeDay } from './journal-takeaway.mjs';
+import { mountPatternPill } from './home-patterns.mjs';
 
 // Revu Home: a greeting, one composer that starts or finishes a session, a few
 // suggestions, the matches ready to review and the last 30 days. Renders the JSON
@@ -723,6 +724,7 @@ function boot() {
   wireLeaving();
   _takeaway = mountJournalTakeaway(document, { readSnapshot });
   void loadDashboard();
+  mountPatternPill(document);   // a mistake trend ready to review (home-patterns.mjs)
   void mountMissedGames(document, missedGamesOptions);
 }
 

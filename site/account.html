@@ -7,13 +7,14 @@
   <title>Account - Revu</title>
   <meta name="robots" content="noindex" />
   <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#171717" />
+  <meta name="theme-color" content="#1c1d1f" />
 
   <link rel="icon" type="image/svg+xml" href="/revu.svg" />
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <link rel="icon" type="image/png" sizes="96x96" href="/icon-96.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/account.css" />
@@ -25,14 +26,13 @@
 <body>
   <header class="site-header">
     <div class="site-header-inner">
-      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="12 18 77 64" aria-hidden="true" focusable="false"><path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/></svg><span>Revu</span></a>
       <nav class="site-nav" aria-label="Primary">
-        <a href="/">Review a game</a>
-        <a href="/learn">Desktop app</a>
+        <a href="/review">Review a game</a>
         <a href="/discord">Discord</a>
       </nav>
       <a class="header-account" href="/my-clips" data-header-account>My clips</a>
-      <a class="btn-primary header-cta" href="/learn">Download</a>
+      <a class="btn-primary header-cta" href="/#download">Download</a>
     </div>
   </header>
 
@@ -75,7 +75,7 @@
         <p>The Revu desktop app signs in with the same email code. Sign in there with <strong id="desktop-email"></strong> and the clips you share show up in My clips.</p>
         <div class="account-actions">
           <a class="btn-secondary" href="/my-clips">My clips</a>
-          <a class="btn-link" href="/learn">Get the desktop app</a>
+          <a class="btn-link" href="/">Get the desktop app</a>
         </div>
       </section>
 

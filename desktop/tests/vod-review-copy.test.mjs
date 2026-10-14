@@ -8,7 +8,7 @@ import ts from 'typescript';
 // Comments are free to use either; only string and template literals are read.
 const SCRIPTS = ['vodplayer.js', 'vodtransport.js', 'vodcorrections.js', 'vodcorrections-panel.js', 'review.js',
   'clip-narration.mjs', 'narration-capture.mjs', 'narration-mic.mjs', 'clip-share-wait.mjs', 'clip-transcript.mjs',
-  'timeline-event-hit.mjs', 'vod-view-state.mjs', 'video-timeline.mjs', 'vod-thread.mjs', 'meaning-tone.mjs', 'match-navigation.mjs'];
+  'timeline-event-hit.mjs', 'timeline-hover.mjs', 'vod-view-state.mjs', 'video-timeline.mjs', 'vod-thread.mjs', 'meaning-tone.mjs', 'match-navigation.mjs'];
 const PAGES = ['vodplayer.html', 'review.html'];
 const TRANSPORT_GLYPHS = /[⏮⏭⛶❚]|\u{1F50A}|\u{1F507}|\u{1F5D7}|\p{Emoji_Presentation}/u;
 

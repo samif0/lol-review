@@ -42,11 +42,12 @@ function node(id = '', tag = 'DIV', action = '') {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     setAttribute(name, value) { this[name] = value; },
     getAttribute(name) { return this[name]; },
+    focus() { this.focused = true; },
   };
 }
 
-async function fixture({ native = true, ascentFolder = '', handler } = {}) {
-  const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [];
+async function fixture({ native = true, ascentFolder = '', handler, hash } = {}) {
+  const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [], shellEvents = [];
   const sections = { ascent: 'recording', clips: 'playback', account: 'account', review: 'playback' };
   const add = (id, tag, action) => { const element = node(id, tag, action); ids.set(id, element); return element; };
   const group = (name, fieldNames) => {
@@ -94,13 +95,16 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
         ? { click: () => categoryClicks.push(selector.match(/"(.*?)"/)[1]) } : null,
   };
   const context = vm.createContext({
-    document, window: {}, $: id => ids.get(id) || null,
+    document, $: id => ids.get(id) || null,
+    window: { top: { dispatchEvent: event => { shellEvents.push(event.type); return true; } } },
+    CustomEvent: class { constructor(type) { this.type = type; } },
     show: (element, visible) => { if (element) element.hidden = !visible; },
     clearEl: element => { element.children = []; },
     getInvoke: async () => native ? invoke : null,
     readSnapshot: async () => { reads++; if (failRead) throw new Error(failRead); return plain(config); },
     preserveSettingsDraft, setTimeout, clearTimeout,
     console: { error() {}, warn() {}, info() {} },
+    ...(hash === undefined ? {} : { location: { hash } }),
   });
   vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings, loadConfig };`, context);
   context.hooks.render(plain(config));
@@ -109,7 +113,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     for (const listener of listeners.get(type) || []) await listener({ target, preventDefault() {} });
   };
   return {
-    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks,
+    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks, shellEvents,
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
@@ -173,6 +177,50 @@ test('automatic matchup notes default off, save only review preferences and keep
   await f.click('autoMatchupNotesEnabled');
   await f.click('review-save');
   assert.equal(f.config.autoMatchupNotesEnabled, false);
+});
+
+test('a saved Riot account updates the sidebar account row at once; other cards do not', async () => {
+  const f = await fixture();
+  await f.click('autoMatchupNotesEnabled');
+  await f.click('review-save');
+  assert.deepEqual(f.shellEvents, [], 'a review preference is not the account');
+  await f.edit('riotId', 'bye#NA1');
+  await f.click('account-save');
+  assert.deepEqual(f.requests.at(-2).args, { payload: { riotId: 'bye#NA1', region: 'na1' } });
+  assert.deepEqual(f.shellEvents, ['revu:account-changed']);
+});
+
+test('signed in with no Riot ID, the Riot account card says so instead of a blank attached account', async () => {
+  const f = await fixture();
+  for (const id of ['acct-state', 'acct-email']) f.ids.set(id, node(id));
+  Object.assign(f.config, { riotId: '', region: 'na1', riotAuthState: 'loggedIn', riotSessionEmail: 'you@example.com' });
+  f.render();
+  assert.equal(f.$('acct-state').textContent, 'No Riot ID linked yet', 'Home and the Account page send this player here');
+  assert.equal(f.$('acct-email').textContent, 'Signed in as you@example.com');
+  Object.assign(f.config, { riotId: 'bye#NA1' });
+  f.render();
+  assert.equal(f.$('acct-state').textContent, 'Account attached: bye#NA1 · NA1');
+  Object.assign(f.config, { riotId: '', riotAuthState: 'loggedOut', riotSessionEmail: '' });
+  f.render();
+  assert.equal(f.$('acct-state').textContent, 'No account attached');
+  assert.equal(f.$('acct-email').hidden, true);
+});
+
+test('a prompt to link a Riot ID (#settings-account) puts the cursor in the blank Riot ID field once it loads', async () => {
+  const f = await fixture({ hash: '#settings-account' });
+  f.config.riotId = '';
+  await f.load();
+  assert.equal(f.$('riotId').focused, true);
+  f.$('riotId').focused = false;
+  await f.load();
+  assert.equal(f.$('riotId').focused, false, 'only on arrival, never on a later reload');
+  const linked = await fixture({ hash: '#settings-account' });
+  await linked.load();
+  assert.equal(linked.$('riotId').focused, undefined, 'a linked Riot ID is left alone');
+  const elsewhere = await fixture({ hash: '#settings-recording' });
+  elsewhere.config.riotId = '';
+  await elsewhere.load();
+  assert.equal(elsewhere.$('riotId').focused, undefined, 'another category never takes the cursor');
 });
 
 test('browser preview disables folder access, scanning and connection writes without implying local availability', async () => {

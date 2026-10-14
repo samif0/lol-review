@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 114);
+  assert.equal(Object.keys(COMMANDS).length, 116);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
@@ -321,6 +321,10 @@ test('command declarations keep immutable envelopes, required arguments and exce
   for (const [name, definition] of Object.entries(COMMANDS)) {
     if (definition.timeoutMs !== undefined) assert.ok(definition.timeoutMs <= 290_000, name);
   }
+  // The sidebar's Patterns count and Home's pill: a light read with no arguments.
+  assert.equal(COMMANDS.get_pattern_nudge.route, '/api/patterns/nudge');
+  assert.equal(COMMANDS.get_pattern_nudge.method, 'GET');
+  assert.deepEqual(COMMANDS.get_pattern_nudge.args, {});
   assert.equal(COMMANDS.get_clip_share_status.route, '/api/clip/share-status');
   assert.deepEqual(COMMANDS.get_clip_share_status.args, { bookmarkId: 'integer' });
   assert.equal(COMMANDS.get_clip_share_status.method, 'GET');
@@ -343,6 +347,13 @@ test('command declarations keep immutable envelopes, required arguments and exce
     assert.throws(() => validateCommand(name, { gameId: 4, filePath: 'C:\\capture.mp4' }), /Unexpected argument: filePath/);
     assert.throws(() => validateCommand(name, { gameId: '4' }), /Invalid argument: gameId/);
   }
+  // Settings lists slow recordings with no arguments at all: the answer names games, never a path.
+  assert.equal(COMMANDS.list_recording_optimizations.method, 'NATIVE');
+  assert.equal(COMMANDS.list_recording_optimizations.route, null);
+  assert.deepEqual(COMMANDS.list_recording_optimizations.args, {});
+  assert.equal(validateCommand('list_recording_optimizations', {}), COMMANDS.list_recording_optimizations);
+  for (const extra of [{ gameId: 4 }, { filePath: 'C:\\capture.mp4' }, { root: 'C:\\Revu' }])
+    assert.throws(() => validateCommand('list_recording_optimizations', extra), /Unexpected argument/);
   assert.ok(!Object.values(COMMANDS).some(definition => definition.route?.startsWith('/api/recording')));
   assert.equal(COMMANDS.reset_all_data.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.restore_backup.sideEffect, 'restart-after-write');

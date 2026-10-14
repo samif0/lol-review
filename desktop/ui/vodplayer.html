@@ -55,7 +55,7 @@
 
     <!-- Sign-in hint: sharing clips to revu.lol needs a signed-in account. Shown
          only when signed out (the JS checks get_auth_status on load). -->
-    <a class="vp-signin-hint" id="vp-signin-hint" href="onboarding.html" hidden>
+    <a class="vp-signin-hint" id="vp-signin-hint" href="onboarding.html?signin=1" hidden>
       <span class="vp-signin-dot"></span>
       <span class="vp-signin-txt"><b>Sign in to share clips.</b> Saving and bookmarking work offline. Publishing a clip link to revu.lol needs a signed-in account.</span>
       <span class="vp-signin-cta">Sign in →</span>
@@ -69,13 +69,6 @@
       <span class="vp-sharebar-spin" id="vp-sharebar-spin"></span>
       <span class="vp-sharebar-txt" id="vp-sharebar-txt"></span>
       <button class="vp-sharebar-retry" id="vp-sharebar-retry" type="button" hidden>Retry failed</button>
-    </div>
-
-    <!-- Speed up: shown only for a built-in recording saved before Revu indexed recordings
-         (recording-optimize.mjs). The host checks eligibility; the page never names a file. -->
-    <div class="vp-speedup" id="vp-speedup" role="group" aria-label="Recording file speed-up" tabindex="-1" hidden>
-      <span class="vp-speedup-txt" id="vp-speedup-txt" data-speedup-text role="status" aria-live="polite"></span>
-      <button class="ui-btn ui-btn-quiet vp-speedup-btn" data-speedup-action type="button" aria-describedby="vp-speedup-txt" hidden>Speed up</button>
     </div>
 
     <!-- No-VOD state -->
@@ -104,6 +97,8 @@
           <div class="card pad0 vp-video-card">
             <div class="vp-stage">
               <video id="vp-video" class="vp-video" preload="metadata" playsinline></video>
+              <!-- Says why the player is empty while Settings > Recording speeds this recording up. -->
+              <p class="vp-stage-note" id="vp-stage-note" role="status"></p>
             </div>
           </div>
 
@@ -146,7 +141,7 @@
                  and drag pans it (--tl-pan). Everything positioned by left:% lives in
                  the content, so it scales for free, including the game-clock ticks
                  that placeMarkers() writes into #vp-tl-axis. -->
-            <div class="vp-timeline" id="vp-seek" title="Click an event label or near its line to select · Click empty space to scrub · Ctrl+wheel to zoom · drag to pan">
+            <div class="vp-timeline" id="vp-seek" title="Click an event to select it. Click anywhere else to jump to that time. Ctrl+scroll to zoom, drag to pan.">
               <div class="vp-tl-content" id="vp-tl-content">
                 <div class="track"></div>
                 <div class="prog" id="vp-seek-fill"></div>
@@ -161,6 +156,10 @@
               </div>
               <!-- Zoom indicator — shows current zoom level + a reset; hidden at 1x. -->
               <button class="vp-tl-zoombadge" id="vp-tl-zoom" type="button" hidden title="Reset zoom">1.0×</button>
+              <!-- Hover chip in the clock row: what a click here does ("14:32", "Kill at 14:27"),
+                   plus the zoom hint near events until the first zoom (timeline-hover.mjs).
+                   It never takes the pointer. -->
+              <span class="vp-tl-hover" id="vp-tl-hover" aria-hidden="true" hidden><span id="vp-tl-hover-text"></span><span class="vp-tl-hover-hint" id="vp-tl-hover-hint" hidden>Ctrl+scroll to zoom in</span></span>
             </div>
             <!-- In-objective marker stepper — steps between the FOCUSED objective's
                  markers (◀ ▶ + "marker i/N"). Built/updated by JS; hidden when unframed. -->
@@ -183,7 +182,7 @@
           <details class="vp-tools-disclosure" id="vp-event-tools">
             <summary><span>Edit timeline events</span><kbd>E</kbd></summary>
           <div class="mini vp-fix" id="vp-fix">
-            <div class="vp-fix-keys">Click an event label or near its line to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
+            <div class="vp-fix-keys">Click an event or its label to select it. <b>E</b> edit, <b>N</b> add at playhead, <b>Delete</b> remove, <b>[</b> and <b>]</b> nudge 1s (Shift 5s), <b>Z</b> undo.</div>
             <div class="vp-fix-sel" id="vp-fix-sel">No event selected.</div>
             <div class="vp-fix-form" id="vp-fix-form" hidden>
               <div class="row">

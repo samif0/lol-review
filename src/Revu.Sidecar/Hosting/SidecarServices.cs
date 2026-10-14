@@ -63,6 +63,10 @@ public static class SidecarServices
         services.AddSingleton<TiltCheckSnapshotBuilder>();
         services.AddSingleton<MatchupsSnapshotBuilder>();
         services.AddSingleton<PatternsSnapshotBuilder>();
+        services.AddSingleton(sp => new PatternNudgeReader(
+            sp.GetRequiredService<IEvidenceRepository>(),
+            sp.GetRequiredService<LcuLiveState>(),
+            sp.GetRequiredService<ILogger<PatternNudgeReader>>()));
         services.AddSingleton<ConfigSnapshotBuilder>();
         services.AddSingleton<IClipService, ClipService>();
         services.AddSingleton<SettingsStatusSnapshotBuilder>();

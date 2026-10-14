@@ -104,7 +104,7 @@ test('The page has the agreed copy and no inline scripts', () => {
   assert.match(text, /We created a new Revu account for\s+\.\s+If the desktop app uses a different email, sign out and sign in with that one\. Dismiss/);
   assert.match(html, /No shared clips for <span id="empty-email"><\/span> right now\./);
   assert.match(text, /Clips you share from the Revu desktop app while signed in with this email show up here for 3 days\./);
-  assert.match(html, /<a class="btn-secondary" href="\/learn">Get the desktop app<\/a>/);
+  assert.match(html, /<a class="btn-secondary" href="\/">Get the desktop app<\/a>/);
   assert.match(text, /Loading your clips\.\.\./);
   assert.match(text, /Couldn't load your clips\. Retry/);
   assert.match(html, /<ul id="clip-grid" class="clip-grid"/);

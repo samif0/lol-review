@@ -39,7 +39,7 @@ test('The page has all five cards and the agreed copy', () => {
   assert.match(text, /Revu emails you a one-time code each time you sign in\. There is no password to leak or reset\./);
   assert.match(text, /The Revu desktop app signs in with the same email code\. Sign in there with\s+and the clips you share show up in My clips\./);
   assert.match(html, /<a class="btn-secondary" href="\/my-clips">My clips<\/a>/);
-  assert.match(html, /href="\/learn">Get the desktop app<\/a>/);
+  assert.match(html, /href="\/">Get the desktop app<\/a>/);
   assert.match(html, /<button id="sign-out" class="btn-secondary" type="button">Sign out<\/button>/);
   assert.match(html, /<button id="sign-out-all" class="btn-link"[^>]*>Sign out everywhere on the web<\/button>/);
   assert.match(text, /Signs out every browser\. The desktop app stays signed in\./);

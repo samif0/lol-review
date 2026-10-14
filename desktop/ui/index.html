@@ -33,7 +33,7 @@
       <a class="nav-i active" aria-current="page" data-nav="dashboard" href="dashboard.html" aria-label="Home"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg><span class="tip">Home</span></a>
       <a class="nav-i" data-nav="games" href="games.html" aria-label="Match library" aria-describedby="nav-games-count-text"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9"/></svg><span class="tip">Match library</span><span class="nav-count" id="nav-games-count" aria-hidden="true" hidden></span><span class="side-sr" id="nav-games-count-text"></span></a>
       <a class="nav-i" data-nav="objectives" href="objectives.html" aria-label="Learning objectives"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></svg><span class="tip">Learning objectives</span></a>
-      <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="4" width="10" height="10" rx="2"/><rect x="10" y="10" width="10" height="10" rx="2"/></svg><span class="tip">Patterns</span></a>
+      <a class="nav-i" data-nav="patterns" href="patterns.html" aria-label="Patterns" aria-describedby="nav-patterns-count-text"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="4" width="10" height="10" rx="2"/><rect x="10" y="10" width="10" height="10" rx="2"/></svg><span class="tip">Patterns</span><span class="nav-count" id="nav-patterns-count" aria-hidden="true" hidden></span><span class="side-sr" id="nav-patterns-count-text"></span></a>
       <a class="nav-i" data-nav="matchups" href="matchups.html" aria-label="Matchup notes"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19M5 15v4h4M19 15v4h-4"/></svg><span class="tip">Matchup notes</span></a>
       <a class="nav-i" data-nav="tiltcheck" href="tiltcheck.html" aria-label="Tilt check"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg><span class="tip">Tilt check</span></a>
       <a class="nav-i" data-nav="rules" href="rules.html" aria-label="Rules"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg><span class="tip">Rules</span></a>
@@ -45,18 +45,24 @@
       <ul class="side-rec-list" id="side-recent-list"></ul>
     </section>
 
+    <!-- Footer: the one account control, then Settings. The row shows the Revu sign-in
+         (filled by shell-recent.mjs: initial and name, or the glyph and "Sign in") with
+         the League Client connection on its second line, and opens the Account page.
+         Its name is the tooltip, "Account", then the visible name ("Sign in" or the game
+         name, so voice control can say what it sees); the sign-in state and the League
+         line follow as its description. -->
     <div class="side-foot">
-      <span class="side-avatar" id="side-avatar" aria-hidden="true"><span id="side-avatar-i"></span><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5.5 19.5c1.1-3.2 3.6-5 6.5-5s5.4 1.8 6.5 5"/></svg></span>
-      <span class="side-who">
-        <span class="side-name" id="side-name">Account</span>
-        <!-- League Client connection. The dot lights when the client is connected.
-             Driven by shell-outer.js off the liveState and lcuConnection events. -->
-        <span class="appbar-lcu" id="appbar-lcu" title="League Client: not connected">
-          <span class="appbar-lcu-dot"></span>
-          <span class="appbar-lcu-txt">League offline</span>
+      <a class="nav-i side-acct" id="side-acct" data-nav="onboarding" href="onboarding.html?signin=1" aria-labelledby="side-acct-tip side-name" aria-describedby="side-acct-state appbar-lcu-txt" data-account="unknown">
+        <span class="side-avatar" id="side-avatar" aria-hidden="true"><span id="side-avatar-i"></span><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5.5 19.5c1.1-3.2 3.6-5 6.5-5s5.4 1.8 6.5 5"/></svg></span>
+        <span class="side-who">
+          <span class="side-name" id="side-name">Account</span>
+          <!-- League Client connection. The dot lights when the client is connected.
+               Driven by shell-outer.js off the liveState and lcuConnection events. -->
+          <span class="appbar-lcu" id="appbar-lcu"><span class="appbar-lcu-dot" aria-hidden="true"></span><span class="appbar-lcu-txt" id="appbar-lcu-txt">League offline</span></span>
         </span>
-      </span>
-      <a class="nav-i" data-nav="onboarding" href="onboarding.html?signin=1" aria-label="Account"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5"/><path d="M5.5 19.5c1.1-3.2 3.6-5 6.5-5s5.4 1.8 6.5 5"/></svg><span class="tip">Account</span></a>
+        <span class="side-sr" id="side-acct-state"></span>
+        <span class="tip" id="side-acct-tip">Account</span>
+      </a>
       <a class="nav-i" data-nav="settings" href="settings.html" aria-label="Settings"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg><span class="tip">Settings</span></a>
     </div>
   </aside>

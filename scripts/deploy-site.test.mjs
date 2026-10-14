@@ -29,7 +29,8 @@ async function tree(root, relative = '') {
 
 test('only public site files are classified for publishing', () => {
   for (const name of ['index.html', 'discord/index.html', 'styles.css', 'app.js', 'og-image.jpg', 'favicon.ico',
-    'revu.svg', 'robots.txt', 'sitemap.xml', '_headers', '_redirects', '.well-known/security.txt',
+    'revu.svg', 'robots.txt', 'sitemap.xml', '_headers', '_redirects', 'shot-home.webp', 'fonts/geist.woff2',
+    'fonts/OFL-Geist.txt', '.well-known/security.txt',
     '.well-known/assetlinks.json', '.well-known/apple-app-site-association'])
     assert.equal(classifySiteFile(name), 'publish', name);
   for (const name of ['README.md', 'wrangler.toml', 'package.json', 'tests/index.js', 'tests/headers.test.mjs',
@@ -55,17 +56,39 @@ test('staging copies public files only and refuses unrecognized files', async t 
   await assert.rejects(stageSite(source, destination), /site\/_headers is missing/);
 });
 
+const isLocal = value => value && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#|\$\{)/i.test(value);
+
 function localReferences(html) {
   const references = [];
   for (const match of html.matchAll(/\s(?:href|src)\s*=\s*"([^"]*)"/g)) {
     const value = match[1].trim();
-    if (!value || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#|\$\{)/i.test(value)) continue;
-    references.push(value.split(/[?#]/)[0]);
+    if (isLocal(value)) references.push(value.split(/[?#]/)[0]);
+  }
+  // srcset lists "url width" pairs separated by commas.
+  for (const match of html.matchAll(/\ssrcset\s*=\s*"([^"]*)"/g)) {
+    for (const candidate of match[1].split(',')) {
+      const value = candidate.trim().split(/\s+/)[0];
+      if (isLocal(value)) references.push(value.split(/[?#]/)[0]);
+    }
   }
   return references;
 }
 
-test('the staged production site keeps every page and local asset its HTML references', async t => {
+function cssReferences(css) {
+  return [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)]
+    .map(match => match[1].trim()).filter(isLocal).map(value => value.split(/[?#]/)[0]);
+}
+
+// Cloudflare Pages serves /name from name.html and /dir/ from dir/index.html.
+function servedBy(published, page, reference) {
+  const target = reference.startsWith('/') ? reference.slice(1)
+    : path.posix.normalize(path.posix.join(path.posix.dirname(page), reference));
+  const base = target.replace(/\/$/, '');
+  const candidates = base === '' || base === '.' ? ['index.html'] : [base, `${base}.html`, `${base}/index.html`];
+  return candidates.some(candidate => published.has(candidate));
+}
+
+test('the staged production site keeps every page and asset its HTML and CSS reference, and every redirect target', async t => {
   const root = await scratch(t), destination = path.join(root, 'stage');
   const published = new Set(await stageSite(siteRoot, destination));
   for (const name of ['README.md', 'wrangler.toml']) assert.equal(published.has(name), false, name);
@@ -75,14 +98,22 @@ test('the staged production site keeps every page and local asset its HTML refer
   for (const page of [...published].filter(name => name.endsWith('.html'))) {
     const html = await readFile(path.join(destination, page), 'utf8');
     for (const reference of localReferences(html)) {
-      if (!reference) continue;
-      const target = reference.startsWith('/') ? reference.slice(1)
-        : path.posix.normalize(path.posix.join(path.posix.dirname(page), reference));
-      const base = target.replace(/\/$/, '');
-      // Cloudflare Pages serves /name from name.html and /dir/ from dir/index.html.
-      const candidates = base === '' || base === '.' ? ['index.html'] : [base, `${base}.html`, `${base}/index.html`];
-      assert.ok(candidates.some(candidate => published.has(candidate)), `${page} references missing ${reference}`);
+      if (reference) assert.ok(servedBy(published, page, reference), `${page} references missing ${reference}`);
     }
+  }
+  for (const sheet of [...published].filter(name => name.endsWith('.css'))) {
+    for (const reference of cssReferences(await readFile(path.join(destination, sheet), 'utf8'))) {
+      assert.ok(servedBy(published, sheet, reference), `${sheet} references missing ${reference}`);
+    }
+  }
+  // Every redirect lands on a published page, and none hides a published file.
+  const redirects = (await readFile(path.join(destination, '_redirects'), 'utf8')).split(/\r?\n/)
+    .map(line => line.trim()).filter(line => line && !line.startsWith('#')).map(line => line.split(/\s+/));
+  assert.ok(redirects.length > 0);
+  for (const [from, to, status] of redirects) {
+    assert.match(status, /^30[1278]$/, from);
+    assert.ok(servedBy(published, 'index.html', to), `_redirects sends ${from} to missing ${to}`);
+    assert.equal(servedBy(published, 'index.html', from), false, `_redirects hides the published ${from}`);
   }
 });
 

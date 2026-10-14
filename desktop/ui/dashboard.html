@@ -18,7 +18,7 @@
     <header class="home-header">
       <h1 class="ui-display home-greet"><svg class="home-mark" data-theme-hide="neutral" width="32" height="27" viewBox="12 18 77 64" aria-hidden="true" focusable="false"><path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/></svg><span id="hero-title">Welcome back</span></h1>
       <p class="home-intro" data-theme-hide="journal">A little more intentional. One match at a time.</p>
-      <p class="home-account" id="hero-account" hidden><a class="ui-link" href="onboarding.html">Link your Riot account</a></p>
+      <p class="home-account" id="hero-account" hidden><a class="ui-link" href="settings.html#settings-account">Link your Riot account</a></p>
     </header>
 
     <!-- Journal: the last takeaway you wrote, and a private check-in (journal-takeaway.mjs). -->
@@ -91,6 +91,8 @@
 
     <div class="home-orientation frt-launch">
       <a class="ui-pill" id="home-suggest-review" href="games.html?view=queue" hidden><i class="ui-dot" data-tone="pending" aria-hidden="true"></i><span id="home-suggest-review-text">Review a match</span></a>
+      <!-- A mistake trend ready for a back-to-back review (get_pattern_nudge). -->
+      <a class="ui-pill" id="home-suggest-patterns" href="patterns.html" hidden><i class="ui-dot" data-tone="pending" aria-hidden="true"></i><span id="home-suggest-patterns-text">Review repeated mistakes</span></a>
       <a class="ui-pill" href="tiltcheck.html">Tilt check</a>
       <a class="ui-pill" href="manualentry.html">Add a game</a>
       <button class="ui-pill" type="button" data-action="start_first_review_tutorial">Quick guide</button>
