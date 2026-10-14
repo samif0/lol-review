@@ -11,6 +11,18 @@ const transientStartup = new Set(['source-window-not-ready', 'recording-cancelle
   'game-process-invalid', 'recording-context-unavailable']);
 const validPid = value => Number.isSafeInteger(value) && value > 0;
 const finite = value => typeof value === 'number' && Number.isFinite(value);
+const priorities = new Set(['below-normal', 'normal']);
+const gpuClasses = new Set(['idle', 'below-normal', 'normal', 'above-normal', 'high', 'realtime', 'unknown']);
+const minuteSeries = value => Array.isArray(value) && value.length > 0 && value.length <= 300
+  && value.every(count => Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000);
+// Per movie minute: encoded frames, frames repeated by a capture hold, and render ticks the
+// helper missed. A malformed series is dropped; the recording itself is unaffected.
+function frameStats(stats) {
+  if (!stats || typeof stats !== 'object') return null;
+  const { perMinute, ...totals } = stats, series = ['frames', 'repeated', 'lagged'];
+  return series.every(key => minuteSeries(perMinute?.[key]) && perMinute[key].length === perMinute.frames.length)
+    ? { ...totals, perMinute: Object.fromEntries(series.map(key => [key, [...perMinute[key]]])) } : totals;
+}
 export const rankedRecordingContext = context => context?.queueId === 420
   && ['GameStart', 'InProgress', 'Reconnect'].includes(context.phase);
 export const recordingTestContext = context => validPid(context?.gameId)
@@ -78,7 +90,9 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
     if (next !== undefined) notify(onGame, { ...game, running: true });
   };
   const poll = async () => {
-    if (disposed || !initialized || polling || !shouldDiscover()) return;
+    // A running recording watches its own game process and window. Launching discovery
+    // helpers on every poll would only add work while the match is being played.
+    if (disposed || !initialized || polling || !shouldDiscover() || (session && !session.exited)) return;
     polling = true;
     try {
       const context = await getContext();
@@ -104,7 +118,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
     owned.child.stdin?.end();
     const valid = raw?.hasError === false && raw.filePath === owned.filePath
       && finite(raw.duration) && raw.duration > 0 && raw.splitCount === 0;
-    const result = { ...raw, hasError: !valid, filePath: owned.filePath,
+    const result = { ...raw, ...(raw?.stats ? { stats: frameStats(raw.stats) } : {}), hasError: !valid, filePath: owned.filePath,
       duration: finite(raw?.duration) ? raw.duration : 0, splitCount: 0,
       ...(owned.startedAtVerified ? { startTimeEpoch: owned.startTimeEpoch } : { startTimeEpoch: undefined }),
       ...(!valid ? { error: 'recording-provider-error' } : {}),
@@ -162,12 +176,13 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (!game || ![game.width, game.height].every(number => Number.isInteger(number) && number >= 64))
         throw recorderError('source-window-not-ready');
     },
-    async start({ pid, preset = '720p30', outputDirectory, signal, onStopped = () => {} } = {}) {
+    async start({ pid, preset = '720p30', priority = 'below-normal', outputDirectory, signal, onStopped = () => {} } = {}) {
       checkRecordingAbort(signal);
       if (disposed || !initialized) throw recorderError('recorder-unavailable');
       if (session && !session.exited) throw recorderError('recorder-busy');
       if (!validPid(pid)) throw recorderError('game-process-invalid');
       if (!Object.hasOwn(RECORDING_PRESETS, preset)) throw recorderError('recording-preset-invalid');
+      if (!priorities.has(priority)) throw recorderError('recording-priority-invalid');
       if (typeof outputDirectory !== 'string' || !path.isAbsolute(outputDirectory)) throw recorderError('recording-path-invalid');
       let context;
       try { context = await getContext(); } catch { throw recorderError('recording-context-unavailable'); }
@@ -181,7 +196,8 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (disposed || !initialized) throw recorderError('recorder-unavailable');
       if (session && !session.exited) throw recorderError('recorder-busy');
       const filePath = path.join(root, 'capture.mp4');
-      const child = spawnHelper(helperPath, ['--record', '--pid', String(pid), '--output', filePath, '--preset', preset],
+      const child = spawnHelper(helperPath, ['--record', '--pid', String(pid), '--output', filePath, '--preset', preset,
+        '--priority', priority],
         { cwd, windowsHide: true, detached: false, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       const owned = session = { child, root, filePath, pid, signal, onStopped,
         started: deferred(), stopped: deferred(), closed: deferred(), lastHeartbeat: Date.now(), completed: false, exited: false };
@@ -211,7 +227,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
           if (value?.type === 'heartbeat') owned.lastHeartbeat = Date.now();
           else if (value?.type === 'started' && !owned.startedReceived) {
             if (value.encoder !== capabilities.selectedEncoder || ![value.width, value.height, value.fps].every(number => Number.isInteger(number) && number > 0)
-                || value.fps !== RECORDING_PRESETS[preset].fps
+                || value.fps !== RECORDING_PRESETS[preset].fps || value.priority !== priority
                 || value.width > RECORDING_PRESETS[preset].width || value.height > RECORDING_PRESETS[preset].height) {
               protocolFailure(); return;
             }
@@ -248,7 +264,8 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
         const started = await deadline(owned.started.promise, limits.start, 'recorder-start-failed', signal);
         checkRecordingAbort(signal);
         return { encoder: started.encoder, width: started.width, height: started.height, fps: started.fps,
-          bitrate: started.bitrate, sourceWidth: started.sourceWidth, sourceHeight: started.sourceHeight };
+          bitrate: started.bitrate, sourceWidth: started.sourceWidth, sourceHeight: started.sourceHeight,
+          priority: started.priority, gpuPriority: gpuClasses.has(started.gpuPriority) ? started.gpuPriority : 'unknown' };
       } catch (error) { await stopOwned(owned).catch(() => {}); throw error; }
     },
     stop() { return stopOwned(session); },

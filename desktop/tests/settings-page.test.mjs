@@ -23,7 +23,7 @@ test('the bundled recorder exposes beta controls only after host availability is
   const card = html.slice(html.lastIndexOf('<div', recorder), html.indexOf('<p class="settings-inline-note"', recorder));
   const controls = card.indexOf('<div class="settings-recording-controls" id="recording-controls" hidden>');
   assert.ok(controls > 0, 'recorder controls stay hidden until host availability is known');
-  for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) {
+  for (const id of ['recordingEnabled', 'recordingPreset', 'recordingPriority', 'save-recording-settings', 'open-recordings-folder']) {
     assert.ok(card.indexOf(`id="${id}"`) > controls, id);
   }
   assert.equal(visibleText(card.slice(0, controls)).trim(),

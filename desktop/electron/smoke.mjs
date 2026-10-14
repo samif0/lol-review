@@ -150,7 +150,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
         ascentFolderVisible:!!document.querySelector('#ascentFolder'),
         ascentScanDisabledWithoutFolder:document.querySelector('[data-action="scan_vods"]')?.disabled===true,
         ascentRecoveryDisabledWithoutFolder:document.querySelector('[data-action="recover_missing_games"]')?.disabled===true,
-        builtInRecordingDisabled:['recordingEnabled','recordingPreset','open-recordings-folder','save-recording-settings']
+        builtInRecordingDisabled:['recordingEnabled','recordingPreset','recordingPriority','open-recordings-folder','save-recording-settings']
           .every(id=>document.getElementById(id)?.disabled===true),
         nativeRecorderControls:!!document.querySelector('#recordingEnabled') && !!document.querySelector('#open-recordings-folder')};
       await new Promise(resolve=>setTimeout(resolve,100));

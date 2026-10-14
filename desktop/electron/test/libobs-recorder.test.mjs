@@ -39,8 +39,8 @@ async function fixture(t, options = {}) {
     const pending = driver.start({ pid: 123, preset: '720p30', outputDirectory: directory,
       onStopped: result => stopped.push(result) });
     while (!child || child === previous) await wait(1);
-    child.send({ type: 'started', encoder, width: 1280, height: 720, fps: 30,
-      bitrate: 5000, sourceWidth: 1920, sourceHeight: 1080, startedAtVerified: true, startedAt: new Date().toISOString() });
+    child.send({ type: 'started', encoder, width: 1280, height: 720, fps: 30, bitrate: 5000, sourceWidth: 1920, sourceHeight: 1080,
+      priority: 'below-normal', gpuPriority: 'below-normal', startedAtVerified: true, startedAt: new Date().toISOString() });
     return pending;
   };
   return { driver, directory, calls, games, failures, stopped, start, child: () => child };
@@ -116,11 +116,70 @@ test('discovery uses the bounded native helper only when recording is opted in',
   assert.deepEqual(enabled.games, [{ pid: 123, width: 1920, height: 1080, running: true }]);
 });
 
+test('no discovery helper is launched while a recording is running', async t => {
+  const f = await fixture(t, { shouldDiscover: () => true });
+  const discoveries = () => f.calls.filter(value => Array.isArray(value) && value[0] === '--discover').length;
+  while (!discoveries()) await wait(5);
+  await f.start();
+  const during = discoveries(); await wait(60);
+  assert.equal(discoveries(), during);
+  f.child().send({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0 });
+  f.child().close();
+  const deadline = Date.now() + 2000;
+  while (discoveries() === during && Date.now() < deadline) await wait(5);
+  assert.ok(discoveries() > during, 'discovery resumes once the recording helper has exited');
+});
+
+test('the recorder priority is host-chosen, passed through and confirmed by the helper', async t => {
+  const f = await fixture(t);
+  await assert.rejects(f.driver.start({ pid: 123, priority: 'high', outputDirectory: f.directory }), { code: 'recording-priority-invalid' });
+  assert.equal(f.child(), undefined);
+  const pending = f.driver.start({ pid: 123, priority: 'normal', outputDirectory: f.directory });
+  while (!f.child()) await wait(1);
+  assert.deepEqual(f.calls.find(value => value.args).args.slice(-2), ['--priority', 'normal']);
+  f.child().send({ type: 'started', encoder: 'obs_nvenc_h264_tex', width: 1280, height: 720, fps: 30,
+    priority: 'normal', gpuPriority: 'normal', startedAtVerified: true, startedAt: new Date().toISOString() });
+  const settings = await pending;
+  assert.equal(settings.priority, 'normal'); assert.equal(settings.gpuPriority, 'normal');
+  f.child().send({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0 });
+  f.child().close();
+  const mismatch = await fixture(t);
+  const refused = mismatch.driver.start({ pid: 123, priority: 'normal', outputDirectory: mismatch.directory });
+  while (!mismatch.child()) await wait(1);
+  mismatch.child().send({ type: 'started', encoder: 'obs_nvenc_h264_tex', width: 1280, height: 720, fps: 30,
+    priority: 'below-normal', startedAtVerified: true, startedAt: new Date().toISOString() });
+  await assert.rejects(refused, { code: 'recorder-protocol-invalid' });
+  assert.equal(mismatch.child().killed, true);
+});
+
+test('per-minute frame stats are kept when well formed and dropped otherwise', async t => {
+  const perMinute = { frames: [3600, 1200], repeated: [40, 1], lagged: [2, 0] };
+  for (const [sent, expected] of [
+    [perMinute, perMinute],
+    [{ ...perMinute, lagged: [2] }, undefined],
+    [{ ...perMinute, repeated: [40, -1] }, undefined],
+    [{ ...perMinute, frames: [3600, 1.5] }, undefined],
+    [{ frames: Array(301).fill(1), repeated: Array(301).fill(0), lagged: Array(301).fill(0) }, undefined],
+    ['many', undefined],
+  ]) {
+    const f = await fixture(t); await f.start();
+    f.child().send({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0,
+      stats: { frames: 4800, laggedFrames: 2, repeatedFrames: 41, perMinute: sent } });
+    while (!f.stopped.length) await wait(1);
+    f.child().close();
+    const { stats } = f.stopped[0];
+    assert.equal(stats.repeatedFrames, 41);
+    assert.deepEqual(stats.perMinute, expected);
+  }
+});
+
 test('helper receives only host-owned scope and stop waits for process closure', async t => {
   const f = await fixture(t); const settings = await f.start();
   assert.equal(settings.encoder, 'obs_nvenc_h264_tex');
   const launch = f.calls.find(value => value.args);
-  assert.deepEqual(launch.args, ['--record', '--pid', '123', '--output', path.join(f.directory, 'capture.mp4'), '--preset', '720p30']);
+  assert.deepEqual(launch.args, ['--record', '--pid', '123', '--output', path.join(f.directory, 'capture.mp4'), '--preset', '720p30',
+    '--priority', 'below-normal']);
+  assert.equal(settings.priority, 'below-normal'); assert.equal(settings.gpuPriority, 'below-normal');
   assert.equal(launch.settings.shell, false); assert.equal(launch.settings.detached, false); assert.equal(launch.settings.windowsHide, true);
   const child = f.child();
   let input = ''; child.stdin.on('data', chunk => { input += chunk; });

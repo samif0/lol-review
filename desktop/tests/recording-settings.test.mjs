@@ -58,8 +58,9 @@ test('a bundled recorder enables beta controls while startup preferences remain 
     if (command === 'save_background_settings') return { ...background, ...args.payload };
     return background;
   });
-  for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, false, id);
+  for (const id of ['recordingEnabled', 'recordingPreset', 'recordingPriority', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, false, id);
   assert.equal(f.$('recordingEnabled').getAttribute('aria-checked'), 'true');
+  assert.equal(f.$('recordingPriority').value, 'below-normal', 'settings saved before the option existed keep the game first');
   assert.match(f.$('recording-status').textContent, /Ready to record/);
   assert.equal(f.$('recording-coming-soon').textContent, 'Beta');
   assert.equal(f.$('recording-controls').hidden, false);
@@ -67,7 +68,8 @@ test('a bundled recorder enables beta controls while startup preferences remain 
   await f.$('open-recordings-folder').emit('click');
   await f.visible();
   assert.equal(f.intervals.length, 1);
-  assert.ok(f.calls.some(call => call.command === 'save_recording_settings'));
+  assert.deepEqual(f.calls.find(call => call.command === 'save_recording_settings').args,
+    { payload: { enabled: true, preset: '1080p60', priority: 'below-normal' } });
   assert.ok(f.calls.some(call => call.command === 'open_recordings_folder'));
   assert.equal(f.$('closeToTray').disabled, false); assert.equal(f.$('startWithWindows').disabled, false);
   f.$('closeToTray').setAttribute('aria-checked', 'true');
@@ -84,7 +86,7 @@ test('browser preview and failed native initialization leave recording controls 
     return { closeToTray: false, startWithWindows: false };
   }]) {
     const f = await uiFixture(invoke);
-    for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, true, id);
+    for (const id of ['recordingEnabled', 'recordingPreset', 'recordingPriority', 'save-recording-settings', 'open-recordings-folder']) assert.equal(f.$(id).disabled, true, id);
     assert.match(f.$('recording-status').textContent, /desktop app|could not be loaded/);
     assert.equal(f.intervals.length, 0);
   }
@@ -118,6 +120,17 @@ test('detected hardware encoder is shown automatically without a manual vendor c
     { available: true, selectedEncoder: '<script>fake</script>' }, { available: true, selectedEncoder: 'constructor' }]) {
     assert.equal(recordingEncoderText(value), 'A supported NVIDIA, AMD or Intel hardware encoder is required.');
   }
+});
+
+test('a saved priority is shown and saved back unchanged', async () => {
+  const native = { state: 'idle', available: true, message: 'Ready to record your next League match.',
+    settings: { enabled: true, preset: '720p30', priority: 'normal' } };
+  const f = await uiFixture(async (command, args) => command === 'save_recording_settings' ? { ...native, settings: args.payload }
+    : command === 'get_recording_status' ? native : { closeToTray: false, startWithWindows: false });
+  assert.equal(f.$('recordingPriority').value, 'normal');
+  await f.$('save-recording-settings').emit('click');
+  assert.equal(f.calls.find(call => call.command === 'save_recording_settings').args.payload.priority, 'normal');
+  assert.equal(f.$('recordingPriority').disabled, false);
 });
 
 test('an explicit recording test launch explains its separate video-only workflow', async () => {

@@ -3,7 +3,10 @@ import { mkdir, readFile, writeFile, rename, readdir, realpath, lstat, statfs, u
 import path from 'node:path';
 
 const presets = new Set(['720p30', '1080p30', '1080p60']);
-const defaults = Object.freeze({ enabled: false, preset: '720p30' });
+// Below normal keeps League ahead of the recorder for CPU and GPU time. Normal exists only
+// to compare recording smoothness; the helper never runs above the game.
+const priorities = new Set(['below-normal', 'normal']);
+const defaults = Object.freeze({ enabled: false, preset: '720p30', priority: 'below-normal' });
 const unfinished = new Set(['starting', 'recording', 'stopping', 'finalizing']);
 const validId = value => Number.isSafeInteger(value) && value > 0;
 const hardwareEncoders = new Set(['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs_qsv11_v2']);
@@ -17,9 +20,10 @@ const encoderUnavailableMessage = code => {
 };
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 export function recordingSettings(value) {
-  if (!value || Object.keys(value).some(key => !['enabled', 'preset'].includes(key))
-      || typeof value.enabled !== 'boolean' || !presets.has(value.preset)) throw new Error('Invalid recording settings');
-  return { enabled: value.enabled, preset: value.preset };
+  if (!value || Object.keys(value).some(key => !['enabled', 'preset', 'priority'].includes(key))
+      || typeof value.enabled !== 'boolean' || !presets.has(value.preset)
+      || (value.priority !== undefined && !priorities.has(value.priority))) throw new Error('Invalid recording settings');
+  return { enabled: value.enabled, preset: value.preset, priority: value.priority ?? defaults.priority };
 }
 
 export async function atomicJson(file, value) {
@@ -288,6 +292,7 @@ export class RecordingService {
     } } catch { this.publish('failed', 'The recordings folder is unavailable.'); this.suppressedPid = game.pid; return; }
     if (!canStart()) return;
     const session = { sessionId: randomUUID(), pid: game.pid, gameId: null, state: 'starting', preset: this.settings.preset,
+      priority: this.settings.priority,
       startedAt: new Date(this.now()).toISOString(), complete: false, reason: null, gameClockAnchor: null,
       ...(this.recordingTest ? { testCapture: true } : {}), abort: new AbortController() };
     session.directory = path.join(this.root, session.sessionId);
@@ -304,7 +309,8 @@ export class RecordingService {
       this.publish('starting', 'Starting your League recording…');
       session.completion = new Promise(resolve => { session.finish = resolve; });
       nativeEntered = true;
-      session.startOperation = driver.start({ pid: game.pid, preset: session.preset, outputDirectory: session.directory,
+      session.startOperation = driver.start({ pid: game.pid, preset: session.preset, priority: session.priority,
+        outputDirectory: session.directory,
         signal: session.abort.signal, onStopped: result => {
           session.stoppedResult = result;
           session.finish(result);

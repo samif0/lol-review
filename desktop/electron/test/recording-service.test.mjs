@@ -45,8 +45,25 @@ async function start(f) {
 }
 
 test('recording preferences are explicit and cannot smuggle sources or encoder flags', () => {
-  assert.deepEqual(recordingSettings({ enabled: true, preset: '1080p30' }), { enabled: true, preset: '1080p30' });
-  for (const value of [{ enabled: 1, preset: '720p30' }, { enabled: true, preset: '4k' }, { enabled: true, preset: '720p30', microphone: true }]) assert.throws(() => recordingSettings(value));
+  assert.deepEqual(recordingSettings({ enabled: true, preset: '1080p30' }), { enabled: true, preset: '1080p30', priority: 'below-normal' });
+  assert.deepEqual(recordingSettings({ enabled: true, preset: '1080p30', priority: 'normal' }), { enabled: true, preset: '1080p30', priority: 'normal' });
+  for (const value of [{ enabled: 1, preset: '720p30' }, { enabled: true, preset: '4k' }, { enabled: true, preset: '720p30', microphone: true },
+    { enabled: true, preset: '720p30', priority: 'high' }, { enabled: true, preset: '720p30', priority: 'realtime' },
+    { enabled: true, preset: '720p30', priority: null }]) assert.throws(() => recordingSettings(value));
+});
+
+test('the chosen recorder priority reaches the helper and is kept with the recording', async t => {
+  const f = await fixture(t); const original = f.driver.start, requested = [];
+  f.driver.start = async args => { requested.push(args.priority); return { ...await original(args), priority: args.priority }; };
+  await f.service.saveSettings({ enabled: true, preset: '720p30', priority: 'normal' });
+  await f.service.attachDriver(f.driver);
+  f.service.onGame({ pid: 100, running: true }); await settle(f.service);
+  assert.deepEqual(requested, ['normal']);
+  assert.equal(f.service.getStatus().settings.priority, 'normal');
+  const disk = JSON.parse(await readFile(path.join(f.service.current.directory, 'session.json'), 'utf8'));
+  assert.equal(disk.priority, 'normal'); assert.equal(disk.resolvedSettings.priority, 'normal');
+  const saved = JSON.parse(await readFile(path.join(f.service.profile, 'recording-settings.json'), 'utf8'));
+  assert.deepEqual(saved, { enabled: true, preset: '720p30', priority: 'normal' });
 });
 test('no access leaves app usable and preserves the opt-in without starting capture', async t => {
   const f = await fixture(t);
@@ -478,6 +495,17 @@ test('terminal recorder metrics and callback latency are durable without per-fra
   const disk = JSON.parse(await readFile(path.join(f.registrations[0].filePath, '../session.json'), 'utf8'));
   assert.deepEqual(disk.finalStats, { outputSkippedFrames: 2, renderSkippedFrames: 3, outputTotalFrames: 1800 });
   assert.equal(disk.requestToCallbackMs, 123);
+});
+
+test('per-minute repeated and lagged frame counts are saved with the recording', async t => {
+  const f = await fixture(t); const original = f.driver.start;
+  const perMinute = { frames: [3600, 3600], repeated: [41, 2], lagged: [3, 0] };
+  f.driver.start = args => original({ ...args, onStopped: result => args.onStopped({ ...result,
+    stats: { frames: 7200, laggedFrames: 3, repeatedFrames: 43, perMinute } }) });
+  await start(f); f.context.lastEndedGameId = 501; await f.service.tick(); await settle(f.service);
+  const disk = JSON.parse(await readFile(path.join(f.registrations[0].filePath, '../session.json'), 'utf8'));
+  assert.deepEqual(disk.finalStats, { frames: 7200, laggedFrames: 3, repeatedFrames: 43, perMinute });
+  assert.equal(disk.priority, 'below-normal');
 });
 
 test('an intent timestamp never substitutes for the missing provider video-start timestamp', async t => {
