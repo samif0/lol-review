@@ -55,6 +55,13 @@ body .patterns-shell .pat-card-active,body .patterns-shell .pat-card-active:hove
 #pat-review-title{margin:0 0 8px;color:var(--t1);font-size:22px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
 #pat-review-title:focus{outline:none}
 .pat-review-heading .field-help{max-width:76ch}
+/* Back-to-back review of a ready trend: one quiet row with a pending dot, then its action. */
+.patterns-shell .pat-bulk{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap;max-width:76ch;margin-top:16px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r-lg)}
+.patterns-shell .pat-bulk-copy{flex:1 1 260px;min-width:0}
+.patterns-shell .pat-bulk-text{display:flex;align-items:baseline;gap:10px;margin:0;font-size:14px;font-weight:500;line-height:1.5;color:var(--t1);font-variant-numeric:tabular-nums}
+.patterns-shell .pat-bulk-text::before{content:'';flex:none;width:7px;height:7px;border-radius:50%;background:var(--pending);transform:translateY(-1px)}
+.patterns-shell .pat-bulk-help{margin:2px 0 0 17px;font-size:13px}
+.patterns-shell :is(.pat-bulk-start,.pat-bulk-next){flex:none;width:auto}
 .pat-no-moments{grid-column:1/-1;padding:24px;border:1px solid var(--line);border-radius:var(--r-lg)}
 .pat-player-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;font-size:13px;color:var(--t3)}
 #m-position{font-weight:500;color:var(--t1);font-variant-numeric:tabular-nums}

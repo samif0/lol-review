@@ -20,11 +20,13 @@
        Mirrors OnboardingViewModel exactly. Partial-session cleanup on every
        Back hop is load-bearing — see onboarding.js ClearPartialSession. -->
   <div class="shell onb-shell">
-    <!-- HERO (always visible) -->
-    <div class="hero onb-hero">
-      <div class="eyebrow">Welcome</div>
-      <h1>Revu</h1>
-      <div class="onb-subt">Build a better habit, one game at a time.</div>
+    <!-- HERO. The Account page (?signin=1) swaps in its own heading (account-page.mjs).
+         It stays invisible until onboarding.js has picked the heading (data-ready), so
+         the Account page never flashes the first-launch Welcome. -->
+    <div class="hero onb-hero" id="onb-hero">
+      <div class="eyebrow" id="onb-eyebrow">Welcome</div>
+      <h1 id="onb-title">Revu</h1>
+      <div class="onb-subt" id="onb-subt">Build a better habit, one game at a time.</div>
     </div>
     <p class="onb-step" id="onb-step" aria-live="polite" hidden></p>
 
@@ -37,7 +39,7 @@
         <span class="onb-acct-dot"></span>
         <div>
           <div class="onb-acct-h" id="onb-acct-email">you@example.com</div>
-          <div class="onb-acct-p" id="onb-acct-sub">Your account is linked.</div>
+          <div class="onb-acct-p"><span id="onb-acct-sub"></span> <a class="ui-link onb-acct-add" id="onb-acct-add" href="settings.html#settings-account" hidden>Add it in Settings</a></div>
         </div>
       </div>
       <button class="onb-link" id="signedin-my-clips" data-action="open_my_clips" type="button" hidden>See your shared clips on revu.lol</button>

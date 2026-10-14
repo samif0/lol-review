@@ -65,9 +65,9 @@ function fixture() {
   document.querySelectorAll = selector => selector === '[data-settings-section]' ? sections
     : selector === '[data-settings-category]' ? buttons : selector === '[data-category-link]' ? [link] : [];
   const scope = { location: { hash: '' }, history: { replaceState: (_state, _unused, hash) => { scope.location.hash = hash; } } };
-  initializeSettingsNavigation({ document, scope });
+  const navigation = initializeSettingsNavigation({ document, scope });
   const search = query => { ids.get('settings-search').value = query; ids.get('settings-search').dispatchEvent(new Event('input')); };
-  return { ids, sections, cards, buttons, link, search, scope };
+  return { ids, sections, cards, buttons, link, search, scope, navigation };
 }
 
 test('typing a search reveals matching sections and opens matching disclosure; clearing restores the selected category', () => {
@@ -101,4 +101,20 @@ test('empty search results are actionable and user-opened disclosures remain ope
   f.search('restore'); f.ids.get('settings-search-reset').click();
   assert.equal(f.ids.get('settings-search-empty').hidden, true);
   assert.equal(f.cards.get('restore').open, true);
+});
+
+test('a card this computer cannot use is neither shown nor found until it becomes available', () => {
+  const f = fixture();
+  f.cards.get('capture').dataset.unavailable = 'true';
+  f.navigation.refresh();
+  assert.equal(f.cards.get('capture').hidden, true);
+  f.search('quality');
+  assert.equal(f.ids.get('settings-search-empty').hidden, false);
+  assert.equal(f.buttons[0].hidden, true, 'its category has no match to count');
+  f.cards.get('capture').dataset.unavailable = 'false';
+  f.navigation.refresh();
+  assert.equal(f.cards.get('capture').hidden, false);
+  assert.equal(f.ids.get('settings-search-status').textContent, '1 setting group found');
+  f.search('');
+  assert.equal(f.cards.get('capture').hidden, false);
 });

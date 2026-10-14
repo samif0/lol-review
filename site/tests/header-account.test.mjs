@@ -6,7 +6,7 @@ import { documentFromHtml, memoryStorage, read as readRaw } from './fake-dom.mjs
 // Checkouts may use CRLF (core.autocrlf), so compare structure with LF.
 const read = name => readRaw(name).replace(/\r\n/g, '\n');
 
-const PAGES = ['index.html', 'learn.html', 'privacy.html', 'terms.html', 'discord.html', 'discord/index.html'];
+const PAGES = ['index.html', 'review.html', 'privacy.html', 'terms.html', 'discord.html', 'discord/index.html'];
 const LINK = '<a class="header-account" href="/sign-in" data-header-account>Sign in</a>';
 const headerScript = read('header-account.js');
 
@@ -26,15 +26,31 @@ test('discord/index.html stays identical to discord.html', () => {
   assert.equal(readRaw('discord/index.html'), readRaw('discord.html'));
 });
 
-test('index.html loads its former inline scripts from files', () => {
-  const html = read('index.html');
+test('review.html loads its former inline scripts from files', () => {
+  const html = read('review.html');
   const ready = html.indexOf('<script src="/turnstile-ready.js"></script>');
   const api = html.indexOf('<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>');
   assert.ok(ready > 0, 'turnstile-ready.js is a plain blocking script');
   assert.ok(api > ready, 'turnstile-ready.js runs before the async Turnstile loader');
-  assert.match(html, /<script src="\/version-chip\.js" defer><\/script>/);
-  assert.match(html, /<script type="application\/ld\+json">/);
+  assert.match(html, /<script src="\/app\.js" defer><\/script>/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test('index.html is the landing: structured data and download.js, no Turnstile', () => {
+  const html = read('index.html');
+  assert.match(html, /<script type="application\/ld\+json">/);
+  assert.match(html, /<script src="\/download\.js" defer><\/script>/);
+  assert.doesNotMatch(html, /turnstile|app\.js|version-chip/i);
+  assert.doesNotMatch(html, /<script>/);
+});
+
+test('Every page header points Download at the home page download section', () => {
+  for (const page of PAGES.concat(['sign-in.html', 'my-clips.html', 'account.html'])) {
+    const header = read(page).match(/<header class="site-header">[\s\S]*?<\/header>/)[0];
+    assert.match(header, /<a class="btn-primary header-cta" href="\/#download">Download<\/a>/, page);
+    assert.match(header, /<a href="\/review"( aria-current="page")?>Review a game<\/a>/, page);
+    assert.doesNotMatch(header, /\/learn|<img/, page);
+  }
 });
 
 test('turnstile-ready.js reserves the onload callback', () => {
@@ -43,22 +59,6 @@ test('turnstile-ready.js reserves the onload callback', () => {
   assert.equal(window.__turnstileLoaded, false);
   window.onTurnstileReady();
   assert.equal(window.__turnstileLoaded, true);
-});
-
-test('version-chip.js writes the latest tag with textContent', async () => {
-  const label = { textContent: 'Windows' };
-  const requests = [];
-  vm.runInNewContext(read('version-chip.js'), {
-    document: { querySelector: selector => (selector === '#download-chip-version' ? label : null) },
-    fetch: async (url, init) => {
-      requests.push({ url, init });
-      return { ok: true, json: async () => ({ tag_name: 'v3.14.0' }) };
-    },
-  });
-  await new Promise(resolve => setImmediate(resolve));
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(requests[0].url, 'https://api.github.com/repos/samif0/lol-review/releases/latest');
-  assert.equal(label.textContent, 'v3.14.0');
 });
 
 function runHeader(html, { pathname, storage }) {

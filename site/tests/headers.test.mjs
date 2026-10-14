@@ -75,7 +75,7 @@ test('The global CSP allows no inline script but still allows Turnstile', () => 
   assert.ok(!policy['script-src'].includes("'unsafe-inline'"));
   assert.deepEqual(policy['script-src'], ["'self'", 'https://challenges.cloudflare.com']);
   assert.ok(policy['frame-src'].includes('https://challenges.cloudflare.com'));
-  assert.ok(policy['connect-src'].includes('https://api.github.com'), 'version-chip.js still reaches GitHub');
+  assert.ok(policy['connect-src'].includes('https://api.github.com'), 'download.js still reaches GitHub');
 });
 
 test('The clip page allows only its own inline script, by LF and CRLF hash', () => {
@@ -107,7 +107,7 @@ const EXECUTABLE_TYPES = new Set(['', 'text/javascript', 'application/javascript
 
 test('No page has an executable inline script except clip.html, and none has inline handlers', () => {
   const files = htmlFiles(siteDir);
-  for (const required of ['index.html', 'clip.html', 'sign-in.html', 'my-clips.html', 'account.html', 'discord/index.html']) {
+  for (const required of ['index.html', 'review.html', 'clip.html', 'sign-in.html', 'my-clips.html', 'account.html', 'discord/index.html']) {
     assert.ok(files.includes(required), `scanned ${required}`);
   }
   let clipScripts = 0;

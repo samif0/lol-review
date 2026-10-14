@@ -209,6 +209,31 @@ public sealed class SidecarEndpointContractTests
         finally { await app.StopAsync(); }
     }
 
+    [Fact]
+    public async Task PatternNudge_ResolvesOnTheIsolatedHost_AndNeverNudgesWithoutADatabase()
+    {
+        // The shell asks on every navigation: the read is token-gated, answers camelCase
+        // JSON, and a missing or unreadable database degrades to no nudge (never a 500).
+        using var scratch = new ScratchHost();
+        await using var app = BuildApp(scratch);
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            using var unauthorized = await client.GetAsync("/api/patterns/nudge");
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+            using var response = await client.GetAsync("/api/patterns/nudge");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.False(json.RootElement.GetProperty("notify").GetBoolean());
+            Assert.Equal(0, json.RootElement.GetProperty("readyCount").GetInt32());
+            Assert.False(File.Exists(Path.Combine(scratch.Root, "LoLReviewData", "revu.db")));
+        }
+        finally { await app.StopAsync(); }
+    }
+
     private const string Token = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
     private static WebApplication BuildApp(ScratchHost scratch, bool practiceDiagnostics = false)
     {
@@ -253,6 +278,7 @@ public sealed class SidecarEndpointContractTests
         GET /api/objectives
         GET /api/objectives/active
         GET /api/patterns
+        GET /api/patterns/nudge
         GET /api/pregame
         GET /api/review
         GET /api/review/export

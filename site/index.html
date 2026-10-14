@@ -4,12 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <title>Revu: ranked League, reviewed</title>
-  <meta name="description" content="Review a League match in your browser. Riot ID, no install. Or download the desktop app to link local VODs and review every ranked game." />
+  <title>Revu: review every ranked League game</title>
+  <meta name="description" content="Revu is a free Windows app for League of Legends. It records your games, links each recording to its match, and helps you pick one thing to practice next game." />
 
-  <meta property="og:title" content="Revu: ranked League, reviewed" />
-  <meta property="og:description" content="Review a League match in your browser, or get the Revu desktop app for Windows to link local VODs and review every ranked game." />
+  <meta property="og:title" content="Revu: review every ranked League game" />
+  <meta property="og:description" content="A free Windows app for League of Legends. Revu records your games, links each recording to its match, and helps you pick one thing to practice next game." />
   <meta property="og:image" content="https://revu.lol/og-image.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta property="og:url" content="https://revu.lol/" />
   <meta property="og:type" content="website" />
   <meta name="twitter:card" content="summary_large_image" />
@@ -17,7 +19,7 @@
   <link rel="canonical" href="https://revu.lol/" />
 
   <meta name="color-scheme" content="dark" />
-  <meta name="theme-color" content="#171717" />
+  <meta name="theme-color" content="#1c1d1f" />
 
   <!-- P-011: PNG sizes alongside the .ico. Google's SERP favicon picker
        wants an explicit 48px or larger bitmap it can crawl. -->
@@ -41,204 +43,102 @@
         "@type": "SoftwareApplication",
         "name": "Revu",
         "url": "https://revu.lol/",
-        "operatingSystem": "Windows",
+        "operatingSystem": "Windows 10, Windows 11",
         "applicationCategory": "GameApplication",
-        "description": "Link local VODs and review every ranked League of Legends game.",
+        "description": "Records your League of Legends games, links each recording to its match, and helps you pick one thing to practice next game.",
         "image": "https://revu.lol/icon-512.png",
+        "downloadUrl": "https://github.com/samif0/lol-review/releases/latest/download/Revu-Setup.exe",
+        "isAccessibleForFree": true,
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
       }
     ]
   }
   </script>
 
+  <link rel="preload" href="/fonts/geist.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/webapp.css" />
-
-  <script src="/turnstile-ready.js"></script>
-  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileReady" async defer></script>
+  <link rel="stylesheet" href="/landing.css" />
 </head>
 <body>
   <header class="site-header">
     <div class="site-header-inner">
-      <a class="brand" href="/"><img src="/revu.svg" width="28" height="28" alt=""><span>Revu</span></a>
+      <a class="brand" href="/"><svg class="brand-mark" viewBox="12 18 77 64" aria-hidden="true" focusable="false"><path d="M28 31.9L16 24V76L28 68.1" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 22.5v55a4 4 0 0 0 6.2 3.3l40.6-27.5a4 4 0 0 0 0-6.6L46.2 19.2A4 4 0 0 0 40 22.5Z" fill="currentColor"/></svg><span>Revu</span></a>
       <nav class="site-nav" aria-label="Primary">
-        <a href="/" aria-current="page">Review a game</a>
-        <a href="/learn">Desktop app</a>
+        <a href="/review">Review a game</a>
         <a href="/discord">Discord</a>
       </nav>
       <a class="header-account" href="/sign-in" data-header-account>Sign in</a>
-      <a class="btn-primary header-cta" id="download-chip" href="/learn">
-        Download
-        <span class="header-cta-meta" id="download-chip-version">Windows</span>
-      </a>
+      <a class="btn-primary header-cta" href="/#download">Download</a>
     </div>
   </header>
 
-  <main class="app">
-    <section class="search-screen" id="search-screen" aria-label="Find player">
-      <div class="search-intro">
-        <h1>Find a game</h1>
-        <p class="sublead">Revu is a Windows desktop app for reviewing your League games. This quick web version finds your recent matches by Riot ID so you can review one in your browser.</p>
+  <main class="landing">
+    <section class="hero" id="download" aria-labelledby="hero-title">
+      <p class="hero-eyebrow">Free for Windows 10 and 11</p>
+      <h1 class="hero-title" id="hero-title">Review every ranked game.</h1>
+      <p class="hero-lead">Revu records your League games, links each recording to its match, and helps you pick one thing to practice next game.</p>
+      <div class="download-actions">
+        <!-- The static href is the no-JS fallback: the signed, cleanly named
+             installer of the latest release. download.js swaps in the exact
+             asset URL and fills the version and size. -->
+        <a id="download-btn" class="btn-primary btn-lg" data-download href="https://github.com/samif0/lol-review/releases/latest/download/Revu-Setup.exe" rel="noopener">Download for Windows</a>
+        <a class="btn-secondary btn-lg" href="/review">Review a game in your browser</a>
       </div>
-      <div class="search-card card-raised">
-
-        <form class="player-search" id="player-form">
-          <label>
-            Riot ID
-            <input id="riot-id" autocomplete="off" placeholder="gameName#tagLine" />
-          </label>
-          <label>
-            Region
-            <!-- Every platform the proxy accepts (proxy/src/riot.ts);
-                 tests/web-review.test.mjs keeps the two lists in step. -->
-            <select id="region">
-              <option value="na1">NA</option>
-              <option value="euw1">EUW</option>
-              <option value="eun1">EUNE</option>
-              <option value="kr">KR</option>
-              <option value="br1">BR</option>
-              <option value="la1">LAN</option>
-              <option value="la2">LAS</option>
-              <option value="jp1">JP</option>
-              <option value="oc1">OCE</option>
-              <option value="tr1">TR</option>
-              <option value="ru">RU</option>
-              <option value="me1">ME</option>
-              <option value="ph2">PH</option>
-              <option value="sg2">SG</option>
-              <option value="th2">TH</option>
-              <option value="tw2">TW</option>
-              <option value="vn2">VN</option>
-            </select>
-          </label>
-          <button class="btn-primary" type="submit">Search</button>
-        </form>
-
-        <div class="recent-chips" id="recent-chips" aria-label="Recent searches" hidden>
-          <span class="chip-label">Recent</span>
-        </div>
-
-        <p class="status-line" id="search-status" role="status" aria-live="polite">Type a Riot ID to pull your recent games.</p>
-      </div>
-
+      <p class="download-meta"><span data-download-version>Latest version</span> &middot; Windows 10/11<span data-download-size></span> &middot; Includes FFmpeg under the GPLv3: <a href="/terms#third-party">licenses and source code</a></p>
+      <p class="download-note" data-download-note hidden></p>
+      <p class="hero-trust">Your recordings and notes are stored on your PC.</p>
     </section>
 
-    <section class="match-screen" id="match-screen" aria-label="Select match" hidden>
-      <header class="screen-header">
-        <button class="btn-secondary" id="back-to-search" type="button">Back</button>
-        <div class="screen-header-title">
-          <p class="eyebrow">Matches</p>
-          <h1 id="matches-title">Recent games</h1>
-        </div>
-        <div class="header-meta">
-          <span class="meta-pill" id="matches-count">0 games</span>
-        </div>
-      </header>
+    <figure class="shot shot-hero screenshot-hero">
+      <img src="/shot-home.webp" width="1600" height="1000" fetchpriority="high"
+           alt="Revu Home: a session composer asking what you will practice, three ranked games ready to review, and your last 30 days" />
+      <figcaption class="visually-hidden">Home: what to practice this session and which games to review</figcaption>
+    </figure>
 
-      <div class="match-filters" role="toolbar" aria-label="Match filters">
-        <button class="filter-chip is-active" type="button" data-filter="all">All</button>
-        <button class="filter-chip" type="button" data-filter="win">Wins</button>
-        <button class="filter-chip" type="button" data-filter="loss">Losses</button>
-        <span class="filter-divider"></span>
-        <button class="filter-chip" type="button" data-filter="solo">Solo/Duo</button>
-        <button class="filter-chip" type="button" data-filter="flex">Flex</button>
+    <section class="feature" aria-labelledby="feature-recording">
+      <div class="feature-copy">
+        <h2 id="feature-recording">Start with the recording</h2>
+        <p>Every match review opens on its recording. Jump to the 10 seconds before each death, save clips and notes on the moments that matter, then write one takeaway for your next game.</p>
+        <p class="feature-note">Built-in recording is in beta and stays off until you turn it on in Settings. It records Ranked Solo/Duo with League in Borderless mode and needs an NVIDIA, AMD or Intel graphics card with hardware H.264 encoding. Already record with Ascent? Connect its folder instead.</p>
       </div>
-
-      <div class="match-list" id="match-list"></div>
+      <figure class="shot screenshot-tile">
+        <img src="/shot-review.webp" width="1600" height="1000" loading="lazy"
+             alt="Revu match review for Jinx vs Caitlyn: start with the recording and jump to the 10 seconds before each death" />
+        <figcaption class="visually-hidden">Match review: start with the recording</figcaption>
+      </figure>
     </section>
 
-    <section class="review-screen" id="review-screen" aria-label="Review match" hidden>
-      <header class="review-topbar">
-        <button class="btn-secondary" id="back-to-matches" type="button">Matches</button>
-        <div class="match-summary">
-          <p class="eyebrow" id="review-eyebrow">Ranked Solo/Duo</p>
-          <h1 id="review-title">Champion</h1>
-          <p class="meta-strip" id="review-meta">7 / 6 / 8 · 32:15 · NA1_000000</p>
-        </div>
-        <div class="topbar-actions">
-          <span class="result-tag" id="review-result">Loss</span>
-          <button class="btn-danger" id="clear-file" type="button" hidden>Clear file</button>
-        </div>
-      </header>
-
-      <div class="review-grid">
-        <section class="viewer-shell" aria-label="VOD viewer">
-
-          <video id="video-player" playsinline hidden></video>
-
-          <div class="vod-controls" id="vod-controls" hidden>
-            <button class="vod-btn" id="vod-play" type="button" aria-label="Play/Pause (Space)">
-              <span class="vod-icon" id="vod-play-icon">&#9654;</span>
-            </button>
-            <button class="vod-btn" id="vod-back" type="button" aria-label="Back 3 seconds (Left)">
-              <span class="vod-btn-label">&minus;3</span>
-            </button>
-            <button class="vod-btn" id="vod-fwd" type="button" aria-label="Forward 3 seconds (Right)">
-              <span class="vod-btn-label">+3</span>
-            </button>
-            <span class="vod-time" id="vod-current">00:00</span>
-            <div class="vod-track" id="vod-track" role="slider" tabindex="0" aria-label="Seek video" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="00:00 of 00:00">
-              <span class="vod-fill" id="vod-fill"></span>
-              <span class="vod-thumb" id="vod-thumb"></span>
-            </div>
-            <span class="vod-time" id="vod-duration">00:00</span>
-            <button class="vod-btn vod-speed" id="vod-speed" type="button" aria-label="Playback speed ([/])">
-              <span id="vod-speed-label">1.0x</span>
-            </button>
-            <button class="vod-btn" id="vod-mute" type="button" aria-label="Mute (M)">
-              <span class="vod-icon" id="vod-mute-icon">Mute</span>
-            </button>
-            <button class="vod-btn" id="vod-fs" type="button" aria-label="Fullscreen (F)">
-              <span class="vod-icon">Full</span>
-            </button>
-          </div>
-
-          <button class="vod-help" id="vod-help" type="button" aria-label="Keyboard shortcuts" hidden>?</button>
-          <div class="vod-help-panel" id="vod-help-panel" hidden>
-            <p class="eyebrow">Shortcuts</p>
-            <dl class="vod-help-list">
-              <dt>Space</dt><dd>Play / Pause</dd>
-              <dt>&larr; / &rarr;</dt><dd>&minus;3s / +3s</dd>
-              <dt>Shift+&larr; / &rarr;</dt><dd>&minus;10s / +10s</dd>
-              <dt>&uarr; / &darr;</dt><dd>Speed up / down</dd>
-              <dt>[ / ]</dt><dd>Speed down / up</dd>
-              <dt>0&ndash;9</dt><dd>Jump to 0% &ndash; 90%</dd>
-              <dt>F</dt><dd>Fullscreen</dd>
-              <dt>M</dt><dd>Mute</dd>
-              <dt>Esc</dt><dd>Back to matches</dd>
-            </dl>
-          </div>
-
-          <label class="drop-viewer" id="drop-zone" for="file-input">
-            <input id="file-input" type="file" accept=".rofl,.mp4,.webm,.mkv,.mov,.avi,video/*" />
-            <span class="drop-kicker" id="drop-kicker">Attach POV</span>
-            <span class="drop-title" id="drop-title">Drop ROFL or video</span>
-            <span class="drop-copy" id="drop-copy">ROFL opens in League; videos play here. Files are local only and are not uploaded.</span>
-            <span class="drop-tip">Tip: link local VODs in the desktop app to keep your notes and clips with each match.</span>
-          </label>
-
-          <div class="rofl-mode" id="rofl-mode" hidden>
-            <p class="eyebrow">ROFL companion</p>
-            <h2>Open the replay in League</h2>
-            <p>Use this timer while you watch the ROFL externally. Browser playback is not available for ROFL files.</p>
-            <div class="clock" id="clock">00:00</div>
-            <div class="clock-actions">
-              <button class="btn-secondary" id="jump-back" type="button">-5s</button>
-              <button class="btn-primary" id="timer-toggle" type="button">Start</button>
-              <button class="btn-secondary" id="jump-forward" type="button">+5s</button>
-            </div>
-          </div>
-        </section>
-
-        <aside class="notes-pane card" aria-label="Review notes">
-          <p class="eyebrow">Review notes</p>
-          <textarea id="review-notes" rows="8" placeholder="Lane phase mistakes, missed objectives, positioning notes."></textarea>
-          <div class="notes-actions">
-            <button class="btn-secondary" id="export-review" type="button">Export Markdown</button>
-          </div>
-        </aside>
+    <section class="feature is-flipped" aria-labelledby="feature-objectives">
+      <div class="feature-copy">
+        <h2 id="feature-objectives">Practice one thing</h2>
+        <p>Choose one skill to work on and give it a rule for success. Set it as your focus before you queue, and Revu follows it across the games where you practiced it, from Exploring to Ready.</p>
       </div>
+      <figure class="shot screenshot-tile">
+        <img src="/shot-objectives.webp" width="1600" height="1000" loading="lazy"
+             alt="Revu learning objectives: a priority objective with its success rule and practice progress from Exploring to Ready" />
+        <figcaption class="visually-hidden">Learning objectives: practice one skill at a time</figcaption>
+      </figure>
+    </section>
+
+    <section class="feature" aria-labelledby="feature-patterns">
+      <div class="feature-copy">
+        <h2 id="feature-patterns">See what repeats</h2>
+        <p>Mark the moments you want to improve. When the same mistake shows up in two or more games, Revu groups those moments so you can compare them. Once it keeps repeating across three games, watch them back to back and decide what to change.</p>
+      </div>
+      <figure class="shot screenshot-tile">
+        <img src="/shot-patterns.webp" width="1600" height="1000" loading="lazy"
+             alt="Revu patterns: recurring mistake trends, each grouping saved moments from two or more games to compare" />
+        <figcaption class="visually-hidden">Patterns: the mistakes that keep repeating</figcaption>
+      </figure>
+    </section>
+
+    <section class="closing" aria-labelledby="closing-title">
+      <h2 class="closing-title" id="closing-title">Your next game starts with your last one.</h2>
+      <div class="download-actions">
+        <a class="btn-primary btn-lg" data-download href="https://github.com/samif0/lol-review/releases/latest/download/Revu-Setup.exe" rel="noopener">Download for Windows</a>
+      </div>
+      <p class="download-meta"><span data-download-version>Latest version</span> &middot; Windows 10/11<span data-download-size></span></p>
     </section>
   </main>
 
@@ -260,20 +160,14 @@
     </div>
   </footer>
 
-  <!-- Offscreen and aria-hidden unless Turnstile escalates to an interactive
-       check; app.js then shows it, exposes it and moves focus to it. -->
-  <div id="turnstile-container" role="region" aria-label="Security check" tabindex="-1" aria-hidden="true"></div>
-
   <div id="lightbox" class="lightbox" aria-hidden="true" role="dialog" aria-label="Screenshot viewer">
     <button class="lightbox-close btn-secondary" type="button" aria-label="Close screenshot">X</button>
     <img class="lightbox-img" alt="" />
     <span class="lightbox-caption"></span>
   </div>
 
-  <script src="/web-review-lib.js" defer></script>
-  <script src="/app.js" defer></script>
+  <script src="/download.js" defer></script>
   <script src="/lightbox.js" defer></script>
-  <script src="/version-chip.js" defer></script>
   <script src="/header-account.js" defer></script>
 </body>
 </html>

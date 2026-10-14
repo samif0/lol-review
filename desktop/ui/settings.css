@@ -97,6 +97,16 @@ body.settings-page #recording-settings{padding:16px 0 18px}
 .settings-page #recording-settings .settings-card-description{margin:0}
 .settings-page .settings-inline-note{display:block;background:transparent;border:0;padding:18px 0 0;font-size:13px;line-height:1.7;color:var(--muted);margin:0}
 .settings-page .settings-inline-note a{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+/* Speed up slow recordings: one quiet row per recording; its note says what is happening to that file. */
+.settings-page .settings-speedup-list{list-style:none;margin:0;padding:0}
+.settings-page .settings-speedup-list>.set-row{min-height:0;padding:0;border-radius:var(--r-sm)}
+.settings-page .settings-speedup-list>.set-row+.set-row{margin-top:14px;padding-top:14px}
+.settings-page .settings-speedup-row .set-row-h{font-variant-numeric:tabular-nums}
+.settings-page .settings-speedup-note{margin-top:4px}
+.settings-page .settings-speedup-note.bad{color:var(--text);font-weight:600}
+.settings-page .settings-speedup-row>button{flex-shrink:0}
+.settings-page .settings-speedup-row:focus{outline:none}
+.settings-page .settings-speedup-row:focus-visible{outline:2px solid var(--focus);outline-offset:3px}
 body.settings-page details.set-card{display:block;padding:0;overflow:hidden}
 .settings-page details.set-card>summary{list-style:none;cursor:pointer;position:relative;padding:22px 32px 22px 0;color:var(--text);font-size:15px;font-weight:500}
 .settings-page details.set-card>summary::-webkit-details-marker{display:none}

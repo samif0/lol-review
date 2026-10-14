@@ -1,4 +1,4 @@
-// The web review tool on the home page (index.html + app.js +
+// The web review tool at /review (review.html + app.js +
 // web-review-lib.js): per-match notes, Turnstile timeout and accessibility,
 // error copy, the region list, the match card markup and the scrubber.
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import { flush, memoryStorage } from './fake-dom.mjs';
 const read = name => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 const libSource = read('web-review-lib.js');
 const appSource = read('app.js');
-const indexHtml = read('index.html');
+const reviewHtml = read('review.html');
 
 function lib() {
   const context = {};
@@ -84,7 +84,7 @@ class FakeURL extends URL {
   static revokeObjectURL() {}
 }
 
-const REGION_OPTIONS = [...indexHtml.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)].map(m => ({ value: m[1], textContent: m[2] }));
+const REGION_OPTIONS = [...reviewHtml.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)].map(m => ({ value: m[1], textContent: m[2] }));
 
 function app({ storage = memoryStorage(), routes = {}, turnstile } = {}) {
   const focused = [];
@@ -268,8 +268,8 @@ test('an interactive challenge is announced, exposed to assistive tech and focus
 });
 
 test('the Turnstile container is aria-hidden only while it is offscreen', () => {
-  assert.match(indexHtml, /<div id="turnstile-container" role="region" aria-label="Security check" tabindex="-1" aria-hidden="true"><\/div>/);
-  assert.match(indexHtml, /id="search-status" role="status" aria-live="polite"/);
+  assert.match(reviewHtml, /<div id="turnstile-container" role="region" aria-label="Security check" tabindex="-1" aria-hidden="true"><\/div>/);
+  assert.match(reviewHtml, /id="search-status" role="status" aria-live="polite"/);
 });
 
 // ── Copy ──────────────────────────────────────────────────────────────────────
@@ -308,9 +308,9 @@ test('the list is titled as recent games and the page says Revu is a desktop app
   const run = app({ routes, turnstile: turnstileStub({ autoSolve: true }) });
   await search(run, 'Faker#KR1');
   assert.equal(run.$('#matches-title').textContent, "Faker#KR1's recent games");
-  assert.match(indexHtml, /Revu is a Windows desktop app for reviewing your League games\./);
-  assert.match(indexHtml, /Type a Riot ID to pull your recent games\./);
-  assert.doesNotMatch(indexHtml, /recent ranked games/i);
+  assert.match(reviewHtml, /Revu is a Windows desktop app for reviewing your League games\./);
+  assert.match(reviewHtml, /Type a Riot ID to pull your recent games\./);
+  assert.doesNotMatch(reviewHtml, /recent ranked games/i);
 });
 
 test('the region list offers exactly the platforms the proxy accepts', () => {
@@ -343,7 +343,7 @@ test('moving to another screen focuses its heading', () => {
 });
 
 test('the scrubber is a keyboard and touch operable slider', () => {
-  assert.match(indexHtml, /id="vod-track" role="slider" tabindex="0" aria-label="Seek video"/);
+  assert.match(reviewHtml, /id="vod-track" role="slider" tabindex="0" aria-label="Seek video"/);
   const run = app();
   const video = run.$('#video-player');
   const track = run.$('#vod-track');

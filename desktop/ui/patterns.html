@@ -37,6 +37,17 @@
         <h2 class="pat-section-heading"><span class="pat-step-number">2</span> <span id="pat-compare-title">Compare the mistakes</span></h2>
         <h3 id="pat-review-title" tabindex="-1"></h3>
         <p class="field-help" id="pat-compare-help">Watch these saved moments across games. What decision keeps repeating, and what will you change next time?</p>
+        <!-- Back-to-back review of a ready trend (pattern-bulk.mjs): what is ready, the
+             run's progress, then the review's question. One live region carries it.
+             Hidden for collections and trends that are not ready. -->
+        <div class="pat-bulk" id="pat-bulk" hidden>
+          <div class="pat-bulk-copy" role="status">
+            <p class="pat-bulk-text" id="pat-bulk-text"></p>
+            <p class="field-help pat-bulk-help" id="pat-bulk-help" hidden></p>
+            <span class="sr-only" id="pat-bulk-progress"></span>
+          </div>
+          <button class="pat-btn pat-btn-gold pat-bulk-start" id="pat-bulk-start" data-action="bulk_start" type="button">Watch all back to back</button>
+        </div>
       </div>
       <p class="field-help pat-no-moments" id="pat-no-moments" hidden>No moments are available to compare for this pattern. Choose another pattern above.</p>
 
@@ -93,7 +104,7 @@
             <span class="pat-nstatus" id="m-nstatus" hidden></span>
             <span class="pat-clipt" id="m-clipt" hidden>Clip saved</span>
           </div>
-          <label class="field-help" for="m-note">What would you do differently in this moment?</label>
+          <label class="field-help" id="m-note-label" for="m-note">What would you do differently in this moment?</label>
           <textarea class="pat-noteinput own-words" id="m-note" rows="3" placeholder="Next time, I will…" aria-label="Your takeaway for this moment" aria-describedby="m-note-help"></textarea>
           <p class="field-help" id="m-note-help">Notes save automatically to this clip or bookmark. Bookmark previews use the original recording and do not create a clip file.</p>
         </div>
@@ -103,6 +114,7 @@
             <p class="field-help" id="pat-pending-text"></p>
             <button class="pat-btn pat-btn-gold pat-markrev" id="pat-markrev" data-action="mark_reviewed" type="button">Finish reviewing this pattern</button>
             <p class="field-help" id="pat-review-status" role="status" hidden></p>
+            <button class="pat-btn pat-btn-sec pat-bulk-next" id="pat-bulk-next" data-action="bulk_next" type="button" hidden>Watch it next</button>
           </div>
         </div>
       </div>

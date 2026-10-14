@@ -1,56 +1,63 @@
 /*
- * revu.lol design tokens.
+ * revu.lol design tokens: the desktop app's Neutral theme, dark mode.
  *
- * The first block mirrors the desktop app's shared application system
- * (desktop/ui/styles.css:3374, the ":root" block under "Shared application
- * system"). Keep the variable names identical so rules can be compared side
- * by side. The only change is the UI font stack, which adds -apple-system for
- * visitors who are not on Windows. No webfonts are loaded anywhere.
+ * The color, type and shape block copies desktop/ui/appearance.css
+ * [data-theme="neutral"] value for value, with the same variable names, so the two
+ * files can be compared side by side. The font stacks add -apple-system and
+ * ui-monospace for visitors who are not on Windows. When the app's Neutral dark
+ * palette changes, update that block here. The site is dark only, like the
+ * screenshots it shows.
  *
- * The second block names the literal colors the app uses inline across its
- * page stylesheets (dashboard, games, vod-review, review-launchpad,
- * learning-pages, patterns), plus site radii and layout tokens.
+ * The bridge maps the site's older names (--text, --surface, --chrome, ...) onto the
+ * Neutral tokens, as appearance.css does for the app. This is the only site
+ * stylesheet with color literals (tests/visual-system.test.mjs). Geist and Geist Mono
+ * are byte-identical copies of desktop/ui/fonts (SIL Open Font License 1.1, see
+ * fonts/OFL-*.txt). swap, not the app's block: a page is one long-lived document, and
+ * swap never hides text while the font loads.
  */
+@font-face{font-family:'Geist';src:url('/fonts/geist.woff2') format('woff2');font-weight:400 700;font-style:normal;font-display:swap}
+@font-face{font-family:'Geist Mono';src:url('/fonts/geist-mono.woff2') format('woff2');font-weight:400 600;font-style:normal;font-display:swap}
+
+/* Neutral, dark. */
 :root{
   color-scheme:dark;
-  --bg:#212121;--surface:#2b2b2b;--surface-raised:#303030;--border:#383838;
-  --primary-rgb:244,244,244;--neutral-rgb:163,163,163;--bg-rgb:33,33,33;
-  --text:#ececec;--muted:#a3a3a3;--primary:#f4f4f4;--primary-ink:#202020;--danger:#ef8b91;
-  --t1:var(--text);--t2:#cdcdcd;--t3:var(--muted);--t4:var(--muted);
-  --accent:var(--primary);--gold:var(--primary);--win:var(--primary);--loss:var(--muted);
-  --glass:var(--surface);--glass2:var(--surface-raised);--gline:var(--border);--gline2:var(--border);
-  --font-ui:'Segoe UI',system-ui,-apple-system,sans-serif;
-  --fo:var(--font-ui);--fb:var(--font-ui);--fm:var(--font-ui);
-  --font-caption:12px;--font-small:13px;--font-control:14px;--font-body:15px;
-  --tsh:none;--label-spacing:0;--label-bright:var(--muted);
-  --sidebar-width:248px;--titlebar-height:44px;--banner-height:40px;--radius:12px;
+  --bg:#1c1d1f;--side:#161719;--raised:#25272a;--hover:rgba(255,255,255,.045);--selected:rgba(255,255,255,.075);--well:#0b0b0c;
+  --line:rgba(255,255,255,.075);--line-strong:rgba(255,255,255,.17);--field:#25272a;--field-line:rgba(255,255,255,.36);
+  --t1:#f3f4f6;--t2:#c9ccd1;--t3:#979ba3;
+  --accent:#f3f4f6;--accent-ink:#141517;--focus:#8fb2ff;
+  --win:#76a0f4;--loss:#ef7f88;--pending:#e6bd6c;--pending-soft:rgba(230,189,108,.13);--ok:#7fc8a4;--danger:#f08c92;
+  --f-display:'Geist','Segoe UI',system-ui,-apple-system,sans-serif;--f-body:'Geist','Segoe UI',system-ui,-apple-system,sans-serif;
+  --f-data:'Geist Mono',ui-monospace,Consolas,Menlo,monospace;
+  --display-weight:500;--display-track:-0.025em;
+  --r-lg:22px;--r-md:10px;--r-sm:7px;--btn-radius:999px;
+  --raised-shadow:0 12px 34px -20px rgba(0,0,0,.75);--raised-border:1px solid rgba(255,255,255,.09);
+
+  /* Video surfaces (players, captions, the lightbox). */
+  --video:#000;--on-video:#ececec;--cue-bg:rgba(0,0,0,.75);
 }
 
+/* Bridge: the site's names read the Neutral tokens. */
 :root{
-  --font-mono:ui-monospace,Consolas,Menlo,monospace;
-
-  /* Named literals used by the app's page stylesheets. */
-  --chrome:#171717;
-  --hover:#3a3a3a;
-  --pressed:#333333;--pressed-border:#525252;
-  --border-strong:#515151;--border-active:#858585;
-  --divider-raised:#454545;
-  --primary-hover:#e2e2e2;
-  --danger-border:#674148;--danger-bg:#352328;
-  --result-win:#9ed7b9;--result-loss:#e6a5a8;
-  --pending:#e8cb9f;
-  --error:#ffaaaa;
-  --overlay:rgba(0,0,0,.6);
-  --selection:#444444;
+  --text:var(--t1);--muted:var(--t3);--t4:var(--t3);
+  --surface:var(--raised);--surface-raised:color-mix(in srgb,var(--t1) 6%,var(--raised));
+  --border:var(--line);--border-strong:var(--line-strong);--border-active:var(--field-line);--divider-raised:var(--line-strong);
+  --primary:var(--accent);--primary-ink:var(--accent-ink);--primary-hover:color-mix(in srgb,var(--accent) 86%,var(--bg));
+  --chrome:var(--side);--pressed:var(--selected);--pressed-border:var(--line-strong);
+  --danger-border:color-mix(in srgb,var(--danger) 45%,transparent);--danger-bg:color-mix(in srgb,var(--danger) 12%,transparent);
+  --result-win:var(--win);--result-loss:var(--loss);--error:var(--danger);
+  --overlay:color-mix(in srgb,var(--well) 60%,transparent);--overlay-strong:color-mix(in srgb,var(--well) 85%,transparent);
+  --selection:color-mix(in srgb,var(--focus) 32%,transparent);--scroll-thumb:var(--line-strong);
+  --font-ui:var(--f-body);--font-mono:var(--f-data);
 
   /* Radii. */
-  --radius-chip:6px;--radius-row:10px;--radius-card:14px;--radius-panel:16px;
-  --radius-hero:24px;--radius-pill:999px;--radius-kbd:4px;
+  --radius:var(--r-md);
+  --radius-chip:var(--r-sm);--radius-row:10px;--radius-card:14px;--radius-panel:16px;
+  --radius-hero:var(--r-lg);--radius-pill:999px;--radius-kbd:4px;
 
   /* Layout. */
   --header-h:56px;
   --gutter:16px;
-  --container:1380px;--container-home:960px;--container-read:720px;
+  --container:1380px;--container-home:1120px;--container-read:720px;
 }
 
 @media (min-width:640px){

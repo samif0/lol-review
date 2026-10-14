@@ -3,7 +3,7 @@ import { getListen as defaultGetListen } from './platform/index.mjs';
 import { resultOf } from './meaning-tone.mjs';
 
 // Sidebar data for the persistent shell (index.html): the six most recent matches, the
-// Match library count of matches to review, the account name in the footer, and the
+// Match library count of matches to review, the account row in the footer, and the
 // title-bar crumb. The pure helpers are exported for tests; createShellSidebar wires
 // them to the shell document.
 //
@@ -18,7 +18,8 @@ export const REFRESH_EVENTS = Object.freeze(['gameEnded', 'gameRecovered', 'game
 // Reviews, skips, removals and manual entries happen inside these pages; leaving one may
 // change the list.
 export const REFRESH_AFTER_PAGES = Object.freeze(['review', 'games', 'dashboard', 'manualentry']);
-// Leaving these pages may have changed the Riot ID shown in the footer.
+// Opening or leaving these pages rereads the sign-in and Riot ID shown in the footer:
+// they change it, and the Account page should never disagree with the row that opened it.
 export const IDENTITY_AFTER_PAGES = Object.freeze(['settings', 'onboarding']);
 export const LOAD_THROTTLE_MS = 5000;
 export const EVENT_DEBOUNCE_MS = 600;
@@ -105,6 +106,21 @@ export function avatarInitial(name) {
 }
 
 /**
+ * The footer account row for a get_config snapshot. Signed in means a live Revu session
+ * (the rule Settings uses): the initial and Riot game name, else the email. Anything
+ * else, a saved Riot ID or an expired session included, reads "Sign in" with the glyph.
+ * `state` is what a screen reader hears after the row's name, "Account".
+ */
+export function accountView(config) {
+  const email = text(config?.riotSessionEmail);
+  if (config?.riotAuthState !== 'loggedIn' || !email) {
+    return { signedIn: false, name: 'Sign in', initial: '', state: 'Not signed in.' };
+  }
+  const name = ownerName(config?.riotId) || email;
+  return { signedIn: true, name, initial: avatarInitial(name), state: `Signed in as ${email}.` };
+}
+
+/**
  * The title-bar crumb for a frame page. `navId` is the rail item that page lights up.
  * Home shows no crumb; review, VOD review and manual entry sit under the Match library.
  */
@@ -185,10 +201,11 @@ export function createShellSidebar({
   const $ = id => doc?.getElementById?.(id) || null;
   const section = $('side-recent'), list = $('side-recent-list');
   const count = $('nav-games-count'), countText = $('nav-games-count-text');
+  const account = $('side-acct'), accountState = $('side-acct-state');
   const name = $('side-name'), avatar = $('side-avatar'), avatarText = $('side-avatar-i');
   const visible = () => doc?.visibilityState !== 'hidden';
   let lastRefresh = -Infinity, running = null, again = false, stale = false, timer = null;
-  let rows = [], currentId = null, previousPage = '';
+  let rows = [], currentId = null, previousPage = '', identityRead = 0;
 
   function showRows(next) {
     if (!section || !list || !Array.isArray(next)) return;
@@ -234,14 +251,18 @@ export function createShellSidebar({
     return running;
   }
 
+  // Reads can overlap (sign in, then link a Riot ID); only the latest one is shown.
   async function refreshIdentity() {
+    const ticket = ++identityRead;
     try {
-      const config = await read('get_config', 'sample-settings.json');
-      const owner = ownerName(config?.riotId);
-      if (name) name.textContent = owner || 'Account';
-      if (avatarText) avatarText.textContent = avatarInitial(owner);
-      avatar?.classList.toggle('has-initial', !!owner);
-    } catch (_) { /* the footer keeps its last name */ }
+      const view = accountView(await read('get_config', 'sample-settings.json'));
+      if (ticket !== identityRead) return;
+      if (name) name.textContent = view.name;
+      if (avatarText) avatarText.textContent = view.initial;
+      avatar?.classList.toggle('has-initial', !!view.initial);
+      if (accountState) accountState.textContent = view.state;
+      account?.setAttribute('data-account', view.signedIn ? 'signed-in' : 'signed-out');
+    } catch (_) { /* the footer keeps its last state */ }
   }
 
   // Bursts (a recovery scan links many recordings) collapse into one refresh. A hidden
@@ -258,7 +279,7 @@ export function createShellSidebar({
     markCurrent(frameGameId(page, search));
     const left = previousPage;
     previousPage = page;
-    if (IDENTITY_AFTER_PAGES.includes(left) && left !== page) void refreshIdentity();
+    if (left !== page && (IDENTITY_AFTER_PAGES.includes(left) || IDENTITY_AFTER_PAGES.includes(page))) void refreshIdentity();
     if (!REFRESH_AFTER_PAGES.includes(left)) return;
     const at = now();
     if (shouldRefreshAfter(left, { visible: visible(), now: at, last: lastRefresh })) void refresh();
@@ -280,10 +301,18 @@ export function createShellSidebar({
     void refresh();
     void refreshIdentity();
     void subscribe();
-    doc?.addEventListener?.('visibilitychange', () => { if (stale && visible()) requestRefresh(); });
+    // Shown again (restored from the tray): the 30-day sign-in may have run out meanwhile.
+    doc?.addEventListener?.('visibilitychange', () => {
+      if (!visible()) return;
+      void refreshIdentity();
+      if (stale) requestRefresh();
+    });
     // A framed page that changes the match list in place (skip, remove, a saved missed
     // game) may announce it: window.top.dispatchEvent(new CustomEvent('revu:games-changed')).
     win?.addEventListener?.('revu:games-changed', () => requestRefresh());
+    // Signing in or out on the Account page (or to share a clip) announces itself the
+    // same way, so the account row changes without leaving the page.
+    win?.addEventListener?.('revu:account-changed', () => void refreshIdentity());
   }
 
   return { start, refresh, refreshIdentity, requestRefresh, frameLoaded, markCurrent,

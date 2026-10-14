@@ -279,3 +279,8 @@ test('Home keeps the guards, ids and hooks other surfaces rely on', () => {
   assert.match(source, /registerLeaveGuard\(\{ isDirty: composerDirty \}\)/);
   assert.doesNotMatch(html.replace(/<!--[\s\S]*?-->/g, ''), /[–—]/, 'no em or en dashes in Home copy');
 });
+
+test("Home's pill for a ready mistake trend starts hidden beside the review suggestion", () => {
+  assert.match(html, /<a class="ui-pill" id="home-suggest-review"[\s\S]*?<\/a>\s*<!--[^>]*-->\s*<a class="ui-pill" id="home-suggest-patterns" href="patterns\.html" hidden><i class="ui-dot" data-tone="pending" aria-hidden="true"><\/i><span id="home-suggest-patterns-text">/);
+  assert.match(source, /mountPatternPill\(document\);/);
+});
