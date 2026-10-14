@@ -215,6 +215,8 @@ body .shell.onb-shell{
 }
 html.framed body .shell.onb-shell{max-width:760px;width:100%;margin-left:auto;margin-right:auto}
 .onb-shell .onb-hero{margin:24px 0 32px}
+/* Hidden until onboarding.js picks Welcome or Account, so neither flashes as the other. */
+.onb-shell .onb-hero:not([data-ready]){visibility:hidden}
 body .onb-shell .onb-hero h1{font-size:var(--greet-size);font-weight:var(--display-weight);line-height:1.15}
 body .onb-shell .onb-subt{margin-top:12px;font-size:15px;letter-spacing:0;text-transform:none;line-height:1.6;color:var(--t3)}
 .onb-shell .onb-step{margin:0 0 16px;text-align:center;color:var(--t3);font-size:14px;line-height:1.6}

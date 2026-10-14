@@ -88,3 +88,27 @@ test('rail labels and page titles follow the glossary in one place', () => {
     assert.ok(!Object.values(labels).includes(stale), stale);
   }
 });
+
+test('the sidebar footer has one account control: the profile row opens Account and lights up there', async () => {
+  const foot = shell.slice(shell.indexOf('<div class="side-foot">'), shell.indexOf('</aside>'));
+  const links = [...foot.matchAll(/<a\b([^>]*)>/g)].map(([, attrs]) => attrs);
+  assert.equal(links.length, 2, 'the account row, then Settings');
+  assert.match(links[0], /^ class="nav-i side-acct" id="side-acct" data-nav="onboarding" href="onboarding\.html\?signin=1" aria-labelledby="side-acct-tip side-name"/);
+  assert.match(links[1], /class="nav-i" data-nav="settings" href="settings\.html" aria-label="Settings"/);
+  assert.equal((shell.match(/data-nav="onboarding"/g) || []).length, 1, 'no second Account item anywhere in the shell');
+  assert.equal(shell.split('<circle cx="12" cy="8.5" r="3.5"/>').length - 1, 1, 'the person glyph appears once, in the avatar');
+  const row = foot.slice(0, foot.indexOf('</a>'));
+  for (const id of ['side-avatar', 'side-name', 'appbar-lcu']) assert.match(row, new RegExp(`id="${id}"`), `${id} is part of the row`);
+  // The row is a rail item: markActive lights every .nav-i whose data-nav is the frame's page.
+  const fileToNav = vm.runInNewContext(`(${outer.match(/function fileToNav\(pathname\) \{[\s\S]*?\n\}/)[0]})`);
+  for (const path of ['/onboarding.html', 'onboarding.html']) assert.equal(fileToNav(path), 'onboarding', path);
+  assert.match(outer, /querySelectorAll\('\.nav-i'\)\.forEach\(\(a\) => \{\s*const active = a\.dataset\.nav === navId;/);
+  // Every other way in opens the same page, never the first-launch Welcome card.
+  assert.match(await read('settings.html'), /href="onboarding\.html\?signin=1">Manage sign-in</);
+  assert.match(await read('vodplayer.html'), /id="vp-signin-hint" href="onboarding\.html\?signin=1"/);
+  // Long names truncate inside the row; Settings keeps its fixed size beside it.
+  const css = await read('shell.css');
+  assert.match(css, /\.side-foot \.nav-i\.side-acct\{flex:1;min-width:0;/);
+  assert.match(css, /\.side-foot \.nav-i\{justify-content:center;flex:none;width:32px;height:32px;padding:0\}/);
+  assert.match(css, /\.side-name\{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;/);
+});
