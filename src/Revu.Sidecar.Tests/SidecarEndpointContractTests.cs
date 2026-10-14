@@ -152,6 +152,7 @@ public sealed class SidecarEndpointContractTests
     [InlineData("GET", "/api/recording/context")]
     [InlineData("GET", "/api/recording/session/01234567-89ab-cdef-0123-456789abcdef")]
     [InlineData("POST", "/api/recording/register")]
+    [InlineData("POST", "/api/recording/relayout")]
     public async Task RecordingEndpointsRequireThePrivateHostBearer(string method, string path)
     {
         using var scratch = new ScratchHost();
@@ -258,6 +259,7 @@ public sealed class SidecarEndpointContractTests
         GET /api/recording/context
         GET /api/recording/session/{sessionId:guid}
         POST /api/recording/register
+        POST /api/recording/relayout
         GET /api/rules
         POST /api/settings/export
         GET /api/settings/status

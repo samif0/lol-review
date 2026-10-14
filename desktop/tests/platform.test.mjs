@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 112);
+  assert.equal(Object.keys(COMMANDS).length, 114);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
@@ -336,6 +336,14 @@ test('command declarations keep immutable envelopes, required arguments and exce
   }
   // The voice upload is host-only: it never becomes a renderer command.
   assert.ok(!Object.values(COMMANDS).some(definition => definition.route === '/api/clip/narration/save'));
+  // Speed up names a game only: the host resolves the recording and alone calls /api/recording/*.
+  for (const name of ['get_recording_optimization', 'optimize_recording']) {
+    assert.equal(COMMANDS[name].method, 'NATIVE', name);
+    assert.deepEqual(COMMANDS[name].args, { gameId: 'integer' }, name);
+    assert.throws(() => validateCommand(name, { gameId: 4, filePath: 'C:\\capture.mp4' }), /Unexpected argument: filePath/);
+    assert.throws(() => validateCommand(name, { gameId: '4' }), /Invalid argument: gameId/);
+  }
+  assert.ok(!Object.values(COMMANDS).some(definition => definition.route?.startsWith('/api/recording')));
   assert.equal(COMMANDS.reset_all_data.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.restore_backup.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.apply_update.sideEffect, 'apply-update-stop-sidecar-exit');

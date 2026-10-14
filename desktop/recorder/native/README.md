@@ -58,11 +58,18 @@ software encoding, display capture, or game hooks.
   or Intel module is loaded, avoiding unrelated hardware-probe timeouts. AMD
   capability detection is part of the required FFmpeg module. The selected hardware can still
   fail to initialize, in which case the helper reports the failure and stops.
-- Fragmented MP4 remains fragmented after stop, with half-second fragments and
-  two-second keyframes. Interrupted trailing data still needs separate validation
-  and is never claimed complete. The stock OBS muxer holds a final IO chunk in
-  memory; recovery can require trimming an incomplete trailing fragment. Revu
-  preserves the original partial file and never silently promotes it to complete.
+- MP4 is fragmented while recording, with half-second fragments and two-second
+  keyframes, and finalized to a normal indexed MP4 on a clean stop. The muxer's
+  hybrid fragmented mode appends a complete moov at the end and only then turns
+  its start placeholder into one mdat covering the earlier fragments, so players
+  open the file without walking every fragment. There is no remux or copy. An
+  interrupted file keeps the fragmented layout and plays up to its last complete
+  fragment; the host never validates it. If a finished file's index never reached
+  the disk, the host restores the fragmented layout. Interrupted trailing data still
+  needs separate validation and is never claimed complete. The stock OBS muxer
+  holds a final IO chunk in memory; recovery can require trimming an incomplete
+  trailing fragment. Revu preserves the original partial file and never silently
+  promotes it to complete.
 - Below-normal process priority; 2 GiB process / 3 GiB process-job commit
   ceilings. The non-inheritable job handle stays open for the helper lifetime;
   helper termination kills the FFmpeg muxer child as well.
@@ -92,5 +99,6 @@ The helper does not need an OBS runtime to execute that policy test binary.
 `--self-test --output ABSOLUTE.mp4` runs a bounded five-second manual diagnostic
 using generated color video and a generated 440 Hz audio tone. It loads no capture
 modules, reads no game process and captures no screen/window/audio device. It
-exercises the actual hardware encoder, AAC, fragmented MP4, packet-clock signal
-and stop path. This mode is not exposed through the Electron recording driver.
+exercises the actual hardware encoder, AAC, the fragmented MP4 and its finalized
+index on a clean stop, packet-clock signal and stop path. This mode is not
+exposed through the Electron recording driver.
