@@ -24,6 +24,7 @@
 #include <vector>
 #include "encoder-policy.hpp"
 #include "frame-stats.hpp"
+#include "wgc-session.hpp"
 
 #ifndef PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
 #define PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION 0x4
@@ -289,40 +290,24 @@ struct GpuScheduling {
 };
 const GpuScheduling gpuScheduling;
 
-struct WinrtCapture;
 struct WinrtApi {
   HMODULE module = nullptr;
   BOOL (*supported)() = nullptr;
-  WinrtCapture *(*initializeWindow)(BOOL, HWND, BOOL, BOOL) = nullptr;
-  void (*freeCapture)(WinrtCapture *) = nullptr;
-  BOOL (*active)(const WinrtCapture *) = nullptr;
-  BOOL (*showCursor)(WinrtCapture *, BOOL) = nullptr;
-  gs_color_space (*colorSpace)(const WinrtCapture *) = nullptr;
-  void (*render)(WinrtCapture *) = nullptr;
-  uint32_t (*width)(const WinrtCapture *) = nullptr;
-  uint32_t (*height)(const WinrtCapture *) = nullptr;
   bool initialize(const std::filesystem::path &runtime)
   {
     if (module) return true;
     module = LoadLibraryExW((runtime / L"libobs-winrt.dll").c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!module) return false;
     supported = reinterpret_cast<decltype(supported)>(GetProcAddress(module, "winrt_capture_supported"));
-    initializeWindow = reinterpret_cast<decltype(initializeWindow)>(GetProcAddress(module, "winrt_capture_init_window"));
-    freeCapture = reinterpret_cast<decltype(freeCapture)>(GetProcAddress(module, "winrt_capture_free"));
-    active = reinterpret_cast<decltype(active)>(GetProcAddress(module, "winrt_capture_active"));
-    showCursor = reinterpret_cast<decltype(showCursor)>(GetProcAddress(module, "winrt_capture_show_cursor"));
-    colorSpace = reinterpret_cast<decltype(colorSpace)>(GetProcAddress(module, "winrt_capture_get_color_space"));
-    render = reinterpret_cast<decltype(render)>(GetProcAddress(module, "winrt_capture_render"));
-    width = reinterpret_cast<decltype(width)>(GetProcAddress(module, "winrt_capture_width"));
-    height = reinterpret_cast<decltype(height)>(GetProcAddress(module, "winrt_capture_height"));
-    if (supported && initializeWindow && freeCapture && active && showCursor && colorSpace && render && width && height) return true;
+    if (supported) return true;
     FreeLibrary(module);
     module = nullptr;
     return false;
   }
 };
-// Keep the pinned WGC backend loaded until process exit, including deferred
-// graphics cleanup. No stock win-capture module, game hook or updater is loaded.
+// Keep the pinned libobs-winrt loaded until process exit: libobs uses it to give its graphics
+// thread the dispatcher queue Revu's capture session runs on (wgc-session.hpp). Its capture
+// functions are not used. No stock win-capture module, game hook or updater is loaded.
 WinrtApi winrtApi;
 void registerWgcSource(const std::filesystem::path &runtime);
 
@@ -446,7 +431,7 @@ bool captureSourcesSupported()
 
 struct WgcSource {
   GameWindow game;
-  std::atomic<WinrtCapture *> capture{nullptr};
+  std::atomic<revu::WgcWindowCapture *> capture{nullptr};
   bool attempted = false;
   bool identityValid() const
   {
@@ -457,7 +442,7 @@ struct WgcSource {
   bool ready() const
   {
     const auto *current = capture.load();
-    return current && identityValid() && winrtApi.active(current) && winrtApi.width(current) && winrtApi.height(current);
+    return current && identityValid() && current->active() && current->width() && current->height();
   }
   static void hooked(void *parameter, calldata_t *call)
   {
@@ -466,6 +451,11 @@ struct WgcSource {
     calldata_set_string(call, "title", self.game.title.c_str());
     calldata_set_string(call, "class", self.game.windowClass.c_str());
     calldata_set_string(call, "executable", self.game.executable.c_str());
+  }
+  static void pacing(void *parameter, calldata_t *call)
+  {
+    const auto *current = static_cast<WgcSource *>(parameter)->capture.load();
+    calldata_set_int(call, "min_update_interval_hns", current ? current->minUpdateIntervalHns() : 0);
   }
 };
 
@@ -488,12 +478,13 @@ void registerWgcSource(const std::filesystem::path &runtime)
     data->game.executable = obs_data_get_string(settings, "executable");
     if (!data->identityValid() || !leagueProcess(data->game.pid) || !winrtApi.supported()) { delete data; return nullptr; }
     proc_handler_add(obs_source_get_proc_handler(source), "void get_hooked(out bool hooked, out string title, out string class, out string executable)", WgcSource::hooked, data);
+    proc_handler_add(obs_source_get_proc_handler(source), "void get_capture_pacing(out int min_update_interval_hns)", WgcSource::pacing, data);
     return data;
   };
   source.destroy = [](void *data) {
     obs_queue_task(OBS_TASK_GRAPHICS, [](void *parameter) {
       auto *source = static_cast<WgcSource *>(parameter);
-      if (source->capture) winrtApi.freeCapture(source->capture);
+      delete source->capture.load();
       delete source;
     }, data, false);
   };
@@ -502,17 +493,19 @@ void registerWgcSource(const std::filesystem::path &runtime)
     if (!self.identityValid()) return;
     if (!self.attempted && !IsIconic(self.game.window)) {
       self.attempted = true;
+      obs_video_info video{};
+      const uint32_t fps = obs_get_video_info(&video) && video.fps_den ? video.fps_num / video.fps_den : 0;
       obs_enter_graphics();
       // Fixed HWND, client area, cursor included, SDR. There is no search or
       // reacquisition of another window and no alternative capture method.
-      self.capture = winrtApi.initializeWindow(TRUE, self.game.window, TRUE, TRUE);
+      self.capture = revu::WgcWindowCapture::start(self.game.window, fps);
       obs_leave_graphics();
     }
     auto *capture = self.capture.load();
     if (capture) {
       DWORD foregroundPid = 0;
       GetWindowThreadProcessId(GetForegroundWindow(), &foregroundPid);
-      winrtApi.showCursor(capture, foregroundPid == self.game.pid);
+      capture->showCursor(foregroundPid == self.game.pid);
     }
   };
   source.get_width = [](void *data) -> uint32_t {
@@ -526,13 +519,13 @@ void registerWgcSource(const std::filesystem::path &runtime)
   source.video_render = [](void *data, gs_effect_t *) {
     auto &self = *static_cast<WgcSource *>(data);
     if (!self.ready() || IsIconic(self.game.window)) return;
-    auto *capture = self.capture.load();
-    const auto width = winrtApi.width(capture), height = winrtApi.height(capture);
+    const auto *capture = self.capture.load();
+    const auto width = capture->width(), height = capture->height();
     const float scale = std::min(static_cast<float>(self.game.width) / width, static_cast<float>(self.game.height) / height);
     gs_matrix_push();
     gs_matrix_translate3f((self.game.width - width * scale) / 2, (self.game.height - height * scale) / 2, 0);
     gs_matrix_scale3f(scale, scale, 1);
-    winrtApi.render(capture);
+    capture->render();
     gs_matrix_pop();
   };
   source.video_get_color_space = [](void *, size_t, const gs_color_space *) -> gs_color_space { return GS_CS_SRGB; };
@@ -550,6 +543,16 @@ bool sourceHooked(obs_source_t *source, const GameWindow &game)
   const bool hooked = called && calldata_bool(&call, "hooked") && title && windowClass && executable && game.title == title && game.windowClass == windowClass && _stricmp(game.executable.c_str(), executable) == 0;
   calldata_free(&call);
   return hooked;
+}
+
+// The capture pacing in effect as JSON: hundred-nanosecond units, or null for the Windows default.
+std::string capturePacing(obs_source_t *source)
+{
+  calldata_t call{};
+  const bool called = proc_handler_call(obs_source_get_proc_handler(source), "get_capture_pacing", &call);
+  const long long interval = called ? calldata_int(&call, "min_update_interval_hns") : 0;
+  calldata_free(&call);
+  return interval > 0 ? std::to_string(interval) : "null";
 }
 
 struct ClockAnchor {
@@ -902,7 +905,7 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
     recording.sampleLagged();
     if (!emittedStart && recording.movieEpochMs.load() > 0 && recording.videoPackets.load() > 0) {
       const auto startedAt = recording.movieEpochMs.load();
-      emit("{\"type\":\"started\",\"encoder\":" + quote(recording.encoderId) + ",\"width\":" + std::to_string(quality.width) + ",\"height\":" + std::to_string(quality.height) + ",\"fps\":" + std::to_string(quality.fps) + ",\"bitrate\":" + std::to_string(quality.bitrate) + ",\"sourceWidth\":" + std::to_string(game.width) + ",\"sourceHeight\":" + std::to_string(game.height) + ",\"priority\":" + quote(priorityName(level)) + ",\"gpuPriority\":" + quote(gpuClassName(obs.gpuClass)) + ",\"startedAtVerified\":true,\"startedAt\":" + quote(isoTime(startedAt)) + ",\"startTimeEpoch\":" + std::to_string(startedAt) + ",\"clockSource\":\"obs-composition-packet-pts\",\"clockUncertaintyMs\":1}");
+      emit("{\"type\":\"started\",\"encoder\":" + quote(recording.encoderId) + ",\"width\":" + std::to_string(quality.width) + ",\"height\":" + std::to_string(quality.height) + ",\"fps\":" + std::to_string(quality.fps) + ",\"bitrate\":" + std::to_string(quality.bitrate) + ",\"sourceWidth\":" + std::to_string(game.width) + ",\"sourceHeight\":" + std::to_string(game.height) + ",\"priority\":" + quote(priorityName(level)) + ",\"gpuPriority\":" + quote(gpuClassName(obs.gpuClass)) + ",\"captureMinIntervalHns\":" + capturePacing(recording.video) + ",\"startedAtVerified\":true,\"startedAt\":" + quote(isoTime(startedAt)) + ",\"startTimeEpoch\":" + std::to_string(startedAt) + ",\"clockSource\":\"obs-composition-packet-pts\",\"clockUncertaintyMs\":1}");
       emittedStart = true;
       if (selfTest) selfTestDeadline = now + 5000;
       watchdogDeadline = 0;
@@ -912,7 +915,9 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
     if (!requestedStop && !selfTest) {
       DWORD currentPid = 0;
       GetWindowThreadProcessId(game.window, &currentPid);
-      if (!IsWindow(game.window) || currentPid != game.pid) {
+      // Windows closes the capture with its window, and a lost Direct3D device ends it for good;
+      // nothing rebuilds or reacquires it, so a stopped capture counts as a lost window.
+      if (!IsWindow(game.window) || currentPid != game.pid || !sourceHooked(recording.video, game)) {
         if (!identityLostAt) identityLostAt = now;
         // A normal game exit can destroy its HWND just before the process exits.
         // The source stops drawing immediately and never retargets another HWND;

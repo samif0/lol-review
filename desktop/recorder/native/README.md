@@ -34,7 +34,9 @@ Input EOF and game process exit also stop the recording. The helper emits
 `started`, periodic `heartbeat`, then `stopped`. A heartbeat demonstrates the
 helper's liveness; `frames` is a separate encoded-video packet counter. `started`
 confirms the requested `priority` and reports the GPU scheduling class actually in
-effect as `gpuPriority`. Missing capabilities and failures emit `error` and are never
+effect as `gpuPriority` and the window capture pacing in effect as
+`captureMinIntervalHns` (hundred-nanosecond units, or `null` where Windows keeps its
+own default). Missing capabilities and failures emit `error` and are never
 silently replaced with software encoding, display capture, or game hooks.
 
 `stopped.stats` adds `repeatedFrames` and `perMinute`, three equal-length arrays
@@ -47,9 +49,27 @@ counted. This is an estimate calibrated on 1080p60 NVENC against decoded frames.
 ## Recording contract
 
 - Explicit WGC window capture, including the game cursor, with SDR output. A
-  small OBS source wraps the pinned `libobs-winrt.dll` capture API and binds the
-  selected HWND/PID for its lifetime. Capture starts only after the first actual
-  WGC texture arrives; there is no window-title search or target reacquisition.
+  small OBS source runs Revu's own Windows Graphics Capture session
+  (`wgc-session.hpp`) and binds the selected HWND/PID for its lifetime. It follows
+  the pinned libobs-winrt 32.2.2 window capture: the frame pool is created on the
+  libobs graphics thread and delivers frames through that thread's dispatcher
+  queue, two BGRA buffers, no capture border, client area only, and the cursor only
+  while League is the foreground window. `libobs-winrt.dll` stays loaded because
+  libobs creates that dispatcher queue with it; its capture functions are not used.
+  Capture starts only after the first actual WGC texture arrives; there is no
+  window-title search, target reacquisition or capture rebuild.
+- Windows paces each capture session by `MinUpdateInterval`; its default read back
+  as 16 ms on Windows 11 build 26200. Capture then takes only every
+  ceil(16 ms / frame time)-th game frame, so League at 160 to 240 FPS arrived at
+  53 to 60 FPS and a 60 FPS recording repeated the frames that never came. Where
+  Windows has the property (build 26100 and later), the helper sets it to half the
+  output frame interval: 8.33 ms at 60 FPS and 16.67 ms at 30 FPS. Each video tick
+  takes every waiting frame, copies only the newest one and returns them all to
+  Windows. The cost is compositor work: for a 240 FPS game, Windows copies about
+  110 frames per second instead of 60. Older builds keep the Windows pacing.
+- If Windows closes the capture item, a frame cannot be used, or the Direct3D
+  device is lost, the capture stops for good. The recording then ends with
+  `source-window-lost` after the same two-second grace as a destroyed window.
 - Separate League application audio source; no microphone or desktop mix.
 - Automatic NVIDIA NVENC, AMD AMF or Intel QSV H.264 hardware compression based
   on registered capabilities and the active render-adapter vendor. All use CBR,
@@ -117,8 +137,10 @@ CTest's `hardware-encoder-policy` uses fake registered metadata to verify all
 three vendors, mixed adapters, deterministic selection, missing modules/hardware,
 unknown/software/internal encoders and the vendor-specific recording settings.
 `recording-frame-stats` verifies held-frame classification, still screens, minute
-buckets, the 300-minute bound and lagged-tick attribution. Neither test binary
-needs an OBS runtime.
+buckets, the 300-minute bound and lagged-tick attribution. `wgc-capture-interval`
+verifies the capture pacing for 30 and 60 FPS output: two captures fit in every
+output frame, fewer than three do, and 60 FPS output captures faster than the
+Windows default. None of the test binaries needs an OBS runtime.
 
 `--self-test --output ABSOLUTE.mp4` runs a bounded five-second manual diagnostic
 using generated color video and a generated 440 Hz audio tone. It loads no capture

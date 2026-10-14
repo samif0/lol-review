@@ -11,6 +11,7 @@ import { writeSourceZip } from './source-zip.mjs';
 
 export const recorderHelperSourceFiles = Object.freeze(['native/CMakeLists.txt', 'native/recorder.cpp',
   'native/encoder-policy.hpp', 'native/encoder-policy-tests.cpp', 'native/frame-stats.hpp', 'native/frame-stats-tests.cpp',
+  'native/wgc-session.hpp', 'native/capture-pacing.hpp', 'native/capture-pacing-tests.cpp',
   'native/README.md', 'scripts/setup.mjs',
   'scripts/probe.mjs', 'scripts/source-zip.mjs', 'runtime/libobs.mjs', 'runtime/source-lock.json']);
 
