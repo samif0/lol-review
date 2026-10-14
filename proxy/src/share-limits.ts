@@ -58,6 +58,13 @@ export const DEFAULT_USER_CLIP_BUDGET_BYTES = 3_000_000_000;
 export const IDLE_SWEEP_SECONDS = 1800;
 /** At most this many idle uploads are discarded by one upload start. */
 export const IDLE_SWEEP_ON_START = 10;
+/**
+ * At most this many idle uploads are discarded by one hourly cron run. Each
+ * discard costs about 6 D1 and R2 calls, and the run is the last step of the
+ * cron, so a backlog can only use what the purge and the pruning left of the
+ * per-invocation query budget on Workers Free; later runs clear the rest.
+ */
+export const IDLE_SWEEP_PER_RUN = 5;
 
 /**
  * A VOD's upload window: long enough to send the declared size at

@@ -14,6 +14,7 @@ import { isGoneUploadError } from "../src/upload-cleanup";
 import { ABORT_GIVE_UP_SECONDS } from "../src/clip-purge";
 import {
   DEFAULT_USER_CLIP_BUDGET_BYTES,
+  IDLE_SWEEP_PER_RUN,
   IDLE_SWEEP_SECONDS,
   PART_PUTS_PER_DAY,
   nextUtcMidnight,
@@ -21,7 +22,7 @@ import {
   vodUploadWindowSeconds,
 } from "../src/share-limits";
 import { makeRequest, mp4Bytes, runScheduled } from "./fakes";
-import { BASE, MiB, VodSetup, body, del, nowSec, payload, vodComplete, vodInitOk, vodPart, vodSetup } from "./vod-fixtures";
+import { BASE, MiB, VodSetup, body, del, nowSec, payload, shareVod, vodComplete, vodInitOk, vodPart, vodSetup } from "./vod-fixtures";
 
 const GiB = 1024 * 1024 * 1024;
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -139,6 +140,49 @@ describe("idle reservations of any account", () => {
     expect(row(s, ids.a1[0])).toBeUndefined();
     expect(row(s, ids.a1[1]).status).toBe("uploading");
     expect(row(s, ids.a2[0]).status).toBe("uploading");
+  });
+
+  /** `accounts` accounts with two idle pending clip uploads each. */
+  async function idleBacklog(accounts: number) {
+    const tokens = Array.from({ length: accounts }, (_, i) => `idle${i + 1}`);
+    const s = await vodSetup({ tokens: ["sess-owner", ...tokens], allow: ["sess-owner"] });
+    const ids: string[] = [];
+    for (const t of tokens) ids.push(await idOf(await clipInit(s.env, t, 100)), await idOf(await clipInit(s.env, t, 100)));
+    s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE status = 'uploading'", nowSec() - IDLE_SWEEP_SECONDS - 1);
+    return { s, ids };
+  }
+  const pendingCount = (s: VodSetup) => s.db.q("SELECT id FROM clips WHERE status = 'uploading'").length;
+
+  it("one hourly run discards at most IDLE_SWEEP_PER_RUN idle uploads, and later runs clear the rest", async () => {
+    expect(IDLE_SWEEP_PER_RUN).toBe(5);
+    const { s, ids } = await idleBacklog(4);
+    expect(pendingCount(s)).toBe(8);
+    await runScheduled(worker, s.env);
+    expect(pendingCount(s)).toBe(8 - IDLE_SWEEP_PER_RUN);
+    await runScheduled(worker, s.env);
+    expect(pendingCount(s)).toBe(0);
+    for (const id of ids) expect(row(s, id)).toBeUndefined();
+    expect([...s.r2.uploads.values()].filter((u) => u.state === "aborted")).toHaveLength(8);
+  });
+
+  it("the sweep runs after the purge and the pruning, so a backlog stays inside the Workers Free D1 budget", async () => {
+    const { s } = await idleBacklog(10);
+    const expired = (await shareVod(s)).id;
+    s.db.x("UPDATE clips SET expires_at = ?2 WHERE id = ?1", expired, nowSec() - 60);
+    const from = s.db._sql.length;
+    await runScheduled(worker, s.env);
+    const cron = s.db._sql.slice(from);
+
+    expect(row(s, expired)).toBeUndefined();
+    expect(pendingCount(s)).toBe(20 - IDLE_SWEEP_PER_RUN);
+    const purgeAt = cron.findIndex((q) => q.startsWith("SELECT id, r2_key, upload_id FROM clips WHERE expires_at <="));
+    const pruneAt = cron.findIndex((q) => q.startsWith("DELETE FROM upload_part_usage"));
+    const sweepAt = cron.findIndex((q) => q.includes("status = 'uploading' AND COALESCE(last_activity_at, created_at) <="));
+    expect(purgeAt).toBeGreaterThanOrEqual(0);
+    expect(pruneAt).toBeGreaterThan(purgeAt);
+    expect(sweepAt).toBeGreaterThan(pruneAt);
+    // Workers Free allows 50 D1 queries per invocation; the whole run fits with room to spare.
+    expect(cron.length).toBeLessThanOrEqual(50);
   });
 });
 

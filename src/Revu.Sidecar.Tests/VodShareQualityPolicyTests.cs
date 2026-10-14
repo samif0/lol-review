@@ -53,6 +53,35 @@ public sealed class VodShareQualityPolicyTests
         Assert.Equal((VodShareQuality.P720, "pool", true), (d.Quality, d.Reason, d.Ok));
     }
 
+    [Theory]
+    [InlineData(2255.4, 1_355_119_500, 813_071_700)]
+    [InlineData(60, 36_050_000, 21_630_000)]
+    [InlineData(0, 0, 0)]
+    public void PoolEstimate_IsTheEstimatePlusThreePercent(double duration, long p1080, long p720)
+    {
+        Assert.Equal(1.03m, VodShareQualityPolicy.PoolMargin);
+        Assert.Equal(p1080, VodShareQualityPolicy.PoolEstimate(VodShareQuality.P1080, duration));
+        Assert.Equal(p720, VodShareQualityPolicy.PoolEstimate(VodShareQuality.P720, duration));
+    }
+
+    [Fact]
+    public void ANearlyFullPool_PlansForTheMargin_NotTheBareEstimate()
+    {
+        // The local end-to-end run: a 37.6-minute game was estimated at 1,315,650,000 bytes and
+        // encoded to 1,332,220,736. A pool with exactly that much free fits the bare estimate,
+        // but the real copy needs all of it; the margin moves the share to 720p before encoding.
+        var d = VodShareQualityPolicy.Decide(VodShareQuality.P1080, 2255.4, Pool(1_332_220_736), Now);
+        Assert.Equal((VodShareQuality.P720, "pool", true), (d.Quality, d.Reason, d.Ok));
+        Assert.Equal(VodShareQuality.P1080,
+            VodShareQualityPolicy.Decide(VodShareQuality.P1080, 2255.4, Pool(1_355_119_500), Now).Quality);
+
+        // 720p: room for the bare estimate but not the margin is pool_full, with when it fits.
+        var pool = Pool(800_000_000, new VodSharePoolRelease(Now + 3600, 13_071_700, 13_071_700));
+        var full = VodShareQualityPolicy.Decide(VodShareQuality.P720, 2255.4, pool, Now);
+        Assert.Equal(("pool_full", (long?)(Now + 3600)), (full.ErrorCode, full.RetryAt));
+        Assert.True(VodShareQualityPolicy.Decide(VodShareQuality.P720, 2255.4, Pool(813_071_700), Now).Ok);
+    }
+
     [Fact]
     public void AFullPool_IsPoolFull_WithWhenItFits()
     {

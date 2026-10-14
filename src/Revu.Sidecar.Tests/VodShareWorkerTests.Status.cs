@@ -120,6 +120,23 @@ public sealed partial class VodShareWorkerTests
     }
 
     [Fact]
+    public async Task Status_PoolFlags_PlanForTheSameMarginAsStart()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            // Room for the bare 1080p estimate (1,315,650,000) but not for it plus 3%.
+            h.Client.Status = () => FakeVodClient.Allowed(freeBytes: 1_332_220_736);
+
+            var status = await h.Worker.GetStatusAsync(GameId, CancellationToken.None);
+
+            Assert.Equal(new VodShareEstimatesDto(1_315_650_000, 789_390_000), status.Estimates);
+            Assert.Equal(new VodSharePoolDto(1_332_220_736, false, true, null, null), status.Pool);
+        }
+    }
+
+    [Fact]
     public async Task Status_Unreachable_UsesTheCachedAllowedFlag()
     {
         var (h, tap) = await StartAsync();

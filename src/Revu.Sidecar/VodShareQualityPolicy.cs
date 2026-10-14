@@ -11,6 +11,13 @@ namespace Revu.Sidecar;
 /// </summary>
 internal static class VodShareQualityPolicy
 {
+    /// <summary>
+    /// Pool checks plan for the estimate plus 3%. A real 1080p copy ran up to 1.3% over the
+    /// estimate, and the proxy reserves the real size only after the encode, so without the
+    /// margin a nearly full pool could refuse the upload after a long encode.
+    /// </summary>
+    public const decimal PoolMargin = 1.03m;
+
     /// <summary>The outcome: a quality (with why it was lowered), or an error code.</summary>
     internal sealed record Decision(VodShareQuality Quality, string? Reason, string? ErrorCode, long? RetryAt)
     {
@@ -29,10 +36,15 @@ internal static class VodShareQualityPolicy
         return (long)Math.Ceiling((decimal)durationSeconds * perMinute / 60m);
     }
 
+    /// <summary>The bytes a pool check plans for: <c>ceil(Estimate * 1.03)</c>.</summary>
+    public static long PoolEstimate(VodShareQuality quality, double durationSeconds) =>
+        (long)Math.Ceiling(Estimate(quality, durationSeconds) * PoolMargin);
+
     /// <summary>
     /// <c>too_long</c> past 2 hours; 1080p falls back to 720p when its estimate passes 95% of
-    /// 2 GiB (<c>size</c>) or the free pool (<c>pool</c>); 720p that does not fit the pool is
-    /// <c>pool_full</c> with the time it would fit. A null pool skips the pool checks.
+    /// 2 GiB (<c>size</c>) or its pool estimate (3% margin) passes the free pool (<c>pool</c>);
+    /// 720p whose pool estimate does not fit the pool is <c>pool_full</c> with the time it
+    /// would fit. A null pool skips the pool checks.
     /// </summary>
     public static Decision Decide(VodShareQuality requested, double durationSeconds, VodSharePool? pool, long now)
     {
@@ -48,14 +60,14 @@ internal static class VodShareQualityPolicy
             reason = "size";
         }
         if (pool is not null && quality == VodShareQuality.P1080
-            && Estimate(VodShareQuality.P1080, durationSeconds) > pool.FreeBytes)
+            && PoolEstimate(VodShareQuality.P1080, durationSeconds) > pool.FreeBytes)
         {
             quality = VodShareQuality.P720;
             reason = "pool";
         }
         if (pool is not null && quality == VodShareQuality.P720)
         {
-            var est720 = Estimate(VodShareQuality.P720, durationSeconds);
+            var est720 = PoolEstimate(VodShareQuality.P720, durationSeconds);
             if (est720 > pool.FreeBytes)
                 return new Decision(quality, reason, "pool_full", pool.FitsAt(est720, now));
         }

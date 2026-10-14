@@ -35,6 +35,7 @@ import { handleClipView } from "./clip-views";
 import { handleUploadComplete, handleUploadInit, handleUploadPart } from "./clip-uploads";
 import { purgeTombstones } from "./clip-purge";
 import { sweepIdleUploads } from "./upload-cleanup";
+import { IDLE_SWEEP_PER_RUN } from "./share-limits";
 import {
   handleVodMarkers,
   handleVodShareStatus,
@@ -421,26 +422,19 @@ async function route(request: Request, url: URL, env: Env, ctx: ExecutionContext
 // (the entry referenced by wrangler.toml `main`). Re-export it here.
 export { GlobalRateLimiter };
 
-/** Idle pending uploads one hourly run discards at most. */
-const IDLE_SWEEP_PER_RUN = 200;
-
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Hourly housekeeping, in order: discard idle pending uploads of every
-    // account (their reservations stop holding the storage pool), purge
-    // expired clips, VOD shares and expired pending uploads (R2 + D1), retry
-    // storage tombstones, stale sessions, expired sign-in codes (with their
-    // email addresses), old transcribe_usage rows, old email send counts, then
-    // old VOD share start and part upload counts. Each step is isolated so one
-    // failure doesn't skip the rest.
+    // Hourly housekeeping, in order: purge expired clips, VOD shares and
+    // expired pending uploads (R2 + D1), retry storage tombstones, stale
+    // sessions, expired sign-in codes (with their email addresses), old
+    // transcribe_usage rows, old email send counts, old VOD share start and
+    // part upload counts, then discard at most IDLE_SWEEP_PER_RUN idle pending
+    // uploads of every account (their reservations stop holding the storage
+    // pool). The sweep runs last and small so a backlog of idle uploads can't
+    // use up the run's D1 query budget before the purge. Each step is isolated
+    // so one failure doesn't skip the rest.
     ctx.waitUntil(
       (async () => {
-        try {
-          const swept = await sweepIdleUploads(env, Math.floor(Date.now() / 1000), IDLE_SWEEP_PER_RUN);
-          if (swept > 0) console.log(JSON.stringify({ scope: "cron.idle_uploads", discarded: swept }));
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.idle_uploads", error: (err as Error).message }));
-        }
         try {
           const purged = await purgeExpiredClips(env);
           console.log(JSON.stringify({ scope: "cron.purge", clips: purged }));
@@ -482,6 +476,12 @@ export default {
           await pruneUploadPartUsage(env);
         } catch (err) {
           console.error(JSON.stringify({ scope: "cron.upload_part_usage", error: (err as Error).message }));
+        }
+        try {
+          const swept = await sweepIdleUploads(env, Math.floor(Date.now() / 1000), IDLE_SWEEP_PER_RUN);
+          if (swept > 0) console.log(JSON.stringify({ scope: "cron.idle_uploads", discarded: swept }));
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.idle_uploads", error: (err as Error).message }));
         }
       })(),
     );

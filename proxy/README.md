@@ -252,17 +252,20 @@ npx wrangler d1 migrations apply revu-db --remote
 
 ### Cron
 
-The scheduled handler runs hourly (`0 * * * *`). In order it discards pending
-uploads of any account with no part activity for 30 minutes (so abandoned
-reservations stop holding the storage pool), purges expired clips, full-game
-shares and expired pending uploads (aborting the upload and deleting the R2
-object, the transcript and the VOD meta), retries `storage_tombstones`, then
-expired sessions, then `login_requests` rows that expired over an hour ago
-(with their email addresses, used or not), then `transcribe_usage`,
-`email_send_usage`, `vod_share_usage` and `upload_part_usage` rows older than 7
-days. A row or tombstone whose upload abort really failed is kept for the next
-run (its parts may still be in R2) until it is 8 days old, past R2's own 7-day
-rule for incomplete uploads.
+The scheduled handler runs hourly (`0 * * * *`). In order it purges expired
+clips, full-game shares and expired pending uploads (aborting the upload and
+deleting the R2 object, the transcript and the VOD meta), retries
+`storage_tombstones`, then expired sessions, then `login_requests` rows that
+expired over an hour ago (with their email addresses, used or not), then
+`transcribe_usage`, `email_send_usage`, `vod_share_usage` and
+`upload_part_usage` rows older than 7 days. Last, it discards at most 5
+pending uploads of any account with no part activity for 30 minutes (so
+abandoned reservations stop holding the storage pool). Each discard costs
+about 6 D1 and R2 calls, so the sweep runs last and small: a backlog can't use
+up the run's D1 query budget on Workers Free before the purge, and later runs
+clear the rest. A row or tombstone whose upload abort really failed is kept
+for the next run (its parts may still be in R2) until it is 8 days old, past
+R2's own 7-day rule for incomplete uploads.
 
 ### Migration 0005 and deploy order
 

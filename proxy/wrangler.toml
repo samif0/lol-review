@@ -137,10 +137,10 @@ class_name = "GlobalRateLimiter"
 tag = "v1"
 new_sqlite_classes = ["GlobalRateLimiter"]
 
-# Hourly cleanup: discards pending uploads of any account idle for 30 minutes,
-# then expired clips and VOD shares (3-day retention) and expired pending
-# uploads. Purges R2 objects + D1 rows, retries storage tombstones, then expired
-# sessions, then usage rows (transcribe, email, VOD starts, part uploads) older
-# than 7 days.
+# Hourly cleanup: expired clips and VOD shares (3-day retention) and expired
+# pending uploads. Purges R2 objects + D1 rows, retries storage tombstones, then
+# expired sessions, then usage rows (transcribe, email, VOD starts, part uploads)
+# older than 7 days, and last discards at most 5 pending uploads of any account
+# idle for 30 minutes.
 [triggers]
 crons = ["0 * * * *"]

@@ -148,8 +148,10 @@ public sealed partial class VodShareWorker
                 ttl = status.Limits?.TtlSeconds is > 0 ? status.Limits.TtlSeconds : DefaultTtlSeconds;
                 if (allowed && status.Pool is { } p && estimates is not null)
                 {
-                    var at1080 = p.FitsAt(estimates.P1080Bytes, status.Now);
-                    var at720 = p.FitsAt(estimates.P720Bytes, status.Now);
+                    // The same 3% margin as the start decision, so the sheet never offers a
+                    // quality that start would then lower or refuse.
+                    var at1080 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P1080, d), status.Now);
+                    var at720 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P720, d), status.Now);
                     var fits1080 = at1080 == status.Now;
                     var fits720 = at720 == status.Now;
                     pool = new VodSharePoolDto(p.FreeBytes, fits1080, fits720, fits1080 ? null : at1080, fits720 ? null : at720);
