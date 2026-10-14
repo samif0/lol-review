@@ -15,6 +15,16 @@ export const STOPPED_QUEUED = "Revu couldn't stop the link yet, so it still work
 export const LINK_READY = 'Full game link ready.';
 export const STOP_FAILED = "Couldn't stop sharing. Try again.";
 export const CHECKING = 'Checking sharing space...';
+// 4.3: a share's link works from the moment its upload starts. Until the upload finishes, the
+// link's page shows how far along it is, then plays the game.
+export const LINK_EARLY = 'Anyone with the link can open it now. The game plays as soon as the upload finishes.';
+export const LINK_LIVE = 'Link ready to share.';
+// The upload had to start over (a new encoder, or a copy larger than planned): a new link.
+export const LINK_CHANGED = 'The upload had to start over, so the link changed. Copy the new one.';
+export const LINK_CHANGED_SHORT = 'The link changed.';
+export const LINK_REPLACING = 'The upload had to start over, so the first link no longer works. A new one will show here.';
+// Added to an error when the share's link was already shown.
+export const LINK_GONE = "The link won't work.";
 const FALLBACK = "Sharing didn't finish. Try again.";
 
 const COPY = {
@@ -81,8 +91,14 @@ export function vodSharePhaseLabel(job) {
 }
 
 /** The copy for one errorCode. '' means no message (cancelled, not_allowed). can720: a 1080p
- * attempt that 720p would still fit, so "Try 720p" is honest advice. */
+ * attempt that 720p would still fit, so "Try 720p" is honest advice. linkShown: the share's link
+ * was already on screen, so whoever got it is told it won't work. */
 export function vodShareErrorText(code, options = {}) {
+  const text = errorText(code, options);
+  return text && options.linkShown === true ? `${text} ${LINK_GONE}` : text;
+}
+
+function errorText(code, options) {
   const { retryAt = null, error = '', limits = null, time = formatShareTime, can720 = true } = options;
   const when = retryAt ? time(retryAt) : '';
   switch (code) {

@@ -557,6 +557,12 @@
       <p class="vp-vs-progress-label" data-vs="progress-label"></p>
       <span class="vp-vs-live" data-vs="progress-live" role="status" aria-live="polite"></span>
       <div class="vp-vs-bar" aria-hidden="true"><span data-vs="progress-bar"></span></div>
+      <div class="vp-vs-linkrow" data-vs="progress-link" hidden>
+        <input class="ui-field vp-vs-url" data-vs="progress-url" type="text" readonly spellcheck="false" aria-label="Share link">
+        <button class="ui-btn ui-btn-quiet" data-vs="progress-copy" type="button">Copy</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="progress-open" type="button" hidden>Open</button>
+      </div>
+      <p class="vp-vs-expiry" data-vs="progress-link-note" hidden></p>
       <p class="vp-vs-note" data-vs="progress-note"></p>
     </div>
     <div class="vp-vs-view" data-vs-view="done" hidden>

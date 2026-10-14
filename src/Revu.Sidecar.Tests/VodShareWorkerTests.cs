@@ -193,7 +193,7 @@ public sealed partial class VodShareWorkerTests
 
             var queued = await WaitPhaseAsync(tap, "queued");
             Assert.Equal(new[] { "gameId", "state", "phase", "percent", "quality", "qualityReason", "url", "expiresAt",
-                "markersAttached", "errorCode", "error", "retryAt", "needsLogin" }, queued.EnumerateObject().Select(p => p.Name));
+                "markersAttached", "errorCode", "error", "retryAt", "needsLogin", "linkChanged" }, queued.EnumerateObject().Select(p => p.Name));
             Assert.Equal(("running", 0, "1080p"), (queued.GetProperty("state").GetString(), queued.GetProperty("percent").GetInt32(),
                 queued.GetProperty("quality").GetString()));
             await WaitPhaseAsync(tap, "preparing");
@@ -290,12 +290,95 @@ public sealed partial class VodShareWorkerTests
         using (tap)
         {
             h.Encoder.Restarts = true;
+            h.Client.InitStarted = FakeVodClient.Started("first12");
             await StartShareAsync(h);
-            await WaitPhaseAsync(tap, "done");
+            var done = await WaitPhaseAsync(tap, "done");
 
             Assert.Equal(new bool?[] { false }, h.Client.WhileWritingOutcomes);
             Assert.Null(h.Client.Uploads.Single().Declared);
             Assert.Empty(h.Pads);
+            // The first upload's link went with it; the finished share has a new one.
+            Assert.Equal(("https://revu.lol/v/vod1234", true),
+                (done.GetProperty("url").GetString(), done.GetProperty("linkChanged").GetBoolean()));
+        }
+    }
+
+    [Fact]
+    public async Task TheLinkShowsAsSoonAsTheUploadStarts_LongBeforeItFinishes()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Encoder.DuringEncode = ct => release.Task.WaitAsync(ct);
+            await StartShareAsync(h);
+
+            // The copy is still being encoded and the link is out: its page shows the upload's progress.
+            var early = await tap.WaitForAsync("vodShareProgress", e => e.GetProperty("state").GetString() == "running"
+                && e.GetProperty("url").GetString() == "https://revu.lol/v/vod1234");
+            Assert.Equal((FakeVodClient.Now + 259_200, false),
+                (early.GetProperty("expiresAt").GetInt64(), early.GetProperty("linkChanged").GetBoolean()));
+            Assert.Empty(h.Client.Uploads);
+            var job = (await h.Worker.GetStatusAsync(GameId, CancellationToken.None)).Job!;
+            Assert.Equal(("running", "https://revu.lol/v/vod1234", (long?)(FakeVodClient.Now + 259_200), false),
+                (job.State, job.Url, job.ExpiresAt, job.LinkChanged));
+            // Only a finished share is stored; until then a crash leaves the upload queued for deletion.
+            Assert.Null(h.Store.Get(GameId));
+            Assert.Contains("vod1234", h.Cleanup.Snapshot());
+
+            // Later progress keeps the link, and the finished share has the same one.
+            release.SetResult();
+            var finishing = await WaitPhaseAsync(tap, "finishing");
+            Assert.Equal("https://revu.lol/v/vod1234", finishing.GetProperty("url").GetString());
+            var done = await WaitPhaseAsync(tap, "done");
+            Assert.Equal(("https://revu.lol/v/vod1234", false),
+                (done.GetProperty("url").GetString(), done.GetProperty("linkChanged").GetBoolean()));
+            Assert.Equal("https://revu.lol/v/vod1234", h.Store.Get(GameId)!.Url);
+        }
+    }
+
+    [Fact]
+    public async Task AGivenUpUpload_TakesItsLinkDown_AndTheNewLinkSaysItChanged()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            h.Client.InitStarted = FakeVodClient.Started("first12");
+            h.Encoder.SizeFor = _ => 1_396_160_263;   // one byte past the 1080p30 reservation
+            await StartShareAsync(h);
+
+            await tap.WaitForAsync("vodShareProgress", e => e.GetProperty("url").GetString() == "https://revu.lol/v/first12");
+            var dropped = await tap.WaitForAsync("vodShareProgress", e => e.GetProperty("state").GetString() == "running"
+                && e.GetProperty("url").ValueKind == JsonValueKind.Null && e.GetProperty("linkChanged").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, dropped.GetProperty("expiresAt").ValueKind);
+            var replaced = await tap.WaitForAsync("vodShareProgress",
+                e => e.GetProperty("url").GetString() == "https://revu.lol/v/vod1234");
+            Assert.Equal(("running", true), (replaced.GetProperty("state").GetString(), replaced.GetProperty("linkChanged").GetBoolean()));
+            var done = await WaitPhaseAsync(tap, "done");
+            Assert.Equal(("https://revu.lol/v/vod1234", true),
+                (done.GetProperty("url").GetString(), done.GetProperty("linkChanged").GetBoolean()));
+            Assert.Equal("vod1234", h.Store.Get(GameId)!.Id);
+        }
+    }
+
+    [Fact]
+    public async Task ACancelledShare_NoLongerCarriesItsLink()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            h.Encoder.DuringEncode = ct => Task.Delay(Timeout.Infinite, ct);
+            await StartShareAsync(h);
+            await tap.WaitForAsync("vodShareProgress", e => e.GetProperty("url").GetString() == "https://revu.lol/v/vod1234");
+
+            Assert.True(h.Worker.Cancel(GameId));
+            var cancelled = await WaitPhaseAsync(tap, "cancelled");
+            Assert.Equal(JsonValueKind.Null, cancelled.GetProperty("url").ValueKind);
+            var job = (await h.Worker.GetStatusAsync(GameId, CancellationToken.None)).Job!;
+            Assert.Equal(("cancelled", (string?)null), (job.State, job.Url));
         }
     }
 
@@ -384,6 +467,9 @@ public sealed partial class VodShareWorkerTests
             Assert.Equal(("error", "encode_failed"), (error.GetProperty("state").GetString(), error.GetProperty("errorCode").GetString()));
             Assert.Equal("Revu couldn't prepare the video. Try again.", error.GetProperty("error").GetString());
             Assert.Null(h.Store.Get(GameId));
+            // A share that fails is not one whose link changed: no new link is coming.
+            Assert.DoesNotContain(tap.Seen, e => e.Type == "vodShareProgress" && e.Payload.GetProperty("linkChanged").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, error.GetProperty("url").ValueKind);
         }
     }
 
@@ -418,9 +504,9 @@ public sealed partial class VodShareWorkerTests
         using (h)
         using (tap)
         {
-            h.Client.OnUpload = async (_, _, progress, assign, ct) =>
+            h.Client.InitStarted = FakeVodClient.Started("mid1234");
+            h.Client.OnUpload = async (_, _, progress, _, ct) =>
             {
-                assign?.Invoke("mid1234");
                 progress?.Report(new ClipUploadProgress("uploading", 10, 100));
                 await Task.Delay(Timeout.Infinite, ct);
                 throw new InvalidOperationException("unreachable");
@@ -446,9 +532,9 @@ public sealed partial class VodShareWorkerTests
         using (h)
         using (tap)
         {
-            h.Client.OnUpload = (_, _, _, assign, _) =>
+            h.Client.InitStarted = FakeVodClient.Started("late123");
+            h.Client.OnUpload = (_, _, _, _, _) =>
             {
-                assign?.Invoke("late123");
                 h.Worker.Cancel(GameId);
                 return Task.FromResult(new VodUploadResult("late123", "https://revu.lol/v/late123", FakeVodClient.Now + 259_200));
             };

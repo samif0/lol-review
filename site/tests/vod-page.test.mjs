@@ -45,31 +45,48 @@ function element(document, tag, attributes = '') {
 }
 
 function page({ pathname = '/v/Abc1234', search = '', hostname = 'revu.lol', routes = {}, now = Date.UTC(2026, 9, 14, 12) } = {}) {
-  const document = { title: '', byId: new Map(), getElementById: id => document.byId.get(id) || null,
-    createElement: tag => element(document, tag) };
+  const docListeners = new Map();
+  const document = { title: '', hidden: false, byId: new Map(), getElementById: id => document.byId.get(id) || null,
+    createElement: tag => element(document, tag),
+    addEventListener(type, fn) { if (!docListeners.has(type)) docListeners.set(type, []); docListeners.get(type).push(fn); },
+    dispatch(type) { for (const fn of docListeners.get(type) || []) fn({ type }); } };
   for (const match of html.matchAll(/<([a-z][\w-]*)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
     document.byId.set(match[3], element(document, match[1], match[2]));
   }
   // The lane's playhead starts inside the track, as in the page.
   document.byId.get('vod-lane-track').appendChild(document.byId.get('vod-lane-playhead'));
-  const requests = [], timers = [];
+  const requests = [], timers = [], timeouts = [];
   const context = {
     document, URLSearchParams, location: { pathname, search, hostname },
     Date: class extends Date { static now() { return now; } },
     setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearInterval: () => {},
+    setTimeout: (fn, ms) => { timeouts.push({ fn, ms, live: true }); return timeouts.length; },
+    clearTimeout: handle => { if (timeouts[handle - 1]) timeouts[handle - 1].live = false; },
     fetch: async url => {
       requests.push(url);
       const path = url.replace(/^https?:\/\/[^/]+/, '');
       const route = routes[path];
       const reply = typeof route === 'function' ? route() : route;
       if (!reply) return { ok: false, status: 404, json: async () => ({ error: 'not_found' }) };
-      return { ok: reply.status ? reply.status < 300 : true, status: reply.status || 200, json: async () => reply.body ?? reply };
+      // A reply is the JSON body, or { httpStatus, body } for an error answer.
+      const status = typeof reply.httpStatus === 'number' ? reply.httpStatus : 200;
+      return { ok: status < 300, status, json: async () => reply.body ?? reply };
     },
   };
   vm.runInNewContext(script, context);
   const $ = id => document.byId.get(id);
-  return { document, requests, timers, $, video: $('vod-video'),
-    state: () => ['state-loading', 'state-missing', 'state-game'].find(id => !$(id).hidden) };
+  // Runs the one pending timeout (the next poll), as the browser would after its delay.
+  const nextPoll = async () => {
+    const pending = timeouts.filter(t => t.live);
+    assert.equal(pending.length, 1, 'exactly one poll is scheduled');
+    pending[0].live = false;
+    pending[0].fn();
+    await flush();
+    return pending[0].ms;
+  };
+  return { document, requests, timers, timeouts, nextPoll, $, video: $('vod-video'),
+    pending: () => timeouts.filter(t => t.live),
+    state: () => ['state-loading', 'state-missing', 'state-uploading', 'state-game'].find(id => !$(id).hidden) };
 }
 
 const NOW_S = Date.UTC(2026, 9, 14, 12) / 1000;
@@ -252,6 +269,106 @@ test('without notes or markers the lane and notes stay hidden; a playback error 
   run.video.dispatch('error');
   await flush();
   assert.equal(run.state(), 'state-missing');
+});
+
+// A share whose upload is still running: /vod-meta answers status "uploading".
+function uploading(overrides = {}) {
+  return { id: 'Abc1234', kind: 'vod', status: 'uploading', quality: '1080p60', duration_s: 1834, created_at: NOW_S - 60,
+    expires_at: NOW_S + 3 * 86400 - 60, serving: true, progress: { parts: 0, part_count: 90 }, stalled: false, ...overrides };
+}
+
+test('upload progress is an estimate that never reads 100%, and polling slows down over time and when stalled', () => {
+  const { metaState, uploadPercent, uploadText, pollDelay, UPLOADING_COPY, STALLED_COPY } = helpers();
+  assert.equal(metaState(uploading()), 'uploading');
+  assert.equal(metaState(uploading({ serving: false })), 'paused', 'a pause wins: the game could not play anyway');
+  for (const [progress, percent] of [[{ parts: 0, part_count: 90 }, 0], [{ parts: 30, part_count: 90 }, 33],
+    [{ parts: 89, part_count: 90 }, 98], [{ parts: 90, part_count: 90 }, 99], [{ parts: 95, part_count: 90 }, 99],
+    [{ parts: 'x', part_count: 90 }, 0], [{ parts: 3, part_count: 0 }, 0], [null, 0]]) {
+    assert.equal(uploadPercent({ progress }), percent, JSON.stringify(progress));
+  }
+  assert.deepEqual({ ...uploadText(uploading({ progress: { parts: 30, part_count: 90 } })) },
+    { title: 'Still uploading, 33%', copy: UPLOADING_COPY });
+  assert.deepEqual({ ...uploadText(uploading({ progress: { parts: 60, part_count: 90 }, stalled: true })) },
+    { title: 'Upload paused at 66%', copy: STALLED_COPY });
+  assert.equal(UPLOADING_COPY, 'This game plays here as soon as the upload finishes. You can leave this page open.');
+  assert.match(html, new RegExp(`<p id="upload-copy"[^>]*>${UPLOADING_COPY}</p>`), 'the page starts with the same copy');
+  assert.deepEqual([pollDelay(0, false), pollDelay(59999, false), pollDelay(60000, false), pollDelay(0, true)],
+    [4000, 4000, 10000, 30000]);
+});
+
+test('a game that is still uploading shows its progress, keeps asking, and starts the player once it is ready', async () => {
+  const { UPLOADING_COPY, STALLED_COPY } = helpers();
+  let current = uploading({ progress: { parts: 30, part_count: 90 } });
+  const run = page({ routes: { '/vod-meta/Abc1234': () => (typeof current === 'function' ? current() : current) } });
+  await flush();
+  assert.equal(run.state(), 'state-uploading');
+  assert.equal(run.$('upload-title').textContent, 'Still uploading, 33%');
+  assert.equal(run.$('upload-copy').textContent, UPLOADING_COPY);
+  assert.equal(run.$('upload-bar').style.width, '33%');
+  assert.equal(run.$('upload-meter').getAttribute('aria-valuenow'), '33');
+  assert.equal(run.document.title, 'Still uploading, 33% - Revu');
+  assert.ok(!run.video.src, 'nothing to play yet');
+  assert.deepEqual(run.requests, ['https://clips.revu.lol/vod-meta/Abc1234']);
+
+  current = uploading({ progress: { parts: 60, part_count: 90 } });
+  assert.equal(await run.nextPoll(), 4000);
+  assert.equal(run.$('upload-title').textContent, 'Still uploading, 66%');
+  assert.equal(run.requests.length, 2);
+
+  // Stalled: it says so, and asks less often.
+  current = uploading({ progress: { parts: 60, part_count: 90 }, stalled: true });
+  await run.nextPoll();
+  assert.equal(run.$('upload-title').textContent, 'Upload paused at 66%');
+  assert.equal(run.$('upload-copy').textContent, STALLED_COPY);
+  assert.equal(run.pending()[0].ms, 30000);
+
+  // A server error or a dropped connection is not the end: it asks again.
+  current = { httpStatus: 503, body: { error: 'clip_error' } };
+  await run.nextPoll();
+  current = () => { throw new TypeError('Failed to fetch'); };
+  await run.nextPoll();
+  assert.equal(run.state(), 'state-uploading');
+  assert.equal(run.$('upload-title').textContent, 'Upload paused at 66%');
+  assert.equal(run.pending().length, 1);
+
+  // Ready: the normal game page, with the video loaded and nothing left to ask.
+  current = meta();
+  await run.nextPoll();
+  assert.equal(run.state(), 'state-game');
+  assert.equal(run.video.src, 'https://clips.revu.lol/vod-file/Abc1234');
+  assert.equal(run.$('vod-title').textContent, 'Jinx vs Caitlyn');
+  assert.equal(run.document.title, 'Jinx vs Caitlyn - Revu');
+  assert.equal(run.pending().length, 0, 'polling stops');
+  assert.equal(run.requests.length, 6);
+});
+
+test('an upload that ends while someone waits says the game is not available; a hidden tab waits to ask', async () => {
+  let current = uploading();
+  const run = page({ routes: { '/vod-meta/Abc1234': () => current } });
+  await flush();
+  assert.equal(run.$('upload-title').textContent, 'Still uploading, 0%');
+  run.document.hidden = true;
+  await run.nextPoll();
+  assert.equal(run.requests.length, 1, 'a hidden tab does not ask');
+  assert.equal(run.pending().length, 0);
+  run.document.hidden = false;
+  run.document.dispatch('visibilitychange');
+  await flush();
+  assert.equal(run.requests.length, 2, 'it asks as soon as it is shown');
+  run.document.dispatch('visibilitychange');
+  await flush();
+  assert.equal(run.requests.length, 2, 'and only once');
+  current = null;
+  await run.nextPoll();
+  assert.equal(run.state(), 'state-missing');
+  assert.equal(run.$('state-title').textContent, 'Game not available');
+  assert.equal(run.pending().length, 0);
+
+  const paused = page({ routes: { '/vod-meta/Abc1234': uploading({ serving: false }) } });
+  await flush();
+  assert.equal(paused.state(), 'state-missing');
+  assert.equal(paused.$('state-title').textContent, 'Playback paused');
+  assert.equal(paused.pending().length, 0);
 });
 
 test('the page is unlisted, has no video card or inline script, and offers a report contact', () => {

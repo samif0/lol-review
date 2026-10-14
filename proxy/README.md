@@ -304,8 +304,8 @@ VOD row, and VOD routes never touch a clip row.
 | PUT | `/vod-shares/:id/parts/:n` | owner | Same as the clip part route (16 MiB parts) |
 | POST | `/vod-shares/:id/complete` | owner | Same as clip complete. The share expires 3 days after INIT (`created_at` is never rewritten). Idempotent. 201 `{ id, url, expires_at }` |
 | PUT | `/vod-shares/:id/markers` | owner | Markers document v1 (at most 64 KB; markers 48 KiB, notes 14 KiB). Validated and normalized by `src/vod-markers.ts`. Sets the public title and champion. 200 `{ ok, markers, notes }` |
-| GET | `/vod-meta/:id` | public | `{ id, kind, content_type, quality, duration_s, size_bytes, created_at, expires_at, serving, play_limited, meta }`. `no-store`, `X-Robots-Tag: noindex, nofollow` |
-| GET, HEAD | `/vod-file/:id` | public | Same range, conditional and HEAD handling as `/clip-file`, `Cache-Control: private, max-age=3600`, noindex. 503 `vod_serving_disabled` when serving is off, 429 `play_limit` over the daily cap |
+| GET | `/vod-meta/:id` | public | Ready: `{ id, kind, content_type, quality, duration_s, size_bytes, created_at, expires_at, serving, play_limited, meta }`. Still uploading (inside its upload window): `{ id, kind, status: "uploading", quality, duration_s, created_at, expires_at, serving, progress: { parts, part_count }, stalled }`, where `parts` is the accepted part PUTs capped at `part_count` (an estimate: in-flight and retried parts count), `expires_at` is when the share will end, and `stalled` means no part for 15 minutes. `no-store`, `X-Robots-Tag: noindex, nofollow` |
+| GET, HEAD | `/vod-file/:id` | public | Ready shares only (404 while uploading). Same range, conditional and HEAD handling as `/clip-file`, `Cache-Control: private, max-age=3600`, noindex. 503 `vod_serving_disabled` when serving is off, 429 `play_limit` over the daily cap |
 
 Limits (all in `src/share-limits.ts`):
 

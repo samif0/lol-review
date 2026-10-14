@@ -211,11 +211,12 @@ describe("kinds stay isolated", () => {
     }), s.env);
     expect(done.status).toBe(404);
 
-    // The bare slug goes straight to the watch page: no Open Graph video tags.
+    // The bare slug goes straight to the watch page (which shows a pending
+    // upload's progress): no Open Graph video tags.
     const bare = await get(s.env, `/${id}`, { redirect: "manual" });
     expect(bare.status).toBe(302);
     expect(bare.headers.get("Location")).toBe(`https://revu.lol/v/${id}`);
-    expect((await get(s.env, `/${pending}`, { redirect: "manual" })).headers.get("Location")).toBe(`https://revu.lol/clip.html?id=${pending}`);
+    expect((await get(s.env, `/${pending}`, { redirect: "manual" })).headers.get("Location")).toBe(`https://revu.lol/v/${pending}`);
   });
 
   it("no VOD route serves or changes a clip row", async () => {
@@ -224,6 +225,7 @@ describe("kinds stay isolated", () => {
     clipRow(s.db, "Clip002", s.users[OWNER], "uploading");
     s.r2.store.set("clips/Clip001.mp4", payload(100));
     expect((await get(s.env, "/vod-meta/Clip001")).status).toBe(404);
+    expect((await get(s.env, "/vod-meta/Clip002")).status).toBe(404);
     expect((await get(s.env, "/vod-file/Clip001")).status).toBe(404);
     expect((await vodPart(s.env, OWNER, "Clip002", 1, payload(100))).status).toBe(404);
     expect((await vodComplete(s.env, OWNER, "Clip002", [{ part_number: 1, etag: "x" }])).status).toBe(404);

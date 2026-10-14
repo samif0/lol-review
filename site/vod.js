@@ -6,6 +6,11 @@
  * the MP4. Marker and note times are GAME seconds; the share copy keeps the
  * recording's timeline, so video time is max(0, t - gameTimeAtVideoStart).
  *
+ * The sharer gets the link as soon as their upload starts. While it runs,
+ * /vod-meta answers status "uploading" with its progress: the page shows it,
+ * polls (every 4 s for a minute, then 10 s, 30 s while the upload has stalled,
+ * never while the tab is hidden) and starts the player once the game is ready.
+ *
  * Everything the server sends is set with textContent, never parsed as HTML.
  * The pure helpers live on RevuVod for tests; DOM wiring only runs in a browser.
  */
@@ -23,6 +28,8 @@
     limited: { title: 'Playback limit reached', copy: 'This game has been watched a lot today. Try again tomorrow.' }
   };
   var UNPLAYABLE = "This video couldn't be played.";
+  var UPLOADING_COPY = 'This game plays here as soon as the upload finishes. You can leave this page open.';
+  var STALLED_COPY = "The upload hasn't moved in a while. If it doesn't continue soon, ask whoever sent you this link to share the game again.";
 
   function params(search) {
     try { return new URLSearchParams(search || ''); } catch (e) { return new URLSearchParams(''); }
@@ -99,8 +106,33 @@
   function metaState(meta) {
     if (!meta || typeof meta !== 'object') return 'missing';
     if (meta.serving === false) return 'paused';
+    if (meta.status === 'uploading') return 'uploading';
     if (meta.play_limited === true) return 'limited';
     return 'ok';
+  }
+
+  // The proxy counts parts as they start, retries included, so its count is an
+  // estimate: never 100% until the game is actually ready.
+  function uploadPercent(meta) {
+    var progress = meta && meta.progress;
+    var parts = Number(progress && progress.parts);
+    var total = Number(progress && progress.part_count);
+    if (!(parts > 0) || !(total > 0)) return 0;
+    return Math.max(0, Math.min(99, Math.floor((parts / total) * 100)));
+  }
+
+  function uploadText(meta) {
+    var percent = uploadPercent(meta);
+    return meta && meta.stalled === true
+      ? { title: 'Upload paused at ' + percent + '%', copy: STALLED_COPY }
+      : { title: 'Still uploading, ' + percent + '%', copy: UPLOADING_COPY };
+  }
+
+  // How long to wait before asking again: quick at first, slower after a
+  // minute, and slow while the upload has stalled.
+  function pollDelay(elapsedMs, stalled) {
+    if (stalled) return 30000;
+    return Number(elapsedMs) < 60000 ? 4000 : 10000;
   }
 
   function formatTime(unixSeconds, nowMs, options) {
@@ -172,7 +204,8 @@
   root.RevuVod = {
     parseId: parseId, apiBase: apiBase, clock: clock, titleOf: titleOf, roleLabel: roleLabel, formatDate: formatDate,
     metaParts: metaParts, metaState: metaState, expiryText: expiryText, laneItems: laneItems, noteRows: noteRows,
-    STATES: STATES, UNPLAYABLE: UNPLAYABLE
+    uploadPercent: uploadPercent, uploadText: uploadText, pollDelay: pollDelay,
+    STATES: STATES, UNPLAYABLE: UNPLAYABLE, UPLOADING_COPY: UPLOADING_COPY, STALLED_COPY: STALLED_COPY
   };
 
   if (typeof document === 'undefined') return;
@@ -180,7 +213,7 @@
   var id = parseId(location.pathname, location.search);
   var API = apiBase(location.hostname, location.search);
   var $ = function (name) { return document.getElementById(name); };
-  var panels = { loading: $('state-loading'), missing: $('state-missing'), game: $('state-game') };
+  var panels = { loading: $('state-loading'), missing: $('state-missing'), uploading: $('state-uploading'), game: $('state-game') };
   var video = $('vod-video');
   var playerMsg = $('vod-player-msg');
   var banner = $('vod-expiry');
@@ -192,6 +225,10 @@
   var meta = null;
   var expiryTimer = null;
   var rechecking = false;
+  var pollTimer = null;
+  var pollStart = 0;
+  var pollStalled = false;
+  var pollDue = false;
 
   function show(name) {
     Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
@@ -208,9 +245,66 @@
     $('state-copy').textContent = state.copy;
     if (expiryTimer) clearInterval(expiryTimer);
     expiryTimer = null;
+    stopPolling();
     if (meta) stopPlayback();
     show('missing');
   }
+
+  // ── Still uploading ──
+
+  function stopPolling() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+    pollDue = false;
+  }
+
+  function showUploading(fresh) {
+    var percent = uploadPercent(fresh);
+    var words = uploadText(fresh);
+    $('upload-title').textContent = words.title;
+    // The copy is a live region: rewrite it only when it says something new.
+    if ($('upload-copy').textContent !== words.copy) $('upload-copy').textContent = words.copy;
+    $('upload-bar').style.width = percent + '%';
+    $('upload-meter').setAttribute('aria-valuenow', String(percent));
+    document.title = words.title + ' - Revu';
+    show('uploading');
+  }
+
+  // A hidden tab stops asking, and asks again as soon as it is shown.
+  function schedulePoll() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = setTimeout(function () {
+      pollTimer = null;
+      if (document.hidden) { pollDue = true; return; }
+      poll();
+    }, pollDelay(Date.now() - pollStart, pollStalled));
+  }
+
+  function poll() {
+    pollDue = false;
+    fetchMeta().then(route, function (error) {
+      // Gone (stopped, discarded or past its upload window): say so. Anything else may pass.
+      if (error && error.status === 404) showState('missing');
+      else schedulePoll();
+    });
+  }
+
+  // Every meta reply lands here: still uploading keeps waiting, anything else renders.
+  function route(fresh) {
+    if (metaState(fresh) !== 'uploading') {
+      stopPolling();
+      render(fresh);
+      return;
+    }
+    if (!pollStart) pollStart = Date.now();
+    pollStalled = fresh.stalled === true;
+    showUploading(fresh);
+    schedulePoll();
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && pollDue) poll();
+  });
 
   function playerMessage(message) {
     playerMsg.textContent = message;
@@ -309,7 +403,11 @@
 
   function fetchMeta() {
     return fetch(API + '/vod-meta/' + encodeURIComponent(id), { cache: 'no-store' }).then(function (res) {
-      if (!res.ok) throw new Error('not found');
+      if (!res.ok) {
+        var error = new Error('vod-meta ' + res.status);
+        error.status = res.status;
+        throw error;
+      }
       return res.json();
     });
   }
@@ -348,5 +446,5 @@
     showState('missing');
     return;
   }
-  fetchMeta().then(render, function () { showState('missing'); });
+  fetchMeta().then(route, function () { showState('missing'); });
 })(globalThis);

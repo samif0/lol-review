@@ -24,15 +24,26 @@ internal sealed class FakeVodClient : IVodShareClient
     public Exception? StatusError { get; set; }
     public int StatusCalls { get; private set; }
 
-    public Func<string, VodUploadRequest, IProgress<ClipUploadProgress>?, Action<string>?, CancellationToken, Task<VodUploadResult>> OnUpload { get; set; } =
+    /// <summary>What init reports for an upload with slug <paramref name="id"/>.</summary>
+    public static VodUploadStarted Started(string id) => new(id, "https://revu.lol/v/" + id, Now + 259_200);
+
+    /// <summary>
+    /// The upload after its init for a finished file (UploadVodAsync), or after the copy is
+    /// written for one that started with the encode. Only the first reports the start: the
+    /// second was reported at init (<see cref="InitStarted"/>), like the real client does.
+    /// </summary>
+    public Func<string, VodUploadRequest, IProgress<ClipUploadProgress>?, Action<VodUploadStarted>?, CancellationToken, Task<VodUploadResult>> OnUpload { get; set; } =
         (_, _, progress, assign, _) =>
         {
-            assign?.Invoke("vod1234");
+            assign?.Invoke(Started("vod1234"));
             progress?.Report(new ClipUploadProgress("uploading", 0, 100));
             progress?.Report(new ClipUploadProgress("uploading", 61, 100));
             progress?.Report(new ClipUploadProgress("finishing", 100, 100));
             return Task.FromResult(new VodUploadResult("vod1234", "https://revu.lol/v/vod1234", Now + 259_200));
         };
+
+    /// <summary>What init reports for an upload that starts with the encode, before anything is written.</summary>
+    public VodUploadStarted InitStarted { get; set; } = Started("vod1234");
 
     /// <summary>
     /// Uploads that went through: Declared is the reserved size of one that ran while the copy was
@@ -57,15 +68,15 @@ internal sealed class FakeVodClient : IVodShareClient
     }
 
     public Task<VodUploadResult> UploadVodAsync(string filePath, string sessionToken, VodUploadRequest request,
-        IProgress<ClipUploadProgress>? progress = null, Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
+        IProgress<ClipUploadProgress>? progress = null, Action<VodUploadStarted>? onStarted = null, CancellationToken ct = default)
     {
         lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath), null));
-        return OnUpload(filePath, request, progress, onRemoteIdAssigned, ct);
+        return OnUpload(filePath, request, progress, onStarted, ct);
     }
 
     public async Task<VodUploadResult> UploadVodWhileWritingAsync(string filePath, long declaredSize, Task<bool> written,
         string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress = null,
-        Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
+        Action<VodUploadStarted>? onStarted = null, CancellationToken ct = default)
     {
         int index;
         lock (WhileWriting)
@@ -74,10 +85,12 @@ internal sealed class FakeVodClient : IVodShareClient
             WhileWritingOutcomes.Add(null);
             index = WhileWriting.Count - 1;
         }
-        // Like the real client: a refusal comes back from init at once, and nothing completes until
-        // the copy is written; a copy that was given up throws once the remote is gone.
+        // Like the real client: a refusal comes back from init at once, an accepted init reports
+        // its link before anything is written, and nothing completes until the copy is written;
+        // a copy that was given up throws once the remote is gone.
         await Task.Yield();
         if (InitError is { } refused) throw refused;
+        onStarted?.Invoke(InitStarted);
         bool ok;
         try { ok = await written.WaitAsync(ct); }
         catch (OperationCanceledException) { throw; }
@@ -85,7 +98,7 @@ internal sealed class FakeVodClient : IVodShareClient
         lock (WhileWriting) WhileWritingOutcomes[index] = ok;
         if (!ok) throw new VodCopyAbandonedException();
         lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath), declaredSize));
-        return await OnUpload(filePath, request, progress, onRemoteIdAssigned, ct);
+        return await OnUpload(filePath, request, progress, null, ct);
     }
 
     public Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default)

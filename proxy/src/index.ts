@@ -45,7 +45,7 @@ import {
   pruneUploadPartUsage,
   pruneVodShareUsage,
 } from "./vod-shares";
-import { findVod, handleVodFile, handleVodMeta } from "./vod-serve";
+import { findShownVod, handleVodFile, handleVodMeta } from "./vod-serve";
 import { dispatchWebAccount } from "./web-auth";
 import { webJson, webPreflight } from "./web-http";
 import { authWebJwtOrDeny, handleWebSession } from "./web-session";
@@ -336,8 +336,9 @@ async function route(request: Request, url: URL, env: Env, ctx: ExecutionContext
       try {
         const og = await renderClipOgPage(env, seg);
         if (og) return og;
-        // A full-game share: straight to its watch page, never OG video tags.
-        if (await findVod(env.DB, seg)) return Response.redirect(`${watchBase}/v/${seg}`, 302);
+        // A full-game share (ready, or still uploading): straight to its watch
+        // page, never OG video tags.
+        if (await findShownVod(env.DB, seg)) return Response.redirect(`${watchBase}/v/${seg}`, 302);
       } catch (err) {
         console.error(JSON.stringify({ scope: "clips.og", error: (err as Error)?.message ?? String(err) }));
       }
