@@ -1,0 +1,2 @@
+# Shared full games: revu.lol/v/<id> serves vod.html, which reads the id from the path.
+/v/:id  /vod  200

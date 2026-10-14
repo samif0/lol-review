@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="./vod-cinema.css">
 <link rel="stylesheet" href="./vod-composer.css">
 <link rel="stylesheet" href="./vod-narration.css">
+<link rel="stylesheet" href="./vod-share.css">
 <link rel="stylesheet" href="./appearance.css?v=appearance-20261012">
 </head>
 <body class="vod-review-page">
@@ -31,6 +32,11 @@
         <div class="vp-ctx-details" id="vp-ctx-details"></div>
       </div>
       <div class="vp-context-actions">
+        <!-- Share full game (vod-share.mjs): shown only to signed-in accounts the server allows. -->
+        <button class="ui-btn ui-btn-quiet vp-vs-open" id="vp-vodshare-open" type="button" aria-haspopup="dialog" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M12 3v13M7 8l5-5 5 5"/></svg>
+          <span>Share full game</span>
+        </button>
         <button class="vp-cinema-btn" id="vp-cinema" type="button" data-action="fullscreen" aria-keyshortcuts="f" title="Cinema mode (F). Esc restores the layout.">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>
           <span>Cinema</span>
@@ -69,6 +75,28 @@
       <span class="vp-sharebar-spin" id="vp-sharebar-spin"></span>
       <span class="vp-sharebar-txt" id="vp-sharebar-txt"></span>
       <button class="vp-sharebar-retry" id="vp-sharebar-retry" type="button" hidden>Retry failed</button>
+    </div>
+
+    <!-- Full-game share row (vod-share.mjs): the live link, a running share, or its result. -->
+    <div class="vp-vodshare" id="vp-vodshare" role="group" aria-label="Full game sharing" hidden>
+      <div class="vp-vs-row-text">
+        <span class="vp-vs-row-label" data-vs="row-label"></span>
+        <span class="vp-vs-row-url" data-vs="row-url" hidden></span>
+        <span class="vp-vs-row-detail" data-vs="row-detail"></span>
+        <span class="vp-vs-live" data-vs="row-live" role="status" aria-live="polite"></span>
+      </div>
+      <div class="vp-vs-row-actions" data-vs="row-actions">
+        <button class="ui-btn ui-btn-quiet" data-vs="row-copy" type="button" hidden>Copy</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="row-open" type="button" hidden>Open</button>
+        <button class="ui-btn ui-btn-ghost" data-vs="row-stop" type="button" hidden>Stop sharing</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="row-cancel" type="button" hidden>Cancel</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="row-retry" type="button" hidden>Try again</button>
+      </div>
+      <div class="vp-vs-row-confirm" data-vs="row-confirm" hidden>
+        <span>Stop sharing this game? The link will stop working.</span>
+        <button class="ui-btn ui-btn-danger" data-vs="row-confirm-stop" type="button">Stop sharing</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="row-keep" type="button">Keep sharing</button>
+      </div>
     </div>
 
     <!-- Speed up: shown only for a built-in recording saved before Revu indexed recordings
@@ -499,6 +527,67 @@
       <button type="button" data-nr="done">Done</button>
     </div>
     <p class="vp-nr-status" data-nr="status" role="status" aria-live="polite"></p>
+  </dialog>
+
+  <!-- Share full game (vod-share.mjs): a share copy of this game's own recording, uploaded
+       for a limited time. The start view chooses quality and notes; progress and the link
+       follow in the same sheet. -->
+  <dialog id="vp-vodshare-sheet" class="vp-vs-sheet" aria-labelledby="vp-vs-title">
+    <div class="vp-vs-head">
+      <h2 id="vp-vs-title">Share full game</h2>
+      <button type="button" class="ui-iconbtn" data-vs="close" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="vp-vs-view" data-vs-view="start">
+      <p class="vp-vs-size" data-vs="size"></p>
+      <fieldset class="ui-seg vp-vs-quality">
+        <legend>Quality</legend>
+        <label><input type="radio" name="vp-vs-quality" value="1080p" data-vs="q1080" checked><span>1080p</span></label>
+        <label><input type="radio" name="vp-vs-quality" value="720p" data-vs="q720"><span>720p</span></label>
+      </fieldset>
+      <p class="vp-vs-hint" data-vs="hint" hidden></p>
+      <ul class="vp-vs-facts">
+        <li data-vs="ttl">Anyone with the link can watch for 3 days.</li>
+        <li>The video shows other players' names and in-game chat.</li>
+        <li data-vs="imported" hidden>Imported recordings may include voice or desktop audio.</li>
+      </ul>
+      <label class="vp-vs-check"><input type="checkbox" data-vs="notes"> Include my notes and bookmarks</label>
+    </div>
+    <div class="vp-vs-view" data-vs-view="progress" hidden>
+      <p class="vp-vs-progress-label" data-vs="progress-label"></p>
+      <span class="vp-vs-live" data-vs="progress-live" role="status" aria-live="polite"></span>
+      <div class="vp-vs-bar" aria-hidden="true"><span data-vs="progress-bar"></span></div>
+      <p class="vp-vs-note" data-vs="progress-note"></p>
+    </div>
+    <div class="vp-vs-view" data-vs-view="done" hidden>
+      <p class="vp-vs-ready">Link ready</p>
+      <div class="vp-vs-linkrow">
+        <input class="ui-field vp-vs-url" data-vs="url" type="text" readonly spellcheck="false" aria-label="Share link">
+        <button class="ui-btn ui-btn-quiet" data-vs="copy" type="button">Copy</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="open" type="button" hidden>Open</button>
+      </div>
+      <p class="vp-vs-expiry" data-vs="expiry"></p>
+      <p class="vp-vs-note" data-vs="markers" hidden>The timeline markers couldn't be added. The video still plays.</p>
+    </div>
+    <div class="vp-vs-message" data-vs="message-box" hidden>
+      <p data-vs="message" role="status" aria-live="polite"></p>
+      <a class="ui-link" data-vs="signin" href="onboarding.html" hidden>Sign in</a>
+      <button class="ui-btn ui-btn-quiet" data-vs="folder" type="button" hidden>Open recordings folder</button>
+    </div>
+    <div class="vp-vs-confirm" data-vs="confirm" hidden>
+      <p>Stop sharing this game? The link will stop working.</p>
+      <div class="vp-vs-actions">
+        <button class="ui-btn ui-btn-danger" data-vs="confirm-stop" type="button">Stop sharing</button>
+        <button class="ui-btn ui-btn-quiet" data-vs="keep" type="button">Keep sharing</button>
+      </div>
+    </div>
+    <div class="vp-vs-actions" data-vs="actions">
+      <button class="ui-btn ui-btn-ghost" data-vs="stop" type="button" hidden>Stop sharing</button>
+      <button class="ui-btn ui-btn-quiet" data-vs="cancel" type="button">Cancel</button>
+      <button class="ui-btn ui-btn-primary" data-vs="share" type="button">Share</button>
+      <button class="ui-btn ui-btn-primary" data-vs="done" type="button" hidden>Done</button>
+    </div>
   </dialog>
 
   <script type="module" src="./vodplayer.js"></script>

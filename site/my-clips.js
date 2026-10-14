@@ -1,5 +1,5 @@
 /*
- * My clips page (my-clips.html): the signed-in user's shared clips, with
+ * My clips page (my-clips.html): the signed-in user's shared clips and games, with
  * watch, copy link and delete. Everything is built with createElement and
  * textContent; clip fields from the server are never parsed as HTML.
  *
@@ -11,31 +11,62 @@
 
   var api = root.RevuAccount;
 
+  // Shared full games (kind 'vod') sit in the same list. They play on revu.lol/v/<id>,
+  // carry no view count, and "Stop sharing" uses the same delete as a clip.
   function cardModel(clip, nowSec) {
+    var vod = clip.kind === 'vod';
     var ready = clip.status === 'ready';
     var expired = ready && !(Number(clip.expires_at) > nowSec);
     var usable = ready && !expired && api.isClipId(clip.id);
     var title = typeof clip.title === 'string' ? clip.title.trim() : '';
     var champion = typeof clip.champion === 'string' ? clip.champion.trim() : '';
     var badges = [];
-    if (clip.narrated === true) badges.push('Narrated');
-    if (clip.has_transcript === true) badges.push('Transcript');
+    if (vod) {
+      badges.push('Full game');
+      if (clip.quality === '1080p' || clip.quality === '720p') badges.push(clip.quality);
+      if (clip.has_notes === true) badges.push('Includes notes');
+    } else {
+      if (clip.narrated === true) badges.push('Narrated');
+      if (clip.has_transcript === true) badges.push('Transcript');
+    }
     if (!ready) badges.push('Uploading');
+    var shareUrl = vod ? api.vodShareUrl(clip) : api.clipShareUrl(clip);
     return {
       id: clip.id,
-      title: title || 'Untitled clip',
-      champion: champion,
+      kind: vod ? 'vod' : 'clip',
+      title: title || (vod ? 'Full game' : 'Untitled clip'),
+      // A game's title already names its champion ("Jinx vs Caitlyn").
+      champion: vod && title ? '' : champion,
       length: api.formatDuration(clip.duration_s),
       badges: badges,
-      views: api.formatViews(clip.view_count),
+      views: vod ? '' : api.formatViews(clip.view_count),
       ready: ready,
       timeLeft: ready ? api.formatTimeLeft(clip.expires_at, nowSec) : '',
       expired: expired,
       canWatch: usable,
       canCopy: usable,
-      watchHref: api.watchHref(clip.id),
-      shareUrl: api.clipShareUrl(clip)
+      watchHref: vod ? shareUrl : api.watchHref(clip.id),
+      shareUrl: shareUrl,
+      remove: vod ? VOD_REMOVE : CLIP_REMOVE
     };
+  }
+
+  var CLIP_REMOVE = {
+    action: 'Delete', confirm: 'Delete this shared clip? The link stops working for everyone. The clip stays on your PC.',
+    confirmAction: 'Delete clip', busy: 'Deleting...', done: 'Clip deleted.', failed: "Couldn't delete this clip. Try again."
+  };
+  var VOD_REMOVE = {
+    action: 'Stop sharing', confirm: 'Stop sharing this game?', confirmAction: 'Stop sharing', busy: 'Stopping...',
+    done: 'Stopped sharing this game.', failed: "Couldn't stop sharing this game. Try again."
+  };
+
+  function countText(models) {
+    var games = models.filter(function (m) { return m.kind === 'vod'; }).length;
+    var clips = models.length - games;
+    var clipText = clips === 1 ? '1 clip' : clips + ' clips';
+    if (!games) return clipText;
+    var gameText = games === 1 ? '1 game' : games + ' games';
+    return clips ? clipText + ', ' + gameText : gameText;
   }
 
   function deleteOutcome(status) {
@@ -44,7 +75,7 @@
     return 'error';
   }
 
-  root.RevuMyClips = { cardModel: cardModel, deleteOutcome: deleteOutcome };
+  root.RevuMyClips = { cardModel: cardModel, deleteOutcome: deleteOutcome, countText: countText };
 
   if (typeof document === 'undefined') return;
 
@@ -100,10 +131,9 @@
   }
 
   function updateCount() {
-    var n = cards.length;
-    countPill.textContent = n === 1 ? '1 clip' : n + ' clips';
+    countPill.textContent = countText(cards);
     countPill.hidden = false;
-    show(n === 0 ? 'empty' : 'list');
+    show(cards.length === 0 ? 'empty' : 'list');
   }
 
   function buildCard(clip) {
@@ -114,7 +144,7 @@
 
     var meta = el('p', 'clip-card-meta');
     if (model.length) meta.appendChild(el('span', null, model.length));
-    meta.appendChild(el('span', null, model.views));
+    if (model.views) meta.appendChild(el('span', null, model.views));
     var timeLeft = el('span');
     meta.appendChild(timeLeft);
     li.appendChild(meta);
@@ -127,7 +157,7 @@
     var watch = el('a', 'btn-secondary', 'Watch');
     watch.href = model.watchHref;
     var copy = button('btn-secondary', 'Copy link');
-    var del = button('btn-danger', 'Delete');
+    var del = button('btn-danger', model.remove.action);
     actions.appendChild(watch);
     actions.appendChild(copy);
     actions.appendChild(del);
@@ -139,16 +169,16 @@
     copyInput.type = 'text';
     copyInput.readOnly = true;
     copyInput.spellcheck = false;
-    copyInput.setAttribute('aria-label', 'Clip link');
+    copyInput.setAttribute('aria-label', model.kind === 'vod' ? 'Game link' : 'Clip link');
     copyBox.appendChild(el('span', null, 'Press Ctrl+C to copy.'));
     copyBox.appendChild(copyInput);
     li.appendChild(copyBox);
 
     var confirm = el('div', 'clip-card-confirm');
     confirm.hidden = true;
-    confirm.appendChild(el('p', null, 'Delete this shared clip? The link stops working for everyone. The clip stays on your PC.'));
+    confirm.appendChild(el('p', null, model.remove.confirm));
     var confirmRow = el('div', 'clip-card-actions');
-    var confirmDelete = button('btn-danger', 'Delete clip');
+    var confirmDelete = button('btn-danger', model.remove.confirmAction);
     var cancel = button('btn-secondary', 'Cancel');
     confirmRow.appendChild(confirmDelete);
     confirmRow.appendChild(cancel);
@@ -159,7 +189,7 @@
     li.appendChild(error);
 
     var copyTimer = null;
-    var card = { li: li, update: update };
+    var card = { li: li, update: update, kind: model.kind };
 
     function update(now) {
       var m = cardModel(clip, now);
@@ -215,14 +245,14 @@
     confirmDelete.addEventListener('click', function () {
       confirmDelete.disabled = true;
       cancel.disabled = true;
-      confirmDelete.textContent = 'Deleting...';
+      confirmDelete.textContent = model.remove.busy;
       error.textContent = '';
       api.deleteClip(clip.id).then(function (res) {
         var outcome = deleteOutcome(res.status);
         if (outcome === 'removed') {
           li.remove();
           cards = cards.filter(function (c) { return c !== card; });
-          announce('Clip deleted.');
+          announce(model.remove.done);
           updateCount();
           title.focus();
           return;
@@ -233,8 +263,8 @@
         }
         confirmDelete.disabled = false;
         cancel.disabled = false;
-        confirmDelete.textContent = 'Delete clip';
-        error.textContent = "Couldn't delete this clip. Try again.";
+        confirmDelete.textContent = model.remove.confirmAction;
+        error.textContent = model.remove.failed;
       });
     });
 

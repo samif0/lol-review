@@ -24,6 +24,7 @@ import { eventTone, polarityTone, resultOf } from './meaning-tone.mjs';
 import { buildThread, renderThread, moveNow } from './vod-thread.mjs';
 import { takeawayText } from './journal-takeaway.mjs';
 import { createRecordingSpeedUp } from './recording-optimize.mjs';
+import { createVodShare } from './vod-share.mjs';
 import { platform } from './platform/index.mjs';
 
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
@@ -48,6 +49,7 @@ let _narrationOk = false;   // host can save narration takes (not in isolated pr
 let _studio = null;         // the open narration studio, if any
 let _speedUp = null;        // "Speed up" row for an unindexed built-in recording (recording-optimize.mjs)
 let _speedUpStatus;         // its host answer, read with the first snapshot (undefined: ask again)
+let _vodShare = null;       // "Share full game" action, row and sheet (vod-share.mjs)
 // ── Objective-framed viewer state ────────────────────────────────────────────
 // The VOD page opens framed on ONE objective at a time (the default, not a mode).
 // _focusedObjId is the currently-framed objective id; its events/moments are loud,
@@ -667,6 +669,8 @@ function render(data, core) {
     }
     _speedUpStatus = undefined;
     _speedUp?.check(null);
+    // A live link stays visible (and stoppable) even when the recording is gone.
+    _vodShare?.check(core ? data : null);
     restoreMatchView();
     return;
   }
@@ -710,6 +714,8 @@ function render(data, core) {
   const speedUpStatus = _speedUpStatus;
   _speedUpStatus = undefined;
   _speedUp?.check(core ? data : null, { status: speedUpStatus });
+  // Never awaited: the share status reads the proxy, and the player never waits on it.
+  _vodShare?.check(core ? data : null);
   // Drafts and controls are usable before a recording finishes loading. Restore
   // them now; metadata only applies the pending media position afterwards.
   restoreMatchView();
@@ -3747,6 +3753,8 @@ async function boot() {
   _T.attachVideo({ clickToToggle: true, stopProp: false });
   _speedUp = createRecordingSpeedUp({ root: $('vp-speedup'), invoke: (command, args) => _core.invoke(command, args),
     release: releaseRecording, reload: reloadRecording });
+  _vodShare = createVodShare({ openButton: $('vp-vodshare-open'), row: $('vp-vodshare'), sheet: $('vp-vodshare-sheet'),
+    invoke: (command, args) => _core.invoke(command, args), platform, target: window });
 
   wireSeekBar();
   wireTabs();

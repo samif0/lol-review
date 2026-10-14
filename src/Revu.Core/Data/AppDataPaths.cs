@@ -78,6 +78,12 @@ public static class AppDataPaths
     /// </summary>
     public static string RemoteClipCleanupPath => Path.Combine(SidecarHandshakeDirectory, "remote-clip-cleanup.json");
 
+    /// <summary>4.1 full-game shares that finished uploading (links, expiry), as <c>{ "version": 1, "shares": [...] }</c>.</summary>
+    public static string VodSharesPath => Path.Combine(SidecarHandshakeDirectory, "vod-shares.json");
+
+    /// <summary>Temporary share copies of full games while they are prepared and uploaded.</summary>
+    public static string VodShareTempDirectory => Path.Combine(SidecarHandshakeDirectory, "ShareTemp");
+
     private static string GetLocalAppDataRoot()
     {
         // Dev/e2e override: point ALL app data (DB, config, clips, backups, and

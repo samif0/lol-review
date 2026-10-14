@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 114);
+  assert.equal(Object.keys(COMMANDS).length, 118);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
@@ -344,6 +344,24 @@ test('command declarations keep immutable envelopes, required arguments and exce
     assert.throws(() => validateCommand(name, { gameId: '4' }), /Invalid argument: gameId/);
   }
   assert.ok(!Object.values(COMMANDS).some(definition => definition.route?.startsWith('/api/recording')));
+  // Full-game sharing: the status read names a game; every write is one object payload the
+  // sidecar validates. The page never names a file: the sidecar encodes the game's own recording.
+  assert.equal(COMMANDS.get_vod_share_status.method, 'GET');
+  assert.equal(COMMANDS.get_vod_share_status.route, '/api/vod-share/status');
+  assert.deepEqual(COMMANDS.get_vod_share_status.args, { gameId: 'integer' });
+  assert.deepEqual(COMMANDS.get_vod_share_status.query, { gameId: 'gameId' });
+  assert.equal(COMMANDS.get_vod_share_status.timeoutMs, 20_000);
+  assert.throws(() => validateCommand('get_vod_share_status', { gameId: '4' }), /Invalid argument: gameId/);
+  for (const [name, route, timeoutMs] of [['start_vod_share', '/api/vod-share/start', 60_000],
+    ['cancel_vod_share', '/api/vod-share/cancel', 30_000], ['stop_vod_share', '/api/vod-share/stop', 30_000]]) {
+    assert.equal(COMMANDS[name].method, 'POST', name);
+    assert.equal(COMMANDS[name].route, route, name);
+    assert.deepEqual(COMMANDS[name].args, { payload: 'object' }, name);
+    assert.equal(COMMANDS[name].timeoutMs, timeoutMs, name);
+    assert.throws(() => validateCommand(name, { payload: { gameId: 4 }, filePath: 'C:\\capture.mp4' }), /Unexpected argument: filePath/);
+  }
+  assert.equal(validateCommand('start_vod_share', { payload: { gameId: 4, quality: '720p', includeNotes: false } }),
+    COMMANDS.start_vod_share);
   assert.equal(COMMANDS.reset_all_data.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.restore_backup.sideEffect, 'restart-after-write');
   assert.equal(COMMANDS.apply_update.sideEffect, 'apply-update-stop-sidecar-exit');

@@ -407,6 +407,17 @@ describe("clip transcripts", () => {
     expect((await putTranscript(s.e, "Narr001", doc)).status).toBe(200);
   });
 
+  it("never attaches, removes or serves a transcript on a full-game share", async () => {
+    const s = await setup(undefined, [clip({ id: "Vod0001", user_id: USER, kind: "vod", r2_key: "vods/Vod0001.mp4" })]);
+    s.db._transcripts.set("Vod0001", { clip_id: "Vod0001", language: "en", segments_json: "[]", vtt: "", segment_count: 0, created_at: 1 });
+    expect((await putTranscript(s.e, "Vod0001", doc)).status).toBe(404);
+    const del = await worker.fetch(makeRequest(`${BASE}/clips/Vod0001/transcript`, { method: "DELETE", headers: auth() }), s.e);
+    expect(del.status).toBe(404);
+    expect((await get(s.e, "/clip-transcript/Vod0001")).status).toBe(404);
+    expect(s.db._transcripts.get("Vod0001")!.segments_json).toBe("[]");
+    expect(s.db._clips.get("Vod0001")!.has_transcript).toBe(0);
+  });
+
   it("DELETE /clips/:id/transcript is owner-only and idempotent", async () => {
     const s = await withClip();
     await putTranscript(s.e, "Narr001", doc);

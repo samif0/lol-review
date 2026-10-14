@@ -33,6 +33,18 @@ import {
 } from "./clips";
 import { handleClipView } from "./clip-views";
 import { handleUploadComplete, handleUploadInit, handleUploadPart } from "./clip-uploads";
+import { purgeTombstones } from "./clip-purge";
+import { sweepIdleUploads } from "./upload-cleanup";
+import {
+  handleVodMarkers,
+  handleVodShareStatus,
+  handleVodUploadComplete,
+  handleVodUploadInit,
+  handleVodUploadPart,
+  pruneUploadPartUsage,
+  pruneVodShareUsage,
+} from "./vod-shares";
+import { findVod, handleVodFile, handleVodMeta } from "./vod-serve";
 import { dispatchWebAccount } from "./web-auth";
 import { webJson, webPreflight } from "./web-http";
 import { authWebJwtOrDeny, handleWebSession } from "./web-session";
@@ -181,6 +193,16 @@ async function dispatchClips(request: Request, url: URL, env: Env): Promise<Resp
   if ((request.method === "GET" || request.method === "HEAD") && path.startsWith("/clip-transcript/")) {
     return handleGetTranscript(request, env, path.slice("/clip-transcript/".length));
   }
+  if (request.method === "GET" && path.startsWith("/vod-meta/")) {
+    return handleVodMeta(env, path.slice("/vod-meta/".length));
+  }
+  if ((request.method === "GET" || request.method === "HEAD") && path.startsWith("/vod-file/")) {
+    return handleVodFile(request, env, path.slice("/vod-file/".length));
+  }
+
+  // Full-game (VOD) shares (desktop, Bearer). Exact paths first: "uploads" and
+  // "status" are slug-shaped enough to be eaten by the :id patterns otherwise.
+  if (path.startsWith("/vod-shares/")) return dispatchVodShares(request, path, env);
 
   // Authed routes: uploads, listing, deletes.
   if (path === "/clips" && request.method === "POST") {
@@ -241,6 +263,28 @@ async function dispatchClips(request: Request, url: URL, env: Env): Promise<Resp
   return null;
 }
 
+async function dispatchVodShares(request: Request, path: string, env: Env): Promise<Response> {
+  const method = request.method;
+  type Owner = (userId: number) => Promise<Response>;
+  let run: Owner | null = null;
+  if (path === "/vod-shares/status") {
+    if (method === "GET") run = (u) => handleVodShareStatus(env, u);
+  } else if (path === "/vod-shares/uploads") {
+    if (method === "POST") run = (u) => handleVodUploadInit(request, env, u);
+  } else {
+    const part = method === "PUT" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/parts\/(\d{1,5})$/.exec(path) : null;
+    const complete = method === "POST" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/complete$/.exec(path) : null;
+    const markers = method === "PUT" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/markers$/.exec(path) : null;
+    if (part) run = (u) => handleVodUploadPart(request, env, u, part[1], part[2]);
+    else if (complete) run = (u) => handleVodUploadComplete(request, env, u, complete[1]);
+    else if (markers) run = (u) => handleVodMarkers(request, env, u, markers[1]);
+  }
+  if (!run) return jsonResponse({ error: "not_found" }, 404);
+  const auth = await ownerAuthOrDeny(request, env);
+  if (auth instanceof Response) return auth;
+  return run(auth.userId);
+}
+
 // ── Riot passthrough ────────────────────────────────────────────────────
 
 /** Run one passthrough request with its budget charge, logging and error mapping. */
@@ -291,6 +335,8 @@ async function route(request: Request, url: URL, env: Env, ctx: ExecutionContext
       try {
         const og = await renderClipOgPage(env, seg);
         if (og) return og;
+        // A full-game share: straight to its watch page, never OG video tags.
+        if (await findVod(env.DB, seg)) return Response.redirect(`${watchBase}/v/${seg}`, 302);
       } catch (err) {
         console.error(JSON.stringify({ scope: "clips.og", error: (err as Error)?.message ?? String(err) }));
       }
@@ -375,19 +421,37 @@ async function route(request: Request, url: URL, env: Env, ctx: ExecutionContext
 // (the entry referenced by wrangler.toml `main`). Re-export it here.
 export { GlobalRateLimiter };
 
+/** Idle pending uploads one hourly run discards at most. */
+const IDLE_SWEEP_PER_RUN = 200;
+
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Hourly housekeeping, in order: purge expired clips and expired pending
-    // uploads (R2 + D1), stale sessions, expired sign-in codes (with their
-    // email addresses), old transcribe_usage rows, then old email send counts.
-    // Each step is isolated so one failure doesn't skip the rest.
+    // Hourly housekeeping, in order: discard idle pending uploads of every
+    // account (their reservations stop holding the storage pool), purge
+    // expired clips, VOD shares and expired pending uploads (R2 + D1), retry
+    // storage tombstones, stale sessions, expired sign-in codes (with their
+    // email addresses), old transcribe_usage rows, old email send counts, then
+    // old VOD share start and part upload counts. Each step is isolated so one
+    // failure doesn't skip the rest.
     ctx.waitUntil(
       (async () => {
+        try {
+          const swept = await sweepIdleUploads(env, Math.floor(Date.now() / 1000), IDLE_SWEEP_PER_RUN);
+          if (swept > 0) console.log(JSON.stringify({ scope: "cron.idle_uploads", discarded: swept }));
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.idle_uploads", error: (err as Error).message }));
+        }
         try {
           const purged = await purgeExpiredClips(env);
           console.log(JSON.stringify({ scope: "cron.purge", clips: purged }));
         } catch (err) {
           console.error(JSON.stringify({ scope: "cron.purge", error: (err as Error).message }));
+        }
+        try {
+          const tombs = await purgeTombstones(env);
+          if (tombs > 0) console.log(JSON.stringify({ scope: "cron.tombstones", purged: tombs }));
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.tombstones", error: (err as Error).message }));
         }
         try {
           await deleteExpiredSessions(env.DB);
@@ -408,6 +472,16 @@ export default {
           await pruneEmailSendUsage(env);
         } catch (err) {
           console.error(JSON.stringify({ scope: "cron.email_send_usage", error: (err as Error).message }));
+        }
+        try {
+          await pruneVodShareUsage(env);
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.vod_share_usage", error: (err as Error).message }));
+        }
+        try {
+          await pruneUploadPartUsage(env);
+        } catch (err) {
+          console.error(JSON.stringify({ scope: "cron.upload_part_usage", error: (err as Error).message }));
         }
       })(),
     );

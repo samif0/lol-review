@@ -100,7 +100,7 @@ test('The page has the agreed copy and no inline scripts', () => {
   assert.match(html, /<meta name="robots" content="noindex" \/>/);
   assert.match(html, /<title>My clips - Revu<\/title>/);
   assert.match(html, /<h1[^>]*>My clips<\/h1>/);
-  assert.match(text, /Shared clips stay up for 3 days, then Revu deletes them automatically\./);
+  assert.match(text, /Shared clips and games stay up for 3 days, then Revu deletes them automatically\./);
   assert.match(text, /We created a new Revu account for\s+\.\s+If the desktop app uses a different email, sign out and sign in with that one\. Dismiss/);
   assert.match(html, /No shared clips for <span id="empty-email"><\/span> right now\./);
   assert.match(text, /Clips you share from the Revu desktop app while signed in with this email show up here for 3 days\./);
@@ -332,4 +332,91 @@ test('Time left is recomputed when the tab becomes visible', async () => {
   } finally {
     Date.now = realNow;
   }
+});
+
+function game(overrides = {}) {
+  return clip({
+    id: 'Game123', kind: 'vod', url: 'https://revu.lol/v/Game123', title: 'Jinx vs Caitlyn', champion: 'Jinx',
+    duration_s: 1834, view_count: 0, narrated: false, has_transcript: false, quality: '1080p', has_notes: true,
+    ...overrides,
+  });
+}
+
+test('cardModel for a shared full game', () => {
+  const { cardModel, countText } = helpers();
+  const model = cardModel(game(), NOW);
+  assert.equal(model.kind, 'vod');
+  assert.equal(model.title, 'Jinx vs Caitlyn');
+  assert.equal(model.champion, '', 'the title already names the champion');
+  assert.equal(model.length, '30:34');
+  assert.deepEqual([...model.badges], ['Full game', '1080p', 'Includes notes']);
+  assert.equal(model.views, '', 'games carry no view count');
+  assert.equal(model.watchHref, 'https://revu.lol/v/Game123');
+  assert.equal(model.shareUrl, 'https://revu.lol/v/Game123');
+  assert.equal(model.remove.action, 'Stop sharing');
+  assert.equal(model.remove.confirm, 'Stop sharing this game?');
+  assert.equal(model.remove.confirmAction, 'Stop sharing');
+  const plain = cardModel(game({ title: null, champion: 'Jinx', quality: '720p', has_notes: false }), NOW);
+  assert.equal(plain.title, 'Full game');
+  assert.equal(plain.champion, 'Jinx');
+  assert.deepEqual([...plain.badges], ['Full game', '720p']);
+  assert.deepEqual([...cardModel(game({ status: 'uploading', quality: 'huge' }), NOW).badges], ['Full game', 'Includes notes', 'Uploading']);
+  // A bad url falls back to the canonical watch link; a clip url never passes for a game.
+  for (const url of ['https://evil.example/v/Game123', 'https://clips.revu.lol/Game123', 'http://localhost:8788/v/Game123', 'javascript:alert(1)']) {
+    assert.equal(cardModel(game({ url }), NOW).shareUrl, 'https://revu.lol/v/Game123', url);
+  }
+  assert.equal(cardModel(clip({ kind: 'clip', quality: null, has_notes: false }), NOW).remove.action, 'Delete');
+  assert.equal(countText([{ kind: 'clip' }, { kind: 'clip' }]), '2 clips');
+  assert.equal(countText([{ kind: 'clip' }, { kind: 'vod' }]), '1 clip, 1 game');
+  assert.equal(countText([{ kind: 'vod' }, { kind: 'vod' }]), '2 games');
+  assert.equal(countText([]), '0 clips');
+});
+
+test('a local page accepts a loopback game link from wrangler pages dev', () => {
+  const context = { location: { hostname: 'localhost' } };
+  vm.runInNewContext(read('account-api.js'), context);
+  vm.runInNewContext(script, context);
+  const { cardModel } = context.RevuMyClips;
+  assert.equal(cardModel(game({ url: 'http://localhost:8788/v/Game123' }), NOW).shareUrl, 'http://localhost:8788/v/Game123');
+});
+
+test('Game cards: badges, Watch opens the game link, and Stop sharing confirms then deletes', async () => {
+  const run = page({
+    clips: [clip(), game()],
+    routes: { 'DELETE /auth/web/clips/Game123': response(200, { ok: true }) },
+  });
+  await flush();
+  assert.equal(run.$('clip-count').textContent, '1 clip, 1 game');
+  const card = cardsOf(run)[1];
+  const cardText = textOf(card);
+  assert.match(cardText, /Jinx vs Caitlyn/);
+  assert.match(cardText, /Full game 1080p Includes notes/);
+  assert.match(cardText, /30:34/);
+  assert.doesNotMatch(cardText, /views?\b/);
+  assert.equal(linkIn(card, 'Watch').href, 'https://revu.lol/v/Game123');
+  assert.equal(buttonIn(card, 'Delete'), undefined);
+  buttonIn(card, 'Stop sharing').click();
+  const confirm = walk(card).find(n => n.className === 'clip-card-confirm');
+  assert.equal(confirm.hidden, false);
+  assert.match(textOf(confirm), /^Stop sharing this game\? Stop sharing Cancel$/);
+  buttonIn(confirm, 'Stop sharing').click();
+  assert.equal(walk(confirm).find(n => n.tagName === 'BUTTON' && n.className === 'btn-danger').textContent, 'Stopping...');
+  await flush();
+  assert.deepEqual(run.requests.filter(r => r.method === 'DELETE').map(r => r.path), ['/auth/web/clips/Game123']);
+  assert.equal(run.$('live').textContent, 'Stopped sharing this game.');
+  assert.equal(run.$('clip-count').textContent, '1 clip');
+  assert.equal(cardsOf(run).length, 1);
+});
+
+test('A failed Stop sharing keeps the game and says so', async () => {
+  const run = page({ clips: [game()], routes: { 'DELETE /auth/web/clips/Game123': response(500, { error: 'server_error' }) } });
+  await flush();
+  const card = cardsOf(run)[0];
+  buttonIn(card, 'Stop sharing').click();
+  const confirm = walk(card).find(n => n.className === 'clip-card-confirm');
+  buttonIn(confirm, 'Stop sharing').click();
+  await flush();
+  assert.match(textOf(card), /Couldn't stop sharing this game\. Try again\./);
+  assert.equal(buttonIn(confirm, 'Stop sharing').disabled, false);
+  assert.equal(run.$('clip-count').textContent, '1 game');
 });

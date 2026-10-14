@@ -32,6 +32,14 @@ update `tokens.css` to match.
   back to the static installer URL
 - `clip.html`: shared clip watch page (player, captions, transcript); all of
   its JS lives in the first inline `<script>` so `tests/` can run it
+- `vod.html` + `vod.js` + `vod.css`: shared full game page at `/v/<id>`
+  (`_redirects` rewrites it to `/vod`, so every asset path is absolute).
+  Native player, an expiry banner, a lane of the game's moments (game time
+  maps to video time through `gameTimeAtVideoStart`), the sharer's notes
+  when they chose to include them, and a Discord report contact. It is
+  unlisted: `noindex, nofollow` in the page and in `_headers`, and no
+  `og:video` or player card. `vod.js` puts its pure helpers on
+  `RevuVod` for `tests/`
 - `privacy.html`, `terms.html`, `discord.html` (`discord/index.html` is an
   identical copy for the `/discord/` route)
 - `lightbox.js`: screenshot lightbox on the desktop app page
@@ -41,12 +49,16 @@ update `tokens.css` to match.
     (credentialed CORS, `X-Revu-CSRF`, error copy, formatters); it stores
     only the `revu.web.signedIn.v1` hint, never a token or email
   - `sign-in.html` + `sign-in.js`: email, Turnstile, then the one-time code
-  - `my-clips.html` + `my-clips.js`: the signed-in user's shared clips
+  - `my-clips.html` + `my-clips.js`: the signed-in user's shared clips and
+    full games; a game card says "Full game" and its delete reads "Stop
+    sharing"
   - `account.html` + `account.js`: sign out, sign out everywhere on the web,
     delete account
   - `header-account.js`: swaps the header "Sign in" link for "My clips"
     from the hint, with no network call
-- `_headers`: security headers and CSPs (the clip page has its own)
+- `_headers`: security headers and CSPs (the clip page and the game page
+  have their own)
+- `_redirects`: `/v/:id` serves the game page
 - `revu.svg`, `favicon.ico`, `icon-*.png`, `revu-mark.png`: brand assets
   copied from `desktop/electron/branding/`
 - `shot-*.png`: desktop app screenshots captured from `desktop/ui` sample data
@@ -59,8 +71,8 @@ Every page loads the stylesheets in this order:
 2. `styles.css`: base, header, footer, buttons, forms, cards, lightbox, legal
    pages and the desktop app page
 3. the page stylesheet, if any: `webapp.css` (web review tool on the home
-   page), `clip.css` (clip page) or `account.css` (sign-in, My clips and
-   Account pages)
+   page), `clip.css` (clip page), `vod.css` (game page) or `account.css`
+   (sign-in, My clips and Account pages)
 
 ## Scripts and CSP
 
@@ -90,9 +102,10 @@ console the same way they would in production. It serves the working tree,
 files a deploy uploads.
 
 When the page itself is served from localhost or 127.0.0.1, the clip page
-accepts `?proxy=http://localhost:8787` (a loopback proxy only) to read clips
-from a local `wrangler dev` proxy. On revu.lol the parameter is ignored, and
-the clip CSP only allows port 8787 on loopback.
+and the game page accept `?proxy=http://localhost:8787` (a loopback proxy
+only) to read from a local `wrangler dev` proxy, for example
+http://localhost:8788/v/Abc1234?proxy=http://localhost:8787. On revu.lol the
+parameter is ignored, and both CSPs only allow port 8787 on loopback.
 
 ## Local account dev
 

@@ -81,6 +81,15 @@ public sealed class ClipUploadException : Exception
     /// </summary>
     public bool Gone { get; init; }
 
+    /// <summary>
+    /// Machine-readable cause: the proxy's <c>error</c> code (e.g. <c>pool_full</c>), or
+    /// <c>network</c> / <c>timeout</c> / <c>upload_failed</c>. Null on paths that never set it.
+    /// </summary>
+    public string? Code { get; init; }
+
+    /// <summary>The proxy's <c>retry_at</c> (unix seconds) when it sent one.</summary>
+    public long? RetryAt { get; init; }
+
     public ClipUploadException(string message, bool unauthorized = false, bool retryable = false) : base(message)
     {
         Unauthorized = unauthorized;

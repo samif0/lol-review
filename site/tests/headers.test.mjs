@@ -129,3 +129,27 @@ test('No page has an executable inline script except clip.html, and none has inl
   }
   assert.equal(clipScripts, 1);
 });
+
+test('The shared game page is unlisted, unframeable and reads media only from clips.revu.lol', () => {
+  const paths = ['/v/*', '/vod', '/vod.html'];
+  const first = blocks.get(paths[0]);
+  for (const path of paths) {
+    const lines = blocks.get(path);
+    assert.ok(lines, `missing block ${path}`);
+    assert.deepEqual(lines, first, `${path} matches /v/*`);
+    assert.equal(lines[0], '! Content-Security-Policy', `${path} detaches first`);
+    assert.ok(lines.includes('X-Robots-Tag: noindex, nofollow'), `${path} noindex`);
+    const policy = csp(path);
+    assert.deepEqual(policy['default-src'], ["'self'"]);
+    assert.deepEqual(policy['script-src'], ["'self'"], `${path} script-src`);
+    assert.deepEqual(policy['media-src'], ['https://clips.revu.lol', 'http://localhost:8787', 'http://127.0.0.1:8787']);
+    assert.deepEqual(policy['connect-src'], ['https://clips.revu.lol', 'http://localhost:8787', 'http://127.0.0.1:8787']);
+    assert.deepEqual(policy['frame-ancestors'], ["'none'"]);
+    assert.deepEqual(policy['object-src'], ["'none'"]);
+    assert.deepEqual(policy['base-uri'], ["'self'"]);
+  }
+  const rules = read('_redirects').replace(/\r\n/g, '\n').split('\n').map(line => line.trim())
+    .filter(line => line && !line.startsWith('#')).map(line => line.split(/\s+/));
+  assert.deepEqual(rules, [['/v/:id', '/vod', '200']]);
+  assert.doesNotMatch(read('sitemap.xml'), /\/v\/|vod/);
+});

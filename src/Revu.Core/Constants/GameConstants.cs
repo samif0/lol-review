@@ -221,6 +221,37 @@ public static class GameConstants
     /// <summary>Extract only tries the slow re-encode fallback at or below this duration.</summary>
     public const int ReencodeFallbackMaxClipSeconds = 90;
 
+    // ── Full-game (VOD) sharing (4.1). Keep in sync with proxy/src/share-limits.ts. ──
+
+    /// <summary>Longest game that can be shared (2 hours).</summary>
+    public const int MaxVodShareSeconds = 7200;
+
+    /// <summary>Largest share copy the proxy accepts (2 GiB).</summary>
+    public const long MaxVodShareBytes = 2147483648L;
+
+    /// <summary>1.9 GiB: the size a long game's 720p bitrate is fitted to.</summary>
+    public const long VodShareTargetMaxBytes = 2040109465L;
+
+    /// <summary>Size estimate per minute at 1080p30 4.5 Mbps (decimal MB, measured about 35 MB/min).</summary>
+    public const long VodShareBytesPerMinute1080 = 35_000_000;
+
+    /// <summary>Size estimate per minute at 720p30 2.5 Mbps.</summary>
+    public const long VodShareBytesPerMinute720 = 21_000_000;
+
+    public const int VodShareVideoKbps1080 = 4500;
+    public const int VodShareVideoKbps720 = 2500;
+
+    /// <summary>Below this 720p bitrate a game is too long to share.</summary>
+    public const int VodShareMinVideoKbps = 1200;
+
+    public const int VodShareAudioKbps = 128;
+
+    /// <summary>Serialized markers budget (the proxy allows 49152; this leaves margin).</summary>
+    public const int VodShareMarkersBudgetBytes = 48000;
+
+    /// <summary>Serialized notes budget (the proxy allows 14336).</summary>
+    public const int VodShareNotesBudgetBytes = 14000;
+
     /// <summary>Hard cap on any single ffmpeg run started by a synchronous request.</summary>
     public const int FfmpegMaxStepSeconds = 240;
 
