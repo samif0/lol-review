@@ -24,7 +24,6 @@
   scroll-margin-top: var(--header-h);
 }
 .hero > * { max-width: 100%; }
-.hero-eyebrow { margin: 0 0 16px; color: var(--t3); font-size: 14px; }
 .hero-title {
   font-size: clamp(38px, 6vw, 64px);
   font-weight: var(--display-weight);
