@@ -114,7 +114,7 @@ public sealed class PatternsSnapshotBuilder
             PendingCount: pendingCount,
             EmptyText: cards.Count == 0 && errorText.Length == 0
                 ? "Save clips or bookmarks with your current learning objectives to revisit them here. "
-                  + $"Mistake trends compare saved moments marked bad across at least two games in the last {PatternConstants.WindowDays} days."
+                  + $"Mistake trends compare saved moments marked To improve across at least two games in the last {PatternConstants.WindowDays} days."
                 : "",
             Patterns: cards,
             ErrorText: errorText,

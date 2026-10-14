@@ -361,11 +361,19 @@ function clearError() { show($('errpanel'), false); }
 // Electron waits for the sidecar before it loads the shell, so a failed read is
 // a real error: show it rather than retrying.
 let _loading = false;
+// Home's "Link your Riot account" and the Account page's "Add it in Settings" open
+// #settings-account to link a Riot ID: once the field can be edited, the cursor waits there.
+let _focusRiotId = globalThis.location?.hash === '#settings-account';
 async function loadConfig() {
   if (_loading) return;
   _loading = true;
   try {
     render(await fetchConfig());
+    if (_focusRiotId) {
+      _focusRiotId = false;
+      const field = $('riotId');
+      if (field && !field.disabled && !String(field.value || '').trim()) field.focus();
+    }
     // Status is a best-effort second read — never blocks the editable page.
     loadStatus();
   } catch (err) {

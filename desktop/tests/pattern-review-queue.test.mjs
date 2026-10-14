@@ -15,6 +15,13 @@ test('reviewed trends remain available after the pending trends in a mixed snaps
   assert.match(f.$('pat-pending-text').textContent, /reviewed this trend/);
 });
 
+test('the header count is all time, so it never contradicts the trend list beneath it', () => {
+  const f = fixture();
+  f.hooks.render({ ...snapshot([pattern(1)]), reviewedPatternCount: 7 });
+  assert.equal(f.$('#statusline b').textContent, '1 mistake trend to review · 7 reviewed all time');
+  assert.equal(f.$('pat-sub').textContent, '1 to review · 0 reviewed');
+});
+
 test('finishing a trend keeps its card for revisits and opens the next pending review', async () => {
   const f = fixture(), completed = pattern(1);
   f.hooks.render(snapshot([completed, pattern(2)]));

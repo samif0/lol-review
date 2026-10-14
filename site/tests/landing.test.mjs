@@ -50,6 +50,10 @@ test('Copy is plain and honest', () => {
   assert.match(text, /Built-in recording is in beta and stays off until you turn it on in Settings\./);
   assert.match(text, /Ranked Solo\/Duo/);
   assert.match(text, /hardware H\.264 encoding/);
+  // The app offers "Watch all N back to back" only once a trend repeats across three games
+  // (PatternReviewGate.Readiness); a two-game trend is grouped to compare.
+  assert.match(text, /two or more games, Revu groups those moments so you can compare them\. Once it keeps repeating across three games, watch them back to back/);
+  assert.doesNotMatch(text, /two or more games[^.]*back to back/);
 });
 
 test('Every screenshot is a current 1600x1000 WebP with alt text', () => {

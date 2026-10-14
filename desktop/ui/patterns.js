@@ -132,7 +132,8 @@ function renderHeader(d) {
   const saved = all.filter(p => reviewMode(p) === 'saved');
   const pending = d.pendingCount ?? trends.filter(p => !p.isReviewed).length;
   const parts = [pending === 0 ? 'No new mistake trends' : `${pending} mistake trend${pending === 1 ? '' : 's'} to review`];
-  if (d.reviewedPatternCount) parts.push(`${d.reviewedPatternCount} reviewed`);
+  // All time, like Home's count; the trend list below counts only the trends listed now.
+  if (d.reviewedPatternCount) parts.push(`${d.reviewedPatternCount} reviewed all time`);
   const statusB = document.querySelector('#statusline b');
   if (statusB) statusB.textContent = parts.join(' · ');
   for (const mode of ['trend', 'saved']) {

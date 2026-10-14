@@ -397,6 +397,8 @@ public sealed class EvidenceRepositoryTests
         var trend = Assert.Single(cards, card => card.Kind == PatternConstants.KindBadObjectiveEvidence);
         Assert.Equal(6, trend.MomentCount);
         Assert.Equal(2, trend.GameCount);
+        // The Patterns page calls this rating "To improve"; the trend card says the same.
+        Assert.StartsWith("6 saved moments marked To improve across 2 games", trend.Detail);
         Assert.All(await scope.Evidence.GetPatternMomentsAsync(trend), moment => Assert.Equal(EvidencePolarities.Bad, moment.Polarity));
         var saved = Assert.Single(cards, card => card.Kind == PatternConstants.KindSavedObjectiveEvidence);
         Assert.Equal(14, saved.MomentCount);

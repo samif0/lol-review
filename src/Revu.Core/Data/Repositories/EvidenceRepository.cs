@@ -437,7 +437,7 @@ public sealed class EvidenceRepository : IEvidenceRepository
                 cards.Add(new ObjectivePatternCard(
                     Kind: PatternConstants.KindBadObjectiveEvidence,
                     Title: $"{title}: recurring mistakes",
-                    Detail: $"{badCount} saved moments marked bad across {badGames} games in the last {PatternConstants.WindowDays} days.",
+                    Detail: $"{badCount} saved moments marked To improve across {badGames} games in the last {PatternConstants.WindowDays} days.",
                     ObjectiveId: objectiveId,
                     Severity: badCount >= PatternConstants.BadObjectiveHighBad ? "high" : "medium",
                     MomentCount: badCount,

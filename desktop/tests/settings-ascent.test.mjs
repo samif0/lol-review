@@ -42,10 +42,11 @@ function node(id = '', tag = 'DIV', action = '') {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     setAttribute(name, value) { this[name] = value; },
     getAttribute(name) { return this[name]; },
+    focus() { this.focused = true; },
   };
 }
 
-async function fixture({ native = true, ascentFolder = '', handler } = {}) {
+async function fixture({ native = true, ascentFolder = '', handler, hash } = {}) {
   const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [], shellEvents = [];
   const sections = { ascent: 'recording', clips: 'playback', account: 'account', review: 'playback' };
   const add = (id, tag, action) => { const element = node(id, tag, action); ids.set(id, element); return element; };
@@ -103,6 +104,7 @@ async function fixture({ native = true, ascentFolder = '', handler } = {}) {
     readSnapshot: async () => { reads++; if (failRead) throw new Error(failRead); return plain(config); },
     preserveSettingsDraft, setTimeout, clearTimeout,
     console: { error() {}, warn() {}, info() {} },
+    ...(hash === undefined ? {} : { location: { hash } }),
   });
   vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings, loadConfig };`, context);
   context.hooks.render(plain(config));
@@ -202,6 +204,23 @@ test('signed in with no Riot ID, the Riot account card says so instead of a blan
   f.render();
   assert.equal(f.$('acct-state').textContent, 'No account attached');
   assert.equal(f.$('acct-email').hidden, true);
+});
+
+test('a prompt to link a Riot ID (#settings-account) puts the cursor in the blank Riot ID field once it loads', async () => {
+  const f = await fixture({ hash: '#settings-account' });
+  f.config.riotId = '';
+  await f.load();
+  assert.equal(f.$('riotId').focused, true);
+  f.$('riotId').focused = false;
+  await f.load();
+  assert.equal(f.$('riotId').focused, false, 'only on arrival, never on a later reload');
+  const linked = await fixture({ hash: '#settings-account' });
+  await linked.load();
+  assert.equal(linked.$('riotId').focused, undefined, 'a linked Riot ID is left alone');
+  const elsewhere = await fixture({ hash: '#settings-recording' });
+  elsewhere.config.riotId = '';
+  await elsewhere.load();
+  assert.equal(elsewhere.$('riotId').focused, undefined, 'another category never takes the cursor');
 });
 
 test('browser preview disables folder access, scanning and connection writes without implying local availability', async () => {
