@@ -202,12 +202,12 @@ A session lookup D1 can't answer is 503 `auth_unavailable`. Errors are JSON
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). `Content-Length` required (411 `length_required` without it), at most 100 MB. The body goes straight to R2; then one 16-byte ranged read checks the video magic bytes, and a mismatch is deleted and 415 `unsupported_media_type`. 30 per minute per user. 201 `{ id, url, expires_at }` |
-| POST | `/clips/uploads?title&champion&duration&size&narrated=0\|1` | owner | Start a multipart upload (`video/mp4` or `video/webm`, empty body). duration 1 to 610 s, size up to 2 GiB. 201 `{ id, part_size, part_count, expires_at }`. 6 per minute per user, at most 2 pending uploads |
-| PUT | `/clips/:id/parts/:n` | owner | Raw part bytes. `Content-Length` required and exact (`part_size`, last part is the remainder). 200 `{ part_number, etag }` |
+| POST | `/clips?title&champion&duration&narrated=0\|1` | owner | Legacy single-request upload (desktop uses it up to 95 MiB). `Content-Length` required (411 `length_required` without it), at most 100 MB. The body goes straight to R2; then one 16-byte ranged read checks the video magic bytes, and a mismatch is deleted and 415 `unsupported_media_type`. 30 per minute per user. Over the storage budget: 403 `quota_exceeded` with `reason: "storage_full"`. 201 `{ id, url, expires_at }` |
+| POST | `/clips/uploads?title&champion&duration&size&narrated=0\|1` | owner | Start a multipart upload (`video/mp4` or `video/webm`, empty body). duration 1 to 610 s, size up to 2 GiB. 201 `{ id, part_size, part_count, expires_at }`. 6 per minute per user, at most 2 pending uploads. Over the storage budget: 403 `storage_full` as above |
+| PUT | `/clips/:id/parts/:n` | owner | Raw part bytes. `Content-Length` required and exact (`part_size`, last part is the remainder). At most 2000 part PUTs per account per UTC day across every upload (a D1 counter that row deletes don't reset), then 429 `daily_part_limit` (`retry_at`, `Retry-After`). At most `2 x part_count + 4` PUTs per upload, then 429 `too_many_part_uploads`. 200 `{ part_number, etag }` |
 | POST | `/clips/:id/complete` | owner | `{ parts: [ { part_number, etag } ] }`. Idempotent. 201 `{ id, url, expires_at }` |
-| DELETE | `/clips/:id` | owner | Aborts a pending upload, deletes the R2 object, the transcript and the row |
-| GET | `/clips/mine` | owner | Own clips, including `status`, `narrated`, `has_transcript` |
+| DELETE | `/clips/:id` | owner | Clips and full-game shares alike. Claims the row (expired, `purging`), aborts a pending upload, deletes the R2 object, then the transcript, VOD meta and row. If the abort really fails (anything but "upload already gone") or the R2 delete fails, the claimed row stays (still counted in the storage budget) and the hourly purge retries it; the answer is still 200 `{ ok: true }` |
+| GET | `/clips/mine` | owner | Own clips and full-game shares, including `status`, `narrated`, `has_transcript`, `kind` (`clip` or `vod`), `quality` and `has_notes`. VOD items link to `${WATCH_BASE}/v/<id>` |
 | POST | `/transcribe?offset_ms&duration_ms&language=en` | owner | `text/plain` base64 of a mono 16 kHz 24 kbps MP3 chunk (at most 1 MiB, `Content-Length` required). Whisper via Workers AI. Charged the larger of `duration_ms` and the length the body implies at 24 kbps; a body far longer than `duration_ms` is 400. 1200 audio s per user per day (a ninth of the global cap, so a few accounts can't switch transcripts off for everyone), 10800 s across all users, 30 requests per minute per user |
 | PUT | `/clips/:id/transcript` | owner | Version 1 transcript document (at most 256 KiB, 3000 segments; 8 MiB of transcripts per account across live clips). Zero segments removes it. The VTT is generated on read |
 | DELETE | `/clips/:id/transcript` | owner | Idempotent |
@@ -252,11 +252,17 @@ npx wrangler d1 migrations apply revu-db --remote
 
 ### Cron
 
-The scheduled handler runs hourly (`0 * * * *`). In order it purges expired clips
-and expired pending uploads (aborting the upload and deleting the R2 object), then
-expired sessions, then `login_requests` rows that expired over an hour ago (with
-their email addresses, used or not), then `transcribe_usage` rows older than 7
-days, then `email_send_usage` rows older than 7 days.
+The scheduled handler runs hourly (`0 * * * *`). In order it discards pending
+uploads of any account with no part activity for 30 minutes (so abandoned
+reservations stop holding the storage pool), purges expired clips, full-game
+shares and expired pending uploads (aborting the upload and deleting the R2
+object, the transcript and the VOD meta), retries `storage_tombstones`, then
+expired sessions, then `login_requests` rows that expired over an hour ago
+(with their email addresses, used or not), then `transcribe_usage`,
+`email_send_usage`, `vod_share_usage` and `upload_part_usage` rows older than 7
+days. A row or tombstone whose upload abort really failed is kept for the next
+run (its parts may still be in R2) until it is 8 days old, past R2's own 7-day
+rule for incomplete uploads.
 
 ### Migration 0005 and deploy order
 
@@ -278,6 +284,107 @@ As an extra safety net for abandoned multipart uploads, an R2 lifecycle rule on
 `revu-clips` can abort incomplete multipart uploads after 1 day
 (`wrangler r2 bucket lifecycle add`). It is not required: the Worker auto-aborts
 idle uploads on the owner's next init and the cron aborts expired ones.
+
+## Full-game (VOD) shares
+
+A whole game's recording, re-encoded by the desktop app (H.264, about 35 MB per
+minute at 1080p), shared as `https://revu.lol/v/<id>` for 3 days. VOD rows live
+in `clips` with `kind = 'vod'` and R2 key `vods/<id>.mp4`, so the hourly purge,
+owner delete (`DELETE /clips/:id`), account deletion and the storage budget
+handle them like every other stored object. Clip routes never serve or change a
+VOD row, and VOD routes never touch a clip row.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/vod-shares/status` | owner | `allowed`, `sharing`, `serving`, `now`, own `shares`. Allowlisted accounts also get `limits`, `usage` (`live`, `pending`, `starts_today`, `day_resets_at`) and `pool` (budgets, used bytes, `free_bytes`, `releases`). 30 per minute per user |
+| POST | `/vod-shares/uploads?size&duration&quality=1080p\|720p` | owner | `video/mp4`, empty body. size up to 2 GiB, duration 1 to 7200 s. Refusals, in order: 503 `vod_sharing_disabled`, 403 `not_allowed`, 429 `rate_limited` (6 per minute), 415, 400, 413, then 429 `too_many_pending_uploads`, 409 `live_limit`, 409 `pool_full` (`retry_at`, `free_bytes`), 429 `daily_limit` (`retry_at`, `Retry-After`). 201 `{ id, part_size, part_count, expires_at, share_expires_at, url }` |
+| PUT | `/vod-shares/:id/parts/:n` | owner | Same as the clip part route (16 MiB parts) |
+| POST | `/vod-shares/:id/complete` | owner | Same as clip complete. The share expires 3 days after INIT (`created_at` is never rewritten). Idempotent. 201 `{ id, url, expires_at }` |
+| PUT | `/vod-shares/:id/markers` | owner | Markers document v1 (at most 64 KB; markers 48 KiB, notes 14 KiB). Validated and normalized by `src/vod-markers.ts`. Sets the public title and champion. 200 `{ ok, markers, notes }` |
+| GET | `/vod-meta/:id` | public | `{ id, kind, content_type, quality, duration_s, size_bytes, created_at, expires_at, serving, play_limited, meta }`. `no-store`, `X-Robots-Tag: noindex, nofollow` |
+| GET, HEAD | `/vod-file/:id` | public | Same range, conditional and HEAD handling as `/clip-file`, `Cache-Control: private, max-age=3600`, noindex. 503 `vod_serving_disabled` when serving is off, 429 `play_limit` over the daily cap |
+
+Limits (all in `src/share-limits.ts`):
+
+- Only accounts with a `vod_sharers` row can start a share. Rows are added by hand
+  at deploy time, never by code.
+- Per account: 3 live shares (ready, or uploading and not idle for 15 minutes),
+  1 pending upload, 6 starts per UTC day (a D1 counter; a start is spent at init
+  and not refunded). Idle VOD uploads are discarded by the owner's next init.
+- Upload window: long enough to send the declared size at 0.45 Mbps plus an
+  hour, between 6 and 12 hours (a 2 GiB share gets about 11.6 hours). The share
+  still expires 3 days after init.
+- Part PUTs per row (clips too): at most `2 x part_count + 4`, then 429
+  `too_many_part_uploads`.
+- Play cap: 200 plays per VOD per UTC day. A play is a GET with no Range, an
+  ignored Range or a Range starting at byte 0. Over the cap every request for
+  that VOD (seeks included) is 429 until UTC midnight. A client that never asks
+  for byte 0 (for example `Range: bytes=1-`) is not counted; it is refused only
+  once counted plays reach the cap.
+
+### Storage budget
+
+`TOTAL_BUDGET_BYTES` (default 9e9) and `VOD_BUDGET_BYTES` (default 7e9, clamped
+to the total) in `wrangler.toml [vars]` cover every stored object: clips and
+VODs in every state (uploading reservations at their declared size, ready,
+purging) plus `storage_tombstones`. Expired rows count until the purge removes
+them. Both clip upload paths and VOD init check it before reserving and again
+after their row is committed; the loser of a race rolls itself back. A clip
+upload over the total is 403 `{ error: "quota_exceeded", reason: "storage_full",
+message }` (4.0.1 desktops show the message); a VOD init over either budget is
+409 `pool_full`. The single-request clip upload can't reserve before streaming,
+so concurrent ones may overshoot by their own bytes (each at most 100 MB) until
+the post-insert recount rolls them back. Clips can use the whole total, so a
+clip-heavy period can leave VODs `pool_full` while the VOD subset has room.
+
+One account outside `vod_sharers` may hold at most `USER_CLIP_BUDGET_BYTES`
+(default 3e9, a third of the total) of clips, pending reservations included,
+so no single account can fill the pool; over it is the usual 403
+`quota_exceeded`. A clip upload or VOD init that would be refused for storage
+first discards up to 10 idle pending uploads (30 minutes without part activity)
+of any account.
+
+When an R2 delete or upload abort fails, the bytes stay counted: owner delete,
+discards and the single-request rollbacks keep the row as an expired `purging`
+row, and account deletion (and a rollback with no row left) writes
+`storage_tombstones` rows. The hourly purge retries both.
+
+### Kill switches
+
+`VOD_SHARING = "0"` (or `"off"`) refuses new VOD starts (parts and complete of an
+upload already started still work). `VOD_SERVING = "0"` (or `"off"`) stops VOD
+playback. Anything else, or unset, is on.
+
+### Migration 0006 and deploy order
+
+`migrations/0006_vod_shares.sql` is additive: `kind`, `part_puts`, `quality`,
+`play_day` and `play_count` columns on `clips` (existing rows become kind
+`clip`), plus the `vod_sharers`, `vod_share_usage`, `upload_part_usage`,
+`vod_share_meta` and `storage_tombstones` tables. Apply it before deploying the
+Worker that uses it. 4.0.1 desktops keep sharing clips against the new Worker;
+the only changes they can see are the `storage_full` refusal, the per-account
+share of the pool (shown as their usual clip quota message) and the daily part
+budget.
+
+```sh
+cd proxy
+npx wrangler d1 migrations list revu-db --remote
+npx wrangler d1 migrations apply revu-db --remote
+npm run deploy                        # guarded, see Deploy above
+
+# Allowlist an account (manual, by the operator only):
+npx wrangler d1 execute revu-db --remote --command \
+  "INSERT OR IGNORE INTO vod_sharers (user_id, added_at) SELECT id, unixepoch() FROM users WHERE email = '<email>'"
+```
+
+The bucket's 3-day lifecycle rule (all prefixes) matches the VOD TTL, which is
+counted from init; no lifecycle change is needed.
+
+For local runs: `npx wrangler d1 migrations apply revu-db --local`, then
+`npx wrangler dev` with a gitignored `.dev.vars` setting `AUTH_BASE`,
+`PUBLIC_BASE` to `http://localhost:8787` and `WATCH_BASE` to
+`http://localhost:8788`. The tests run the VOD routes against an in-memory
+SQLite database with every migration applied (`tests/sqlite-d1.ts`).
 
 ## Web accounts (revu.lol)
 
@@ -389,11 +496,14 @@ Accepted risks (documented, not fixed):
 
 `POST /auth/web/account/delete` with the typed account email. R2 goes first
 (cascades never reach object storage): pending multipart uploads are aborted
-(best effort, at most 20), then every clip object is deleted in chunks of 1000.
-R2 failures are logged; the rows are the source of truth. Then one D1 batch
-deletes the transcripts, clips, every session (web AND desktop), identities,
-`transcribe_usage` rows, `login_requests` for the email, and the user. The log
-line carries the user id and clip count, never the email. The desktop app is
+(at most 20), then every clip and VOD object is deleted in chunks of 1000. Then
+one D1 batch first copies every row whose R2 delete or abort failed (or whose
+upload was past the abort cap) into `storage_tombstones` with its upload id
+(still counted in the storage budget, retried by the hourly purge), then
+deletes the transcripts, VOD share meta, clips, every session (web AND
+desktop), identities, `transcribe_usage`, `vod_share_usage`,
+`upload_part_usage` and `vod_sharers` rows, `login_requests` for the email, and the user. The log line
+carries the user id and the clip and tombstone counts, never the email. The desktop app is
 signed out on its next server call; clips on the PC are untouched.
 
 ### Migration 0004 and deploy order

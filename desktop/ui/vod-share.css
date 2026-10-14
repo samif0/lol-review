@@ -1,0 +1,70 @@
+/* Share full game (vod-share.mjs): the header action, the quiet row above the player and
+   the share sheet. Tokens only (appearance.css); kit buttons, fields and the segmented
+   control come from kit.css. Shadows and tracking opt back in past the styles.css reset
+   with !important and token values only. */
+
+/* Header action: a quiet kit button beside Cinema */
+.vod-review-page .vp-vs-open{color:var(--t2)}
+.vod-review-page .vp-vs-open svg{fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+
+/* Row above the player: the same quiet row as the sign-in hint and share progress */
+.vod-review-page .vp-vodshare{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;margin:14px 0 12px;padding:10px 0;
+  border-bottom:1px solid var(--line)}
+.vp-vodshare .vp-vs-row-text{flex:1 1 320px;min-width:0;min-height:34px;display:flex;flex-wrap:wrap;align-items:center;
+  gap:4px 12px;font-size:13px;line-height:1.45}
+.vp-vodshare .vp-vs-row-label{color:var(--t1);font-weight:500}
+.vp-vodshare .vp-vs-row-url{min-width:0;font:400 12.5px/1.45 var(--f-data);color:var(--t2);overflow-wrap:anywhere;user-select:all}
+.vp-vodshare .vp-vs-row-detail{color:var(--t3);font-variant-numeric:tabular-nums}
+.vp-vodshare.is-error .vp-vs-row-detail{color:var(--error)}
+.vp-vodshare :is(.vp-vs-row-actions,.vp-vs-row-confirm){display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.vp-vodshare .vp-vs-row-confirm > span{font-size:13px;color:var(--t2)}
+
+/* Screen-reader only: phase changes and results, never every percent */
+.vp-vs-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);
+  white-space:nowrap}
+
+/* Sheet */
+.vp-vs-sheet{width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;margin:auto;padding:20px 22px 22px;
+  border:var(--raised-border);border-radius:var(--r-lg);background:var(--raised);color:var(--t1);font-family:var(--f-body);
+  box-shadow:var(--pop-shadow)!important}
+.vp-vs-sheet::backdrop{background:var(--scrim)}
+.vp-vs-sheet p{margin:0}
+.vp-vs-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.vp-vs-head h2{margin:0;font-family:var(--f-display);font-weight:var(--display-weight);font-optical-sizing:auto;font-size:22px;
+  line-height:1.25;color:var(--t1);letter-spacing:var(--display-track)!important}
+.vp-vs-head .ui-iconbtn svg{fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round}
+.vp-vs-view{display:grid;gap:14px}
+.vp-vs-size,.vp-vs-progress-label,.vp-vs-ready{font-size:15px;line-height:1.4;color:var(--t1)}
+.vp-vs-progress-label{font-variant-numeric:tabular-nums}
+.vp-vs-ready{font-weight:500}
+.vp-vs-quality{justify-self:start}
+.vp-vs-hint{font-size:13px;line-height:1.5;color:var(--t2)}
+.vp-vs-facts{display:grid;gap:6px;margin:0;padding:0;list-style:none;font-size:13.5px;line-height:1.5;color:var(--t2)}
+.vp-vs-facts li{position:relative;padding-left:16px}
+.vp-vs-facts li::before{content:'';position:absolute;left:3px;top:.62em;width:5px;height:5px;border-radius:50%;background:var(--t3)}
+.vp-vs-check{display:flex;align-items:center;gap:10px;min-height:32px;font-size:14px;color:var(--t1);cursor:pointer}
+.vp-vs-check input{width:16px;height:16px;margin:0;accent-color:var(--accent);cursor:pointer}
+.vp-vs-check:has(> input:disabled){opacity:.5;cursor:not-allowed}
+.vp-vs-bar{height:6px;border-radius:3px;background:var(--track);overflow:hidden}
+.vp-vs-bar span{display:block;width:0;height:100%;border-radius:inherit;background:var(--accent)}
+.vp-vs-note{font-size:13px;line-height:1.5;color:var(--t3)}
+.vp-vs-linkrow{display:flex;align-items:center;gap:8px}
+.vp-vs-sheet .vp-vs-url{flex:1;min-width:0;min-height:34px;padding:6px 10px;font:400 13px/1.4 var(--f-data)}
+.vp-vs-expiry{font-size:13px;line-height:1.5;color:var(--t2)}
+
+/* One message line: a result or what blocks sharing right now */
+.vp-vs-message{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:16px;padding:10px 12px;
+  border-radius:var(--r-md);background:var(--selected);font-size:13.5px;line-height:1.5;color:var(--t1)}
+.vp-vs-message > p{flex:1 1 240px;min-width:0}
+.vp-vs-message.is-error{background:var(--danger-soft)}
+.vp-vs-message.is-error > p{color:var(--error)}
+.vp-vs-confirm{display:grid;gap:10px;margin-top:16px;padding:12px;border:1px solid var(--danger-line);border-radius:var(--r-md);
+  background:var(--danger-soft)}
+.vp-vs-confirm > p{font-size:13.5px;line-height:1.5;color:var(--t1)}
+.vp-vs-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-top:20px}
+.vp-vs-confirm .vp-vs-actions{justify-content:flex-start;margin-top:0}
+.vp-vs-actions [data-vs="stop"]{margin-right:auto}
+
+@media (prefers-reduced-motion:no-preference){
+  .vp-vs-bar span{transition:width .3s ease}
+}

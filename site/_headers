@@ -55,3 +55,22 @@
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://clips.revu.lol http://localhost:8787; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Robots-Tag: noindex
+
+# Shared full games (vod.html). /v/<id> is a _redirects rewrite to /vod, and Pages
+# matches headers on the request path, so all three paths carry the same block.
+# Unlisted: never indexed or framed; media and metadata come only from clips.revu.lol
+# (localhost:8787 in wrangler dev). No inline script: vod.js loads with src.
+/v/*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Robots-Tag: noindex, nofollow
+
+/vod
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Robots-Tag: noindex, nofollow
+
+/vod.html
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Robots-Tag: noindex, nofollow

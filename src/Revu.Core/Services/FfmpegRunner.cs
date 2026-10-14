@@ -94,14 +94,17 @@ internal static class FfmpegRunner
     /// <summary>
     /// Run ffmpeg with <paramref name="args"/>. Returns the exit code and stderr tail; a
     /// timeout kills the process tree and returns <c>TimedOut</c>. Cancellation kills the
-    /// process tree and throws <see cref="OperationCanceledException"/>.
+    /// process tree and throws <see cref="OperationCanceledException"/>. With
+    /// <paramref name="onStdoutLine"/>, stdout is read as text and each line is handed to it
+    /// (e.g. <c>-progress pipe:1</c>); otherwise stdout is drained and discarded.
     /// </summary>
     public static async Task<FfmpegRunResult> RunAsync(
         string ffmpegPath,
         IReadOnlyList<string> args,
         int timeoutSeconds,
         CancellationToken ct,
-        int maxStderrChars = DefaultStderrChars)
+        int maxStderrChars = DefaultStderrChars,
+        Action<string>? onStdoutLine = null)
     {
         ct.ThrowIfCancellationRequested();
         var psi = new ProcessStartInfo
@@ -124,7 +127,9 @@ internal static class FfmpegRunner
 
         var stderr = new TailBuffer(Math.Max(DefaultStderrChars, maxStderrChars));
         var stderrTask = PumpAsync(process.StandardError, stderr);
-        var stdoutTask = process.StandardOutput.BaseStream.CopyToAsync(Stream.Null);
+        var stdoutTask = onStdoutLine is null
+            ? process.StandardOutput.BaseStream.CopyToAsync(Stream.Null)
+            : PumpLinesAsync(process.StandardOutput, onStdoutLine);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, timeoutSeconds)));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
@@ -167,6 +172,17 @@ internal static class FfmpegRunner
         while ((read = await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false)) > 0)
         {
             sink.Append(buffer, read);
+        }
+    }
+
+    private static async Task PumpLinesAsync(StreamReader reader, Action<string> onLine)
+    {
+        string? line;
+        while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) is not null)
+        {
+            // A throwing consumer must not stop the pump: an unread pipe would stall ffmpeg.
+            try { onLine(line); }
+            catch { /* ignore consumer faults */ }
         }
     }
 

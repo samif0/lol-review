@@ -177,7 +177,7 @@ public static partial class SidecarEndpoints
         // safety backup (belt-and-suspenders). The frontend confirms before calling.
         // ─────────────────────────────────────────────────────────────────────────────
         app.MapPost("/api/game/delete", async (GameIdBody body, WriteServices w, ClipShareWorker share,
-            RemoteClipCleanupStore cleanup, SidecarBackgroundWork work, ILogger<Program> log) =>
+            VodShareWorker vodShare, RemoteClipCleanupStore cleanup, SidecarBackgroundWork work, ILogger<Program> log) =>
         {
             if (body is null || body.GameId <= 0)
                 return Results.BadRequest(new { error = "gameId required" });
@@ -187,6 +187,8 @@ public static partial class SidecarEndpoints
             // and stop any share still running for them.
             var bookmarks = await w.Vod.GetBookmarksAsync(body.GameId);
             foreach (var bm in bookmarks) share.Cancel(bm.Id);
+            // 4.2: a full-game share of it stops now; its link is removed off the request path.
+            vodShare.Cancel(body.GameId);
             var slugs = bookmarks.Select(bm => ClipShareLinks.SlugFromUrl(bm.ShareUrl))
                 .Where(slug => slug.Length > 0).Distinct().ToList();
 
@@ -211,6 +213,21 @@ public static partial class SidecarEndpoints
                 {
                     log.LogInformation("Game {GameId}: remote clip deletes queued for the next start", body.GameId);
                 }
+            }
+
+            // Best effort: a failure is logged and never fails the delete. A host that is
+            // stopping queues the link's delete for the next signed-in start instead.
+            var gameId = body.GameId;
+            if (!work.TryRun("game delete full-game share", async () =>
+                {
+                    try { await vodShare.StopAsync(gameId, work.Stopping, forgetIfQueued: true); }
+                    catch (Exception ex) when (ex is not OperationCanceledException || !work.Stopping.IsCancellationRequested)
+                    {
+                        log.LogWarning(ex, "Game {GameId}: full-game share stop failed", gameId);
+                    }
+                }))
+            {
+                vodShare.QueueStop(gameId);
             }
             return Results.Json(new { ok = true, backupPath }, jsonOptions);
         });

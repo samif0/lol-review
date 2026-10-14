@@ -663,6 +663,15 @@ async function wireLiveAutoShow() {
           }
         } catch (_) { /* best-effort; the share wait also polls its status */ }
         break;
+      case 'vodShareProgress':
+        // 4.2: a full-game share is preparing or uploading in the sidecar. Only the VOD
+        // player shows it; the page matches gameId itself and never interrupts playback.
+        try {
+          if (frameHas('vodplayer.html') && frame?.contentWindow) {
+            frame.contentWindow.dispatchEvent(new CustomEvent('revu:vod-share-progress', { detail: p }));
+          }
+        } catch (_) { /* best-effort; the share sheet also polls its status */ }
+        break;
       case 'autoClipProgress':
         // An auto-clip batch runs in the sidecar past any request deadline; the VOD player
         // shows its progress and re-reads its clips when it finishes (it matches gameId).

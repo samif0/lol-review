@@ -3,7 +3,7 @@ import worker, { GlobalRateLimiter } from "../src/index";
 import { Env } from "../src/types";
 import { resetRiotBudget } from "../src/riot-budget";
 import { accountRegionalFor, regionalFor, RIOT_TIMEOUT_MS } from "../src/riot";
-import { dbWithSessions, makeEnv, makeFakeDb, sha256Hex } from "./fakes";
+import { clip, dbWithSessions, makeEnv, makeFakeDb, makeFakeR2, runScheduled, sha256Hex } from "./fakes";
 import { addSession, addUser, makeAuthState } from "./fake-auth";
 
 const TOKEN = "desktop-session";
@@ -399,6 +399,52 @@ describe("worker error handling", () => {
     );
     const again = await logout();
     expect(again.status).toBe(401);
+  });
+});
+
+describe("full-game share routing and housekeeping", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("answers an unknown /vod-shares path with 404 before auth, and never reaches Riot", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const e = await env();
+    for (const [method, path] of [["GET", "/vod-shares/abc1234"], ["POST", "/vod-shares/status"], ["GET", "/vod-shares/uploads"], ["DELETE", "/vod-shares/abc1234/markers"]]) {
+      const res = await worker.fetch(new Request(`https://proxy.example${path}`, { method }), e);
+      expect(res.status, `${method} ${path}`).toBe(404);
+      expect(await json(res)).toEqual({ error: "not_found" });
+    }
+    const status = await worker.fetch(new Request("https://proxy.example/vod-shares/status"), e);
+    expect(status.status).toBe(401);
+    expect(await json(status)).toEqual({ error: "unauthorized" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends the bare slug of a full-game share to its watch page, never to the clip OG page", async () => {
+    const db = makeFakeDb([clip({ id: "Vod0001", kind: "vod", r2_key: "vods/Vod0001.mp4" })]);
+    const res = await worker.fetch(new Request("https://proxy.example/Vod0001"), makeEnv({ DB: db }));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://revu.lol/v/Vod0001");
+  });
+
+  it("the hourly cron retries storage tombstones and prunes VOD start counts older than 7 days", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-14T05:00:00Z"));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const db = makeFakeDb();
+    const r2 = makeFakeR2();
+    const upload = await r2.bucket.createMultipartUpload("vods/Gone001.mp4");
+    r2.store.set("clips/Gone002.mp4", new Uint8Array([1]));
+    db._tombstones.set("vods/Gone001.mp4", { r2_key: "vods/Gone001.mp4", upload_id: upload.uploadId, size_bytes: 9, kind: "vod", created_at: 1 });
+    db._tombstones.set("clips/Gone002.mp4", { r2_key: "clips/Gone002.mp4", upload_id: null, size_bytes: 1, kind: "clip", created_at: 1 });
+    for (const day of ["2026-10-06", "2026-10-07", "2026-10-14"]) db._vodUsage.set(`${USER}|${day}`, 1);
+
+    const e = makeEnv({ DB: db, CLIPS: r2.bucket });
+    await runScheduled(worker, e);
+    expect(db._tombstones.size).toBe(0);
+    expect(r2.calls.deleted.sort()).toEqual(["clips/Gone002.mp4", "vods/Gone001.mp4"]);
+    expect(r2.uploads.get(upload.uploadId)!.state).toBe("aborted");
+    expect([...db._vodUsage.keys()].sort()).toEqual([`${USER}|2026-10-07`, `${USER}|2026-10-14`]);
   });
 });
 

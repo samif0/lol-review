@@ -28,6 +28,7 @@ import {
 } from "./db";
 import { handleDeleteClip, handleListMyClips, SLUG_REGEX } from "./clips";
 import { Env } from "./types";
+import { abortUpload } from "./upload-cleanup";
 import {
   gateWebRequest,
   hasWebCookie,
@@ -190,26 +191,30 @@ async function handleAccountDelete(request: Request, env: Env): Promise<Response
     return webJson({ error: "confirm_mismatch" }, 400, request, env);
   }
 
-  // R2 first: cascades never reach object storage. Best effort throughout;
-  // the D1 rows are the source of truth and go regardless.
+  // R2 first: cascades never reach object storage. The D1 rows go regardless;
+  // an object whose delete failed is kept as a storage tombstone (counted in
+  // the storage budget, retried by the hourly purge) instead of orphaned.
   const objects = await listClipObjectsForUser(env.DB, user.id);
-  for (const obj of objects.filter((o) => o.upload_id).slice(0, MAX_UPLOAD_ABORTS)) {
-    try {
-      await env.CLIPS.resumeMultipartUpload(obj.r2_key, obj.upload_id as string).abort();
-    } catch {
-      // Already completed, aborted or unknown. The key delete below covers it.
-    }
+  // An upload that is already completed, aborted or unknown counts as aborted.
+  // One whose abort failed, or past the abort cap, keeps its parts counted as a
+  // tombstone with its upload id, and the hourly purge aborts it.
+  const failedIds: string[] = [];
+  const pending = objects.filter((o) => o.upload_id);
+  for (let i = 0; i < pending.length; i++) {
+    const obj = pending[i];
+    if (i >= MAX_UPLOAD_ABORTS || !(await abortUpload(env, obj.r2_key, obj.upload_id))) failedIds.push(obj.id);
   }
-  const keys = objects.map((o) => o.r2_key);
-  for (let i = 0; i < keys.length; i += R2_DELETE_CHUNK) {
+  for (let i = 0; i < objects.length; i += R2_DELETE_CHUNK) {
+    const chunk = objects.slice(i, i + R2_DELETE_CHUNK);
     try {
-      await env.CLIPS.delete(keys.slice(i, i + R2_DELETE_CHUNK));
+      await env.CLIPS.delete(chunk.map((o) => o.r2_key));
     } catch (err) {
+      failedIds.push(...chunk.map((o) => o.id).filter((id) => !failedIds.includes(id)));
       console.error(JSON.stringify({ scope: "web.account_delete.r2", user_id: user.id, error: (err as Error).message }));
     }
   }
 
-  await deleteAccountRows(env.DB, user.id, user.email);
-  console.log(JSON.stringify({ scope: "web.account_delete", user_id: user.id, clips: objects.length }));
+  await deleteAccountRows(env.DB, user.id, user.email, failedIds);
+  console.log(JSON.stringify({ scope: "web.account_delete", user_id: user.id, clips: objects.length, tombstones: failedIds.length }));
   return webJson({ ok: true }, 200, request, env, { setCookie: WEB_CLEAR_COOKIE });
 }

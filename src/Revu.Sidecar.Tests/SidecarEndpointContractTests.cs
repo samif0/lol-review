@@ -293,6 +293,10 @@ public sealed class SidecarEndpointContractTests
         GET /api/tiltcheck
         GET /api/update/check
         GET /api/vod
+        GET /api/vod-share/status
+        POST /api/vod-share/start
+        POST /api/vod-share/cancel
+        POST /api/vod-share/stop
         GET /api/clip/share-status
         POST /api/auth/clear-partial
         POST /api/auth/login
