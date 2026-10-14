@@ -16,7 +16,7 @@
 
 import { Env } from "./types";
 import { jsonResponse, mediaTypeOf, parseStrictInt, readSmallBody } from "./http";
-import { ClipRow, UPLOAD_IDLE_ABORT_SECONDS, uniqueSlug } from "./clips";
+import { UPLOAD_IDLE_ABORT_SECONDS, uniqueSlug } from "./clips";
 import { completeUpload, discardRow, handleUploadPart } from "./clip-uploads";
 import { vodInitLimitOrDeny, vodStatusLimitOrDeny } from "./user-limits";
 import { fitsAt, isVodSharer, poolSnapshot, storageUsage, vodFits } from "./storage-budget";
@@ -311,29 +311,42 @@ export function handleVodUploadComplete(request: Request, env: Env, userId: numb
 
 // ── PUT /vod-shares/:id/markers ─────────────────────────────────────────────
 
+/** A VOD row that can take markers: ready, or still uploading (never 'purging'). */
+const MARKABLE = "kind = 'vod' AND status IN ('ready', 'uploading')";
+
+/**
+ * The desktop sends the markers right after init, so the watch page can name
+ * the game while the upload runs: a VOD still uploading inside its upload
+ * window (its expires_at) takes them as well as a ready one. The write checks
+ * the row again in the same statement, so a row discarded or deleted in the
+ * meantime never gets a meta row back (that is a 404, like a missing row).
+ */
 export async function handleVodMarkers(request: Request, env: Env, userId: number, id: string): Promise<Response> {
   const text = await readSmallBody(request, VOD_META_MAX_BODY_BYTES);
   if (text === null) return refuse(413, "payload_too_large", "markers body exceeds 64 KB");
 
   const now = nowSeconds();
   const row = await env.DB
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND kind = 'vod' AND status = 'ready' AND expires_at > ?3 LIMIT 1")
+    .prepare(`SELECT id FROM clips WHERE id = ?1 AND user_id = ?2 AND ${MARKABLE} AND expires_at > ?3 LIMIT 1`)
     .bind(id, userId, now)
-    .first<ClipRow>();
+    .first<{ id: string }>();
   if (!row) return notFound();
 
   const result = normalizeVodMeta(text);
   if (!result.ok) return refuse(result.status, result.error, result.message);
   const { doc, hasNotes } = result;
 
-  await env.DB.batch([
+  const [stored] = await env.DB.batch([
     env.DB
-      .prepare("INSERT OR REPLACE INTO vod_share_meta (clip_id, meta_json, has_notes, created_at) VALUES (?1, ?2, ?3, ?4)")
-      .bind(id, JSON.stringify(doc), hasNotes ? 1 : 0, now),
+      .prepare(
+        `INSERT OR REPLACE INTO vod_share_meta (clip_id, meta_json, has_notes, created_at) SELECT id, ?2, ?3, ?4 FROM clips WHERE id = ?1 AND user_id = ?5 AND ${MARKABLE} AND expires_at > ?4`,
+      )
+      .bind(id, JSON.stringify(doc), hasNotes ? 1 : 0, now, userId),
     env.DB
-      .prepare("UPDATE clips SET champion = ?1, title = ?2 WHERE id = ?3 AND user_id = ?4 AND kind = 'vod'")
-      .bind(doc.game.champion ?? null, vodTitle(doc.game), id, userId),
+      .prepare(`UPDATE clips SET champion = ?1, title = ?2 WHERE id = ?3 AND user_id = ?4 AND ${MARKABLE} AND expires_at > ?5`)
+      .bind(doc.game.champion ?? null, vodTitle(doc.game), id, userId, now),
   ]);
+  if (stored.meta.changes !== 1) return notFound();
 
   return jsonResponse({ ok: true, markers: doc.markers.length, notes: doc.notes?.length ?? 0 }, 200);
 }

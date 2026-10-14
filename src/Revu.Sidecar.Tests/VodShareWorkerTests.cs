@@ -414,7 +414,8 @@ public sealed partial class VodShareWorkerTests
             var done = await WaitPhaseAsync(tap, "done");
 
             Assert.False(done.GetProperty("markersAttached").GetBoolean());
-            Assert.Equal(3, h.Client.Markers.Count);
+            // Three attempts right after init, three more after complete.
+            Assert.Equal(6, h.Client.Markers.Count);
             Assert.False(h.Store.Get(GameId)!.MarkersAttached);
             Assert.Empty(h.Upload.Deleted);
         }

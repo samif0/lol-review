@@ -342,6 +342,52 @@ test('a game that is still uploading shows its progress, keeps asking, and start
   assert.equal(run.requests.length, 6);
 });
 
+test('while it uploads, the page names the game once the sharer has sent its details, as text only', async () => {
+  const { uploadGame } = helpers();
+  const doc = meta().meta;
+  assert.equal(uploadGame(uploading()), null);
+  assert.equal(uploadGame(uploading({ meta: null })), null);
+  assert.deepEqual({ ...uploadGame(uploading({ meta: doc }), 'en-US') },
+    { title: 'Jinx vs Caitlyn', meta: 'Bot · Win · 30:34 · Oct 12, 2026' });
+  assert.deepEqual({ ...uploadGame(uploading({ meta: { ...doc, game: { champion: 'Jinx' } } })) }, { title: 'Jinx game', meta: '' });
+  assert.deepEqual({ ...uploadGame(uploading({ meta: { ...doc, game: { role: 'MIDDLE' } } })) }, { title: 'Shared game', meta: 'Mid' });
+  for (const game of [{}, null, 'Jinx', { champion: '  ' }]) {
+    assert.equal(uploadGame(uploading({ meta: { ...doc, game } })), null, JSON.stringify(game));
+  }
+
+  const hostile = '<img src=x onerror=alert(1)>';
+  let current = uploading({ progress: { parts: 30, part_count: 90 } });
+  const run = page({ routes: { '/vod-meta/Abc1234': () => current } });
+  await flush();
+  assert.equal(run.state(), 'state-uploading');
+  assert.equal(run.$('upload-game').hidden, true, 'nothing to name before the details arrive');
+
+  current = uploading({ progress: { parts: 31, part_count: 90 }, meta: { ...doc, game: { ...doc.game, opponentChampion: hostile } } });
+  await run.nextPoll();
+  assert.equal(run.$('upload-game').hidden, false);
+  assert.equal(run.$('upload-game-title').textContent, `Jinx vs ${hostile}`);
+  assert.equal(run.$('upload-game-title').children.length, 0, 'the name stays text');
+  assert.match(run.$('upload-game-meta').textContent, /^Bot · Win · 30:34 · /);
+  assert.equal(run.$('upload-game-meta').hidden, false);
+  // The rest of the waiting page is unchanged.
+  assert.equal(run.$('upload-title').textContent, 'Still uploading, 34%');
+  assert.equal(run.$('upload-bar').style.width, '34%');
+  assert.equal(run.document.title, 'Still uploading, 34% - Revu');
+  assert.ok(!run.video.src, 'nothing to play yet');
+
+  current = uploading({ progress: { parts: 31, part_count: 90 }, stalled: true, meta: { ...doc, game: { champion: 'Jinx' } } });
+  await run.nextPoll();
+  assert.equal(run.$('upload-title').textContent, 'Upload paused at 34%');
+  assert.equal(run.$('upload-game-title').textContent, 'Jinx game');
+  assert.equal(run.$('upload-game-meta').hidden, true);
+
+  current = meta();
+  await run.nextPoll();
+  assert.equal(run.state(), 'state-game');
+  assert.equal(run.$('vod-title').textContent, 'Jinx vs Caitlyn');
+  assert.equal(run.video.src, 'https://clips.revu.lol/vod-file/Abc1234');
+});
+
 test('an upload that ends while someone waits says the game is not available; a hidden tab waits to ask', async () => {
   let current = uploading();
   const run = page({ routes: { '/vod-meta/Abc1234': () => current } });

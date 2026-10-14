@@ -6,8 +6,9 @@
  *
  * The desktop shows the link as soon as the upload starts, so /vod-meta also
  * answers for a VOD that is still uploading: status "uploading" with its
- * progress, and the watch page polls it until the share is ready. /vod-file
- * stays 404 until then (an R2 multipart object doesn't exist before complete).
+ * progress and its markers (the desktop sends them right after init). The watch
+ * page polls it until the share is ready; /vod-file stays 404 until then (an R2
+ * multipart object doesn't exist before complete).
  *
  * Unlisted: every response carries X-Robots-Tag noindex, and nothing here ever
  * returns the owner, upload id, R2 key or raw counters.
@@ -73,10 +74,11 @@ function playLimited(row: ClipRow, today: string): boolean {
  * expires_at is when the share will end (its TTL runs from init). stalled: no
  * part activity for UPLOAD_IDLE_ABORT_SECONDS, when the proxy stops counting
  * the upload as pending; such an upload rarely resumes, and the idle sweep
- * discards it later (then this route answers 404). No markers yet: they are
- * attached after complete.
+ * discards it later (then this route answers 404). meta is the markers
+ * document, as for a ready share: the desktop sends it right after init, so it
+ * is null only for a moment (or for a desktop that sends it after complete).
  */
-function uploadingMeta(env: Env, row: ClipRow, now: number): Response {
+function uploadingMeta(env: Env, row: ClipRow, meta: unknown, now: number): Response {
   const partCount = Math.max(1, Number(row.part_count) || 1);
   const parts = Math.min(Math.max(0, Number(row.part_puts) || 0), partCount);
   return jsonResponse(
@@ -91,10 +93,25 @@ function uploadingMeta(env: Env, row: ClipRow, now: number): Response {
       serving: vodServingOn(env),
       progress: { parts, part_count: partCount },
       stalled: now - (row.last_activity_at ?? row.created_at) >= UPLOAD_IDLE_ABORT_SECONDS,
+      meta,
     },
     200,
     { "Cache-Control": "no-store", "X-Robots-Tag": NOINDEX },
   );
+}
+
+/** The share's stored markers document, or null when none is attached (or it can't be read). */
+async function storedMeta(db: D1Database, id: string): Promise<unknown> {
+  const stored = await db
+    .prepare("SELECT meta_json FROM vod_share_meta WHERE clip_id = ?1")
+    .bind(id)
+    .first<{ meta_json: string }>();
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored.meta_json);
+  } catch {
+    return null;
+  }
 }
 
 /** GET /vod-meta/:id */
@@ -102,20 +119,8 @@ export async function handleVodMeta(env: Env, id: string): Promise<Response> {
   if (!SLUG_REGEX.test(id)) return notFound();
   const row = await findShownVod(env.DB, id);
   if (!row) return notFound();
-  if (row.status === "uploading") return uploadingMeta(env, row, nowSeconds());
-
-  const stored = await env.DB
-    .prepare("SELECT meta_json FROM vod_share_meta WHERE clip_id = ?1")
-    .bind(id)
-    .first<{ meta_json: string }>();
-  let meta: unknown = null;
-  if (stored) {
-    try {
-      meta = JSON.parse(stored.meta_json);
-    } catch {
-      meta = null;
-    }
-  }
+  const meta = await storedMeta(env.DB, id);
+  if (row.status === "uploading") return uploadingMeta(env, row, meta, nowSeconds());
 
   const now = nowSeconds();
   return jsonResponse(

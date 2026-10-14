@@ -7,9 +7,11 @@
  * recording's timeline, so video time is max(0, t - gameTimeAtVideoStart).
  *
  * The sharer gets the link as soon as their upload starts. While it runs,
- * /vod-meta answers status "uploading" with its progress: the page shows it,
- * polls (every 4 s for a minute, then 10 s, 30 s while the upload has stalled,
- * never while the tab is hidden) and starts the player once the game is ready.
+ * /vod-meta answers status "uploading" with its progress and, once the sharer's
+ * app has sent it, the markers document: the page names the game, shows the
+ * progress, polls (every 4 s for a minute, then 10 s, 30 s while the upload has
+ * stalled, never while the tab is hidden) and starts the player once the game
+ * is ready.
  *
  * Everything the server sends is set with textContent, never parsed as HTML.
  * The pure helpers live on RevuVod for tests; DOM wiring only runs in a browser.
@@ -101,6 +103,22 @@
     var date = formatDate(game.playedAt, locale);
     if (date) parts.push(date);
     return parts;
+  }
+
+  // The game object of a meta reply's markers document, or null.
+  function gameOf(meta) {
+    var doc = meta && meta.meta && typeof meta.meta === 'object' ? meta.meta : null;
+    return doc && doc.game && typeof doc.game === 'object' ? doc.game : null;
+  }
+
+  // While the upload runs: the game's title and meta line once the sharer's app
+  // has sent its details, else null (there is nothing to name yet).
+  function uploadGame(meta, locale) {
+    var game = gameOf(meta);
+    if (!game) return null;
+    var parts = metaParts(game, locale);
+    if (!text(game.champion) && parts.length === 0) return null;
+    return { title: titleOf(game), meta: parts.join(' · ') };
   }
 
   function metaState(meta) {
@@ -204,7 +222,7 @@
   root.RevuVod = {
     parseId: parseId, apiBase: apiBase, clock: clock, titleOf: titleOf, roleLabel: roleLabel, formatDate: formatDate,
     metaParts: metaParts, metaState: metaState, expiryText: expiryText, laneItems: laneItems, noteRows: noteRows,
-    uploadPercent: uploadPercent, uploadText: uploadText, pollDelay: pollDelay,
+    uploadPercent: uploadPercent, uploadText: uploadText, uploadGame: uploadGame, pollDelay: pollDelay,
     STATES: STATES, UNPLAYABLE: UNPLAYABLE, UPLOADING_COPY: UPLOADING_COPY, STALLED_COPY: STALLED_COPY
   };
 
@@ -261,6 +279,11 @@
   function showUploading(fresh) {
     var percent = uploadPercent(fresh);
     var words = uploadText(fresh);
+    var game = uploadGame(fresh);
+    $('upload-game-title').textContent = game ? game.title : '';
+    $('upload-game-meta').textContent = game ? game.meta : '';
+    $('upload-game-meta').hidden = !(game && game.meta);
+    $('upload-game').hidden = !game;
     $('upload-title').textContent = words.title;
     // The copy is a live region: rewrite it only when it says something new.
     if ($('upload-copy').textContent !== words.copy) $('upload-copy').textContent = words.copy;
@@ -385,8 +408,7 @@
   }
 
   function renderHeader() {
-    var doc = meta.meta && typeof meta.meta === 'object' ? meta.meta : null;
-    var game = doc && doc.game && typeof doc.game === 'object' ? doc.game : null;
+    var game = gameOf(meta);
     var title = titleOf(game);
     $('vod-title').textContent = title;
     document.title = title + ' - Revu';

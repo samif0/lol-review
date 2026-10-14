@@ -21,6 +21,7 @@ public sealed partial class VodShareWorker
         var token = "";
         using var watch = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var watcher = WatchForGameAsync(job, watch.Token);
+        using var markers = new MarkersUpload(this, job, ct);
         try
         {
             ct.ThrowIfCancellationRequested();
@@ -43,6 +44,9 @@ public sealed partial class VodShareWorker
                 createdAt = Now();
                 _cleanup.Add(started.Id);
                 ShowLink(job, started);
+                // The watch page names the game while it uploads; an upload that started over
+                // under a new id gets the markers again.
+                markers.Start(started.Id, token);
             }
             if (await EncodeAndUploadAsync(job, file, token, Assigned, ct).ConfigureAwait(false) is not { } done) return;
             var encoded = done.Encoded;
@@ -60,7 +64,11 @@ public sealed partial class VodShareWorker
             _logger.LogInformation("Full-game share stored: game {GameId} -> {Url}", job.GameId, uploaded.Url);
 
             Report(job, "running", "finishing", 100);
-            var attached = await AttachMarkersAsync(job, uploaded.Id, token, ct).ConfigureAwait(false);
+            var early = markers.For(uploaded.Id);
+            var attached = early is not null && await early.ConfigureAwait(false);
+            // An older proxy takes the markers only once the game is ready, and an attach after
+            // init that failed gets another go.
+            if (!attached) attached = await AttachMarkersAsync(uploaded.Id, markers.Json, token, ct).ConfigureAwait(false);
             if (attached) _store.Put(entry with { MarkersAttached = true });
             ct.ThrowIfCancellationRequested();
             Report(job, "done", "done", 100, uploaded.Url, uploaded.ExpiresAt, attached);
@@ -112,6 +120,7 @@ public sealed partial class VodShareWorker
                 TryDelete(file);
                 TryDelete(file + ".tmp");
             }
+            await markers.StopAsync().ConfigureAwait(false);
             Retire(job);
         }
     }
@@ -261,10 +270,9 @@ public sealed partial class VodShareWorker
         else Report(job, "running", "uploading", Percent(p.SentBytes, p.TotalBytes));
     }
 
-    /// <summary>Build and PUT the markers document; 3 attempts. False leaves the share without markers.</summary>
-    private async Task<bool> AttachMarkersAsync(VodShareJob job, string id, string token, CancellationToken ct)
+    /// <summary>The markers document for the job's game, or null when it can't be built.</summary>
+    private async Task<string?> BuildMarkersAsync(VodShareJob job, CancellationToken ct)
     {
-        string json;
         try
         {
             var vod = await LoadSnapshotAsync(job.GameId, ct).ConfigureAwait(false);
@@ -277,7 +285,7 @@ public sealed partial class VodShareWorker
                 _logger.LogInformation("Full-game share markers for game {GameId}: dropped {Markers} marker(s) and {Notes} note(s) to fit",
                     job.GameId, built.MarkersDropped, built.NotesDropped);
             }
-            json = built.Json;
+            return built.Json;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -286,9 +294,14 @@ public sealed partial class VodShareWorker
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Full-game share markers for game {GameId} could not be built", job.GameId);
-            return false;
+            return null;
         }
+    }
 
+    /// <summary>PUT the markers document to upload <paramref name="id"/>; 3 attempts. False leaves it without markers.</summary>
+    private async Task<bool> AttachMarkersAsync(string id, Task<string?> markers, string token, CancellationToken ct)
+    {
+        if (await markers.ConfigureAwait(false) is not { } json) return false;
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -308,6 +321,56 @@ public sealed partial class VodShareWorker
             }
             await Task.Delay(MarkerRetryDelays[attempt - 1], ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// The job's markers document goes up right after each upload's init, so the watch page can
+    /// name the game while it uploads. The document is built once; an upload that started over
+    /// under a new id gets it again. Attaches run in the background (the upload never waits for
+    /// them), and whatever still runs when the job ends is cancelled.
+    /// </summary>
+    private sealed class MarkersUpload(VodShareWorker worker, VodShareJob job, CancellationToken ct) : IDisposable
+    {
+        private readonly CancellationTokenSource _stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        private readonly List<(string Id, Task<bool> Attach)> _attaches = new();
+        private Task<string?>? _json;
+
+        /// <summary>The document, built on first use; null when it can't be built.</summary>
+        public Task<string?> Json
+        {
+            get
+            {
+                var stop = _stop.Token;
+                lock (_attaches) return _json ??= Task.Run(() => worker.BuildMarkersAsync(job, stop));
+            }
+        }
+
+        /// <summary>Attach the document to upload <paramref name="id"/>, in the background.</summary>
+        public void Start(string id, string token)
+        {
+            var json = Json;
+            var stop = _stop.Token;
+            var attach = Task.Run(() => worker.AttachMarkersAsync(id, json, token, stop));
+            lock (_attaches) _attaches.Add((id, attach));
+        }
+
+        /// <summary>The attach started for upload <paramref name="id"/>, or null.</summary>
+        public Task<bool>? For(string id)
+        {
+            lock (_attaches) return _attaches.LastOrDefault(a => a.Id == id).Attach;
+        }
+
+        /// <summary>Cancel what still runs (an upload given up, a cancelled job) and wait for it to end.</summary>
+        public async Task StopAsync()
+        {
+            _stop.Cancel();
+            Task[] running;
+            lock (_attaches) running = [.. _attaches.Select(a => (Task)a.Attach), _json ?? Task.CompletedTask];
+            try { await Task.WhenAll(running).ConfigureAwait(false); }
+            catch { /* cancelled or failed: the job is over */ }
+        }
+
+        public void Dispose() => _stop.Dispose();
     }
 
     /// <summary>Every <see cref="GameCheckInterval"/> while preparing or uploading: a game start cancels the share.</summary>

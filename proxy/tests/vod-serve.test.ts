@@ -98,9 +98,10 @@ describe("GET /vod-meta/:id while the share is still uploading", () => {
     expect(meta).toEqual({
       id: s.id, kind: "vod", status: "uploading", quality: "1080p60", duration_s: 1834, created_at: row.created_at,
       expires_at: row.created_at + VOD_TTL_SECONDS, serving: true, progress: { parts: 0, part_count: 3 }, stalled: false,
+      meta: null,
     });
     for (const key of ["user_id", "upload_id", "r2_key", "size_bytes", "part_size", "part_puts", "last_activity_at", "play_day",
-      "play_count", "meta", "content_type"]) {
+      "play_count", "content_type", "title", "champion"]) {
       expect(meta).not.toHaveProperty(key);
     }
 
@@ -111,6 +112,36 @@ describe("GET /vod-meta/:id while the share is still uploading", () => {
     // Retried parts can push the attempt count past part_count; progress never does.
     s.db.x("UPDATE clips SET part_puts = 9 WHERE id = ?1", s.id);
     expect((await body(await get(s.env, `/vod-meta/${s.id}`))).progress).toEqual({ parts: 3, part_count: 3 });
+  });
+
+  it("carries the markers once the desktop sent them, and the same document once the game is ready", async () => {
+    const s = await vodSetup();
+    const id = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    expect((await body(await get(s.env, `/vod-meta/${id}`))).meta).toBeNull();
+    expect((await vodMarkers(s.env, OWNER, id, MARKERS_DOC)).status).toBe(200);
+
+    const during = await body(await get(s.env, `/vod-meta/${id}`));
+    expect(during).toMatchObject({ status: "uploading", progress: { parts: 0, part_count: 1 }, stalled: false });
+    expect(during.meta).toEqual({
+      version: 1,
+      gameTimeAtVideoStart: 12.35,
+      game: { champion: "Jinx", opponentChampion: "Caitlyn", role: "BOTTOM", result: "win", durationS: 1834, playedAt: "2026-10-12" },
+      markers: [
+        { t: 95, kind: "KILL", label: "First blood", tone: "win" },
+        { t: 312, kind: "DRAGON", label: "Dragon", tone: "gold" },
+      ],
+      notes: null,
+    });
+    // An unreadable stored document is no document, not an error.
+    s.db.x("UPDATE vod_share_meta SET meta_json = '{' WHERE clip_id = ?1", id);
+    expect((await body(await get(s.env, `/vod-meta/${id}`))).meta).toBeNull();
+    expect((await vodMarkers(s.env, OWNER, id, MARKERS_DOC)).status).toBe(200);
+
+    const part = await body(await vodPart(s.env, OWNER, id, 1, payload(500)));
+    expect((await vodComplete(s.env, OWNER, id, [part])).status).toBe(201);
+    const after = await body(await get(s.env, `/vod-meta/${id}`));
+    expect(after).not.toHaveProperty("status");
+    expect(after.meta).toEqual(during.meta);
   });
 
   it("says stalled once no part arrived for the idle window, and reports serving off", async () => {

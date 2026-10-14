@@ -295,7 +295,20 @@
   to { transform: rotate(360deg); }
 }
 
-/* Still uploading: one thin meter under the copy until the game plays. */
+/* Still uploading: the game's name and details once the sharer's app has sent them, then
+   one thin meter under the copy until the game plays. */
+
+.vod-upload-game {
+  margin-bottom: 24px;
+}
+
+.vod-upload-game-title {
+  font-size: 17px;
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
 
 .vod-upload-meter {
   max-width: 320px;

@@ -57,8 +57,15 @@ internal sealed class FakeVodClient : IVodShareClient
     public Exception? InitError { get; set; }
     /// <summary>Set by the encoder double while it encodes (to see the upload start before the encode ends).</summary>
     public Func<bool> EncodeDone { get; set; } = () => false;
-    public List<(string Id, string Json)> Markers { get; } = new();
+    /// <summary>Every markers PUT, and whether its upload had completed (the share was ready) when it was sent.</summary>
+    public List<(string Id, string Json, bool Ready)> Markers { get; } = new();
     public Func<int, Exception?> MarkerError { get; set; } = _ => null;
+    /// <summary>Runs inside each markers PUT once it is recorded (a test holds one in flight here).</summary>
+    public Func<string, CancellationToken, Task>? DuringMarkers { get; set; }
+    /// <summary>Like a proxy that takes markers only for a ready share: one still uploading is a 404.</summary>
+    public bool MarkersOnlyWhenReady { get; set; }
+    /// <summary>Uploads that completed: the proxy has them as ready shares.</summary>
+    public HashSet<string> Ready { get; } = new();
 
     public Task<VodShareServerStatus> GetVodShareStatusAsync(string sessionToken, CancellationToken ct = default)
     {
@@ -71,7 +78,14 @@ internal sealed class FakeVodClient : IVodShareClient
         IProgress<ClipUploadProgress>? progress = null, Action<VodUploadStarted>? onStarted = null, CancellationToken ct = default)
     {
         lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath), null));
-        return OnUpload(filePath, request, progress, onStarted, ct);
+        return CompletedAsync(OnUpload(filePath, request, progress, onStarted, ct));
+    }
+
+    private async Task<VodUploadResult> CompletedAsync(Task<VodUploadResult> upload)
+    {
+        var done = await upload;
+        lock (Markers) Ready.Add(done.Id);
+        return done;
     }
 
     public async Task<VodUploadResult> UploadVodWhileWritingAsync(string filePath, long declaredSize, Task<bool> written,
@@ -98,19 +112,22 @@ internal sealed class FakeVodClient : IVodShareClient
         lock (WhileWriting) WhileWritingOutcomes[index] = ok;
         if (!ok) throw new VodCopyAbandonedException();
         lock (Uploads) Uploads.Add((filePath, request, File.Exists(filePath), declaredSize));
-        return await OnUpload(filePath, request, progress, null, ct);
+        return await CompletedAsync(OnUpload(filePath, request, progress, null, ct));
     }
 
-    public Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default)
+    public async Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default)
     {
         int attempt;
+        bool ready;
         lock (Markers)
         {
-            Markers.Add((id, markersJson));
+            ready = Ready.Contains(id);
+            Markers.Add((id, markersJson, ready));
             attempt = Markers.Count;
         }
-        var error = MarkerError(attempt);
-        return error is null ? Task.CompletedTask : Task.FromException(error);
+        if (DuringMarkers is { } during) await during(id, ct);
+        if (MarkersOnlyWhenReady && !ready) throw new ClipUploadException("Not found") { Code = "not_found" };
+        if (MarkerError(attempt) is { } error) throw error;
     }
 }
 
