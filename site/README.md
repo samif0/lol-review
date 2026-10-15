@@ -151,7 +151,10 @@ While that constant is empty the loader refuses to load anything and the
 page says the game couldn't be played (it never falls back to unpinned code
 or to Chromium's own HLS player). `_headers` caches `/vendor/*` for a year as
 immutable, which is safe only because the version is in the path; the
-deploy publishes nothing else from `vendor/`.
+deploy publishes nothing else from `vendor/`. The root `.gitattributes`
+marks `site/vendor/**` `-text`: the deploy copies files as checked out, and a
+Windows checkout with `core.autocrlf` would otherwise add a CR to each of the
+file's line feeds and break the pin.
 
 Only ever vendor an exact stable release, never a canary, alpha or beta:
 malicious hls.js canary builds were published to npm in April 2026

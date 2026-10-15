@@ -21,7 +21,7 @@
   // The sha384 SRI of the vendored file, filled in by whoever vendors hls.js (see
   // site/README.md; tests/vendor.test.mjs checks it against the file). While it is empty
   // the loader refuses to load anything and the page says the game couldn't be played.
-  var HLS_INTEGRITY = '';
+  var HLS_INTEGRITY = 'sha384-y8wQxRLtNclrHbMBLBLTEkgUrdFu6uWzZiobE1wBE09nt2wHIZlBPvPepdZU4+MM';
   var HLS_MIME = 'application/vnd.apple.mpegurl';
   // The share copy: H.264 High (level 4.2 covers 1080p60) and AAC-LC.
   var CODECS = 'video/mp4; codecs="avc1.64002a,mp4a.40.2"';
