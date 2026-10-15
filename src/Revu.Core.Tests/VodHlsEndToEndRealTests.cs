@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -97,8 +96,8 @@ public sealed class VodHlsEndToEndRealTests(Xunit.Abstractions.ITestOutputHelper
     /// <summary>
     /// A share that pauses for a game and resumes at the edge twice, the second time at 720p: run 0 stops after a few
     /// segments and /pause shows on /vod-meta, run 1 resumes with the same settings and stops again, and run 2 finishes
-    /// at 720p with its own init. The playlist marks both joins and maps run 2's init, and every init and segment comes
-    /// back byte for byte from the run that covers it.
+    /// at 720p with its own init. The playlist joins the runs without a DISCONTINUITY and maps run 2's init where it
+    /// starts, and every init and segment comes back byte for byte from the run that covers it.
     /// </summary>
     [HlsProxyFact]
     public async Task RunsResumedAtTheEdge_AreJoinedInThePlaylist_AndServedByteForByte()
@@ -156,16 +155,12 @@ public sealed class VodHlsEndToEndRealTests(Xunit.Abstractions.ITestOutputHelper
         Assert.True(res.IsSuccessStatusCode, playlist);
         output.WriteLine(playlist);
         var lines = playlist.Split('\n');
-        var joins = new List<int>();
-        for (var i = 0; i < lines.Length; i++)
-        {
-            if (lines[i] != "#EXT-X-DISCONTINUITY") continue;
-            var segment = lines.Skip(i).First(l => l.EndsWith(".m4s", StringComparison.Ordinal));
-            joins.Add(int.Parse(segment[..^4], CultureInfo.InvariantCulture));
-        }
-        Assert.Equal(new[] { run0.NextSeq, run1.NextSeq }, joins);
-        Assert.Contains("#EXT-X-MAP:URI=\"init-2.mp4\"", playlist);
-        // A MAP only where the init changes.
+        // Runs join without a DISCONTINUITY (browser gate G3: hls.js leaves a hole in the buffer at a tagged resume),
+        // and a new init is mapped right before its run's first segment, only where the init changes.
+        Assert.DoesNotContain("#EXT-X-DISCONTINUITY", playlist);
+        var mapped = Array.IndexOf(lines, "#EXT-X-MAP:URI=\"init-2.mp4\"");
+        Assert.True(mapped > 0, "run 2's init is mapped");
+        Assert.Equal($"{run1.NextSeq}.m4s", lines.Skip(mapped).First(l => l.EndsWith(".m4s", StringComparison.Ordinal)));
         Assert.Equal(!inits[0].SequenceEqual(inits[1]), playlist.Contains("init-1.mp4", StringComparison.Ordinal));
         Assert.Equal(30, lines.Count(l => l.EndsWith(".m4s", StringComparison.Ordinal)));
         Assert.Contains("#EXT-X-ENDLIST", playlist);
