@@ -33,7 +33,12 @@ internal static class VodShareMarkers
 
     internal sealed record Result(string Json, int Markers, int Notes, int MarkersDropped, int NotesDropped);
 
-    public static Result Build(VodDto vod, GameStats? game, bool includeNotes)
+    /// <summary>
+    /// The document for <paramref name="vod"/>. <paramref name="videoStartShift"/> moves gameTimeAtVideoStart for a copy
+    /// whose timeline starts at the source's first frame (4.4 HLS shares: an imported recording that starts at 4.956 s
+    /// plays from 0, so its markers move by 4.956 s).
+    /// </summary>
+    public static Result Build(VodDto vod, GameStats? game, bool includeNotes, double videoStartShift = 0)
     {
         var markers = BuildMarkers(vod);
         var total = markers.Count;
@@ -61,7 +66,7 @@ internal static class VodShareMarkers
         var doc = new JsonObject
         {
             ["version"] = 1,
-            ["gameTimeAtVideoStart"] = VideoStart(vod.GameTimeAtVideoStart),
+            ["gameTimeAtVideoStart"] = VideoStart(vod.GameTimeAtVideoStart + (double.IsFinite(videoStartShift) ? videoStartShift : 0)),
             ["game"] = GameNode(vod, game),
             ["markers"] = MarkersNode(markers),
             ["notes"] = notes is null ? null : NotesNode(notes),

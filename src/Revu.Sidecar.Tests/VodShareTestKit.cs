@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging.Abstractions;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
@@ -115,6 +116,45 @@ internal sealed class FakeVodClient : IVodShareClient
         return await CompletedAsync(OnUpload(filePath, request, progress, null, ct));
     }
 
+    // ── 4.4 HLS ──────────────────────────────────────────────────────────────
+
+    /// <summary>HLS inits the worker made (request, reserved bytes).</summary>
+    public List<(VodUploadRequest Request, long Declared)> HlsStarts { get; } = new();
+    /// <summary>A refusal of the HLS init (for example hls_unavailable).</summary>
+    public Exception? HlsStartError { get; set; }
+    /// <summary>The HLS init's answer; by default an HLS share served by <see cref="Hls"/>.</summary>
+    public Func<VodUploadRequest, long, VodHlsStart>? OnHlsStart { get; set; }
+    /// <summary>The scripted upload session HLS inits hand out.</summary>
+    public FakeHlsUpload Hls { get; set; } = new();
+    /// <summary>MP4 uploads that ran on a row an HLS init reserved (an older proxy).</summary>
+    public List<VodMp4Reservation> Reserved { get; } = new();
+
+    public Task<VodHlsStart> StartVodHlsUploadAsync(string sessionToken, VodUploadRequest request, long declaredSize,
+        CancellationToken ct = default)
+    {
+        lock (HlsStarts) HlsStarts.Add((request, declaredSize));
+        if (HlsStartError is { } refused) return Task.FromException<VodHlsStart>(refused);
+        if (OnHlsStart is { } answer) return Task.FromResult(answer(request, declaredSize));
+        Hls.Quality = request.Quality == "720p" ? VodShareQuality.P720 : VodShareQuality.P1080;
+        Hls.Fps = request.Fps;
+        return Task.FromResult(new VodHlsStart(Started(Hls.Info.Id), Hls, null));
+    }
+
+    public async Task<VodUploadResult> UploadVodWhileWritingAsync(VodMp4Reservation reserved, string filePath, Task<bool> written,
+        string sessionToken, IProgress<ClipUploadProgress>? progress = null, CancellationToken ct = default)
+    {
+        lock (Reserved) Reserved.Add(reserved);
+        bool ok;
+        try { ok = await written.WaitAsync(ct); }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception) { ok = false; }
+        if (!ok) throw new VodCopyAbandonedException();
+        lock (Uploads) Uploads.Add((filePath, new VodUploadRequest("reserved", 0), File.Exists(filePath), reserved.DeclaredSize));
+        var done = new VodUploadResult(reserved.Id, reserved.Url, reserved.ShareExpiresAt);
+        lock (Markers) Ready.Add(done.Id);
+        return done;
+    }
+
     public async Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default)
     {
         int attempt;
@@ -145,6 +185,58 @@ internal sealed class FakeVodEncoder : IVodShareEncoder
 
     public Task<VodEncoderChoice?> SelectAsync(CancellationToken ct) =>
         Task.FromResult<VodEncoderChoice?>(new VodEncoderChoice("ffmpeg.exe", "h264_nvenc"));
+
+    // ── 4.4 HLS ──────────────────────────────────────────────────────────────
+
+    public int Prewarms;
+    /// <summary>Every HLS encode the worker started, in order.</summary>
+    public List<VodHlsEncodeRequest> HlsEncodes { get; } = new();
+    /// <summary>
+    /// How each HLS encode goes (the call index, the request, the item writer, the token). By default every segment of
+    /// the game is announced at once and the encode completes.
+    /// </summary>
+    public Func<int, VodHlsEncodeRequest, ChannelWriter<HlsItem>, CancellationToken, Task<VodHlsEncodeResult>>? OnHlsEncode { get; set; }
+
+    public Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct) => SelectAsync(ct);
+
+    public Task PrewarmHlsAsync(CancellationToken ct)
+    {
+        Interlocked.Increment(ref Prewarms);
+        return Task.CompletedTask;
+    }
+
+    public async Task<VodHlsEncodeResult> EncodeHlsAsync(VodHlsEncodeRequest request, ChannelWriter<HlsItem> writer,
+        IProgress<double>? mediaSeconds, CancellationToken ct)
+    {
+        int index;
+        lock (HlsEncodes)
+        {
+            HlsEncodes.Add(request);
+            index = HlsEncodes.Count - 1;
+        }
+        if (OnHlsEncode is { } script) return await script(index, request, writer, ct);
+        var count = (int)Math.Ceiling((request.DurationSeconds - request.ResumeAtSeconds) / 2);
+        await WriteSegmentsAsync(request, writer, count, ct);
+        return new VodHlsEncodeResult(true, request.NextRun + (count > 0 ? 1 : 0), request.NextSeq + count,
+            request.ResumeAtSeconds + count * 2.0, "h264_nvenc", null);
+    }
+
+    /// <summary>Announce run <c>request.NextRun</c>'s init and <paramref name="count"/> 2 s segments (tiny files on disk).</summary>
+    public static async Task WriteSegmentsAsync(VodHlsEncodeRequest request, ChannelWriter<HlsItem> writer, int count,
+        CancellationToken ct)
+    {
+        if (count <= 0) return;
+        Directory.CreateDirectory(request.Folder);
+        await writer.WriteAsync(new HlsInit(request.NextRun, request.NextSeq, [0, 0, 0, 8, (byte)'f', (byte)'t', (byte)'y', (byte)'p']), ct);
+        for (var i = 0; i < count; i++)
+        {
+            var seq = request.NextSeq + i;
+            var path = Fmp4Splitter.SegmentPath(request.Folder, seq);
+            await File.WriteAllBytesAsync(path, [1, 2, 3, 4], ct);
+            var start = request.ResumeAtSeconds + 2.0 * i;
+            await writer.WriteAsync(new HlsSegment(seq, 2000, 1_250_000, path, request.NextRun, start, start + 2), ct);
+        }
+    }
 
     public async Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality, int fps,
         double durationSeconds, IProgress<int>? percent, CancellationToken ct, Func<CancellationToken, Task>? beforeRetry = null)
@@ -221,6 +313,8 @@ internal sealed class VodShareHarness : IDisposable
     public VodDto Snapshot { get; set; } = VodShareMarkersTests.Vod([VodShareMarkersTests.Event(1, "DRAGON", 312, "Dragon", "gold")],
         [VodShareMarkersTests.Bookmark(2, 400, "my note")]);
     public long FreeDisk { get; set; } = 1_000_000_000_000;
+    /// <summary>The share memory (no file): HLS self-tests and remembered upload speeds.</summary>
+    public VodShareMemory Memory { get; } = new(null);
     /// <summary>Copies padded to their reserved size (the fake encoder's file is a few bytes, so nothing is written).</summary>
     public List<(string File, long Size)> Pads { get; } = new();
 
@@ -244,7 +338,7 @@ internal sealed class VodShareHarness : IDisposable
         Client.EncodeDone = () => Encoder.Encodes.Count > 0 && Volatile.Read(ref Encoder.Running) == 0;
         Worker = new VodShareWorker(Client, Upload, Encoder, Mixer, vod, games,
             (_, _) => Task.FromResult(Snapshot), Config, Live, Store, Cleanup, Hub, Work,
-            NullLogger<VodShareWorker>.Instance)
+            NullLogger<VodShareWorker>.Instance, Memory)
         {
             ResolveRecordingAsync = _ => Task.FromResult<string?>(Recording),
             FreeDiskBytes = _ => FreeDisk,
@@ -256,6 +350,8 @@ internal sealed class VodShareHarness : IDisposable
             Now = () => FakeVodClient.Now,
             MarkerRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
             GameCheckInterval = TimeSpan.FromMilliseconds(40),
+            ResumeAfterNoGame = TimeSpan.FromMilliseconds(120),
+            EnvironmentVariable = _ => null,
             TempDirectory = TempDir,
             RecordingsDirectory = RecordingsDir,
         };

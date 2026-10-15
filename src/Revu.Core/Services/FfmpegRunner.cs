@@ -6,10 +6,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Revu.Core.Services;
 
-/// <summary>Outcome of one ffmpeg run. <see cref="StderrTail"/> keeps at least the last 64 KB.</summary>
-internal readonly record struct FfmpegRunResult(int ExitCode, string StderrTail, bool TimedOut = false)
+/// <summary>
+/// Outcome of one ffmpeg run. <see cref="StderrTail"/> keeps at least the last 64 KB. <see cref="ConsumerError"/> is
+/// the exception a binary stdout consumer threw (the process was killed for it).
+/// </summary>
+internal readonly record struct FfmpegRunResult(int ExitCode, string StderrTail, bool TimedOut = false,
+    Exception? ConsumerError = null)
 {
-    public bool Succeeded => !TimedOut && ExitCode == 0;
+    public bool Succeeded => !TimedOut && ExitCode == 0 && ConsumerError is null;
 }
 
 /// <summary>
@@ -96,7 +100,8 @@ internal static class FfmpegRunner
     /// timeout kills the process tree and returns <c>TimedOut</c>. Cancellation kills the
     /// process tree and throws <see cref="OperationCanceledException"/>. With
     /// <paramref name="onStdoutLine"/>, stdout is read as text and each line is handed to it
-    /// (e.g. <c>-progress pipe:1</c>); otherwise stdout is drained and discarded.
+    /// (e.g. <c>-progress pipe:1</c>); with <paramref name="onStdout"/>, stdout is handed to it
+    /// as a binary stream (see <see cref="RunBinaryAsync"/>); otherwise stdout is drained and discarded.
     /// </summary>
     public static async Task<FfmpegRunResult> RunAsync(
         string ffmpegPath,
@@ -104,9 +109,15 @@ internal static class FfmpegRunner
         int timeoutSeconds,
         CancellationToken ct,
         int maxStderrChars = DefaultStderrChars,
-        Action<string>? onStdoutLine = null)
+        Action<string>? onStdoutLine = null,
+        Func<Stream, CancellationToken, Task>? onStdout = null)
     {
         ct.ThrowIfCancellationRequested();
+        if (onStdout is not null)
+        {
+            if (onStdoutLine is not null) throw new ArgumentException("Pass a line consumer or a binary consumer, not both.");
+            return await RunBinaryAsync(ffmpegPath, args, timeoutSeconds, onStdout, ct, maxStderrChars).ConfigureAwait(false);
+        }
         var psi = new ProcessStartInfo
         {
             FileName = ffmpegPath,
@@ -147,6 +158,94 @@ internal static class FfmpegRunner
 
         await DrainQuietlyAsync(stderrTask, stdoutTask).ConfigureAwait(false);
         return new FfmpegRunResult(process.ExitCode, stderr.ToString());
+    }
+
+    /// <summary>
+    /// Binary stdout mode: <paramref name="onStdout"/> reads ffmpeg's stdout (a fragmented MP4) on a token linked to
+    /// the run. A consumer that throws (a bad box, a broken segment rule, a full disk) gets the process tree killed,
+    /// and the result carries its exception. The consumer is always awaited to the end, bounded by the run's own
+    /// timeout rather than a short drain, and its exception is never swallowed; one that returns before the end of
+    /// the stream leaves the rest drained, so ffmpeg can never stall on a full pipe. A timeout or cancellation kills
+    /// the process first (a blocked pipe read only ends when the pipe closes).
+    /// </summary>
+    private static async Task<FfmpegRunResult> RunBinaryAsync(string ffmpegPath, IReadOnlyList<string> args,
+        int timeoutSeconds, Func<Stream, CancellationToken, Task> onStdout, CancellationToken ct, int maxStderrChars)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+        try { process.PriorityClass = ProcessPriorityClass.BelowNormal; }
+        catch { /* the process may already have exited */ }
+        try { process.StandardInput.Close(); } catch { }
+
+        var stderr = new TailBuffer(Math.Max(DefaultStderrChars, maxStderrChars));
+        var stderrTask = PumpAsync(process.StandardError, stderr);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, timeoutSeconds)));
+        using var run = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+        using var killOnStop = run.Token.Register(static state =>
+        {
+            var p = (Process)state!;
+            try { if (!p.HasExited) p.Kill(entireProcessTree: true); }
+            catch { /* already gone */ }
+        }, process);
+
+        Exception? consumerError = null;
+        try
+        {
+            await ConsumeAsync(process.StandardOutput.BaseStream, onStdout, run.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!run.IsCancellationRequested)
+        {
+            consumerError = ex;
+        }
+        catch (Exception)
+        {
+            // Stopped: the kill closed the pipe under the consumer.
+        }
+
+        if (consumerError is not null || run.IsCancellationRequested)
+        {
+            Kill(process);
+            await DrainQuietlyAsync(stderrTask, Task.CompletedTask).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return consumerError is not null
+                ? new FfmpegRunResult(-1, stderr.ToString(), ConsumerError: consumerError)
+                : new FfmpegRunResult(-1, stderr.ToString(), TimedOut: true);
+        }
+
+        // The consumer read to the end of stdout: ffmpeg is exiting.
+        try
+        {
+            await process.WaitForExitAsync(run.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            Kill(process);
+            await DrainQuietlyAsync(stderrTask, Task.CompletedTask).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return new FfmpegRunResult(-1, stderr.ToString(), TimedOut: true);
+        }
+        await DrainQuietlyAsync(stderrTask, Task.CompletedTask).ConfigureAwait(false);
+        return new FfmpegRunResult(process.ExitCode, stderr.ToString());
+    }
+
+    private static async Task ConsumeAsync(Stream stdout, Func<Stream, CancellationToken, Task> onStdout, CancellationToken ct)
+    {
+        await Task.Yield();
+        await onStdout(stdout, ct).ConfigureAwait(false);
+        // A consumer that stopped early: drain the rest so ffmpeg never blocks on a full pipe. One that closed the
+        // stream closed the pipe, which ends ffmpeg's writes as well.
+        if (stdout.CanRead) await stdout.CopyToAsync(Stream.Null, ct).ConfigureAwait(false);
     }
 
     private static void Kill(Process process)

@@ -25,7 +25,8 @@ public sealed partial class VodShareWorker
         try
         {
             ct.ThrowIfCancellationRequested();
-            Report(job, "running", "preparing", 0);
+            // An HLS share has one phase: its segments upload while they are encoded.
+            Report(job, "running", job.Hls is null ? "preparing" : "uploading", 0);
             Directory.CreateDirectory(TempDirectory);
             file = Path.Combine(TempDirectory, $"game-{job.GameId}-{Guid.NewGuid():N}.mp4");
 
@@ -48,15 +49,26 @@ public sealed partial class VodShareWorker
                 // under a new id gets the markers again.
                 markers.Start(started.Id, token);
             }
-            if (await EncodeAndUploadAsync(job, file, token, Assigned, ct).ConfigureAwait(false) is not { } done) return;
-            var encoded = done.Encoded;
-            uploaded = done.Uploaded;
+            long sizeBytes;
+            if (job.Hls is not null)
+            {
+                if (await RunHlsAsync(job, token, Assigned, file, ct).ConfigureAwait(false) is not { } hls) return;
+                uploaded = hls.Uploaded;
+                sizeBytes = hls.SizeBytes;
+                lock (_gate) job.Truncated = hls.Truncated;
+            }
+            else
+            {
+                if (await EncodeAndUploadAsync(job, file, token, Assigned, ct).ConfigureAwait(false) is not { } done) return;
+                uploaded = done.Uploaded;
+                sizeBytes = done.Encoded.SizeBytes;
+            }
             // From here a game starting no longer matters: the upload is done.
             watch.Cancel();
             ct.ThrowIfCancellationRequested();
 
             var entry = new VodShareEntry(job.GameId, uploaded.Id, uploaded.Url, VodShareEncoderArgs.Wire(job.Quality),
-                job.IncludeNotes, encoded.SizeBytes, createdAt > 0 ? createdAt : Now(), uploaded.ExpiresAt, false);
+                job.IncludeNotes, sizeBytes, createdAt > 0 ? createdAt : Now(), uploaded.ExpiresAt, false);
             lock (_gate) _storedAt[uploaded.Id] = Stopwatch.GetTimestamp();
             _store.Put(entry);
             stored = true;
@@ -76,6 +88,27 @@ public sealed partial class VodShareWorker
         catch (VodEncodeException ex)
         {
             Fail(job, ex.Code == "too_long" ? "too_long" : "encode_failed");
+        }
+        catch (HlsStoppedException)
+        {
+            // Stopped elsewhere (My clips, or the proxy settled it): nothing to delete here.
+            _logger.LogInformation("Full-game share for game {GameId} was stopped elsewhere", job.GameId);
+            string? link;
+            lock (_gate) link = job.LinkUrl;
+            if (link is not null) RemoveStored(job.GameId, ClipShareLinks.SlugFromUrl(link));
+            Report(job, "cancelled", "cancelled", job.Percent);
+        }
+        catch (VodHlsUploadException ex)
+        {
+            var code = ex.Kind switch
+            {
+                VodHlsFailure.Unauthorized => "needs_login",
+                VodHlsFailure.TooLarge => "too_large",
+                VodHlsFailure.Network => "network",
+                _ => "upload_failed",
+            };
+            _logger.LogWarning(ex, "Full-game share failed for game {GameId} ({Kind} {Code})", job.GameId, ex.Kind, ex.Code);
+            Fail(job, code, needsLogin: ex.Kind == VodHlsFailure.Unauthorized);
         }
         catch (ClipUploadException ex)
         {
@@ -136,9 +169,10 @@ public sealed partial class VodShareWorker
     /// new link. Null when the job already failed with a reported code.
     /// </summary>
     private async Task<(VodEncodeResult Encoded, VodUploadResult Uploaded)?> EncodeAndUploadAsync(VodShareJob job,
-        string file, string token, Action<VodUploadStarted> assigned, CancellationToken ct)
+        string file, string token, Action<VodUploadStarted> assigned, CancellationToken ct, VodMp4Reservation? reserved = null)
     {
-        var declared = VodShareEncoderArgs.ReserveBytes(job.Quality, job.Fps, job.DurationSeconds);
+        // An HLS init an older proxy answered with a multipart row reserved this size already.
+        var declared = reserved?.DeclaredSize ?? VodShareEncoderArgs.ReserveBytes(job.Quality, job.Fps, job.DurationSeconds);
         if (declared <= 0 || declared > GameConstants.MaxVodShareBytes)
             return await EncodeThenUploadAsync(job, file, token, assigned, ct).ConfigureAwait(false);
 
@@ -152,8 +186,9 @@ public sealed partial class VodShareWorker
             if (Volatile.Read(ref showUpload) == 1) ReportUpload(job, p);
         });
         using var encodeStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var upload = _client.UploadVodWhileWritingAsync(file, declared, written.Task, token, Request(job), progress,
-            assigned, ct);
+        var upload = reserved is null
+            ? _client.UploadVodWhileWritingAsync(file, declared, written.Task, token, Request(job), progress, assigned, ct)
+            : _client.UploadVodWhileWritingAsync(reserved, file, written.Task, token, progress, ct);
         // An upload refused at init, or failed for good, stops the encode: there is nowhere to send it.
         _ = upload.ContinueWith(t =>
         {
@@ -279,7 +314,8 @@ public sealed partial class VodShareWorker
             Revu.Core.Models.GameStats? game = null;
             try { game = await _games.GetAsync(job.GameId).ConfigureAwait(false); }
             catch (Exception ex) { _logger.LogDebug(ex, "Full-game share: game {GameId} lookup failed", job.GameId); }
-            var built = VodShareMarkers.Build(vod, game, job.IncludeNotes);
+            // An HLS share's timeline starts at the source's first frame, so its markers move by the source's start.
+            var built = VodShareMarkers.Build(vod, game, job.IncludeNotes, job.Format == "hls" ? job.SourceStartSeconds : 0);
             if (built.MarkersDropped > 0 || built.NotesDropped > 0)
             {
                 _logger.LogInformation("Full-game share markers for game {GameId}: dropped {Markers} marker(s) and {Notes} note(s) to fit",
@@ -373,7 +409,10 @@ public sealed partial class VodShareWorker
         public void Dispose() => _stop.Dispose();
     }
 
-    /// <summary>Every <see cref="GameCheckInterval"/> while preparing or uploading: a game start cancels the share.</summary>
+    /// <summary>
+    /// Every <see cref="GameCheckInterval"/> while preparing or uploading: a game start cancels an MP4 share. An HLS
+    /// share handles a game itself (it pauses once people can watch it).
+    /// </summary>
     private async Task WatchForGameAsync(VodShareJob job, CancellationToken ct)
     {
         try
@@ -382,6 +421,9 @@ public sealed partial class VodShareWorker
             {
                 await Task.Delay(GameCheckInterval, ct).ConfigureAwait(false);
                 if (!_live.IsGameInProgress) continue;
+                string format;
+                lock (_gate) format = job.Format;
+                if (format == "hls") continue;
                 _logger.LogInformation("Full-game share for game {GameId} stopped: a game started", job.GameId);
                 Cancel(job.GameId, "game_started");
                 return;
@@ -477,11 +519,11 @@ public sealed partial class VodShareWorker
         long? expiresAt = null, bool? markersAttached = null, string? errorCode = null, string? error = null,
         long? retryAt = null, bool needsLogin = false)
     {
-        var quality = VodShareEncoderArgs.Wire(job.Quality);
         var now = Stopwatch.GetTimestamp();
-        string at;
+        string at, quality, format;
         int pct;
-        bool send, linkChanged;
+        bool send, linkChanged, watchable, uplinkSlow, paused, truncated;
+        double? media;
         lock (_gate)
         {
             at = phase ?? job.Phase;
@@ -493,17 +535,28 @@ public sealed partial class VodShareWorker
                 expiresAt ??= job.LinkExpiresAt;
             }
             linkChanged = job.LinkChanged;
+            quality = VodShareEncoderArgs.Wire(job.Quality);
+            format = job.Format;
+            media = format == "hls" ? Math.Round(job.MediaSeconds, 3) : null;
+            watchable = job.Watchable;
+            uplinkSlow = job.UplinkSlow;
+            paused = job.Paused;
+            truncated = job.Truncated;
             job.Phase = at;
             job.Percent = pct;
             job.Status = new VodShareJobDto(state, at, pct, quality, job.QualityReason, errorCode, error, retryAt,
-                needsLogin, url, expiresAt, linkChanged);
+                needsLogin, url, expiresAt, linkChanged, format, media, job.DurationSeconds, watchable, uplinkSlow, paused,
+                truncated);
             // Percent changes within one phase are throttled; a phase or link change always goes out.
-            send = at != job.LastPhase || state != "running" || url != job.LastUrl
+            // So does a change of what the sheet says about an HLS share (watchable, slow, paused, quality).
+            var flags = $"{watchable}{uplinkSlow}{paused}{quality}";
+            send = at != job.LastPhase || state != "running" || url != job.LastUrl || flags != job.LastFlags
                 || now - job.LastPublish >= ThrottleTicks;
             if (send)
             {
                 job.LastPhase = at;
                 job.LastUrl = url;
+                job.LastFlags = flags;
                 job.LastPublish = now;
             }
         }
@@ -524,6 +577,13 @@ public sealed partial class VodShareWorker
             retryAt,
             needsLogin,
             linkChanged,
+            format,
+            mediaSeconds = media,
+            durationSeconds = job.DurationSeconds,
+            watchable,
+            uplinkSlow,
+            paused,
+            truncated,
         });
     }
 

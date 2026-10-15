@@ -25,6 +25,17 @@ export const LINK_CHANGED_SHORT = 'The link changed.';
 export const LINK_REPLACING = 'The upload had to start over, so the first link no longer works. A new one will show here.';
 // Added to an error when the share's link was already shown.
 export const LINK_GONE = "The link won't work.";
+// 4.4: a game shared as segments plays while it uploads.
+export const LINK_WATCH_SOON = 'They can start watching in a few seconds.';
+export const LINK_WATCH_NOW = 'Anyone with the link can watch now while the rest uploads.';
+export const UPLINK_SLOW = 'Your upload is slower than the video plays, so people watching may see pauses.';
+export const SWITCHED_720 = 'Switched to 720p so people can watch without pauses.';
+export const PAUSED_GAME = 'Paused for your game. The upload continues after it.';
+export const CONFIRM_STOP_LIVE = 'People may be watching. Stop sharing and remove the link?';
+export const CONFIRM_STOP = 'Stop sharing this game? The link will stop working.';
+// Added to an error (or a finished share) that ended before the end of the game but stays watchable.
+export const ENDED_EARLY = 'The upload stopped early. Anyone with the link can watch the part that uploaded.';
+export const UPLINK_720_HINT = 'Your last upload was slower than 1080p plays, so this game will be shared at 720p.';
 const FALLBACK = "Sharing didn't finish. Try again.";
 
 const COPY = {
@@ -71,7 +82,10 @@ export function formatShareSize(bytes) {
 }
 
 const percentOf = value => Math.max(0, Math.min(100, Math.floor(Number(value) || 0)));
+// A game shared as segments uploads while it is prepared: one "Uploading N%" phase.
+const segmented = job => job?.format === 'hls';
 export function vodShareProgressLabel(job) {
+  if (segmented(job) && job?.state === 'running' && job?.phase !== 'finishing') return `Uploading ${percentOf(job.percent)}%`;
   switch (job?.phase) {
     case 'queued': case 'preparing': return `Preparing video ${percentOf(job.percent)}%`;
     case 'uploading': return `Uploading ${percentOf(job.percent)}%`;
@@ -82,6 +96,7 @@ export function vodShareProgressLabel(job) {
 
 /** The same label without its percent: what a screen reader hears, once per phase. */
 export function vodSharePhaseLabel(job) {
+  if (segmented(job) && job?.state === 'running' && job?.phase !== 'finishing') return 'Uploading';
   switch (job?.phase) {
     case 'queued': case 'preparing': return 'Preparing video';
     case 'uploading': return 'Uploading';
@@ -92,10 +107,22 @@ export function vodSharePhaseLabel(job) {
 
 /** The copy for one errorCode. '' means no message (cancelled, not_allowed). can720: a 1080p
  * attempt that 720p would still fit, so "Try 720p" is honest advice. linkShown: the share's link
- * was already on screen, so whoever got it is told it won't work. */
+ * was already on screen, so whoever got it is told it won't work. kept: a segmented share people
+ * could already watch ended where its upload stopped, and its link still works. */
 export function vodShareErrorText(code, options = {}) {
   const text = errorText(code, options);
+  if (text && options.kept === true) return `${text} ${ENDED_EARLY}`;
   return text && options.linkShown === true ? `${text} ${LINK_GONE}` : text;
+}
+
+/** What the sheet says under a running segmented share's link: its state, most urgent first. '' for an MP4 share. */
+export function vodShareLiveNote(job) {
+  if (!segmented(job) || job?.state !== 'running') return '';
+  if (job.paused === true) return PAUSED_GAME;
+  if (job.watchable !== true) return job.url ? LINK_WATCH_SOON : '';
+  if (job.uplinkSlow === true) return UPLINK_SLOW;
+  if (job.qualityReason === 'uplink') return SWITCHED_720;
+  return LINK_WATCH_NOW;
 }
 
 function errorText(code, options) {
@@ -128,13 +155,15 @@ export function vodShareTtlText(ttlSeconds) {
   return `Anyone with the link can watch for ${days} ${days === 1 ? 'day' : 'days'}.`;
 }
 
-/** The share sheet's start state for a status reply and the quality the player picked. */
+/** The share sheet's start state for a status reply and the quality the player picked ('auto' before any pick). */
 export function vodSharePlan(status, requested = '1080p') {
   const recording = status?.recording || {};
   const pool = status?.pool || null, limits = status?.limits || null;
   const fits1080 = !pool || pool.fits1080 !== false, fits720 = !pool || pool.fits720 !== false;
   const disable1080 = !fits1080 && fits720;
-  const quality = disable1080 || requested === '720p' ? '720p' : '1080p';
+  // An account whose last upload could not carry 1080p starts at 720p until the player picks a quality.
+  const slowUplink = status?.preferredQuality === '720p' && requested === 'auto';
+  const quality = disable1080 || requested === '720p' || slowUplink ? '720p' : '1080p';
   let block = null;
   // The sidecar reports sharingOn false whenever it could not ask the proxy; only a reply
   // from the proxy can say sharing is paused.
@@ -150,7 +179,8 @@ export function vodSharePlan(status, requested = '1080p') {
   const size = formatShareSize(quality === '720p' ? status?.estimates?.p720Bytes : status?.estimates?.p1080Bytes);
   // The copy keeps the recording's frame rate (60 or 30); the sidecar reports it with the recording.
   const label = q => shareQualityLabel(q, recording.fps);
-  return { quality, disable1080, block, canShare: !block, hint: disable1080 ? POOL_720_HINT : '',
+  return { quality, disable1080, block, canShare: !block,
+    hint: disable1080 ? POOL_720_HINT : slowUplink ? UPLINK_720_HINT : '',
     notice: status?.reachable === false && !block ? 'network' : null, sizeText: size ? `About ${size} at ${label(quality)}.` : '',
     labels: { p1080: label('1080p'), p720: label('720p') },
     builtIn: recording.builtIn === true, imported: recording.builtIn === false };
