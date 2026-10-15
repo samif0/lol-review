@@ -1,5 +1,5 @@
 -- Revu 4.4: full-game shares that play while they upload (HLS: 2 s fMP4
--- segments, one R2 object each, under vods/<id>/<seq>.m4s). Additive only:
+-- segments, one R2 object each, under vods/<id>/<k>/<seq>.m4s for run k). Additive only:
 -- every existing row keeps format NULL (one MP4 object, or a clip).
 ALTER TABLE clips ADD COLUMN format TEXT;                           -- vod only: NULL = one MP4 object, 'hls' = segments
 ALTER TABLE clips ADD COLUMN hls_bytes INTEGER NOT NULL DEFAULT 0;  -- hls only: init bytes + bytes of every segment row, pending or committed
@@ -43,8 +43,8 @@ CREATE TABLE IF NOT EXISTS vod_hls_segments (
     PRIMARY KEY (clip_id, seq)
 ) WITHOUT ROWID;
 
--- A prefix tombstone (r2_key 'vods/<id>/') stands for the segment keys
--- vods/<id>/<seq>.m4s with seq 0..key_count-1, and is not purged before
+-- A prefix tombstone (r2_key 'vods/<id>/<k>/', one per run) stands for that run's segment
+-- keys vods/<id>/<k>/<seq>.m4s with seq 0..key_count-1, and is not purged before
 -- not_before (so PUTs still in flight at a delete have settled). Both are NULL
 -- for every single-object tombstone.
 ALTER TABLE storage_tombstones ADD COLUMN key_count INTEGER;
