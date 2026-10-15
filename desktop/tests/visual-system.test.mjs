@@ -234,6 +234,24 @@ test('focus stays visible under forced colors: fields draw a transparent outline
   }
 });
 
+test('the docked note composer shows one focus ring: the field draws it, the card never does', () => {
+  // In the review column the field is borderless and the card rings itself through
+  // :has(#vp-bm-note:focus). B moves that card into #vp-composer, where it is flat and the
+  // field has its own ring. The :has() id outranks the dock's box-shadow:none!important, so a
+  // card ring that is not scoped to the column draws a second frame around the whole composer.
+  const cardRings = ALL_CSS.flatMap(file => rules(read(file)).map(rule => ({ file, ...rule })))
+    .filter(rule => /:has\(#vp-bm-note:focus/.test(rule.selector) && /box-shadow|border|outline/.test(rule.body));
+  assert.ok(cardRings.length, 'the review-column card rings itself');
+  for (const ring of cardRings) {
+    assert.match(ring.selector, /^\.vod-review-page \.vp-review-column /, `${ring.file} ${ring.selector}`);
+  }
+  const field = rules(read('vod-composer.css'))
+    .find(rule => rule.selector === '.vod-review-page .vp-composer #vp-bookmark-tools .vp-note-input:focus');
+  assert.ok(field, 'the docked field rings itself');
+  assert.match(field.body, /border-color:\s*var\(--focus\)/);
+  assert.match(field.body, /box-shadow:\s*0 0 0 3px color-mix\(in srgb, var\(--focus\) 25%, transparent\) !important/);
+});
+
 const channels = color => [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16));
 const luminance = color => {
   const [r, g, b] = channels(color).map(c => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
