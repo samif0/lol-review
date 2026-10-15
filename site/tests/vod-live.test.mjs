@@ -152,7 +152,7 @@ test('a playable game loads nothing from the proxy before play, then mints one t
   await run.advance(0);
   const mint = run.requests.find(r => r.method === 'POST');
   assert.equal(mint.url, 'https://clips.revu.lol/vod-play/Abc1234');
-  assert.deepEqual(Object.keys(mint.init).sort(), ['cache', 'method'], 'no body, no custom headers');
+  assert.deepEqual({ ...mint.init }, { method: 'POST' }, 'no body, no headers');
   assert.deepEqual(hls.calls, [['attachMedia'], ['loadSource', playlist(1)], ['startLoad', 0]]);
   assert.equal(run.video.plays, 1);
   assert.equal(run.video.controls, true);

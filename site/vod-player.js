@@ -162,9 +162,10 @@
 
     function online() { try { return o.online(); } catch (e) { return undefined; } }
 
+    // A bare POST: no body and no headers of ours (cache options would add some), so no preflight.
     function mint() {
       mintedAt = Date.now();
-      return o.fetch(mintUrl(o.api, o.id), { method: 'POST', cache: 'no-store' }).then(function (res) {
+      return o.fetch(mintUrl(o.api, o.id), { method: 'POST' }).then(function (res) {
         return res.json().then(null, function () { return null; }).then(function (body) {
           if (!res.ok) throw fail(mintKind(res.status, body && body.error), 'mint', res.status);
           var next = playlistUrl(o.api, o.id, body && body.token);
