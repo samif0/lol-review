@@ -12,6 +12,7 @@
 
 import { Env } from "./types";
 import { IDLE_SWEEP_SECONDS } from "./share-limits";
+import { removeHlsShare } from "./hls-objects";
 
 /** True when R2 says the upload is already gone (completed, aborted or unknown). */
 export function isGoneUploadError(err: unknown): boolean {
@@ -66,16 +67,22 @@ export async function tombstoneObject(
  * concurrent complete just finalized to 'ready' is never touched. A claimed
  * row can't be finalized (complete requires 'uploading'), is hidden from every
  * route (expired), and is retried by the hourly purge when the abort or the
- * delete fails here.
+ * delete fails here. An HLS share (no multipart upload) goes through
+ * removeHlsShare: its segment keys, a prefix tombstone, its rows.
  */
 export async function discardRow(env: Env, id: string): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
   const claimed = await env.DB
     .prepare(
-      "UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1 AND status = 'uploading' RETURNING r2_key, upload_id",
+      "UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1 AND status = 'uploading' RETURNING r2_key, upload_id, format",
     )
-    .bind(id, Math.floor(Date.now() / 1000))
-    .first<{ r2_key: string; upload_id: string | null }>();
+    .bind(id, now)
+    .first<{ r2_key: string; upload_id: string | null; format?: string | null }>();
   if (!claimed) return;
+  if (claimed.format === "hls") {
+    await removeHlsShare(env, id, now);
+    return;
+  }
   // A failed abort leaves uploaded parts in R2: keep the claimed row counted.
   if (!(await abortUpload(env, claimed.r2_key, claimed.upload_id))) return;
   try {
@@ -93,12 +100,14 @@ export async function discardRow(env: Env, id: string): Promise<void> {
 /**
  * Discard pending uploads of ANY account with no part activity for
  * IDLE_SWEEP_SECONDS, at most `limit` of them. Their reservations stop
- * holding the shared storage pool. Returns how many were selected.
+ * holding the shared storage pool. Returns how many were selected. HLS shares
+ * are left to the cron settle (vod-hls-upload.ts), which ends a watchable one
+ * at its edge instead of deleting it, and never touches a paused one.
  */
 export async function sweepIdleUploads(env: Env, now: number, limit: number): Promise<number> {
   const idle = await env.DB
     .prepare(
-      `SELECT id FROM clips WHERE status = 'uploading' AND COALESCE(last_activity_at, created_at) <= ?1 LIMIT ${Math.max(1, Math.floor(limit))}`,
+      `SELECT id FROM clips WHERE format IS NULL AND status = 'uploading' AND COALESCE(last_activity_at, created_at) <= ?1 LIMIT ${Math.max(1, Math.floor(limit))}`,
     )
     .bind(now - IDLE_SWEEP_SECONDS)
     .all<{ id: string }>();

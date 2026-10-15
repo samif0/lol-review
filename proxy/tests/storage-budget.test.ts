@@ -27,15 +27,23 @@ const TOKEN = "sess-budget";
 const USER = 31;
 const STORAGE_FULL = { error: "quota_exceeded", reason: "storage_full", message: STORAGE_FULL_MESSAGE };
 
-describe("migration 0006", () => {
-  it("applies on top of 0001 to 0005 and turns existing rows into kind 'clip'", () => {
+describe("migrations 0006 and 0007", () => {
+  const read = (f: string) => readFileSync(fileURLToPath(new URL(`../migrations/${f}`, import.meta.url)), "utf8");
+  function upTo(last: string) {
     const files = migrationFiles();
-    expect(files.slice(-1)).toEqual(["0006_vod_shares.sql"]);
     const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
     const raw = new DatabaseSync(":memory:");
     raw.exec("PRAGMA foreign_keys = ON");
-    const read = (f: string) => readFileSync(fileURLToPath(new URL(`../migrations/${f}`, import.meta.url)), "utf8");
-    for (const f of files.slice(0, -1)) raw.exec(read(f));
+    for (const f of files.slice(0, files.indexOf(last))) raw.exec(read(f));
+    return raw;
+  }
+
+  it("0007 is the last migration", () => {
+    expect(migrationFiles().slice(-2)).toEqual(["0006_vod_shares.sql", "0007_vod_hls.sql"]);
+  });
+
+  it("0006 applies on top of 0001 to 0005 and turns existing rows into kind 'clip'", () => {
+    const raw = upTo("0006_vod_shares.sql");
     raw.exec("INSERT INTO users (id, email, created_at) VALUES (1, 'a@example.com', 1)");
     raw.exec("INSERT INTO clips (id, user_id, r2_key, content_type, size_bytes, created_at, expires_at) VALUES ('Old0001', 1, 'clips/Old0001.mp4', 'video/mp4', 5, 1, 2)");
     raw.exec(read("0006_vod_shares.sql"));
@@ -50,6 +58,35 @@ describe("migration 0006", () => {
     raw.exec("DELETE FROM users WHERE id = 1");
     expect(raw.prepare("SELECT COUNT(*) AS n FROM vod_sharers").get().n).toBe(0);
     expect({ ...raw.prepare("SELECT kind FROM storage_tombstones").get() }).toEqual({ kind: "clip" });
+  });
+
+  it("0007 is additive: existing rows keep format NULL and tombstones keep no key range", () => {
+    const raw = upTo("0007_vod_hls.sql");
+    raw.exec("INSERT INTO users (id, email, created_at) VALUES (1, 'a@example.com', 1)");
+    raw.exec("INSERT INTO clips (id, user_id, r2_key, content_type, size_bytes, created_at, expires_at, kind) VALUES ('Old0001', 1, 'vods/Old0001.mp4', 'video/mp4', 5, 1, 2, 'vod')");
+    raw.exec("INSERT INTO storage_tombstones (r2_key, size_bytes, created_at) VALUES ('k', 1, 1)");
+    raw.exec(read("0007_vod_hls.sql"));
+    expect({ ...raw.prepare("SELECT format, hls_bytes FROM clips").get() }).toEqual({ format: null, hls_bytes: 0 });
+    expect({ ...raw.prepare("SELECT key_count, not_before FROM storage_tombstones").get() }).toEqual({ key_count: null, not_before: null });
+    const tables = raw.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table'").all() as { name: string; sql: string }[];
+    expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(["vod_hls", "vod_hls_runs", "vod_hls_segments", "ops_flags"]));
+    for (const name of ["vod_hls_runs", "vod_hls_segments"]) {
+      expect(tables.find((t) => t.name === name)?.sql, name).toMatch(/WITHOUT ROWID\s*$/);
+    }
+
+    // An HLS share: its state, runs and segments go with its clips row (FK cascade).
+    raw.exec("INSERT INTO clips (id, user_id, r2_key, content_type, size_bytes, created_at, expires_at, kind, format) VALUES ('Hls0001', 1, 'vods/Hls0001/', 'video/mp4', 9, 1, 2, 'vod', 'hls')");
+    raw.exec("INSERT INTO vod_hls (clip_id) VALUES ('Hls0001')");
+    expect({ ...raw.prepare("SELECT segments, media_ms, max_seq, runs, last_commit_ms, ingest_milli, paused_at, ended, truncated FROM vod_hls").get() }).toEqual({
+      segments: 0, media_ms: 0, max_seq: -1, runs: 0, last_commit_ms: null, ingest_milli: null, paused_at: null, ended: 0, truncated: 0,
+    });
+    raw.exec("INSERT INTO vod_hls_runs (clip_id, k, from_seq, init, quality) VALUES ('Hls0001', 0, 0, x'00', '1080p60')");
+    raw.exec("INSERT INTO vod_hls_segments (clip_id, seq, duration_ms, bytes) VALUES ('Hls0001', 0, 2000, 10)");
+    expect(raw.prepare("SELECT committed FROM vod_hls_segments").get().committed).toBe(0);
+    raw.exec("DELETE FROM clips WHERE id = 'Hls0001'");
+    for (const t of ["vod_hls", "vod_hls_runs", "vod_hls_segments"]) expect(raw.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n, t).toBe(0);
+    raw.exec("INSERT INTO ops_flags (name, value) VALUES ('vod_serving', '0')");
+    expect(() => raw.exec("INSERT INTO ops_flags (name, value) VALUES ('vod_serving', '1')")).toThrow();
   });
 });
 

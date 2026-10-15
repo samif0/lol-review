@@ -18,6 +18,44 @@ export function badRequest(message: string): Response {
 }
 
 /**
+ * Wall time one request spent waiting on D1 and on R2, for a
+ * `Server-Timing: d1;dur=N, r2;dur=N` header (the desktop logs it per PUT and
+ * the canary reads it per colo). Workers only advance the clock across I/O,
+ * which is exactly what this measures.
+ */
+export class Timing {
+  d1 = 0;
+  r2 = 0;
+
+  async db<T>(work: () => Promise<T>): Promise<T> {
+    const t0 = Date.now();
+    try {
+      return await work();
+    } finally {
+      this.d1 += Date.now() - t0;
+    }
+  }
+
+  async r2op<T>(work: () => Promise<T>): Promise<T> {
+    const t0 = Date.now();
+    try {
+      return await work();
+    } finally {
+      this.r2 += Date.now() - t0;
+    }
+  }
+
+  header(): string {
+    return `d1;dur=${this.d1}, r2;dur=${this.r2}`;
+  }
+}
+
+/** A path safe to log: the play token in /vod-hls/<id>/<token>/... is never written out. */
+export function loggablePath(pathname: string): string {
+  return pathname.replace(/^(\/vod-hls\/[^/]*\/)[^/]+/, "$1-");
+}
+
+/**
  * The request's media type only: everything before `;`, trimmed, lowercased.
  * .NET sends `text/plain; charset=utf-8`, so parameters must never matter.
  */

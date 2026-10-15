@@ -15,11 +15,11 @@
  */
 
 import { handleLogin, handleLogout, handleVerify } from "./auth";
-import { findSession, deleteExpiredSessions, deleteExpiredLoginRequests } from "./db";
+import { findSession } from "./db";
 import { Env } from "./types";
 import { GlobalRateLimiter } from "./ratelimit";
 import { sha256Hex } from "./crypto";
-import { jsonResponse } from "./http";
+import { jsonResponse, loggablePath } from "./http";
 import { clientIpKey, hashedClientIpKey } from "./client-ip";
 import {
   handleClipFile,
@@ -28,22 +28,20 @@ import {
   handleListMyClips,
   handleUploadClip,
   isClipSlug,
-  purgeExpiredClips,
   renderClipOgPage,
 } from "./clips";
 import { handleClipView } from "./clip-views";
 import { handleUploadComplete, handleUploadInit, handleUploadPart } from "./clip-uploads";
-import { purgeTombstones } from "./clip-purge";
-import { sweepIdleUploads } from "./upload-cleanup";
-import { IDLE_SWEEP_PER_RUN } from "./share-limits";
+import { runHourly } from "./cron";
+import { handleHlsPause, handleHlsRunPut, handleHlsSegmentPut } from "./vod-hls-upload";
+import { handleHlsEnd } from "./vod-hls-end";
+import { handleHlsMedia, handleVodPlay } from "./vod-hls-serve";
 import {
   handleVodMarkers,
   handleVodShareStatus,
   handleVodUploadComplete,
   handleVodUploadInit,
   handleVodUploadPart,
-  pruneUploadPartUsage,
-  pruneVodShareUsage,
 } from "./vod-shares";
 import { findShownVod, handleVodFile, handleVodMeta } from "./vod-serve";
 import { dispatchWebAccount } from "./web-auth";
@@ -51,14 +49,12 @@ import { webJson, webPreflight } from "./web-http";
 import { authWebJwtOrDeny, handleWebSession } from "./web-session";
 import { chargeRiot, takeGlobalKey } from "./riot-budget";
 import { dispatchRiot } from "./riot";
-import { pruneEmailSendUsage } from "./email-budget";
 import { clipUploadLimitOrDeny } from "./user-limits";
 import {
   handleDeleteTranscript,
   handleGetTranscript,
   handlePutTranscript,
   handleTranscribe,
-  pruneTranscribeUsage,
 } from "./transcripts";
 
 // ── Auth resolution ─────────────────────────────────────────────────────
@@ -112,6 +108,18 @@ async function ownerAuthOrDeny(request: Request, env: Env): Promise<DesktopAuth 
   const auth = await authOrDeny(request, env);
   if (auth instanceof Response && auth.status === 401) return jsonResponse({ error: "unauthorized" }, 401);
   return auth;
+}
+
+/**
+ * The Bearer token's session hash WITHOUT the D1 lookup, for the HLS segment
+ * PUT, whose claim checks the session in the same statement (one D1 round
+ * trip less per segment). Same token rules as authOrDeny.
+ */
+async function bearerHashOrDeny(request: Request): Promise<string | Response> {
+  const header = request.headers.get("Authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+  if (!token || token.startsWith("web:")) return jsonResponse({ error: "unauthorized" }, 401);
+  return sha256Hex(token);
 }
 
 // ── Per-IP limit on the public sign-in routes ───────────────────────────
@@ -178,8 +186,12 @@ function withCors(response: Response, cors: Record<string, string>): Response {
 // uploads, deletes and listing require a real account session. None of them
 // spend the Riot budget.
 
-async function dispatchClips(request: Request, url: URL, env: Env): Promise<Response | null> {
+async function dispatchClips(request: Request, url: URL, env: Env, ctx: ExecutionContext | undefined): Promise<Response | null> {
   const path = url.pathname;
+
+  // HLS shares, public: on the host of PUBLIC_BASE only (404 anywhere else).
+  if (path.startsWith("/vod-play/")) return handleVodPlay(request, env);
+  if (path.startsWith("/vod-hls/")) return handleHlsMedia(request, env);
 
   // Public reads, no auth.
   if (request.method === "GET" && path.startsWith("/clip-meta/")) {
@@ -203,7 +215,7 @@ async function dispatchClips(request: Request, url: URL, env: Env): Promise<Resp
 
   // Full-game (VOD) shares (desktop, Bearer). Exact paths first: "uploads" and
   // "status" are slug-shaped enough to be eaten by the :id patterns otherwise.
-  if (path.startsWith("/vod-shares/")) return dispatchVodShares(request, path, env);
+  if (path.startsWith("/vod-shares/")) return dispatchVodShares(request, path, env, ctx);
 
   // Authed routes: uploads, listing, deletes.
   if (path === "/clips" && request.method === "POST") {
@@ -264,8 +276,16 @@ async function dispatchClips(request: Request, url: URL, env: Env): Promise<Resp
   return null;
 }
 
-async function dispatchVodShares(request: Request, path: string, env: Env): Promise<Response> {
+async function dispatchVodShares(request: Request, path: string, env: Env, ctx: ExecutionContext | undefined): Promise<Response> {
   const method = request.method;
+  // An HLS segment checks its session inside its claim (vod-hls-upload.ts).
+  const segment = method === "PUT" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/hls\/seg\/(\d{1,5})$/.exec(path) : null;
+  if (segment) {
+    const tokenHash = await bearerHashOrDeny(request);
+    if (tokenHash instanceof Response) return tokenHash;
+    return handleHlsSegmentPut(request, env, ctx, tokenHash, segment[1], segment[2]);
+  }
+
   type Owner = (userId: number) => Promise<Response>;
   let run: Owner | null = null;
   if (path === "/vod-shares/status") {
@@ -276,9 +296,15 @@ async function dispatchVodShares(request: Request, path: string, env: Env): Prom
     const part = method === "PUT" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/parts\/(\d{1,5})$/.exec(path) : null;
     const complete = method === "POST" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/complete$/.exec(path) : null;
     const markers = method === "PUT" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/markers$/.exec(path) : null;
+    const hlsRun = method === "PUT" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/hls\/runs\/(\d{1,3})$/.exec(path) : null;
+    const hlsPause = method === "POST" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/hls\/pause$/.exec(path) : null;
+    const hlsEnd = method === "POST" ? /^\/vod-shares\/([0-9A-Za-z]{7})\/hls\/end$/.exec(path) : null;
     if (part) run = (u) => handleVodUploadPart(request, env, u, part[1], part[2]);
     else if (complete) run = (u) => handleVodUploadComplete(request, env, u, complete[1]);
     else if (markers) run = (u) => handleVodMarkers(request, env, u, markers[1]);
+    else if (hlsRun) run = (u) => handleHlsRunPut(request, env, u, hlsRun[1], hlsRun[2]);
+    else if (hlsPause) run = (u) => handleHlsPause(request, env, u, hlsPause[1]);
+    else if (hlsEnd) run = (u) => handleHlsEnd(request, env, u, hlsEnd[1]);
   }
   if (!run) return jsonResponse({ error: "not_found" }, 404);
   const auth = await ownerAuthOrDeny(request, env);
@@ -350,13 +376,13 @@ async function route(request: Request, url: URL, env: Env, ctx: ExecutionContext
   // Wrapped: an R2 or D1 failure on the upload path becomes a clean, retryable
   // 502 {clip_error} for the desktop instead of a raw Cloudflare 503.
   try {
-    const clipResponse = await dispatchClips(request, url, env);
+    const clipResponse = await dispatchClips(request, url, env, ctx);
     if (clipResponse) return withCors(clipResponse, cors);
   } catch (err) {
     console.error(
       JSON.stringify({
         scope: "clips.dispatch",
-        path: url.pathname,
+        path: loggablePath(url.pathname),
         method: request.method,
         error: (err as Error)?.message ?? String(err),
       }),
@@ -425,67 +451,9 @@ export { GlobalRateLimiter };
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // Hourly housekeeping, in order: purge expired clips, VOD shares and
-    // expired pending uploads (R2 + D1), retry storage tombstones, stale
-    // sessions, expired sign-in codes (with their email addresses), old
-    // transcribe_usage rows, old email send counts, old VOD share start and
-    // part upload counts, then discard at most IDLE_SWEEP_PER_RUN idle pending
-    // uploads of every account (their reservations stop holding the storage
-    // pool). The sweep runs last and small so a backlog of idle uploads can't
-    // use up the run's D1 query budget before the purge. Each step is isolated
-    // so one failure doesn't skip the rest.
-    ctx.waitUntil(
-      (async () => {
-        try {
-          const purged = await purgeExpiredClips(env);
-          console.log(JSON.stringify({ scope: "cron.purge", clips: purged }));
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.purge", error: (err as Error).message }));
-        }
-        try {
-          const tombs = await purgeTombstones(env);
-          if (tombs > 0) console.log(JSON.stringify({ scope: "cron.tombstones", purged: tombs }));
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.tombstones", error: (err as Error).message }));
-        }
-        try {
-          await deleteExpiredSessions(env.DB);
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.sessions", error: (err as Error).message }));
-        }
-        try {
-          await deleteExpiredLoginRequests(env.DB);
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.login_requests", error: (err as Error).message }));
-        }
-        try {
-          await pruneTranscribeUsage(env);
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.transcribe_usage", error: (err as Error).message }));
-        }
-        try {
-          await pruneEmailSendUsage(env);
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.email_send_usage", error: (err as Error).message }));
-        }
-        try {
-          await pruneVodShareUsage(env);
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.vod_share_usage", error: (err as Error).message }));
-        }
-        try {
-          await pruneUploadPartUsage(env);
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.upload_part_usage", error: (err as Error).message }));
-        }
-        try {
-          const swept = await sweepIdleUploads(env, Math.floor(Date.now() / 1000), IDLE_SWEEP_PER_RUN);
-          if (swept > 0) console.log(JSON.stringify({ scope: "cron.idle_uploads", discarded: swept }));
-        } catch (err) {
-          console.error(JSON.stringify({ scope: "cron.idle_uploads", error: (err as Error).message }));
-        }
-      })(),
-    );
+    // Hourly housekeeping (cron.ts): settle quiet HLS shares, purge, tombstones,
+    // sessions, sign-in codes, usage counters, then the small idle sweep.
+    ctx.waitUntil(runHourly(env));
   },
 
   async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
@@ -499,7 +467,7 @@ export default {
     } catch (err) {
       console.error(JSON.stringify({
         scope: "worker.unhandled",
-        path: url.pathname,
+        path: loggablePath(url.pathname),
         method: request.method,
         error: (err as Error)?.message ?? String(err),
       }));

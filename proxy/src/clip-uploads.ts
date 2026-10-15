@@ -277,7 +277,10 @@ export async function handleUploadPart(
   return jsonResponse({ part_number: part.partNumber, etag: part.etag }, 200);
 }
 
-/** The caller's own still-uploading, unexpired row of `kind`, or null. */
+/**
+ * The caller's own still-uploading, unexpired multipart row of `kind`, or
+ * null. Never an HLS share (format 'hls'): those take segments, not parts.
+ */
 async function findOwnedUploading(
   env: Env,
   userId: number,
@@ -286,7 +289,7 @@ async function findOwnedUploading(
   now: number,
 ): Promise<ClipRow | null> {
   const row = await env.DB
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 LIMIT 1")
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 AND format IS NULL LIMIT 1")
     .bind(id, userId, now, kind)
     .first<ClipRow>();
   return row ?? null;
@@ -337,9 +340,10 @@ function shareUrl(env: Env, kind: UploadKind, id: string): string {
   return kind === "vod" ? vodWatchUrl(env, id) : clipPublicUrl(env, id);
 }
 
+/** The caller's own unexpired row of `kind`, any status; never an HLS share. */
 async function findOwnedLive(env: Env, userId: number, id: string, kind: UploadKind, now: number): Promise<ClipRow | null> {
   const row = await env.DB
-    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND kind = ?4 LIMIT 1")
+    .prepare("SELECT * FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND kind = ?4 AND format IS NULL LIMIT 1")
     .bind(id, userId, now, kind)
     .first<ClipRow>();
   return row ?? null;
@@ -429,7 +433,7 @@ export async function completeUpload(
     expiresAt = row.created_at + VOD_TTL_SECONDS;
     const meta = await env.DB
       .prepare(
-        "UPDATE clips SET status = 'ready', upload_id = NULL, expires_at = created_at + ?3 WHERE id = ?1 AND user_id = ?2 AND kind = 'vod' AND status = 'uploading'",
+        "UPDATE clips SET status = 'ready', upload_id = NULL, expires_at = created_at + ?3 WHERE id = ?1 AND user_id = ?2 AND kind = 'vod' AND format IS NULL AND status = 'uploading'",
       )
       .bind(id, userId, VOD_TTL_SECONDS)
       .run();

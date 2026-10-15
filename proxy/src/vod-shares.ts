@@ -7,6 +7,10 @@
  *   POST /vod-shares/:id/complete     assemble, sniff, finalize (shared clip complete)
  *   PUT  /vod-shares/:id/markers      markers document v1 (vod-markers.ts)
  *
+ * With format=hls the init reserves an HLS share instead (segments that play
+ * while they upload; vod-hls-upload.ts holds its routes), after the same
+ * checks in the same order.
+ *
  * VOD rows live in `clips` with kind = 'vod' and R2 key vods/<id>.mp4, so the
  * hourly purge, owner delete (DELETE /clips/:id), account delete and the
  * storage budget treat them like every other stored object. Only allowlisted
@@ -22,7 +26,16 @@ import { vodInitLimitOrDeny, vodStatusLimitOrDeny } from "./user-limits";
 import { fitsAt, isVodSharer, poolSnapshot, storageUsage, vodFits } from "./storage-budget";
 import { sweepIdleUploads } from "./upload-cleanup";
 import { normalizeVodMeta, vodTitle } from "./vod-markers";
+import { reserveHlsShare } from "./vod-hls-upload";
+import { settleHlsShare } from "./vod-hls-end";
 import {
+  HLS_INIT_MAX_BYTES,
+  HLS_MAX_RUNS,
+  HLS_PAUSE_MAX_SECONDS,
+  HLS_PLAYABLE_MS,
+  HLS_SEGMENT_MAX_BYTES,
+  HLS_SEGMENT_SECONDS,
+  HLS_TARGET_DURATION,
   IDLE_SWEEP_ON_START,
   nextUtcMidnight,
   utcDayOf,
@@ -37,7 +50,8 @@ import {
   VOD_NOTES_MAX_BYTES,
   VOD_PART_SIZE_BYTES,
   VOD_TTL_SECONDS,
-  vodServingOn,
+  vodHlsOn,
+  vodServingLive,
   vodSharingOn,
   vodUploadWindowSeconds,
   vodWatchUrl,
@@ -75,11 +89,14 @@ interface VodCounts {
 /**
  * pending = the caller's non-idle uploading VOD rows; live = ready VOD rows plus
  * non-idle uploading ones. Idle = no part activity for UPLOAD_IDLE_ABORT_SECONDS.
+ * A paused HLS share (its sharer is in a game) is never idle: it resumes after
+ * the game, so it keeps its pending slot until then.
  */
 async function vodCounts(db: D1Database, userId: number, now: number): Promise<VodCounts> {
+  const active = "(c.status = 'uploading' AND (COALESCE(c.last_activity_at, c.created_at) > ?3 OR h.paused_at IS NOT NULL))";
   const row = await db
     .prepare(
-      "SELECT COALESCE(SUM(CASE WHEN status = 'uploading' AND COALESCE(last_activity_at, created_at) > ?3 THEN 1 ELSE 0 END), 0) AS pending, COALESCE(SUM(CASE WHEN status = 'ready' OR (status = 'uploading' AND COALESCE(last_activity_at, created_at) > ?3) THEN 1 ELSE 0 END), 0) AS live FROM clips WHERE user_id = ?1 AND kind = 'vod' AND expires_at > ?2",
+      `SELECT COALESCE(SUM(CASE WHEN ${active} THEN 1 ELSE 0 END), 0) AS pending, COALESCE(SUM(CASE WHEN c.status = 'ready' OR ${active} THEN 1 ELSE 0 END), 0) AS live FROM clips c LEFT JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.kind = 'vod' AND c.expires_at > ?2`,
     )
     .bind(userId, now, now - UPLOAD_IDLE_ABORT_SECONDS)
     .first<{ pending: number; live: number }>();
@@ -94,13 +111,26 @@ async function startsToday(db: D1Database, userId: number, day: string): Promise
   return Number(row?.starts ?? 0);
 }
 
+interface OwnShareRow {
+  id: string;
+  status: string;
+  quality: string | null;
+  size_bytes: number;
+  created_at: number;
+  expires_at: number;
+  format: string | null;
+  segments: number | null;
+  paused_at: number | null;
+}
+
+/** The caller's live shares; HLS ones also carry their committed segments and whether they are paused. */
 async function ownShares(db: D1Database, userId: number, now: number) {
   const res = await db
     .prepare(
-      "SELECT id, status, quality, size_bytes, created_at, expires_at FROM clips WHERE user_id = ?1 AND kind = 'vod' AND expires_at > ?2 AND status IN ('ready', 'uploading') ORDER BY created_at DESC LIMIT 20",
+      "SELECT c.id, c.status, c.quality, c.size_bytes, c.created_at, c.expires_at, c.format, h.segments, h.paused_at FROM clips c LEFT JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.kind = 'vod' AND c.expires_at > ?2 AND c.status IN ('ready', 'uploading') ORDER BY c.created_at DESC LIMIT 20",
     )
     .bind(userId, now)
-    .all<{ id: string; status: string; quality: string | null; size_bytes: number; created_at: number; expires_at: number }>();
+    .all<OwnShareRow>();
   return (res.results ?? []).map((r) => ({
     id: r.id,
     status: r.status,
@@ -108,6 +138,8 @@ async function ownShares(db: D1Database, userId: number, now: number) {
     size_bytes: r.size_bytes,
     created_at: r.created_at,
     expires_at: r.expires_at,
+    format: r.format === "hls" ? "hls" : "mp4",
+    ...(r.format === "hls" ? { segments: Number(r.segments ?? 0), paused: r.paused_at !== null && r.paused_at !== undefined } : {}),
   }));
 }
 
@@ -119,7 +151,7 @@ export async function handleVodShareStatus(env: Env, userId: number): Promise<Re
 
   const now = nowSeconds();
   const sharing = vodSharingOn(env);
-  const serving = vodServingOn(env);
+  const serving = await vodServingLive(env);
   const shares = await ownShares(env.DB, userId, now);
 
   if (!(await isVodSharer(env.DB, userId))) {
@@ -146,6 +178,16 @@ export async function handleVodShareStatus(env: Env, userId: number): Promise<Re
         markers_max_bytes: VOD_MARKERS_MAX_BYTES,
         notes_max_bytes: VOD_NOTES_MAX_BYTES,
         daily_play_cap: VOD_DAILY_PLAY_CAP,
+      },
+      // A desktop sends format=hls only when this says enabled (an older proxy has no hls at all).
+      hls: {
+        enabled: await vodHlsOn(env, userId),
+        segment_seconds: HLS_SEGMENT_SECONDS,
+        target_duration: HLS_TARGET_DURATION,
+        max_segment_bytes: HLS_SEGMENT_MAX_BYTES,
+        init_max_bytes: HLS_INIT_MAX_BYTES,
+        playable_ms: HLS_PLAYABLE_MS,
+        max_runs: HLS_MAX_RUNS,
       },
       usage: {
         live: counts.live,
@@ -205,18 +247,31 @@ export async function handleVodUploadInit(request: Request, env: Env, userId: nu
   const fps = url.searchParams.get("fps");
   if (fps !== null && !FRAME_RATES.has(fps)) return refuse(400, "bad_request", "fps must be 30 or 60");
   const quality = fps === null ? resolution : `${resolution}${fps}`;
+  // format=hls: checked with the request shape, before anything is discarded
+  // or spent, so a desktop that gets 409 hls_unavailable can share the MP4 way.
+  const format = url.searchParams.get("format") ?? "mp4";
+  if (format !== "mp4" && format !== "hls") return refuse(400, "bad_request", "format must be mp4 or hls");
+  if (format === "hls" && !(await vodHlsOn(env, userId))) {
+    return refuse(409, "hls_unavailable", "Watching while it uploads is off right now. The game will be shared once it's uploaded.");
+  }
 
   const now = nowSeconds();
 
   // 10. Discard the caller's idle VOD uploads (an app killed mid-upload must
-  // not hold the one pending slot for the whole upload window).
+  // not hold the one pending slot for the whole upload window). An idle HLS
+  // share is settled instead: ended at its edge when people can watch it,
+  // discarded otherwise. A paused one is not idle; one paused for longer than
+  // the pause limit is settled too.
   const idle = await env.DB
     .prepare(
-      "SELECT id FROM clips WHERE user_id = ?1 AND status = 'uploading' AND kind = 'vod' AND COALESCE(last_activity_at, created_at) <= ?2",
+      "SELECT c.id, c.format FROM clips c LEFT JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.status = 'uploading' AND c.kind = 'vod' AND ((h.paused_at IS NULL AND COALESCE(c.last_activity_at, c.created_at) <= ?2) OR h.paused_at <= ?3)",
     )
-    .bind(userId, now - UPLOAD_IDLE_ABORT_SECONDS)
-    .all<{ id: string }>();
-  for (const row of idle.results ?? []) await discardRow(env, row.id);
+    .bind(userId, now - UPLOAD_IDLE_ABORT_SECONDS, now - HLS_PAUSE_MAX_SECONDS)
+    .all<{ id: string; format: string | null }>();
+  for (const row of idle.results ?? []) {
+    if (row.format === "hls") await settleHlsShare(env, row.id, now, UPLOAD_IDLE_ABORT_SECONDS);
+    else await discardRow(env, row.id);
+  }
 
   // 11, 12. Per-account limits.
   const counts = await vodCounts(env.DB, userId, now);
@@ -251,24 +306,38 @@ export async function handleVodUploadInit(request: Request, env: Env, userId: nu
 
   // 15. Reserve: R2 multipart upload + the uploading row (declared size). The
   // upload window fits the declared size at the slowest supported upstream.
+  // An HLS share is one D1 batch and no R2 call (reserveHlsShare).
   const id = await uniqueSlug(env.DB);
-  const r2Key = `vods/${id}.mp4`;
-  const mpu = await env.CLIPS.createMultipartUpload(r2Key, { httpMetadata: { contentType: "video/mp4" } });
-  const partCount = Math.ceil(size / VOD_PART_SIZE_BYTES);
-  const uploadExpiresAt = now + vodUploadWindowSeconds(size);
-  try {
-    await env.DB
-      .prepare(
-        `INSERT INTO clips
-          (id, user_id, r2_key, content_type, size_bytes, duration_s, created_at, expires_at, view_count, status,
-           upload_id, part_size, part_count, last_activity_at, narrated, has_transcript, kind, quality, part_puts)
-         VALUES (?1, ?2, ?3, 'video/mp4', ?4, ?5, ?6, ?7, 0, 'uploading', ?8, ?9, ?10, ?6, 0, 0, 'vod', ?11, 0)`,
-      )
-      .bind(id, userId, r2Key, size, duration, now, uploadExpiresAt, mpu.uploadId, VOD_PART_SIZE_BYTES, partCount, quality)
-      .run();
-  } catch (err) {
-    try { await mpu.abort(); } catch { /* best effort */ }
-    throw err; // dispatch catch → 502 clip_error
+  let created: Record<string, unknown>;
+  if (format === "hls") {
+    created = await reserveHlsShare(env, { id, userId, size, duration, quality, now });
+  } else {
+    const r2Key = `vods/${id}.mp4`;
+    const mpu = await env.CLIPS.createMultipartUpload(r2Key, { httpMetadata: { contentType: "video/mp4" } });
+    const partCount = Math.ceil(size / VOD_PART_SIZE_BYTES);
+    const uploadExpiresAt = now + vodUploadWindowSeconds(size);
+    try {
+      await env.DB
+        .prepare(
+          `INSERT INTO clips
+            (id, user_id, r2_key, content_type, size_bytes, duration_s, created_at, expires_at, view_count, status,
+             upload_id, part_size, part_count, last_activity_at, narrated, has_transcript, kind, quality, part_puts)
+           VALUES (?1, ?2, ?3, 'video/mp4', ?4, ?5, ?6, ?7, 0, 'uploading', ?8, ?9, ?10, ?6, 0, 0, 'vod', ?11, 0)`,
+        )
+        .bind(id, userId, r2Key, size, duration, now, uploadExpiresAt, mpu.uploadId, VOD_PART_SIZE_BYTES, partCount, quality)
+        .run();
+    } catch (err) {
+      try { await mpu.abort(); } catch { /* best effort */ }
+      throw err; // dispatch catch → 502 clip_error
+    }
+    created = {
+      id,
+      part_size: VOD_PART_SIZE_BYTES,
+      part_count: partCount,
+      expires_at: uploadExpiresAt,
+      share_expires_at: now + VOD_TTL_SECONDS,
+      url: vodWatchUrl(env, id),
+    };
   }
 
   // 16. Recount after the row is committed; the loser of a race rolls back.
@@ -286,17 +355,7 @@ export async function handleVodUploadInit(request: Request, env: Env, userId: nu
     return poolFull(env, size, now);
   }
 
-  return jsonResponse(
-    {
-      id,
-      part_size: VOD_PART_SIZE_BYTES,
-      part_count: partCount,
-      expires_at: uploadExpiresAt,
-      share_expires_at: now + VOD_TTL_SECONDS,
-      url: vodWatchUrl(env, id),
-    },
-    201,
-  );
+  return jsonResponse(created, 201);
 }
 
 // ── PUT /vod-shares/:id/parts/:n and POST /vod-shares/:id/complete ──────────

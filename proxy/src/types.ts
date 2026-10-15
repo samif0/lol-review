@@ -8,6 +8,9 @@ export interface Env {
   // instead of a plain sha256, so a D1 leak alone can't brute-force live codes.
   // Codes issued before it is first set stop verifying (they live 10 minutes).
   LOGIN_CODE_PEPPER?: string;
+  // Signs the play tokens of HLS shares (play-token.ts), at least 32 chars.
+  // Unset or shorter: no new HLS shares, and HLS playback answers 503.
+  VOD_PLAY_SECRET?: string;
 
   // Vars
   // Riot budget (src/riot-budget.ts). AGGREGATE_RPS is the hard cap for
@@ -58,6 +61,10 @@ export interface Env {
   // Unset or anything else means on.
   VOD_SHARING?: string;
   VOD_SERVING?: string;
+  // New HLS (watch while uploading) starts: "1" on, "users:<id>,<id>" for
+  // those accounts only, anything else (default "0") off. Uploads already
+  // started and playback are not affected (VOD_SERVING covers playback).
+  VOD_HLS?: string;
 
   // Bindings
   DB: D1Database;

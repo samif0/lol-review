@@ -47,6 +47,9 @@ export interface FakeClip {
   quality: string | null;
   play_day: string | null;
   play_count: number;
+  // Migration 0007. The fake models no HLS share (those tests use real
+  // SQLite, tests/sqlite-d1.ts), so every fake row is format NULL.
+  format?: string | null;
 }
 
 export interface FakeTombstone {
@@ -55,6 +58,9 @@ export interface FakeTombstone {
   size_bytes: number;
   kind: string;
   created_at: number;
+  // Migration 0007: prefix tombstones of HLS shares (never written by the fake's routes).
+  key_count?: number | null;
+  not_before?: number | null;
 }
 
 export interface FakeVodMeta {
@@ -254,10 +260,10 @@ export function makeFakeDb(
           return c && c.kind === "vod" && (c.status === "ready" || c.status === "uploading") && c.expires_at > (args[1] as number)
             ? (c as T) : null;
         }
-        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 LIMIT 1")) {
+        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 AND format IS NULL LIMIT 1")) {
           const c = clips.get(args[0] as string);
           return c && c.user_id === args[1] && c.status === "uploading" && c.expires_at > (args[2] as number) && c.kind === args[3]
-            ? (c as T) : null;
+            && !c.format ? (c as T) : null;
         }
         if (sql.startsWith("UPDATE clips SET part_puts = part_puts + 1, last_activity_at = ?3 WHERE id = ?1 AND user_id = ?2 AND kind = ?4 AND status = 'uploading' AND expires_at > ?3")) {
           if (!sql.endsWith(`AND part_puts < ${PART_PUT_FACTOR} * part_count + ${PART_PUT_SLACK} RETURNING r2_key, upload_id`)) {
@@ -275,9 +281,9 @@ export function makeFakeDb(
           return c && c.user_id === args[1] && c.expires_at > (args[2] as number) && (c.status === "uploading" || c.status === "ready")
             && c.kind === "clip" ? (c as T) : null;
         }
-        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND kind = ?4 LIMIT 1")) {
+        if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND expires_at > ?3 AND kind = ?4 AND format IS NULL LIMIT 1")) {
           const c = clips.get(args[0] as string);
-          return c && c.user_id === args[1] && c.expires_at > (args[2] as number) && c.kind === args[3] ? (c as T) : null;
+          return c && c.user_id === args[1] && c.expires_at > (args[2] as number) && c.kind === args[3] && !c.format ? (c as T) : null;
         }
         if (sql.startsWith("SELECT * FROM clips WHERE id = ?1 LIMIT")) {
           return (clips.get(args[0] as string) as T) ?? null;
@@ -286,17 +292,17 @@ export function makeFakeDb(
           const c = clips.get(args[0] as string);
           return c && c.kind === "clip" ? (c as T) : null;
         }
-        if (sql.startsWith("UPDATE clips SET status = 'purging', expires_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING r2_key, upload_id")) {
+        if (sql === "UPDATE clips SET status = 'purging', expires_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING r2_key, upload_id, format") {
           const c = clips.get(args[0] as string);
           if (!c || c.user_id !== args[1]) return null;
           Object.assign(c, { status: "purging", expires_at: args[2] });
-          return { r2_key: c.r2_key, upload_id: c.upload_id } as T;
+          return { r2_key: c.r2_key, upload_id: c.upload_id, format: c.format ?? null } as T;
         }
-        if (sql.startsWith("UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1 AND status = 'uploading' RETURNING r2_key, upload_id")) {
+        if (sql === "UPDATE clips SET status = 'purging', expires_at = ?2 WHERE id = ?1 AND status = 'uploading' RETURNING r2_key, upload_id, format") {
           const c = clips.get(args[0] as string);
           if (!c || c.status !== "uploading") return null;
           Object.assign(c, { status: "purging", expires_at: args[1] });
-          return { r2_key: c.r2_key, upload_id: c.upload_id } as T;
+          return { r2_key: c.r2_key, upload_id: c.upload_id, format: c.format ?? null } as T;
         }
         if (sql.startsWith("SELECT COALESCE(SUM(length(t.segments_json)), 0) AS total FROM clip_transcripts t JOIN clips c ON c.id = t.clip_id WHERE c.user_id = ?1 AND c.expires_at > ?2 AND t.clip_id != ?3")) {
           let total = 0;
@@ -460,10 +466,10 @@ export function makeFakeDb(
             .map((c) => ({ id: c.id }));
           return { results: results as T[] };
         }
-        const sweep = /^SELECT id FROM clips WHERE status = 'uploading' AND COALESCE\(last_activity_at, created_at\) <= \?1 LIMIT (\d+)$/.exec(sql);
+        const sweep = /^SELECT id FROM clips WHERE format IS NULL AND status = 'uploading' AND COALESCE\(last_activity_at, created_at\) <= \?1 LIMIT (\d+)$/.exec(sql);
         if (sweep) {
           const results = [...clips.values()]
-            .filter((c) => c.status === "uploading" && (c.last_activity_at ?? c.created_at) <= (args[0] as number))
+            .filter((c) => c.status === "uploading" && !c.format && (c.last_activity_at ?? c.created_at) <= (args[0] as number))
             .slice(0, Number(sweep[1]))
             .map((c) => ({ id: c.id }));
           return { results: results as T[] };
@@ -473,33 +479,38 @@ export function makeFakeDb(
             .map((m) => ({ clip_id: m.clip_id, has_notes: m.has_notes }));
           return { results: results as T[] };
         }
-        const tombs = /^SELECT r2_key, upload_id, created_at FROM storage_tombstones LIMIT (\d+)$/.exec(sql);
+        const tombs = /^SELECT r2_key, upload_id, created_at, key_count FROM storage_tombstones WHERE not_before IS NULL OR not_before <= \?1 LIMIT (\d+)$/.exec(sql);
         if (tombs) {
-          const results = [...tombstones.values()].slice(0, Number(tombs[1]))
-            .map((t) => ({ r2_key: t.r2_key, upload_id: t.upload_id, created_at: t.created_at }));
+          const results = [...tombstones.values()]
+            .filter((t) => t.not_before === null || t.not_before === undefined || t.not_before <= (args[0] as number))
+            .slice(0, Number(tombs[1]))
+            .map((t) => ({ r2_key: t.r2_key, upload_id: t.upload_id, created_at: t.created_at, key_count: t.key_count ?? null }));
           return { results: results as T[] };
         }
-        const claim = /^UPDATE clips SET status = 'purging' WHERE id IN \((\?\d+(?:, \?\d+)*)\) AND expires_at <= \?(\d+) RETURNING id, r2_key, upload_id, created_at$/.exec(sql);
+        const claim = /^UPDATE clips SET status = 'purging' WHERE id IN \((\?\d+(?:, \?\d+)*)\) AND expires_at <= \?(\d+) RETURNING id, r2_key, upload_id, created_at, format$/.exec(sql);
         if (claim) {
           const n = claim[1].split(", ").length;
           if (Number(claim[2]) !== n + 1 || args.length !== n + 1) throw new Error("fake D1: claim placeholder mismatch");
           const now = args[n] as number;
-          const results: { id: string; r2_key: string; upload_id: string | null; created_at: number }[] = [];
+          const results: { id: string; r2_key: string; upload_id: string | null; created_at: number; format: string | null }[] = [];
           for (const id of args.slice(0, n)) {
             const c = clips.get(id as string);
             if (!c || c.expires_at > now) continue;
             c.status = "purging";
-            results.push({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id, created_at: c.created_at });
+            results.push({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id, created_at: c.created_at, format: c.format ?? null });
           }
           return { results: results as T[] };
         }
-        const expired = /^SELECT id, r2_key, upload_id FROM clips WHERE expires_at <= \?1 LIMIT (\d+)$/.exec(sql);
+        const expired = /^SELECT id, r2_key, upload_id FROM clips WHERE expires_at <= \?1 AND \(format IS NULL OR status <> 'uploading'\) LIMIT (\d+)$/.exec(sql);
         if (expired) {
           const results = [...clips.values()]
-            .filter((c) => c.expires_at <= (args[0] as number))
+            .filter((c) => c.expires_at <= (args[0] as number) && (!c.format || c.status !== "uploading"))
             .slice(0, Number(expired[1]))
             .map((c) => ({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id }));
           return { results: results as T[] };
+        }
+        if (sql.startsWith("SELECT c.id FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.format = 'hls' AND c.status = 'uploading'")) {
+          return { results: [] as T[] };
         }
         throw new Error(`fake D1: unhandled all() SQL: ${sql}`);
       },

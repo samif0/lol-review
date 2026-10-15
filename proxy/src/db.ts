@@ -2,6 +2,8 @@
  * D1 helpers — thin typed wrappers around the SQL we need.
  */
 
+import { HLS_TOMBSTONE_DELAY_SECONDS, HLS_TOMBSTONE_EXTRA_KEYS } from "./share-limits";
+
 export interface UserRow {
   id: number;
   email: string;
@@ -202,6 +204,8 @@ export interface ClipObjectRow {
   upload_id: string | null;
   size_bytes: number;
   kind: string;
+  /** 'hls' for a share stored as segments under r2_key (a prefix), else NULL. */
+  format: string | null;
 }
 
 export async function findWebSession(db: D1Database, tokenHash: string): Promise<WebSessionRow | null> {
@@ -337,7 +341,7 @@ export async function deleteExpiredLoginRequests(db: D1Database): Promise<void> 
 
 export async function listClipObjectsForUser(db: D1Database, userId: number): Promise<ClipObjectRow[]> {
   const res = await db
-    .prepare("SELECT id, r2_key, upload_id, size_bytes, kind FROM clips WHERE user_id = ?1")
+    .prepare("SELECT id, r2_key, upload_id, size_bytes, kind, format FROM clips WHERE user_id = ?1")
     .bind(userId)
     .all<ClipObjectRow>();
   return res.results ?? [];
@@ -357,14 +361,24 @@ const TOMBSTONE_ID_CHUNK = 90;
  * storage budget and is retried by the hourly purge. The tombstones are copied
  * with INSERT ... SELECT in chunks, not one statement per row, so the batch
  * stays small whatever the number of clips.
+ *
+ * HLS shares (format 'hls', claimed by the caller before their keys were
+ * deleted) always get a prefix tombstone for keys 0..max_seq+8, not purged
+ * for HLS_TOMBSTONE_DELAY_SECONDS: those in `hlsTombstoneIds` (their key
+ * delete failed) count every stored byte, the others only their pending rows
+ * (what a PUT in flight may still store). Their segment, run and state rows go
+ * with the clips.
  */
 export async function deleteAccountRows(
   db: D1Database,
   userId: number,
   email: string,
   tombstoneIds: string[] = [],
+  hlsTombstoneIds: string[] = [],
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
+  const notBefore = now + HLS_TOMBSTONE_DELAY_SECONDS;
+  const extra = HLS_TOMBSTONE_EXTRA_KEYS + 1;
   const tombstones: D1PreparedStatement[] = [];
   for (let i = 0; i < tombstoneIds.length; i += TOMBSTONE_ID_CHUNK) {
     const ids = tombstoneIds.slice(i, i + TOMBSTONE_ID_CHUNK);
@@ -372,15 +386,36 @@ export async function deleteAccountRows(
     tombstones.push(
       db
         .prepare(
-          `INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at) SELECT r2_key, upload_id, size_bytes, kind, ?2 FROM clips WHERE user_id = ?1 AND id IN (${marks})`,
+          `INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at) SELECT r2_key, upload_id, size_bytes, kind, ?2 FROM clips WHERE user_id = ?1 AND format IS NULL AND id IN (${marks})`,
         )
         .bind(userId, now, ...ids),
     );
   }
+  for (let i = 0; i < hlsTombstoneIds.length; i += TOMBSTONE_ID_CHUNK) {
+    const ids = hlsTombstoneIds.slice(i, i + TOMBSTONE_ID_CHUNK);
+    const marks = ids.map((_, j) => `?${j + 5}`).join(", ");
+    tombstones.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT c.r2_key, NULL, MAX(c.size_bytes, c.hls_bytes), 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND c.id IN (${marks})`,
+        )
+        .bind(userId, now, notBefore, extra, ...ids),
+    );
+  }
+  tombstones.push(
+    db
+      .prepare(
+        "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT c.r2_key, NULL, (SELECT COALESCE(SUM(s.bytes), 0) FROM vod_hls_segments s WHERE s.clip_id = c.id AND s.committed = 0), 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND h.max_seq >= 0",
+      )
+      .bind(userId, now, notBefore, extra),
+  );
   await db.batch([
     ...tombstones,
     db.prepare("DELETE FROM clip_transcripts WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
     db.prepare("DELETE FROM vod_share_meta WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
+    db.prepare("DELETE FROM vod_hls_segments WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
+    db.prepare("DELETE FROM vod_hls_runs WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
+    db.prepare("DELETE FROM vod_hls WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)").bind(userId),
     db.prepare("DELETE FROM clips WHERE user_id = ?1").bind(userId),
     db.prepare("DELETE FROM sessions WHERE user_id = ?1").bind(userId),
     db.prepare("DELETE FROM identities WHERE user_id = ?1").bind(userId),

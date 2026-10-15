@@ -15,6 +15,11 @@ compatibility_date = "2025-01-10"
 #                     fallback for an empty/unset value (harmless dead path). Do NOT
 #                     re-add a user's session token here — it collides with the session
 #                     lookup and 403s clip uploads (see authOrDeny precedence note).
+#   VOD_PLAY_SECRET: signs the play tokens of HLS full-game shares (at least
+#                     32 chars, e.g. `node -e "console.log(require('crypto')
+#                     .randomBytes(32).toString('base64url'))"`). Unset: no new
+#                     HLS shares and HLS playback answers 503. Rotating it ends
+#                     every token in flight; pages mint a new one (one counted play).
 #
 # Non-secret vars can go here:
 [vars]
@@ -90,8 +95,16 @@ VOD_BUDGET_BYTES = "7000000000"
 USER_CLIP_BUDGET_BYTES = "3000000000"
 # Kill switches for full-game sharing. "0" or "off" turns off new VOD share
 # starts (VOD_SHARING) or VOD playback (VOD_SERVING); anything else is on.
+# The D1 table ops_flags can also turn VOD playback off without a deploy
+# (README "Kill switches").
 VOD_SHARING = "1"
 VOD_SERVING = "1"
+# New HLS shares (watch a game while it uploads): "0" off, "1" on, or
+# "users:<id>,<id>" for those accounts only (the canary). It gates new starts
+# only; shares already uploading keep uploading and serving. Turn it on only
+# after Workers Paid, the WAF rate rule on clips.revu.lol, the VOD_PLAY_SECRET
+# secret and the site's HLS player are in place (README "HLS shares").
+VOD_HLS = "0"
 
 [[d1_databases]]
 binding = "DB"
@@ -137,10 +150,23 @@ class_name = "GlobalRateLimiter"
 tag = "v1"
 new_sqlite_classes = ["GlobalRateLimiter"]
 
-# Hourly cleanup: expired clips and VOD shares (3-day retention) and expired
-# pending uploads. Purges R2 objects + D1 rows, retries storage tombstones, then
-# expired sessions, then usage rows (transcribe, email, VOD starts, part uploads)
-# older than 7 days, and last discards at most 5 pending uploads of any account
-# idle for 30 minutes.
+# Hourly cleanup: settles quiet HLS shares (ends a watchable one at its edge,
+# discards the rest), then expired clips and VOD shares (3-day retention) and
+# expired pending uploads. Purges R2 objects + D1 rows, retries storage
+# tombstones, then expired sessions, then usage rows (transcribe, email, VOD
+# starts, part uploads) older than 7 days, and last discards at most 5 pending
+# uploads of any account idle for 30 minutes.
 [triggers]
 crons = ["0 * * * *"]
+
+# Workers Logs: what the code logs with console.log/console.error (structured
+# JSON with hashed or no identifiers), sampled at 10%. Invocation logs are OFF
+# on purpose: they record each request's URL, and an HLS media URL carries a
+# play token (/vod-hls/<id>/<token>/...). No token, cookie or raw IP address is
+# ever logged; paths in error logs have the token replaced (http.ts loggablePath).
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+invocation_logs = false
