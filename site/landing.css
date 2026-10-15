@@ -53,7 +53,6 @@
   font-variant-numeric: tabular-nums;
 }
 .download-note { max-width: 46ch; margin-top: 8px; color: var(--t2); font-size: 14px; line-height: 1.5; }
-.hero-trust { margin-top: 4px; color: var(--t3); font-size: 13px; }
 
 /* Screenshots (1600x1000): the whole app window in the hero, one part of a page at
    twice the pixel density in the feature rows. Framed like the app's raised surfaces. */
