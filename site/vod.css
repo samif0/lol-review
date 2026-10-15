@@ -1,11 +1,12 @@
 /*
- * Shared full game page (vod.html at /v/<id>): an expiry banner, the native
- * player, a clickable lane of game moments, the header, and the sharer's notes
- * when they chose to include them; before that, the upload's progress while the
- * sharer's upload runs. A game that plays while it uploads adds a Play button over
- * the player, one quiet line under it and the uploaded part of the lane. Same
- * Neutral system as clip.css: tokens only (tokens.css), hairlines, no gradients
- * or uppercase. Mobile first: one column, then a 340px notes column at 1024px and up.
+ * Shared full game page (vod.html at /v/<id>): an expiry banner, the player in the
+ * app reviewer's shape (its transport, pen and timeline are in vod-reviewer.css), the
+ * header, the events to watch and the sharer's notes when they chose to include them;
+ * before that, the upload's progress while the sharer's upload runs. Before the first
+ * play a Play button sits over the player; a game that plays while it uploads adds one
+ * quiet line under it and the uploaded part of the lane. Same Neutral system as
+ * clip.css: tokens only (tokens.css), hairlines, no gradients or uppercase. Mobile
+ * first: one column, then a 340px side column at 1024px and up.
  */
 
 .vod-main {
@@ -37,20 +38,51 @@
   font-size: 14px;
 }
 
-/* Player */
+/* Player: shaped like the app's VOD reviewer. The deck goes full screen as one: the picture
+   with its ink, the transport under it, then the timeline. */
+
+.vod-deck {
+  display: grid;
+  gap: 4px;
+}
 
 .vod-player {
   position: relative;
   overflow: hidden;
-  border-radius: var(--radius-card);
-  background: var(--video);
+  border-radius: var(--r-lg);
+  background: var(--well);
 }
 
 .vod-video {
   display: block;
   width: 100%;
+  max-height: 72vh;
   aspect-ratio: 16 / 9;
-  background: var(--video);
+  object-fit: contain;
+  background: var(--well);
+  cursor: pointer;
+}
+
+.vod-deck.is-full {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  height: 100%;
+  padding: 12px 20px 16px;
+  background: var(--bg);
+}
+
+.vod-deck.is-full .vod-player {
+  min-height: 0;
+  border-radius: 8px;
+}
+
+.vod-deck.is-full .vod-video {
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+.vod-deck.is-drawing .vod-video {
+  cursor: crosshair;
 }
 
 .vod-layout.is-blocked .vod-video {
@@ -112,109 +144,6 @@
   flex: none;
   width: 16px;
   height: 16px;
-}
-
-/* Lane: one tick per moment, at its place in the video. Notes are wider ticks. */
-
-.vod-lane {
-  margin-top: 12px;
-}
-
-.vod-lane-track {
-  position: relative;
-  height: 32px;
-  margin: 0 6px;
-  border-radius: var(--radius-chip);
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
-}
-
-.vod-lane-playhead {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  left: 0;
-  width: 2px;
-  margin-left: -1px;
-  border-radius: 1px;
-  background: var(--primary);
-  pointer-events: none;
-}
-
-.vod-mark {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 14px;
-  margin: 0 0 0 -7px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.vod-mark::before {
-  content: '';
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 6px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--t2);
-}
-
-.vod-mark.is-win::before { background: var(--result-win); }
-.vod-mark.is-loss::before { background: var(--result-loss); }
-.vod-mark.is-gold::before { background: var(--pending); }
-.vod-mark.is-neutral::before { background: var(--muted); }
-
-.vod-mark.is-note::before {
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: 6px;
-  border-radius: 2px;
-  background: var(--primary);
-}
-
-.vod-mark:hover,
-.vod-mark:focus-visible {
-  background: var(--hover);
-}
-
-.vod-mark:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
-/* While the game uploads: the uploaded part of the lane, and moments past it dimmed. A
-   dimmed moment is still a button: pressed, it is armed and the page jumps there when it
-   arrives. */
-
-.vod-lane-uploaded {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 0;
-  border-radius: inherit;
-  background: var(--selected);
-  pointer-events: none;
-  transition: width .6s ease;
-}
-
-.vod-mark.is-pending::before {
-  opacity: .35;
-}
-
-.vod-mark.is-armed {
-  background: var(--selected);
-}
-
-.vod-mark.is-armed::before {
-  opacity: 1;
 }
 
 .vod-note.is-pending,
@@ -378,6 +307,28 @@
 .vod-note-text {
   overflow-wrap: anywhere;
   line-height: 1.5;
+}
+
+.vod-side-block + .vod-side-block {
+  margin-top: 18px;
+}
+
+/* Events to watch, as in the app's reviewer: the time, the name and the event's color. */
+.vod-events-list .vod-note {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.vod-events-list .vod-note-kind {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.vod-event-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--evc);
 }
 
 /* Loading and unavailable states */

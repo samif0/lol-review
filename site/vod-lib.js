@@ -12,7 +12,19 @@
   var PROD_API = 'https://clips.revu.lol';
   var ROLES = { TOP: 'Top', JUNGLE: 'Jungle', MIDDLE: 'Mid', MID: 'Mid', BOTTOM: 'Bot', ADC: 'Bot', UTILITY: 'Support', SUPPORT: 'Support' };
   var RESULTS = { win: 'Win', loss: 'Loss', remake: 'Remake' };
-  var TONES = ['win', 'loss', 'gold', 'neutral'];
+  // The app's timeline (desktop/ui/vodplayer.js): each event kind's color tone, short code and
+  // stem height. A kind the app doesn't name is a minor stem in its marker's tone.
+  var EVENT_STYLES = {
+    KILL: ['kill', 'KIL', 'kill'], DEATH: ['death', 'DTH', 'kill'], ASSIST: ['assist', 'AST', 'kill'],
+    FIRST_BLOOD: ['kill', 'FB', 'kill'], MULTI_KILL: ['kill', 'MK', 'kill'],
+    DRAGON: ['dragon', 'DRG', 'major'], BARON: ['void', 'BAR', 'major'], HERALD: ['void', 'HLD', 'major'],
+    TURRET: ['structure', 'TWR', 'major'], INHIBITOR: ['structure', 'INH', 'major'],
+    FLASH: ['summoner', 'FLS', 'summoner'], SUMMONER_SPELL: ['summoner', 'SUM', 'summoner'],
+    LEVEL_UP: ['structure', 'LVL', 'minor'], RECALL: ['recall', 'RCL', 'recall']
+  };
+  var TONE_FALLBACK = { win: 'assist', loss: 'death', gold: 'dragon', neutral: 'structure' };
+  // A code closer than this (percent of the lane) to the last one shown is left to the hover chip.
+  var LABEL_GAP = 5.5;
   var STATES = {
     missing: { title: 'Game not available', copy: "This shared game isn't available. Shared games stay up for 3 days." },
     paused: { title: 'Playback paused', copy: 'Playback is paused right now. Try again later.' },
@@ -281,6 +293,28 @@
     return kind === 'clip' ? 'Clip' : 'Bookmark';
   }
 
+  // { tone, code, tier } of a marker kind, as the app's timeline draws it.
+  function eventStyle(kind, tone) {
+    var known = EVENT_STYLES[String(kind || '').toUpperCase()];
+    if (known) return { tone: known[0], code: known[1], tier: known[2] };
+    return { tone: TONE_FALLBACK[tone] || 'structure', code: String(kind || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase(),
+      tier: 'minor' };
+  }
+
+  // Clock ticks under the lane, at game times every 5 minutes (10 from a 20-minute game on):
+  // [{ left, label }] for a lane `length` seconds long whose 0 is game time `offset`.
+  function axisTicks(length, offset) {
+    var span = Number(length);
+    if (!(span > 0)) return [];
+    var start = Number(offset) || 0;
+    var every = span >= 1200 ? 600 : 300;
+    var ticks = [];
+    for (var t = Math.ceil(Math.max(0, start) / every) * every; t - start <= span; t += every) {
+      if (t - start >= 0) ticks.push({ left: ((t - start) / span) * 100, label: clock(t) });
+    }
+    return ticks;
+  }
+
   // Minutes until a moment at video time vt can play, from the upload rate; null when
   // unknown (no rate yet, or the upload is paused or stalled).
   function etaMinutes(vt, edge, rate) {
@@ -306,7 +340,8 @@
 
   // Lane ticks for the markers and, when the sharer included them, the notes. While the
   // game uploads, `duration` is the whole game's length and `live` is { edge, rate, armed }.
-  function laneItems(doc, duration, live) {
+  // `gap` is the least room (percent of the lane) between two codes; LABEL_GAP by default.
+  function laneItems(doc, duration, live, gap) {
     var items = [];
     var length = Number(duration);
     if (!doc || !(length > 0)) return items;
@@ -316,12 +351,22 @@
       var vt = videoTime(entry.t, offset);
       if (vt > length) return;
       var label = isNote ? noteKind(entry.kind) : (text(entry.label) || text(entry.kind) || 'Moment');
-      var tone = isNote ? 'note' : (TONES.indexOf(entry.tone) !== -1 ? entry.tone : '');
-      items.push(liveFields({ note: isNote, vt: vt, left: (vt / length) * 100, label: label, tone: tone,
-        aria: label + ' at ' + clock(entry.t), title: clock(entry.t) + ' ' + label }, live));
+      var style = isNote ? { tone: entry.kind === 'clip' ? 'clip' : 'note', code: '', tier: 'note' } : eventStyle(entry.kind, entry.tone);
+      items.push(liveFields({ note: isNote, vt: vt, left: (vt / length) * 100, label: label, tone: style.tone, code: style.code,
+        tier: style.tier, time: clock(entry.t), aria: label + ' at ' + clock(entry.t), title: clock(entry.t) + ' ' + label }, live));
     };
     (Array.isArray(doc.markers) ? doc.markers : []).forEach(function (m) { add(m, false); });
     (Array.isArray(doc.notes) ? doc.notes : []).forEach(function (n) { add(n, true); });
+    // Codes left to right, each at least `gap` from the last one shown on its row, as in the
+    // app's timeline: a code hangs over its stem, so objectives (the tallest stems) have a
+    // row of their own above the rest. Minor stems carry no code.
+    var room = Number(gap) > 0 ? Number(gap) : LABEL_GAP;
+    var last = { major: -Infinity, low: -Infinity };
+    items.slice().sort(function (a, b) { return a.left - b.left; }).forEach(function (item) {
+      var row = item.tier === 'major' ? 'major' : 'low';
+      item.labeled = !!item.code && item.tier !== 'minor' && item.left - last[row] >= room;
+      if (item.labeled) last[row] = item.left;
+    });
     return items;
   }
 
@@ -406,10 +451,11 @@
     edgeOf: edgeOf, rateOf: rateOf, pausedOf: pausedOf, stalledOf: stalledOf, waitingKind: waitingKind,
     uploadPercent: uploadPercent, livePercent: livePercent, uploadText: uploadText, pollDelay: pollDelay,
     hlsPollDelay: hlsPollDelay, expiryText: expiryText, timeOfDay: timeOfDay, etaMinutes: etaMinutes,
-    pendingSuffix: pendingSuffix, laneItems: laneItems, noteRows: noteRows, jumpText: jumpText,
+    pendingSuffix: pendingSuffix, laneItems: laneItems, noteRows: noteRows, jumpText: jumpText, eventStyle: eventStyle,
+    axisTicks: axisTicks, offsetOf: offsetOf,
     smoothWait: smoothWait, bufferedAhead: bufferedAhead, holdAtEdge: holdAtEdge, liveLine: liveLine,
     STATES: STATES, WAITING: WAITING, UNPLAYABLE: UNPLAYABLE, UNSUPPORTED: UNSUPPORTED, OFFLINE: OFFLINE,
     UPLOADING_COPY: UPLOADING_COPY, STALLED_COPY: STALLED_COPY, MOMENT_LEAD_S: MOMENT_LEAD_S, EDGE_NEAR_S: EDGE_NEAR_S,
-    CAUGHT_UP_RESUME_S: CAUGHT_UP_RESUME_S, STALL_AFTER_S: STALL_AFTER_S
+    CAUGHT_UP_RESUME_S: CAUGHT_UP_RESUME_S, STALL_AFTER_S: STALL_AFTER_S, LABEL_GAP: LABEL_GAP
   };
 })(globalThis);
