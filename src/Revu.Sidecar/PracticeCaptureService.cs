@@ -4,7 +4,10 @@ using Revu.Core.Services.EventProcessing;
 namespace Revu.Sidecar;
 
 /// <summary>Opt-in local diagnostic; never writes game events or ranked history.</summary>
-public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<PracticeCaptureService> logger) : IDisposable
+/// <param name="processingTime">Clock for the diagnostic detector's deadlines only (the system
+/// clock unless a test passes its own); polling and request timing stay in real time.</param>
+public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<PracticeCaptureService> logger,
+    TimeProvider? processingTime = null) : IDisposable
 {
     private readonly object _gate = new();
     private CancellationTokenSource? _stop;
@@ -42,7 +45,7 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
     private async Task CaptureAsync(string directory, CancellationToken ct)
     {
         const string kind = "player.health";
-        var session = CreateDiagnosticSession();
+        var session = CreateDiagnosticSession(processingTime);
         var client = clients.CreateClient("LiveEventApi");
         var wall = System.Diagnostics.Stopwatch.StartNew();
         var cpuStart = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime.TotalSeconds;
@@ -121,7 +124,7 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
                 await File.WriteAllTextAsync(Path.Combine(directory, "processing-report.json"), JsonSerializer.Serialize(report));
                 // The full live report keeps its gaps. A separate, explicitly partial
                 // replay preserves observable facts before the first disconnection.
-                var prefix = await ReplayCapturedPrefixAsync(Path.Combine(directory, "observations.jsonl"));
+                var prefix = await ReplayCapturedPrefixAsync(Path.Combine(directory, "observations.jsonl"), processingTime);
                 await File.WriteAllTextAsync(Path.Combine(directory, "captured-prefix-report.json"), JsonSerializer.Serialize(prefix));
                 await File.WriteAllTextAsync(Path.Combine(directory, "summary.json"), JsonSerializer.Serialize(new
                 {
@@ -135,18 +138,18 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
         }
     }
 
-    private static ProcessingSession CreateDiagnosticSession(int capacity = 256) => new(
+    private static ProcessingSession CreateDiagnosticSession(TimeProvider? time, int capacity = 256) => new(
         new PayloadRegistry().Observation<PlayerHealth>("player.health", 1).Event<HealthChange>("DIAGNOSTIC_HEALTH_CHANGE"),
         [new("practice.live-client", 1, new Dictionary<string, TimeSpan> { ["player.health"] = TimeSpan.FromSeconds(3) })],
-        [new HealthChangeDetector()], [new(0, "DIAGNOSTIC_HEALTH_CHANGE")], shadow: true, queueCapacity: capacity);
+        [new HealthChangeDetector()], [new(0, "DIAGNOSTIC_HEALTH_CHANGE")], shadow: true, queueCapacity: capacity, time: time);
 
     public sealed record PrefixReplay(int Samples, double? LastGameSeconds, bool EndedAtGap,
         string Scope, ProcessingReport Report);
 
-    public static async Task<PrefixReplay> ReplayCapturedPrefixAsync(string path)
+    public static async Task<PrefixReplay> ReplayCapturedPrefixAsync(string path, TimeProvider? processingTime = null)
     {
         if (new FileInfo(path).Length > 32 * 1024 * 1024) throw new InvalidDataException("Capture exceeds replay byte limit");
-        var session = CreateDiagnosticSession(900);
+        var session = CreateDiagnosticSession(processingTime, 900);
         int samples = 0;
         double? lastClock = null;
         bool gap = false;

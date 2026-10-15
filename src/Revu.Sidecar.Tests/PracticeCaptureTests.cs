@@ -18,7 +18,7 @@ public sealed class PracticeCaptureTests
         try
         {
             await File.WriteAllLinesAsync(path, [Sample(1,600), Sample(2,500), "{\"gap\":true}", Sample(3,400)]);
-            var replay = await PracticeCaptureService.ReplayCapturedPrefixAsync(path);
+            var replay = await PracticeCaptureService.ReplayCapturedPrefixAsync(path, new StoppedClock());
             Assert.True(replay.EndedAtGap);
             Assert.Equal(2, replay.Samples);
             Assert.Equal(2, replay.LastGameSeconds);
@@ -50,7 +50,7 @@ public sealed class PracticeCaptureTests
     public async Task ArmIsIdempotent_CapturesEvidence_AndNeverProducesEligibleTrades()
     {
         using var client = new HttpClient(new Handler());
-        using var service = new PracticeCaptureService(new Factory(client), NullLogger<PracticeCaptureService>.Instance);
+        using var service = new PracticeCaptureService(new Factory(client), NullLogger<PracticeCaptureService>.Instance, new StoppedClock());
         var status = service.Arm();
         Assert.Equal(status.Directory, service.Arm().Directory);
         try

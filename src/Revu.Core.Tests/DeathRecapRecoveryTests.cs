@@ -31,8 +31,9 @@ public sealed class DeathRecapRecoveryTests
             ["info"] = new JsonObject { ["frames"] = new JsonArray(new JsonObject
                 { ["events"] = new JsonArray(deaths.Cast<JsonNode?>().ToArray()) }) }
         };
+        // A clock only the test moves: a slow runner can never trip the detector's deadlines.
         return DeathRecapRecovery.ProcessAsync(Match(), JsonSerializer.SerializeToElement(timeline), "player1",
-            subscriptions ?? [new(47, "TRADE")]);
+            subscriptions ?? [new(47, "TRADE")], new ManualClock());
     }
 
     [Fact]

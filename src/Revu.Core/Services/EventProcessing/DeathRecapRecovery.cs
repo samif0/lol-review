@@ -42,8 +42,9 @@ public static class DeathRecapRecovery
     private sealed class AmbiguousRecapException : Exception;
     private sealed record Parsed(IReadOnlyList<Observation> Observations, int Rejected, int Missing, int Usable);
 
+    /// <param name="time">Clock for the session's deadlines; see <see cref="ProcessingSession"/>.</param>
     public static async Task<ProcessingReport> ProcessAsync(JsonElement match, JsonElement timeline,
-        string puuid, IReadOnlyList<ObjectiveSubscription> subscriptions)
+        string puuid, IReadOnlyList<ObjectiveSubscription> subscriptions, TimeProvider? time = null)
     {
         var registry = new PayloadRegistry().Observation<RecapExchange>(DeathRecapExchangeDetector.Kind, 1)
             .Event<RecordedExchange>(DeathRecapExchangeDetector.EventType);
@@ -51,7 +52,7 @@ public static class DeathRecapRecovery
         var source = new SourceCapabilities(SourceId, 1, new Dictionary<string, TimeSpan>
             { [DeathRecapExchangeDetector.Kind] = TimeSpan.MaxValue });
         var session = new ProcessingSession(registry, [source], [new DeathRecapExchangeDetector()],
-            subscriptions, shadow: true, queueCapacity: MaxRecords);
+            subscriptions, shadow: true, queueCapacity: MaxRecords, time: time);
         if (session.SamplingPlan.Count == 0) return await session.CompleteAsync();
         Parsed? parsed = null;
         try

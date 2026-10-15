@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Revu.Core.Models;
@@ -29,18 +28,22 @@ public sealed class ProcessingSession
     private readonly Task _worker;
     private readonly bool _shadow;
     private readonly ObjectiveSubscription[] _subscriptions;
+    private readonly TimeProvider _time;
     private long _dropped;
     private int _closed;
     private readonly object _gate = new();
     private ProcessingReport? _report;
     public IReadOnlyDictionary<string, TimeSpan> SamplingPlan { get; }
 
+    /// <param name="time">Clock for the callback and finalization deadlines. Production uses the
+    /// system clock; tests pass one that moves only when told, so no outcome depends on machine speed.</param>
     public ProcessingSession(PayloadRegistry registry, IEnumerable<SourceCapabilities> sources,
         IEnumerable<IEventDetector> detectors, IEnumerable<ObjectiveSubscription> subscriptions,
-        bool shadow = true, int queueCapacity = 256, SharedFactRegistry? sharedFacts = null)
+        bool shadow = true, int queueCapacity = 256, SharedFactRegistry? sharedFacts = null, TimeProvider? time = null)
     {
         _registry = registry;
         _shadow = shadow;
+        _time = time ?? TimeProvider.System;
         _sources = sources.ToDictionary(s => s.SourceId, s => s with { AvailableKinds = new Dictionary<string, TimeSpan>(s.AvailableKinds) });
         var snapshot = subscriptions.Distinct().ToArray();
         _subscriptions = snapshot;
@@ -135,12 +138,12 @@ public sealed class ProcessingSession
             var budget = state.Detector.Definition.ProcessingBudget;
             var work = Task.Run(() =>
             {
-                var started = Stopwatch.GetTimestamp();
+                var started = _time.GetTimestamp();
                 var candidates = callback(snapshot).Take(65).ToArray();
-                return (Candidates: candidates, Elapsed: Stopwatch.GetElapsedTime(started));
+                return (Candidates: candidates, Elapsed: _time.GetElapsedTime(started));
             });
             (EventCandidate[] Candidates, TimeSpan Elapsed) result;
-            try { result = await work.WaitAsync(budget); }
+            try { result = await work.WaitAsync(budget, _time); }
             catch (TimeoutException)
             {
                 _ = work.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
@@ -205,17 +208,17 @@ public sealed class ProcessingSession
 
     public async Task<ProcessingReport> CompleteAsync(TimeSpan? budget = null)
     {
-        var timer = Stopwatch.StartNew();
+        var started = _time.GetTimestamp();
         Interlocked.Exchange(ref _closed, 1);
         _queue.Writer.TryComplete();
-        try { await _worker.WaitAsync(budget ?? TimeSpan.FromSeconds(1)); }
+        try { await _worker.WaitAsync(budget ?? TimeSpan.FromSeconds(1), _time); }
         catch (TimeoutException)
         {
             lock (_gate) foreach (var state in _states.Where(s => s.Status == "active"))
                 Disable(state, "incomplete", "Finalization deadline exceeded");
         }
         lock (_gate)
-            return _report ??= new ProcessingReport(1, _shadow, Interlocked.Read(ref _dropped), timer.Elapsed.TotalMilliseconds,
+            return _report ??= new ProcessingReport(1, _shadow, Interlocked.Read(ref _dropped), _time.GetElapsedTime(started).TotalMilliseconds,
                 _states.Select(s => new DetectorCoverage(s.Detector.Definition.Id, s.Status, s.Reason)).ToArray(),
                 _states.Where(s => s.Status == "active").SelectMany(s => s.Events.Values).OrderBy(e => e.GameTimeS).ToArray(),
                 _sources.Values.ToArray(), _subscriptions);

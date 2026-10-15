@@ -31,7 +31,9 @@ Bounded queues/history, payload and evidence byte limits, and callback/finalizat
 deadlines protect the baseline collector. Callback timeout suppresses late output;
 it cannot forcibly terminate arbitrary managed code, so only reviewed application
 code is registered. Payloads, shared facts, and registrations are immutable during
-a session. No user executable scripts are supported.
+a session. No user executable scripts are supported. Both deadlines run on the
+session's `TimeProvider`, the system clock in production; tests pass a clock that
+moves only when the test moves it, so a slow runner can never trip a deadline.
 
 The shipped advanced trade/fight definitions are intentionally unavailable: the
 existing sources do not substantiate attributed exchanges or exact changing
