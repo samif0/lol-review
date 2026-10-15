@@ -46,26 +46,72 @@ public sealed class PracticeCaptureTests
         public HttpClient CreateClient(string name) { Assert.Equal("LiveEventApi", name); return client; }
     }
 
+    /// <summary>
+    /// Polling time that stands still: no request takes any time, so every sample's clock
+    /// uncertainty is zero, and the capture loop's wait before its next request ends only
+    /// when the test ends it.
+    /// </summary>
+    private sealed class PollingClock : TimeProvider
+    {
+        private readonly SemaphoreSlim _waits = new(0);
+        private Action? _endWait;
+
+        public override long GetTimestamp() => 0;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            Volatile.Write(ref _endWait, () => callback(state));
+            _waits.Release();
+            return new Wait();
+        }
+
+        /// <summary>Returns once the loop is waiting before its next request.</summary>
+        public async Task WaitingAsync() =>
+            Assert.True(await _waits.WaitAsync(TimeSpan.FromSeconds(30)), "The capture loop never waited for its next request");
+
+        /// <summary>Ends that wait on a pool thread, as a real timer would.</summary>
+        public void EndWait()
+        {
+            var end = Volatile.Read(ref _endWait)!;
+            ThreadPool.QueueUserWorkItem(_ => end());
+        }
+
+        private sealed class Wait : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+            public void Dispose() { }
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
+    }
+
     [Fact]
     public async Task ArmIsIdempotent_CapturesEvidence_AndNeverProducesEligibleTrades()
     {
         using var client = new HttpClient(new Handler());
-        using var service = new PracticeCaptureService(new Factory(client), NullLogger<PracticeCaptureService>.Instance, new StoppedClock());
+        var polling = new PollingClock();
+        using var service = new PracticeCaptureService(new Factory(client), NullLogger<PracticeCaptureService>.Instance,
+            processingTime: new StoppedClock(), pollingTime: polling);
         var status = service.Arm();
         Assert.Equal(status.Directory, service.Arm().Directory);
         try
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-            while (service.Status.Samples < 2) await Task.Delay(25, timeout.Token);
+            // The first request goes out at once and the next only after the test ends the
+            // loop's wait, so the capture holds exactly two samples when it stops.
+            await polling.WaitingAsync();
+            Assert.Equal(1, service.Status.Samples);
+            polling.EndWait();
+            await polling.WaitingAsync();
             var stopped = await service.StopAsync();
-            Assert.True(stopped.Samples >= 2);
+            Assert.Equal(2, stopped.Samples);
             Assert.Equal("stopped", stopped.State);
             var report = JsonSerializer.Deserialize<ProcessingReport>(await File.ReadAllTextAsync(Path.Combine(status.Directory,"processing-report.json")))!;
-            Assert.NotEmpty(report.Events);
+            var change = Assert.Single(report.Events);
             Assert.Empty(EventEligibility.ForConsumers(report.Events));
-            Assert.All(report.Events, e=>Assert.Equal("DIAGNOSTIC_HEALTH_CHANGE", e.EventType));
-            using var evidence = JsonDocument.Parse(report.Events[0].Details);
-            Assert.Equal(2, evidence.RootElement.GetProperty("processing").GetProperty("evidence").GetArrayLength());
+            Assert.Equal("DIAGNOSTIC_HEALTH_CHANGE", change.EventType);
+            using var evidence = JsonDocument.Parse(change.Details);
+            var observations = evidence.RootElement.GetProperty("processing").GetProperty("evidence");
+            Assert.Equal(2, observations.GetArrayLength());
+            Assert.All(observations.EnumerateArray(), o => Assert.Equal(0d, o.GetProperty("clockUncertaintyMs").GetDouble()));
             Assert.True(File.Exists(Path.Combine(status.Directory,"observations.jsonl")));
         }
         finally { await service.StopAsync(); Directory.Delete(status.Directory, true); }

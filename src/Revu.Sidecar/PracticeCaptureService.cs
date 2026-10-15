@@ -5,9 +5,12 @@ namespace Revu.Sidecar;
 
 /// <summary>Opt-in local diagnostic; never writes game events or ranked history.</summary>
 /// <param name="processingTime">Clock for the diagnostic detector's deadlines only (the system
-/// clock unless a test passes its own); polling and request timing stay in real time.</param>
+/// clock unless a test passes its own).</param>
+/// <param name="pollingTime">Clock for polling: the time each request takes, which becomes that
+/// sample's clock uncertainty, and the wait between requests (the system clock unless a test
+/// passes its own). Request timeouts and the one-hour capture limit stay in real time.</param>
 public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<PracticeCaptureService> logger,
-    TimeProvider? processingTime = null) : IDisposable
+    TimeProvider? processingTime = null, TimeProvider? pollingTime = null) : IDisposable
 {
     private readonly object _gate = new();
     private CancellationTokenSource? _stop;
@@ -46,6 +49,7 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
     {
         const string kind = "player.health";
         var session = CreateDiagnosticSession(processingTime);
+        var time = pollingTime ?? TimeProvider.System;
         var client = clients.CreateClient("LiveEventApi");
         var wall = System.Diagnostics.Stopwatch.StartNew();
         var cpuStart = System.Diagnostics.Process.GetCurrentProcess().TotalProcessorTime.TotalSeconds;
@@ -60,7 +64,7 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
             using var writer = new StreamWriter(stream);
             while (!ct.IsCancellationRequested)
             {
-                var started = System.Diagnostics.Stopwatch.StartNew();
+                var started = time.GetTimestamp();
                 try
                 {
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -80,14 +84,14 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
                     int sequence = Status.Samples + 1;
                     var received = DateTimeOffset.UtcNow;
                     var line = JsonSerializer.Serialize(new { version = 1, sequence, receivedUtc = received,
-                        requestMilliseconds = started.Elapsed.TotalMilliseconds, source = "riot.live-client",
+                        requestMilliseconds = time.GetElapsedTime(started).TotalMilliseconds, source = "riot.live-client",
                         payload = doc.RootElement });
                     bytes += System.Text.Encoding.UTF8.GetByteCount(line) + 1;
                     if (bytes > 32 * 1024 * 1024) { endReason = "32-MB-capture-limit"; break; }
                     await writer.WriteLineAsync(line);
                     if (sequence % 5 == 0) await writer.FlushAsync();
                     session.Publish(new($"practice:{sequence}", "practice.live-client", 1, kind, 1, "local-player",
-                        TimeSpan.FromSeconds(seconds), received, started.Elapsed, true, health));
+                        TimeSpan.FromSeconds(seconds), received, time.GetElapsedTime(started), true, health));
                     lock (_gate) _status = _status with { State = "capturing", Samples = sequence, GameSeconds = seconds, LastError = "" };
                     if (sequence >= 900 || seconds - firstClock >= 900) { endReason = "15-minute-capture-limit"; break; }
                 }
@@ -104,8 +108,8 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
                         if (misses >= 10) { endReason = "source-disconnected"; break; }
                     }
                 }
-                var delay = (firstClock is null ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(1)) - started.Elapsed;
-                if (delay > TimeSpan.Zero) await Task.Delay(delay, ct);
+                var delay = (firstClock is null ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(1)) - time.GetElapsedTime(started);
+                if (delay > TimeSpan.Zero) await Task.Delay(delay, time, ct);
             }
         }
         catch (OperationCanceledException) { }
