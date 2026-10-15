@@ -5,13 +5,16 @@
  *     runs the composer), then the sharer's, under Player notes.
  *   - Events: the game's moments, time, color and name, with a filter (All, Deaths, Kills,
  *     Objectives) when there is more than one kind.
- * A clip, the viewer's or the sharer's, plays to its end and pauses there. A link with notes
- * (#notes=...) adds its notes when the page opens.
+ * A clip, the viewer's or the sharer's, plays to its end and pauses there. A note saved while
+ * the pen's ink is on screen keeps the drawing: choosing it (its row or its diamond on the
+ * lane) opens its first frame, paused, with the drawing, and playing on clears it as it clears
+ * any ink. A link with notes (#notes=...) adds its notes when the page opens.
  *
- * RevuVodSide.attach({ root, doc, video, $, V, id, offset(), length(), redraw() }) returns
+ * RevuVodSide.attach({ root, doc, video, $, V, id, offset(), length(), redraw(), ink() }) returns
  * { start, laneDoc, draw, playing }: vod.js calls start() once the game shows, puts laneDoc(doc)
  * on its lane, wraps each moment's action with playing(choose) and passes its lane items to
- * draw(). markMoment is shared with the lane. Server text is set with textContent only.
+ * draw(); ink() is the pen (vod-ink.js) once it is attached. markMoment is shared with the
+ * lane. Server text is set with textContent only.
  */
 (function (root) {
   'use strict';
@@ -51,6 +54,7 @@
     var eventFilter = 'all';
     var filterButtons = null;
     var clipStop = null;
+    var inkWait = null;
     var rangeEl = $('vod-lane-range');
     var mineEmpty = $('vod-mine-empty');
 
@@ -67,7 +71,8 @@
     function drawRows(list, was, rows, choose, name, parts, extra) {
       var same = rows.length === was.length && rows.every(function (row, i) {
         var old = was[i].row;
-        return row.vt === old.vt && row.aria === old.aria && row.text === old.text && row.length === old.length;
+        return row.vt === old.vt && row.aria === old.aria && row.text === old.text && row.length === old.length &&
+          !!row.drawn === !!old.drawn;
       });
       var now = was;
       if (!same) {
@@ -102,10 +107,12 @@
       return now;
     }
 
-    // A note row: its time, its kind, a clip's length, then its text on a line of its own.
+    // A note row: its time, its kind, a clip's length, the pen's mark when it has a drawing,
+    // then its text on a line of its own.
     function noteParts(row) {
       var parts = [span('vod-note-time', row.time), span('vod-note-kind', row.kind)];
       if (row.length) parts.push(span('vod-note-length', row.length));
+      if (row.drawn) parts.push(Ui.inkMark(doc));
       if (row.text) parts.push(span('vod-note-text', row.text));
       return parts;
     }
@@ -228,7 +235,10 @@
       entries.notes = drawRows($('vod-notes-list'), entries.notes, rows, d.choose, kindOf, noteParts);
       $('vod-notes-block').hidden = rows.length === 0;
       var mineRows = V.noteRows(mineDoc(d.doc), d.live);
-      mineRows.forEach(function (row, i) { row.note = mine[i]; });
+      mineRows.forEach(function (row, i) {
+        row.note = mine[i];
+        row.drawn = !!mine[i].ink;
+      });
       drawMine(mineRows, d.choose);
       var events = d.items.filter(function (item) { return !item.note; });
       drawEventList(events, d.choose);
@@ -300,10 +310,54 @@
 
     video.addEventListener('timeupdate', stopClip);
 
+    // The drawing saved with one of the viewer's notes: on its row, or found by its time for its
+    // diamond on the lane.
+    function inkOf(item) {
+      if (item.note && typeof item.note === 'object') return item.note.ink || null;
+      if (item.note !== true) return null;
+      var offset = Number(o.offset()) || 0;
+      var near = function (a, b) { return a === b || (a !== null && b !== null && Math.abs(a - b) < 0.05); };
+      for (var i = 0; i < mine.length; i += 1) {
+        var n = mine[i];
+        if (n.ink && near(Math.max(0, n.t - offset), item.vt) && near(n.end === null ? null : Math.max(0, n.end - offset), item.vtEnd)) {
+          return n.ink;
+        }
+      }
+      return null;
+    }
+
+    // The pen (vod-ink.js), once vod.js has attached it.
+    function pen() {
+      var handle = typeof o.ink === 'function' ? o.ink() : null;
+      return handle && typeof handle.show === 'function' && typeof handle.strokes === 'function' ? handle : null;
+    }
+
+    // The game paused where it is, with a note's drawing over it.
+    function showInk(ink) {
+      var handle = pen();
+      if (!handle) return;
+      if (!video.paused) video.pause();
+      handle.show(N.inkStrokes(ink));
+    }
+
+    // A moment with a drawing that isn't uploaded yet: the drawing shows once the game jumps there.
+    video.addEventListener('seeked', function () {
+      if (!inkWait || Math.abs((video.currentTime || 0) - inkWait.vt) >= 1) return;
+      var ink = inkWait.ink;
+      inkWait = null;
+      showInk(ink);
+    });
+
+    // A clip plays to its end and pauses there. A note with a drawing opens paused on its first
+    // frame (the page's own seek starts the game or plays it there; the pause follows at once),
+    // with the drawing; playing on clears the drawing, and a clip still stops at its end.
     function playing(choose) {
       return function (item) {
         clipStop = typeof item.vtEnd === 'number' && item.vtEnd > item.vt ? { from: item.vt, to: item.vtEnd } : null;
+        var ink = inkOf(item);
+        inkWait = ink && item.pending ? { vt: item.vt, ink: ink } : null;
         choose(item);
+        if (ink && !item.pending) showInk(ink);
       };
     }
 
@@ -319,6 +373,10 @@
         clock: V.clock,
         pause: function () { if (!video.paused) video.pause(); },
         open: function () { selectTab('notes'); },
+        ink: function () {
+          var handle = pen();
+          return handle ? N.packInk(handle.strokes()) : null;
+        },
         onSave: function (note) {
           mine = N.merge(mine, [note]);
           persist();

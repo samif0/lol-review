@@ -2,7 +2,9 @@
  * Coach tools on the shared clip page (clip.html): the pen (vod-ink.js) over the clip, with D
  * and the Draw button, and review notes (review-notes.js): bookmarks (B) and clips inside the
  * clip (I, then O), kept in this browser and sent on as a link with Copy link with notes. A
- * clip plays to its end and pauses there.
+ * clip plays to its end and pauses there. A note saved while ink is on screen keeps the
+ * drawing: choosing it opens its first frame, paused, with the drawing, and playing on clears
+ * the drawing (unless Keep ink is pinned) while a clip still stops at its end.
  *
  * The player itself is clip.html's inline script, pinned by hash in _headers; this script only
  * adds to it. Its keys run first (a capture listener on the window), so while the pen is out
@@ -102,6 +104,11 @@
   function play(note) {
     clipStop = note.end !== null ? { from: note.t, to: note.end } : null;
     try { video.currentTime = note.t; } catch (e) { /* not seekable yet */ }
+    if (note.ink && ink && typeof ink.show === 'function') {
+      if (!video.paused) video.pause();
+      ink.show(N.inkStrokes(note.ink));
+      return;
+    }
     var playing = video.play();
     if (playing && typeof playing.catch === 'function') playing.catch(function () {});
   }
@@ -144,7 +151,8 @@
     return svg;
   }
 
-  // The notes, as rows: time, kind, a clip's length and the text; a press plays the note.
+  // The notes, as rows: time, kind, a clip's length, the pen's mark when it has a drawing, and
+  // the text; a press plays the note.
   function drawRows() {
     var list = $('clip-mine-list');
     while (list.firstChild) list.removeChild(list.firstChild);
@@ -157,6 +165,7 @@
       row.appendChild(span('vod-note-time', clock(note.t)));
       row.appendChild(span('vod-note-kind', kind));
       if (note.end !== null) row.appendChild(span('vod-note-length', length(note.end - note.t)));
+      if (note.ink) row.appendChild(Ui.inkMark(document));
       if (note.text) row.appendChild(span('vod-note-text', note.text));
       row.addEventListener('click', function () { play(note); });
       row.addEventListener('mousedown', keepFocus);
@@ -212,6 +221,7 @@
       now: function () { return video.currentTime || 0; },
       clock: clock,
       pause: function () { if (!video.paused) video.pause(); },
+      ink: function () { return ink && typeof ink.strokes === 'function' ? N.packInk(ink.strokes()) : null; },
       onSave: function (note) {
         mine = N.merge(mine, [note]);
         persist();

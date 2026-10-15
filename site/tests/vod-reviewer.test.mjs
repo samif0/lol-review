@@ -16,8 +16,8 @@ const text = node => [node.textContent || '', ...(node.children || []).map(text)
 
 const context = { URLSearchParams };
 vm.createContext(context);
-for (const name of ['vod-lib.js', 'vod-ink.js', 'vod-controls.js']) vm.runInContext(read(name), context);
-const { RevuVod: V, RevuVodInk: Ink, RevuVodControls: Controls } = context;
+for (const name of ['vod-lib.js', 'vod-ink.js', 'vod-controls.js', 'review-notes.js']) vm.runInContext(read(name), context);
+const { RevuVod: V, RevuVodInk: Ink, RevuVodControls: Controls, RevuNotes: N } = context;
 
 // A small DOM for attach(): elements with classes, attributes, children and listeners, a 2D
 // canvas that records what it draws, a video, full screen, and animation frames that run on frame().
@@ -458,4 +458,69 @@ test('ink is drawn on the picture, not its bars: sharp, in the ink colors, the h
   run.frame();
   assert.deepEqual(plain(run.calls.filter(c => c[0] === 'stroke')).map(c => c[1]),
     [{ color: '#ff5a5f', width: 14.4, alpha: 1 }, { color: '#ffd54a', width: 43.2, alpha: 0.35 }]);
+});
+
+test('the ink on screen goes out in picture coordinates; a note\'s drawing shows in its place, paused, until the game plays on', () => {
+  const run = inkPage({ width: 1600, height: 1200 });
+  const { ink, canvas, video } = run;
+  const [undo, , keep] = run.inkBar.children[3].children;
+  ink.setActive(true);
+  ink.key({ key: 'a' });
+  ink.key({ key: '2' });
+  ink.key({ key: ']' });
+  // A 16:9 picture in a 4:3 box: 150 px bars, so (400, 450) is a quarter across and a third down the picture.
+  run.drag(canvas, [[400, 450], [1200, 750]]);
+  assert.deepEqual(plain(ink.strokes()).map(s => [s.tool, s.color, s.size, s.points.map(p => p.map(n => round(n, 4)))]),
+    [['arrow', 'yellow', 2, [[0.25, 0.3333], [0.75, 0.6667]]]], 'tool, color, size (an index) and the picture\'s own coordinates');
+  ink.setActive(false);
+
+  run.calls.length = 0;
+  ink.show([{ tool: 'pen', color: 'red', size: 2, points: [[0, 0], [0.5, 0.5], [1, 1]] },
+    { tool: 'highlighter', color: 'green', size: 0, points: [[2, -1], 'x', [NaN, 0]] },
+    { tool: 'eraser', color: 'red', size: 0, points: [[0.1, 0.1]] }, { tool: 'rect', color: 'blue', size: 0, points: [[0.2, 0.2]] },
+    { tool: 'ellipse', color: 'white', size: 3, points: [[0, 0], [1, 1]] }, { tool: 'pen', color: 'pink', size: 0, points: [[0, 0]] },
+    { tool: 'pen', color: 'red', size: '1', points: [[0, 0]] }, { tool: 'pen', color: 'red', size: 0.5, points: [[0, 0]] }, null]);
+  assert.deepEqual(plain(ink.strokes()), [{ tool: 'pen', color: 'red', size: 2, points: [[0, 0], [0.5, 0.5], [1, 1]] },
+    { tool: 'highlighter', color: 'green', size: 0, points: [[1, 0]] }],
+  'what can be drawn, on the picture; the eraser, a one-corner box, an unknown size or color are left out');
+  const drawn = run.calls.filter(c => ['moveTo', 'quadraticCurveTo', 'lineTo', 'stroke', 'arc'].includes(c[0]))
+    .map(c => plain(c).map(v => (typeof v === 'number' ? round(v, 2) : v)));
+  assert.deepEqual(drawn, [['moveTo', 0, 300], ['quadraticCurveTo', 1600, 1200, 2400, 1650], ['lineTo', 3200, 2100],
+    ['stroke', { color: '#ff5a5f', width: 28.8, alpha: 1 }], ['arc', 3200, 300, 10.8, 0, 6.28]], 'drawn at once, on the picture, not its bars');
+  assert.deepEqual([video.paused, ink.active(), run.changes.at(-1)], [true, false, { active: false, hasInk: true }]);
+  undo.click();
+  assert.deepEqual(plain(ink.strokes()).map(s => s.tool), ['arrow'], 'Undo brings back the ink that was on screen');
+
+  ink.show(N.inkStrokes([[3, 3, 0, 200, 200, 400, 600]]));
+  video.dispatch('play');
+  assert.equal(ink.state().strokes, 1, 'a play the page pauses again at once (opening a note) is not playing on');
+  video.play();
+  assert.equal(ink.state().strokes, 0, 'playing on clears it, as it clears any ink');
+  video.pause();
+  ink.show(N.inkStrokes([[3, 3, 0, 200, 200, 400, 600]]));
+  keep.click();
+  video.play();
+  assert.equal(ink.state().strokes, 1, 'unless Keep ink is pinned');
+  ink.show([]);
+  assert.equal(ink.state().strokes, 0, 'a note without a drawing leaves nothing over the game');
+});
+
+test('a drawing kept with a note comes back where it was drawn, to a thousandth of the picture; the format\'s lists are the pen\'s', () => {
+  assert.deepEqual(plain(N.INK_TOOLS), plain(Ink.TOOLS.map(t => t.id).filter(id => id !== 'eraser')), 'every tool that draws');
+  assert.deepEqual(plain(N.INK_COLORS), plain(Ink.COLORS));
+  assert.equal(Ink.SIZES.length, 3);
+  const run = inkPage();
+  run.ink.setActive(true);
+  run.drag(run.canvas, [[200, 100], [600, 300], [1000, 120]]);
+  run.ink.key({ key: 'o' });
+  run.ink.key({ key: '4' });
+  run.drag(run.canvas, [[700, 400], [900, 700]]);
+  const drawn = plain(run.ink.strokes());
+  const other = inkPage();
+  other.ink.show(N.inkStrokes(N.packInk(run.ink.strokes())));
+  const back = plain(other.ink.strokes());
+  assert.deepEqual(back.map(s => [s.tool, s.color, s.size, s.points.length]), [['pen', 'red', 1, 3], ['ellipse', 'blue', 1, 2]]);
+  back.forEach((s, i) => s.points.forEach((p, j) => p.forEach((v, k) => {
+    assert.ok(Math.abs(v - drawn[i].points[j][k]) <= 0.0005 + 1e-9, `stroke ${i}, point ${j}: ${v} for ${drawn[i].points[j][k]}`);
+  })));
 });

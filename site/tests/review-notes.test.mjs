@@ -142,6 +142,108 @@ test('opening a link adds its notes to this browser\'s and takes them out of the
   assert.equal(N.adoptedText({ added: 3 }), 'Added 3 notes from the link.');
 });
 
+// A drawing as a note keeps it: an arrow (tool 2, yellow, thick) and a pen line (tool 0, red,
+// medium) in thousandths of the picture.
+const DRAWING = [[2, 1, 2, 100, 200, 300, 400], [0, 0, 1, 500, 500, 600, 550, 700, 500]];
+
+test('the pen\'s strokes pack into whole thousandths of the picture: shapes keep two corners, lines lose the points that barely bend them', () => {
+  const ink = N.packInk([
+    { tool: 'arrow', color: 'yellow', size: 2, points: [[0.1, 0.2], [0.3004, 0.4]] },
+    { tool: 'pen', color: 'red', size: 1, points: [[0.5, 0.5], [0.501, 0.5], [0.6, 0.55], [0.7, 0.5], [0.7, 0.5]] },
+    { tool: 'rect', color: 'blue', size: 0, points: [[0.2, 0.2], [0.25, 0.3], [0.4, 0.6]] },
+    { tool: 'highlighter', color: 'green', size: 1, points: [[1.5, -0.2]] },
+    { tool: 'eraser', color: 'red', size: 1, points: [[0.1, 0.1]] },
+    { tool: 'pen', color: 'pink', size: 1, points: [[0.1, 0.1]] },
+    { tool: 'pen', color: 'red', size: 3, points: [[0.1, 0.1]] },
+    { tool: 'ellipse', color: 'white', size: 1, points: [[0.4, 0.4]] },
+    { tool: 'pen', color: 'white', size: 0, points: [[NaN, 0.1], 'x', ['0.2', 0.2], [0.2, 0.2]] },
+    null,
+  ]);
+  assert.deepEqual(plain(ink), [...DRAWING, [3, 3, 0, 200, 200, 400, 600], [1, 2, 1, 1000, 0], [0, 4, 0, 200, 200]],
+    'off the picture lands on its edge; the eraser, unknown colors and sizes, a one-corner circle and broken points are left out');
+  assert.equal(N.packInk([]), null, 'no ink, no drawing');
+  assert.equal(N.packInk('ink'), null);
+  assert.deepEqual(plain(N.inkStrokes(DRAWING)), [
+    { tool: 'arrow', color: 'yellow', size: 2, points: [[0.1, 0.2], [0.3, 0.4]] },
+    { tool: 'pen', color: 'red', size: 1, points: [[0.5, 0.5], [0.6, 0.55], [0.7, 0.5]] },
+  ], 'and back, as the pen shows it');
+  assert.deepEqual(plain(N.inkStrokes([[9, 9, 9, 1, 1]])), []);
+});
+
+test('a drawing stays small: a freehand line keeps its shape in a few points, and the caps hold for lines, strokes and the whole drawing', () => {
+  // A quarter circle drawn with 500 points stays within a few thousandths of where it was drawn.
+  const arc = Array.from({ length: 500 }, (_, i) => [0.5 + 0.3 * Math.cos((i / 499) * Math.PI / 2), 0.5 + 0.3 * Math.sin((i / 499) * Math.PI / 2)]);
+  const [line] = N.packInk([{ tool: 'pen', color: 'red', size: 1, points: arc }]);
+  const kept = [];
+  for (let i = 3; i < line.length; i += 2) kept.push([line[i], line[i + 1]]);
+  assert.ok(kept.length >= 5 && kept.length <= 12, `${kept.length} points`);
+  const away = ([x, y]) => Math.min(...kept.slice(1).map((b, i) => {
+    const a = kept[i], dx = b[0] - a[0], dy = b[1] - a[1];
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(a[0] + t * dx - x, a[1] + t * dy - y);
+  }));
+  assert.ok(Math.max(...arc.map(([x, y]) => away([x * 1000, y * 1000]))) < 3, 'within 3 thousandths');
+
+  // A zigzag nothing can straighten still fits a line's cap; fifty of them fit the drawing's.
+  const zigzag = Array.from({ length: 300 }, (_, i) => [i / 300, i % 2 ? 0.4 : 0.6]);
+  const [jagged] = N.packInk([{ tool: 'pen', color: 'red', size: 1, points: zigzag }]);
+  assert.ok((jagged.length - 3) / 2 <= N.MAX_POINTS);
+  const many = N.packInk(Array.from({ length: 50 }, () => ({ tool: 'highlighter', color: 'red', size: 1, points: zigzag })));
+  assert.equal(many.length, N.MAX_STROKES, 'the first strokes are kept');
+  assert.ok(many.reduce((sum, s) => sum + (s.length - 3) / 2, 0) <= N.MAX_INK_POINTS);
+  assert.deepEqual(plain(N.simplify([[0, 0], [5, 1], [10, 0]], 2)), [[0, 0], [10, 0]]);
+  assert.deepEqual(plain(N.simplify([[0, 0], [5, 3], [10, 0]], 2)), [[0, 0], [5, 3], [10, 0]]);
+});
+
+test('a drawing from a link is checked stroke by stroke: what is not a stroke is left out, and the caps hold', () => {
+  assert.equal(N.cleanInk('ink'), null);
+  assert.equal(N.cleanInk([]), null);
+  assert.deepEqual(plain(N.cleanInk([
+    [0, 0, 1, 10, 20, 30, 40],
+    [5, 0, 1, 10, 20], [0, 5, 1, 10, 20], [0, 0, 3, 10, 20], [-1, 0, 1, 10, 20], [0.5, 0, 1, 10, 20],
+    [0, 0, 1, 10], [0, 0, 1, 10, 20, 30], [0, 0, 1], [0, 0, 1, 10.5, 20], [0, 0, 1, 1001, 20], [0, 0, 1, -1, 20],
+    [0, 0, 1, '10', 20], [0, 0, 1, null, 20], [2, 0, 1, 10, 20], [3, 0, 1, 10, 20, 30, 40, 50, 60],
+    'stroke', null, {}, 7,
+    [4, 4, 2, 0, 0, 1000, 1000],
+  ])), [[0, 0, 1, 10, 20, 30, 40], [4, 4, 2, 0, 0, 1000, 1000]]);
+  const line = points => [0, 0, 1, ...Array.from({ length: points * 2 }, (_, i) => i % 1001)];
+  assert.equal((N.cleanInk([line(100)])[0].length - 3) / 2, N.MAX_POINTS, 'a line keeps its first MAX_POINTS points');
+  assert.equal(N.cleanInk(Array.from({ length: 40 }, () => line(1))).length, N.MAX_STROKES);
+  assert.equal(N.cleanInk(Array.from({ length: 10 }, () => line(60))).length, 4, 'four lines of 60 points fit in 256; a fifth would not');
+});
+
+test('a note keeps its drawing in this browser and in links; old links still read, and a drawing that can\'t be read leaves its note', async () => {
+  const notes = N.clean([{ t: 100, end: null, text: 'Ward here', ink: DRAWING }, { t: 200, end: 230, text: 'Trade', ink: DRAWING },
+    { t: 300, text: 'Plain' }, { t: 100, end: null, text: 'Ward here' }, { t: 100, end: null, text: 'Ward here', ink: DRAWING },
+    { t: 400, text: 'Scribble', ink: [[9, 9, 9, 1, 1]] }]);
+  assert.deepEqual(plain(notes), [
+    { t: 100, end: null, text: 'Ward here', ink: DRAWING },
+    { t: 100, end: null, text: 'Ward here' },
+    { t: 200, end: 230, text: 'Trade', ink: DRAWING },
+    { t: 300, end: null, text: 'Plain' },
+    { t: 400, end: null, text: 'Scribble' },
+  ], 'the same note with and without a drawing are two notes; a drawing that is no drawing goes, the note stays');
+  assert.equal(N.pack(notes), JSON.stringify([[100, null, 'Ward here', DRAWING], [100, 'Ward here'], [200, 230, 'Trade', DRAWING],
+    [300, 'Plain'], [400, 'Scribble']]), '[t, end or null, text, ink] with a drawing; the old rows without');
+  assert.deepEqual(plain(await N.decode(await N.encode(notes))), plain(notes));
+  assert.deepEqual(plain(await N.decode(N.encodeNow(notes))), plain(notes));
+
+  const link = rows => 'j' + Buffer.from(JSON.stringify(rows)).toString('base64url');
+  assert.deepEqual(plain(await N.decode(link([[5, 'old bookmark'], [9, 20, 'old clip']]))),
+    [{ t: 5, end: null, text: 'old bookmark' }, { t: 9, end: 20, text: 'old clip' }], 'links from before drawings read as before');
+  assert.deepEqual(plain(await N.decode(link([[5, null, 'bad drawing', [[9, 9, 9, 1, 1]]], [6, 'x', 'bad end', DRAWING],
+    [7, null, 'not a list', 'ink'], [8, 30, 'clip', DRAWING, 'extra']]))),
+  [{ t: 5, end: null, text: 'bad drawing' }, { t: 7, end: null, text: 'not a list' }]);
+
+  const storage = memoryStorage();
+  N.save(storage, 'revu.notes.c.Clip001', notes, 1);
+  assert.deepEqual(plain(N.load(storage, 'revu.notes.c.Clip001')), plain(notes), 'kept for the next visit');
+  const tampered = JSON.parse(storage.getItem('revu.notes.c.Clip001'));
+  tampered.notes[0].ink = [[0, 0, 1, 5000, 5000]];
+  storage.setItem('revu.notes.c.Clip001', JSON.stringify(tampered));
+  assert.equal(N.load(storage, 'revu.notes.c.Clip001')[0].ink, undefined, 'storage is checked the same way');
+});
+
 // A form for the composer: elements with values, focus and listeners.
 function composerPage({ now = 0 } = {}) {
   const make = tag => {
@@ -156,9 +258,9 @@ function composerPage({ now = 0 } = {}) {
   };
   const els = { form: make('form'), when: make('p'), text: make('textarea'), cancel: make('button'), clip: make('button'),
     clipLabel: make('span'), clipKey: make('kbd'), hint: make('p') };
-  const page = { time: now, paused: false, opened: 0, saved: [], drafts: [] };
+  const page = { time: now, paused: false, opened: 0, saved: [], drafts: [], ink: null };
   const composer = Ui.composer({ els, now: () => page.time, clock: t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`,
-    pause: () => { page.paused = true; }, open: () => { page.opened += 1; }, onSave: note => page.saved.push(plain(note)),
+    pause: () => { page.paused = true; }, open: () => { page.opened += 1; }, ink: () => page.ink, onSave: note => page.saved.push(plain(note)),
     onDraft: draft => page.drafts.push(draft && plain(draft)) });
   const key = (k, init = {}) => {
     const ev = { key: k, target: { tagName: 'BODY' }, repeat: false, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...init };
@@ -224,6 +326,25 @@ test('I starts a clip and the game plays on; O ends it, pauses and takes the not
   assert.equal(composer.draft(), null);
 });
 
+test('a note keeps the ink on screen when it is saved, drawn before B or after it; without ink it has none', () => {
+  const { els, page, key } = composerPage({ now: 42 });
+  page.ink = DRAWING;
+  key('b');
+  key('Enter', { target: els.text });
+  key('i');
+  page.ink = null;
+  page.time = 60;
+  key('o');
+  page.ink = [[3, 3, 0, 200, 200, 400, 600]];
+  els.text.value = 'Box their jungler';
+  key('Enter', { target: els.text });
+  page.ink = [[9, 9, 9, 1, 1]];
+  key('b');
+  key('Enter', { target: els.text });
+  assert.deepEqual(page.saved, [{ t: 42, end: null, text: '', ink: DRAWING }, { t: 42, end: 60, text: 'Box their jungler', ink: [[3, 3, 0, 200, 200, 400, 600]] },
+    { t: 60, end: null, text: '' }], 'the drawing on screen at Enter, if it is one');
+});
+
 test('Copy link with notes copies at once, or shows the link to copy by hand; it hides without notes', async () => {
   const el = () => ({ hidden: false, textContent: '', value: '', listeners: [], addEventListener(t, fn) { this.listeners.push(fn); },
     click() { this.listeners.forEach(fn => fn()); }, focus() { this.focused = true; }, select() { this.selected = true; } });
@@ -255,6 +376,21 @@ test('Copy link with notes copies at once, or shows the link to copy by hand; it
   els.status.textContent = '';
   els.copy.click();
   assert.equal(els.status.textContent, 'Copy this link:', 'no clipboard at all: the link to copy by hand');
+
+  // Notes too long for a link the page could read back (words that don't compress): no link, and why.
+  let seed = 7;
+  const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const words = n => Array.from({ length: n }, () => letters[(seed = (seed * 48271) % 2147483647) % 62]).join('');
+  notes = N.clean(Array.from({ length: N.MAX_NOTES }, (_, i) => ({ t: i * 10, text: words(N.MAX_TEXT) })));
+  clipboard = { writeText: async text => { copied.push(text); } };
+  sharer.refresh();
+  await new Promise(resolve => setImmediate(resolve));
+  els.link.hidden = true;
+  els.copy.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(copied.length, 1, 'nothing copied');
+  assert.deepEqual([els.status.textContent, els.link.hidden],
+    ['These notes are too long for one link. Delete some notes or drawings, then copy again.', true]);
 });
 
 test('the status line says what happened, with an Undo when there is one', () => {
