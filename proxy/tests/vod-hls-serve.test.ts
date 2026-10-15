@@ -46,7 +46,7 @@ describe("the playlist text", () => {
     expect(buildPlaylist({ durations: [], runs: [], ended: false })).toBe(text(HEAD_LINES));
   });
 
-  it("marks every resume with a DISCONTINUITY and a new MAP only when the init changed", () => {
+  it("joins every resume without a DISCONTINUITY (gate G3), with a new MAP only when the init changed", () => {
     const runs = [
       { k: 0, from: 0, sameInit: false },
       { k: 1, from: 2, sameInit: true },
@@ -55,15 +55,10 @@ describe("the playlist text", () => {
     ];
     const durations = [2000, 2000, 2000, 2000];
     expect(buildPlaylist({ durations, runs, ended: false })).toBe(text([
-      ...HEAD_LINES, ...seg(0), ...seg(1),
-      "#EXT-X-DISCONTINUITY", ...seg(2),
-      "#EXT-X-DISCONTINUITY", '#EXT-X-MAP:URI="init-2.mp4"', ...seg(3),
-    ]));
-    // The hls.js variant gate G3 may pick: no DISCONTINUITY at a same-init resume.
-    expect(buildPlaylist({ durations, runs, ended: true }, { discontinuityAtSameInit: false })).toBe(text([
       ...HEAD_LINES, ...seg(0), ...seg(1), ...seg(2),
-      "#EXT-X-DISCONTINUITY", '#EXT-X-MAP:URI="init-2.mp4"', ...seg(3), "#EXT-X-ENDLIST",
+      '#EXT-X-MAP:URI="init-2.mp4"', ...seg(3),
     ]));
+    expect(buildPlaylist({ durations, runs, ended: true })).not.toContain("DISCONTINUITY");
   });
 
   it("is served from the rows: a same-init resume and a 720p resume, then ENDLIST", async () => {
@@ -78,9 +73,8 @@ describe("the playlist text", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/vnd.apple.mpegurl");
     const expected = [
-      ...HEAD_LINES, ...seg(0), ...seg(1), ...seg(2),
-      "#EXT-X-DISCONTINUITY", ...seg(3),
-      "#EXT-X-DISCONTINUITY", '#EXT-X-MAP:URI="init-2.mp4"', ...seg(4, 1500),
+      ...HEAD_LINES, ...seg(0), ...seg(1), ...seg(2), ...seg(3),
+      '#EXT-X-MAP:URI="init-2.mp4"', ...seg(4, 1500),
     ];
     expect(await res.text()).toBe(text(expected));
     expect((await endShare(s.env, id, 5)).status).toBe(201);

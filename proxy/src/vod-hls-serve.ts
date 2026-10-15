@@ -132,16 +132,19 @@ function extinf(ms: number): string {
 
 /**
  * The EVENT playlist, built on each GET from committed rows only, so it only
- * ever grows. A DISCONTINUITY precedes the first segment of every run k >= 1
- * (unless discontinuityAtSameInit is false and the run kept the same init),
- * and an EXT-X-MAP precedes it only when run k's init differs from run k-1's.
- * Two RFC 8216 deviations are deliberate: it updates faster than half the
- * target duration (6.2.1), and TIME-OFFSET=0 sits within three target
+ * ever grows. An EXT-X-MAP precedes the first segment of a run k >= 1 only when
+ * its init differs from run k-1's, and no run ever gets an EXT-X-DISCONTINUITY:
+ * a resumed run continues the share's timestamps, file format and tracks, and
+ * browser gate G3 showed hls.js 1.7.3 re-anchoring a discontinuity and leaving
+ * a ~80 ms hole in the buffer at every resume (a stall and a skip), while it
+ * plays straight across without the tag, a new encoder's or 720p init
+ * included. RFC 8216 (4.3.2.3) only says SHOULD for changed encoding
+ * parameters. Two more deviations are deliberate: it updates faster than half
+ * the target duration (6.2.1), and TIME-OFFSET=0 sits within three target
  * durations of a live edge (4.3.5.2); native players are never used on it
  * while it grows.
  */
-export function buildPlaylist(p: PlaylistInput, opts: { discontinuityAtSameInit?: boolean } = {}): string {
-  const discontinuityAtSameInit = opts.discontinuityAtSameInit ?? true;
+export function buildPlaylist(p: PlaylistInput): string {
   const starts = new Map<number, PlaylistRun>();
   for (const run of p.runs) if (run.k >= 1) starts.set(run.from, run);
   const lines = [
@@ -156,10 +159,7 @@ export function buildPlaylist(p: PlaylistInput, opts: { discontinuityAtSameInit?
   ];
   for (let seq = 0; seq < p.durations.length; seq++) {
     const run = starts.get(seq);
-    if (run) {
-      if (!run.sameInit || discontinuityAtSameInit) lines.push("#EXT-X-DISCONTINUITY");
-      if (!run.sameInit) lines.push(`#EXT-X-MAP:URI="init-${run.k}.mp4"`);
-    }
+    if (run && !run.sameInit) lines.push(`#EXT-X-MAP:URI="init-${run.k}.mp4"`);
     lines.push(`#EXTINF:${extinf(p.durations[seq])},`, `${seq}.m4s`);
   }
   if (p.ended) lines.push("#EXT-X-ENDLIST");

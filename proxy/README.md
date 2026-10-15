@@ -458,8 +458,10 @@ time since the init; null until then), `last_commit_age_s`, `paused_reason`,
 segments. `duration_s` is the declared length while uploading and the media's
 after the end.
 
-Playlist (LF line ends; a resume run k gets a `DISCONTINUITY`, and a new
-`EXT-X-MAP` only when its init differs from run k-1's):
+Playlist (LF line ends; a resume run k gets a new `EXT-X-MAP` only when its
+init differs from run k-1's, and never a `DISCONTINUITY`: browser gate G3
+showed hls.js leaving a ~80 ms hole in the buffer at a tagged resume, and
+playing straight across an untagged one, new inits included):
 
 ```
 #EXTM3U
