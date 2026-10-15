@@ -192,15 +192,19 @@ public sealed class Fmp4Splitter
             await file.WriteAsync(mdat, ct).ConfigureAwait(false);
         }
 
+        var segmentCt = ct;
         if (!_initSent)
         {
             await _writer.WriteAsync(new HlsInit(_run, _firstSeq, Init!), ct).ConfigureAwait(false);
             _initSent = true;
+            // A run's init never goes out without its first segment: the next run would start where this one does,
+            // and the proxy refuses a run that doesn't start past the previous one.
+            segmentCt = CancellationToken.None;
         }
         NextSeq = seq + 1;
         EndSeconds = fragment.EndSeconds;
         await _writer.WriteAsync(new HlsSegment(seq, fragment.DurationMs, moof.LongLength + mdat.LongLength, path, _run,
-            fragment.StartSeconds, fragment.EndSeconds), ct).ConfigureAwait(false);
+            fragment.StartSeconds, fragment.EndSeconds), segmentCt).ConfigureAwait(false);
         _mediaSeconds?.Report(fragment.EndSeconds);
     }
 

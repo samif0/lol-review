@@ -250,4 +250,35 @@ public sealed class Fmp4SplitterTests : IDisposable
         Assert.IsType<HlsSegmentException>(result.Error);
         Assert.Empty(result.Items);
     }
+
+    /// <summary>A writer that stops the run, as a pause does, the moment it takes an init.</summary>
+    private sealed class StopOnInitWriter(CancellationTokenSource stop) : ChannelWriter<HlsItem>
+    {
+        public List<HlsItem> Items { get; } = [];
+
+        public override bool TryWrite(HlsItem item)
+        {
+            Items.Add(item);
+            if (item is HlsInit) stop.Cancel();
+            return true;
+        }
+
+        public override ValueTask<bool> WaitToWriteAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
+    }
+
+    [Fact]
+    public async Task AStopRightAfterARunsInit_StillSendsItsFirstSegment()
+    {
+        // A run's init alone would make the next run start where this one does, which the proxy refuses (409).
+        using var stop = new CancellationTokenSource();
+        var writer = new StopOnInitWriter(stop);
+        var splitter = new Fmp4Splitter(_dir, 1, 15, 30, 29.9, writer);
+
+        var error = await Record.ExceptionAsync(() => splitter.RunAsync(new ChunkedStream(Stream(3, lastFrames: 90)), stop.Token));
+
+        Assert.IsAssignableFrom<OperationCanceledException>(error);
+        Assert.Equal(2, writer.Items.Count);
+        Assert.Equal((1, 15), (Assert.IsType<HlsInit>(writer.Items[0]).Run, ((HlsInit)writer.Items[0]).FromSeq));
+        Assert.Equal(15, Assert.IsType<HlsSegment>(writer.Items[1]).Seq);
+    }
 }
