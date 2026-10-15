@@ -262,9 +262,13 @@ describe("media routes: checks before any D1 or R2 work", () => {
     off.db.x("DELETE FROM ops_flags");
     resetHlsState();
     expect((await media(off.env, id, t, "0.m4s")).status).toBe(200);
-    // No secret: nothing can be played.
+    // No secret: nothing can be played, and no token can be minted.
     const nosecret = await hlsSetup({ env: { VOD_PLAY_SECRET: undefined } });
     expect((await media(nosecret.env, id, t, "0.m4s")).status).toBe(503);
+    const mint = await play(nosecret.env, id);
+    expect(mint.status).toBe(503);
+    expect((await json(mint)).error).toBe("vod_serving_disabled");
+    expect((await media(off.env, id, t, "index.m3u8", { method: "HEAD" })).status).toBe(200);
   });
 
   it("caches the ops flag for 30 s per isolate", async () => {
