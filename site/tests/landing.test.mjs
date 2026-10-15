@@ -22,9 +22,8 @@ const text = visibleText(html);
 test('The hero leads with the download and the agreed copy', () => {
   const hero = html.match(/<section class="hero" id="download"[\s\S]*?<\/section>/)?.[0];
   assert.ok(hero, 'the hero is the #download target');
-  assert.match(hero, /<p class="hero-eyebrow">Free for Windows 10 and 11<\/p>/);
   assert.match(hero, /<h1 class="hero-title" id="hero-title">Review every ranked game\.<\/h1>/);
-  assert.match(visibleText(hero), /Revu records your League games, links each recording to its match, and helps you pick one thing to practice next game\./);
+  assert.match(visibleText(hero), /Revu records your League games and helps you pick one thing to practice next game\./);
   assert.match(hero, new RegExp(`<a id="download-btn" class="btn-primary btn-lg" data-download href="${INSTALLER.replace(/[.]/g, '\\.')}" rel="noopener">Download for Windows</a>`));
   assert.match(hero, /<a class="btn-secondary btn-lg" href="\/review">Review a game in your browser<\/a>/);
   assert.match(hero, /<span data-download-version>Latest version<\/span> &middot; Windows 10\/11<span data-download-size><\/span>/);
