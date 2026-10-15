@@ -1,0 +1,3 @@
+# Vendored third-party files are served byte for byte under an SRI pin (site/vod-player.js):
+# never convert their line endings.
+site/vendor/** -text

@@ -2,9 +2,10 @@
  * Shared full game page (vod.html at /v/<id>): an expiry banner, the native
  * player, a clickable lane of game moments, the header, and the sharer's notes
  * when they chose to include them; before that, the upload's progress while the
- * sharer's upload runs. Same Neutral system as clip.css: tokens only
- * (tokens.css), hairlines, no gradients or uppercase. Mobile first: one column,
- * then a 340px notes column at 1024px and up.
+ * sharer's upload runs. A game that plays while it uploads adds a Play button over
+ * the player, one quiet line under it and the uploaded part of the lane. Same
+ * Neutral system as clip.css: tokens only (tokens.css), hairlines, no gradients
+ * or uppercase. Mobile first: one column, then a 340px notes column at 1024px and up.
  */
 
 .vod-main {
@@ -56,16 +57,61 @@
   visibility: hidden;
 }
 
-.vod-player-msg {
+/* A message over the player (and Try again under it). The layer lets clicks through to
+   the player's own controls when it is empty. */
+.vod-player-over {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   padding: 24px;
+  pointer-events: none;
+}
+
+.vod-player-over > * {
+  pointer-events: auto;
+}
+
+.vod-player-msg {
+  max-width: 460px;
   color: var(--on-video);
   font-size: 15px;
   text-align: center;
+}
+
+/* Before the first play of a game shared in segments: one large Play button, the accent. */
+.vod-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 12px 22px 12px 18px;
+  border: 1px solid var(--primary);
+  border-radius: var(--btn-radius);
+  background: var(--primary);
+  color: var(--primary-ink);
+  font: 500 15px/1.3 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: background-color .12s ease, border-color .12s ease;
+}
+
+.vod-play:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.vod-play-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 
 /* Lane: one tick per moment, at its place in the video. Notes are wider ticks. */
@@ -141,6 +187,79 @@
 .vod-mark:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
+}
+
+/* While the game uploads: the uploaded part of the lane, and moments past it dimmed. A
+   dimmed moment is still a button: pressed, it is armed and the page jumps there when it
+   arrives. */
+
+.vod-lane-uploaded {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--selected);
+  pointer-events: none;
+  transition: width .6s ease;
+}
+
+.vod-mark.is-pending::before {
+  opacity: .35;
+}
+
+.vod-mark.is-armed {
+  background: var(--selected);
+}
+
+.vod-mark.is-armed::before {
+  opacity: 1;
+}
+
+.vod-note.is-pending,
+.vod-note.is-pending .vod-note-time {
+  color: var(--muted);
+}
+
+.vod-note.is-armed {
+  background: var(--selected);
+}
+
+/* One quiet line under the player while the game uploads; its button reads as a link. */
+
+.vod-live,
+.vod-jump {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.vod-jump {
+  margin-top: 2px;
+  color: var(--t2);
+}
+
+/* A button is laid out as an inline-block even with display: inline, so the tap padding is
+   taken back by an equal negative margin: a taller target, no taller line. */
+.vod-live-action {
+  display: inline;
+  margin: -12px 0;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.vod-live-action:hover {
+  text-decoration-color: var(--text);
 }
 
 /* Header and footer */
@@ -328,9 +447,30 @@
   transition: width .6s ease;
 }
 
+/* A game shared in segments can start a few seconds in: Play when ready instead of a meter. */
+.vod-when-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--t2);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.vod-when-ready input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vod-spinner { animation: none; }
-  .vod-upload-bar { transition: none; }
+  .vod-upload-bar,
+  .vod-lane-uploaded { transition: none; }
 }
 
 @media (min-width: 1024px) {

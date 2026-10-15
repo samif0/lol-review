@@ -8,13 +8,18 @@ import vm from 'node:vm';
 
 const read = name => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 const html = read('vod.html');
+// The page is four scripts, loaded in this order into one global scope.
+const lib = read('vod-lib.js');
+const playerScript = read('vod-player.js');
+const liveScript = read('vod-live.js');
 const script = read('vod.js');
+const scripts = [lib, playerScript, liveScript, script].join('\n');
 const flush = async (rounds = 8) => { for (let i = 0; i < rounds; i += 1) await new Promise(resolve => setImmediate(resolve)); };
 const flat = text => String(text).replace(/[  ]/g, ' ');
 
 function helpers() {
   const context = { URLSearchParams };
-  vm.runInNewContext(script, context);
+  vm.runInNewContext(lib, context);
   return context.RevuVod;
 }
 
@@ -73,7 +78,8 @@ function page({ pathname = '/v/Abc1234', search = '', hostname = 'revu.lol', rou
       return { ok: status < 300, status, json: async () => reply.body ?? reply };
     },
   };
-  vm.runInNewContext(script, context);
+  vm.createContext(context);
+  for (const source of [lib, playerScript, liveScript, script]) vm.runInContext(source, context);
   const $ = id => document.byId.get(id);
   // Runs the one pending timeout (the next poll), as the browser would after its delay.
   const nextPoll = async () => {
@@ -424,7 +430,7 @@ test('the page is unlisted, has no video card or inline script, and offers a rep
   assert.match(html, /<meta property="og:image" content="https:\/\/revu\.lol\/og-image\.jpg" \/>/);
   assert.doesNotMatch(html, /og:video|twitter:player|twitter:card/);
   for (const asset of ['/tokens.css', '/styles.css', '/vod.css']) assert.match(html, new RegExp(`<link rel="stylesheet" href="${asset}" />`));
-  assert.match(html, /<script src="\/vod\.js" defer><\/script>/);
+  assert.match(html, /<script src="\/vod-lib\.js" defer><\/script>\s*<script src="\/vod-player\.js" defer><\/script>\s*<script src="\/vod-live\.js" defer><\/script>\s*<script src="\/vod\.js" defer><\/script>/);
   assert.doesNotMatch(html, /<script\b(?![^>]*\bsrc=)[^>]*>/);
   for (const tag of html.match(/<[^>]+>/g)) assert.doesNotMatch(tag, /\son[a-z]+\s*=/i, tag);
   assert.doesNotMatch(html, /(?:href|src)="(?!\/|https:\/\/)[^"]*"/, 'every local path is absolute (the page is served at /v/<id>)');
@@ -432,8 +438,9 @@ test('the page is unlisted, has no video card or inline script, and offers a rep
   assert.match(text, /Only people with the link can see this page\./);
   assert.match(text, /To report this video, contact us on Discord \. Video ID/);
   assert.match(html, /<a href="\/discord">Discord<\/a>/);
-  assert.match(html, /<video id="vod-video" class="vod-video" controls playsinline preload="metadata"><\/video>/);
-  assert.doesNotMatch(html + script, /[–—]/);
+  // preload="none": an MP4 share counts a play when the viewer presses play, not when the page opens.
+  assert.match(html, /<video id="vod-video" class="vod-video" controls playsinline preload="none"><\/video>/);
+  assert.doesNotMatch(html + scripts, /[–—]/);
   assert.doesNotMatch(html, /@/, 'no email address on the page');
-  assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|outerHTML|document\.write/);
+  assert.doesNotMatch(scripts, /innerHTML|insertAdjacentHTML|outerHTML|document\.write|\beval\(|new Function/);
 });

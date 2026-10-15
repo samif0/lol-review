@@ -25,6 +25,9 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/vod.css" />
 
+  <script src="/vod-lib.js" defer></script>
+  <script src="/vod-player.js" defer></script>
+  <script src="/vod-live.js" defer></script>
   <script src="/vod.js" defer></script>
 </head>
 <body class="vod-watch">
@@ -47,9 +50,10 @@
       <a href="/" class="btn-primary">Back to Revu</a>
     </section>
 
-    <!-- The link works as soon as the sharer's upload starts: until it finishes, this page
-         names the game (once the sharer's app has sent its details), shows how far along the
-         upload is and starts the game once it is ready. -->
+    <!-- The link works as soon as the sharer's upload starts: until the game can play, this
+         page names the game (once the sharer's app has sent its details), says how the upload
+         is going and starts the game once it is ready. A game shared in segments (HLS) can
+         play a few seconds in, so it offers Play when ready instead of a meter. -->
     <section id="state-uploading" class="vod-state" hidden>
       <div id="upload-game" class="vod-upload-game" hidden>
         <p id="upload-game-title" class="vod-upload-game-title"></p>
@@ -60,19 +64,36 @@
       <div id="upload-meter" class="vod-upload-meter" role="progressbar" aria-labelledby="upload-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <span id="upload-bar" class="vod-upload-bar"></span>
       </div>
+      <label id="vod-when-ready-row" class="vod-when-ready" hidden>
+        <input id="vod-when-ready" type="checkbox" />
+        <span>Play when ready</span>
+      </label>
     </section>
 
     <section id="state-game" class="vod-layout" hidden>
       <div class="vod-primary">
         <p id="vod-expiry" class="vod-banner" role="status" hidden></p>
 
+        <!-- preload="none": nothing is fetched, and no play counts, until the viewer presses play. -->
         <div class="vod-player">
-          <video id="vod-video" class="vod-video" controls playsinline preload="metadata"></video>
-          <p id="vod-player-msg" class="vod-player-msg" role="status" hidden></p>
+          <video id="vod-video" class="vod-video" controls playsinline preload="none"></video>
+          <button id="vod-play" class="vod-play" type="button" hidden><svg class="vod-play-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M5 3.2v9.6a.8.8 0 0 0 1.22.68l7.7-4.8a.8.8 0 0 0 0-1.36l-7.7-4.8A.8.8 0 0 0 5 3.2Z" fill="currentColor"/></svg><span id="vod-play-label">Play from the start</span></button>
+          <div class="vod-player-over">
+            <p id="vod-player-msg" class="vod-player-msg" role="status" hidden></p>
+            <button id="vod-retry" class="btn-pill vod-retry" type="button" hidden>Try again</button>
+          </div>
         </div>
+
+        <!-- While the game uploads: one quiet line about the upload (its button turns the
+             rebuffer pauses off), the moment the page will jump to once it arrives, and a polite
+             status region that announces what changes. -->
+        <p id="vod-live" class="vod-live" hidden><span id="vod-live-text"></span><button id="vod-live-action" class="vod-live-action" type="button" hidden></button><span id="vod-live-after"></span></p>
+        <p id="vod-jump" class="vod-jump" hidden><span id="vod-jump-text"></span> <button id="vod-jump-cancel" class="vod-live-action" type="button">Cancel</button></p>
+        <p id="vod-live-say" class="visually-hidden" role="status" aria-live="polite"></p>
 
         <div id="vod-lane" class="vod-lane" hidden>
           <div id="vod-lane-track" class="vod-lane-track" role="group" aria-label="Moments in this game">
+            <span id="vod-lane-uploaded" class="vod-lane-uploaded" aria-hidden="true" hidden></span>
             <span id="vod-lane-playhead" class="vod-lane-playhead" aria-hidden="true"></span>
           </div>
         </div>

@@ -28,6 +28,10 @@ const isWellKnown = parts => parts.length > 1 && parts[0] === wellKnown;
 // directories never ship; only a top-level .well-known/ is exempt.
 const isPrivatePath = parts => parts.some((part, index) => part.startsWith('.') && !(index === 0 && part === wellKnown))
   || privateDirectories.has(parts[0]);
+// Self-hosted third-party code (site/vendor/hls-1.7.3/ ...). _headers caches /vendor/* for a
+// year as immutable, so only a folder named for its version ships, and in it only scripts and
+// licence texts. A licence needs its extension (LICENSE.txt): a bare LICENSE is refused.
+const vendorFile = /^vendor\/[a-z0-9.-]+-\d+\.\d+\.\d+\/[A-Za-z0-9._-]+\.(?:js|txt)$/;
 
 /** 'publish', 'skip' (repo-internal), or 'unknown' for a file under site/ (POSIX relative path). */
 export function classifySiteFile(relative) {
@@ -37,6 +41,7 @@ export function classifySiteFile(relative) {
   if (parts.length === 1 && privateRootFiles.has(relative)) return 'skip';
   if (parts.length === 1 && pagesConfigFiles.has(relative)) return 'publish';
   if (isWellKnown(parts)) return 'publish';
+  if (parts[0] === 'vendor') return vendorFile.test(relative) ? 'publish' : 'unknown';
   return publicExtensions.has(path.posix.extname(relative).toLowerCase()) ? 'publish' : 'unknown';
 }
 
@@ -59,7 +64,8 @@ export async function stageSite(source = siteRoot, destination = stageRoot) {
   const files = await listFiles(source);
   const unknown = files.filter(file => classifySiteFile(file) === 'unknown');
   if (unknown.length) {
-    throw new Error(`Unrecognized files in site/ (add them to the allowlist in scripts/deploy-site.mjs, or keep them out of site/): ${unknown.join(', ')}`);
+    const licence = unknown.some(file => /(^|\/)LICENSE$/.test(file)) ? ' A licence file needs its extension: LICENSE.txt.' : '';
+    throw new Error(`Unrecognized files in site/ (add them to the allowlist in scripts/deploy-site.mjs, or keep them out of site/): ${unknown.join(', ')}${licence}`);
   }
   const published = files.filter(file => classifySiteFile(file) === 'publish').sort();
   for (const required of ['index.html', '_headers']) {
