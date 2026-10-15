@@ -2,7 +2,8 @@
  * Shared full game watch page (vod.html, served at /v/<id> through _redirects): the page
  * itself and the views it shares. vod-lib.js (RevuVod) holds the pure helpers, vod-player.js
  * (RevuVodPlayer) the HLS engines and play tokens, vod-live.js (RevuVodLive) the controller
- * for a game that plays while it uploads; all three load first.
+ * for a game that plays while it uploads, vod-side.js (RevuVodSide) the side column; all of
+ * them load first.
  *
  * /vod-meta/<id> gives the expiry, quality, format and the sharer's markers document.
  *   - An MP4 share (no format) streams from /vod-file/<id> once its upload is complete.
@@ -14,6 +15,9 @@
  * Polling never runs while the tab is hidden, and asks again as soon as it is shown.
  * Marker and note times are GAME seconds; the lane maps them to video time.
  * Everything the server sends is set with textContent, never parsed as HTML.
+ *
+ * The side column (vod-side.js) shows Notes or Events: the viewer's own bookmarks and clips,
+ * the sharer's notes, and the game's events with a filter.
  */
 (function (root) {
   'use strict';
@@ -33,11 +37,6 @@
   var track = $('vod-lane-track');
   var uploaded = $('vod-lane-uploaded');
   var playhead = $('vod-lane-playhead');
-  var notesPanel = $('vod-notes');
-  var notesList = $('vod-notes-list');
-  var notesBlock = $('vod-notes-block');
-  var eventsBlock = $('vod-events');
-  var eventsList = $('vod-events-list');
   var fill = $('vod-lane-fill');
   var tip = $('vod-lane-tip');
   var axis = $('vod-lane-axis');
@@ -46,7 +45,6 @@
   var liveEdge = null;
   var controls = null;
   var ink = null;
-  var eventEntries = [];
   var meta = null;
   var live = null;
   var expiryTimer = null;
@@ -58,7 +56,14 @@
   var onRetry = null;
   var laneLength = 0;
   var marks = [];
-  var noteEntries = [];
+  var rangeEl = $('vod-lane-range');
+  // The side column (vod-side.js): notes, the viewer's own and the sharer's, and the events.
+  var side = root.RevuVodSide ? root.RevuVodSide.attach({ root: root, doc: document, video: video, $: $, V: V, id: id,
+    offset: function () { return V.offsetOf(meta && meta.meta); },
+    length: function () { return laneLength; },
+    redraw: function () { if (lastMoments) drawMoments(lastMoments); } }) : null;
+  var markMoment = root.RevuVodSide ? function (button, item, label) { return root.RevuVodSide.markMoment(V, button, item, label); }
+    : function () { return ''; };
 
   function show(name) {
     Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
@@ -217,6 +222,7 @@
     if (panels.missing.hidden === false) return false;
     expiryTimer = setInterval(renderExpiry, 60000);
     attachControls();
+    if (side) side.start();
     return true;
   }
 
@@ -238,25 +244,13 @@
     });
   }
 
-  // A moment past the uploaded edge stays a button: pressing it arms "jump there when it
-  // arrives" (aria-pressed), and its name says when it should arrive.
-  function markMoment(button, item, label) {
-    var suffix = V.pendingSuffix(item);
-    button.classList.toggle('is-pending', !!item.pending);
-    button.classList.toggle('is-armed', !!item.armed);
-    if (item.pending) button.setAttribute('aria-pressed', item.armed ? 'true' : 'false');
-    else button.removeAttribute('aria-pressed');
-    if (label) button.setAttribute('aria-label', label + suffix);
-    return suffix;
-  }
-
   // Ticks are rebuilt only when the moments change; otherwise they update in place, so
   // keyboard focus survives every upload update.
   function drawLane(items, choose) {
     var same = items.length === marks.length && items.every(function (item, i) { return item.vt === marks[i].item.vt && item.aria === marks[i].item.aria; });
     if (!same) {
       while (track.firstChild) track.removeChild(track.firstChild);
-      [uploaded, fill, playhead, tip].forEach(function (el) { if (el) track.appendChild(el); });
+      [uploaded, rangeEl, fill, playhead, tip].forEach(function (el) { if (el) track.appendChild(el); });
       marks = items.map(function (item) {
         var entry = { button: document.createElement('button'), item: item, choose: choose };
         entry.button.type = 'button';
@@ -292,64 +286,6 @@
     return el;
   }
 
-  // A side list of rows (notes, or events to watch), rebuilt only when its rows change so
-  // keyboard focus survives every upload update. `parts(row)` gives a row's own spans and
-  // `name(row)` the name its tooltip gives.
-  function drawRows(list, entries, rows, choose, name, parts) {
-    var same = rows.length === entries.length && rows.every(function (row, i) {
-      var was = entries[i].row;
-      return row.vt === was.vt && row.aria === was.aria && row.text === was.text;
-    });
-    if (!same) {
-      while (list.firstChild) list.removeChild(list.firstChild);
-      entries = rows.map(function (row) {
-        var li = document.createElement('li');
-        var button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'vod-note';
-        parts(row).forEach(function (el) { button.appendChild(el); });
-        var entry = { button: button, row: row, choose: choose, suffix: null };
-        button.addEventListener('click', function () { entry.choose(entry.row); });
-        button.addEventListener('mousedown', keepFocus);
-        li.appendChild(button);
-        list.appendChild(li);
-        return entry;
-      });
-    }
-    entries.forEach(function (entry, i) {
-      entry.row = rows[i];
-      entry.choose = choose;
-      // A row keeps its text as its name; a pending one gets a visually hidden suffix.
-      var suffix = markMoment(entry.button, entry.row, '');
-      if (suffix && !entry.suffix) {
-        entry.suffix = span('visually-hidden');
-        entry.button.appendChild(entry.suffix);
-      }
-      if (entry.suffix) entry.suffix.textContent = suffix;
-      entry.button.title = suffix ? entry.row.time + ' ' + name(entry.row) + ' (' + suffix.slice(2) + ')' : '';
-    });
-    return entries;
-  }
-
-  function drawNotes(rows, choose) {
-    noteEntries = drawRows(notesList, noteEntries, rows, choose, function (row) { return row.kind; }, function (row) {
-      var parts = [span('vod-note-time', row.time), span('vod-note-kind', row.kind)];
-      if (row.text) parts.push(span('vod-note-text', row.text));
-      return parts;
-    });
-    notesBlock.hidden = rows.length === 0;
-  }
-
-  // Events to watch, as in the app's reviewer: time, name and the event's color.
-  function drawEvents(items, choose) {
-    eventEntries = drawRows(eventsList, eventEntries, items, choose, function (item) { return item.label; }, function (item) {
-      var dot = span('vod-event-dot is-' + item.tone);
-      dot.setAttribute('aria-hidden', 'true');
-      return [span('vod-note-time', item.time), span('vod-note-kind', item.label), dot];
-    });
-    eventsBlock.hidden = items.length === 0;
-  }
-
   // Clock ticks under the lane (game time), redrawn only when they change.
   function drawAxis(doc) {
     var ticks = V.axisTicks(laneLength, V.offsetOf(doc));
@@ -368,20 +304,19 @@
   // { edge, rate, armed } and the lane spans `length`, the whole game (its fill shows the upload).
   function drawMoments(o) {
     lastMoments = o;
-    var doc = meta && meta.meta;
+    var doc = meta && meta.meta && typeof meta.meta === 'object' ? meta.meta : null;
     laneLength = Number(o.length) || 0;
     liveEdge = o.live ? Number(o.live.edge) : null;
     // Shown before it is measured: a hidden lane is 0 px wide.
     lane.hidden = !(laneLength > 0);
-    var items = V.laneItems(doc, laneLength, o.live, labelGap());
-    drawLane(items, o.choose);
+    // A clip plays to its end and pauses there (vod-side.js).
+    var choose = side ? side.playing(o.choose) : o.choose;
+    // The viewer's own notes join the sharer's on the lane.
+    var items = V.laneItems(side ? side.laneDoc(doc) : doc, laneLength, o.live, labelGap());
+    drawLane(items, choose);
     drawAxis(doc);
-    var rows = V.noteRows(doc, o.live);
-    drawNotes(rows, o.choose);
-    drawEvents(items.filter(function (item) { return !item.note; }), o.choose);
-    var side = rows.length > 0 || !eventsBlock.hidden;
-    notesPanel.hidden = !side;
-    panels.game.classList.toggle('has-notes', side);
+    var shown = side ? side.draw({ doc: doc, live: o.live, items: items, choose: choose }) : false;
+    panels.game.classList.toggle('has-notes', shown);
     updatePlayhead();
     if (controls) controls.paint();
   }
@@ -477,5 +412,6 @@
     showState('missing');
     return;
   }
+
   fetchMeta().then(route, function () { showState('missing'); });
 })(globalThis);

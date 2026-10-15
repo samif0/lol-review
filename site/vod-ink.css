@@ -1,0 +1,134 @@
+/* The pen (vod-ink.js) on the shared game page (vod.html) and the shared clip page
+ (clip.html): the canvas covers the picture and takes the pointer only while drawing; the
+ palette floats at the top of the picture. Ink colors fall back to older tokens, so a
+ cached tokens.css from before the pen still draws in color. */
+
+.vod-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.vod-ink.is-active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.vod-ink.is-erasing {
+  cursor: cell;
+}
+
+.vod-ink-bar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  /* As wide as its tools: an element placed at left: 50% would otherwise shrink to half the
+     picture and wrap. */
+  width: max-content;
+  max-width: calc(100% - 20px);
+  padding: 4px 6px;
+  border: var(--raised-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  transform: translateX(-50%);
+}
+
+.vod-ink-bar[hidden] {
+  display: none;
+}
+
+.vod-ink-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.vod-ink-btn,
+.vod-ink-size {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--t2);
+  cursor: pointer;
+}
+
+.vod-ink-btn:hover,
+.vod-ink-size:hover {
+  background: var(--hover);
+  color: var(--t1);
+}
+
+.vod-ink-btn[aria-pressed="true"],
+.vod-ink-size[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--t1);
+}
+
+.vod-ink-btn:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.vod-ink-btn:focus-visible,
+.vod-ink-size:focus-visible,
+.vod-ink-swatch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.vod-ink-swatch {
+  width: 20px;
+  height: 20px;
+  margin: 0 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.vod-ink-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--t1);
+  outline-offset: 2px;
+}
+
+.vod-ink-swatch.is-red { background: var(--ink-red, var(--danger)); }
+.vod-ink-swatch.is-yellow { background: var(--ink-yellow, var(--pending)); }
+.vod-ink-swatch.is-green { background: var(--ink-green, var(--ok)); }
+.vod-ink-swatch.is-blue { background: var(--ink-blue, var(--focus)); }
+.vod-ink-swatch.is-white { background: var(--ink-white, var(--t1)); }
+
+.vod-ink-size span {
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.vod-ink-size.is-0 span { width: 4px; height: 4px; }
+.vod-ink-size.is-1 span { width: 7px; height: 7px; }
+.vod-ink-size.is-2 span { width: 11px; height: 11px; }
+
+/* Phones: the palette in one row that scrolls sideways, so it covers less of a small picture. */
+
+@media (max-width: 639.98px) {
+  .vod-ink-bar {
+    top: 6px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: calc(100% - 12px);
+    overflow-x: auto;
+  }
+}

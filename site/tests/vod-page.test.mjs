@@ -13,8 +13,10 @@ const html = read('vod.html');
 const lib = read('vod-lib.js');
 const playerScript = read('vod-player.js');
 const liveScript = read('vod-live.js');
+const notesScripts = [read('review-notes.js'), read('review-notes-ui.js')];
+const sideScript = read('vod-side.js');
 const script = read('vod.js');
-const scripts = [lib, read('vod-ink.js'), read('vod-controls.js'), playerScript, liveScript, script].join('\n');
+const scripts = [lib, ...notesScripts, read('vod-ink.js'), read('vod-controls.js'), playerScript, liveScript, sideScript, script].join('\n');
 const flush = async (rounds = 8) => { for (let i = 0; i < rounds; i += 1) await new Promise(resolve => setImmediate(resolve)); };
 const flat = text => String(text).replace(/[  ]/g, ' ');
 
@@ -63,7 +65,8 @@ function page({ pathname = '/v/Abc1234', search = '', hostname = 'revu.lol', rou
   document.byId.get('vod-lane-track').appendChild(document.byId.get('vod-lane-playhead'));
   const requests = [], timers = [], timeouts = [];
   const context = {
-    document, URLSearchParams, location: { pathname, search, hostname },
+    document, URLSearchParams, location: { pathname, search, hostname, href: `https://${hostname}${pathname}${search}` },
+    TextEncoder, TextDecoder, btoa, atob,
     Date: class extends Date { static now() { return now; } },
     setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearInterval: () => {},
     setTimeout: (fn, ms) => { timeouts.push({ fn, ms, live: true }); return timeouts.length; },
@@ -80,7 +83,7 @@ function page({ pathname = '/v/Abc1234', search = '', hostname = 'revu.lol', rou
     },
   };
   vm.createContext(context);
-  for (const source of [lib, playerScript, liveScript, script]) vm.runInContext(source, context);
+  for (const source of [lib, ...notesScripts, playerScript, liveScript, sideScript, script]) vm.runInContext(source, context);
   const $ = id => document.byId.get(id);
   // Runs the one pending timeout (the next poll), as the browser would after its delay.
   const nextPoll = async () => {
@@ -239,11 +242,21 @@ test('a ready game renders its header, banner, lane and notes as text, and marke
   const rows = run.$('vod-notes-list').children;
   assert.equal(rows.length, 2);
   const first = rows[0].children[0];
-  assert.deepEqual(first.children.map(child => child.textContent), ['6:40', 'Clip', hostile]);
-  assert.equal(first.children[2].children.length, 0, 'note text stays text');
+  assert.deepEqual(first.children.map(child => child.textContent), ['6:40', 'Clip', '30s', hostile], 'a clip shows its length');
+  assert.equal(first.children[3].children.length, 0, 'note text stays text');
   assert.deepEqual(rows[1].children[0].children.map(child => child.textContent), ['10:55', 'Bookmark']);
+  // Notes and Events, one at a time: Notes first, with the counts on the switch.
+  assert.deepEqual([run.$('vod-side-tabs').hidden, run.$('vod-panel-notes').hidden, run.$('vod-panel-events').hidden], [false, false, true]);
+  assert.deepEqual([run.$('vod-notes-count').textContent, run.$('vod-events-count').textContent], ['2', '2']);
   first.click();
   assert.equal(run.video.currentTime, 412);
+  // A clip plays to its end (430 s of game time, 442 s of video) and pauses there.
+  run.video.currentTime = 441;
+  run.video.dispatch('timeupdate');
+  assert.equal(run.video.paused, false);
+  run.video.currentTime = 442.2;
+  run.video.dispatch('timeupdate');
+  assert.equal(run.video.paused, true, 'the clip ended');
   run.video.currentTime = 1000;
   run.video.dispatch('timeupdate');
   assert.equal(run.$('vod-lane-playhead').style.left, '50%');
@@ -258,13 +271,15 @@ test('the quality pill shows the frame rate when the share has one, and nothing 
   }
 });
 
-test('without notes or markers the side column stays hidden and the lane is still the seek bar; a playback error rechecks the meta', async () => {
+test('without notes or markers the side column holds only the viewer\'s notes and the lane is still the seek bar; a playback error rechecks the meta', async () => {
   let current = meta({}, { markers: [], notes: [] });
   const run = page({ hostname: 'localhost', search: '?proxy=http://localhost:8787', routes: { '/vod-meta/Abc1234': () => current } });
   await flush();
   assert.equal(run.video.src, 'http://localhost:8787/vod-file/Abc1234');
   assert.equal(run.$('vod-lane').hidden, false, 'the lane is the seek bar, moments or not');
-  assert.equal(run.$('vod-notes').hidden, true);
+  // Bookmark and Clip are always there; with no events there is no switch, and no sharer's notes block.
+  assert.deepEqual([run.$('vod-notes').hidden, run.$('vod-review').hidden, run.$('vod-side-tabs').hidden, run.$('vod-panel-notes').hidden,
+    run.$('vod-notes-block').hidden, run.$('vod-mine-empty').hidden], [false, false, true, false, true, false]);
   current = meta({ play_limited: true });
   run.video.dispatch('error');
   await flush();
@@ -433,8 +448,12 @@ test('the page is unlisted, has no video card or inline script, and offers a rep
   assert.match(html, /<meta property="og:description" content="Watch a League of Legends game shared with Revu\." \/>/);
   assert.match(html, /<meta property="og:image" content="https:\/\/revu\.lol\/og-image\.jpg" \/>/);
   assert.doesNotMatch(html, /og:video|twitter:player|twitter:card/);
-  for (const asset of ['/tokens.css', '/styles.css', '/vod.css', '/vod-reviewer.css']) assert.match(html, new RegExp(`<link rel="stylesheet" href="${asset}" />`));
-  assert.match(html, /<script src="\/vod-lib\.js" defer><\/script>\s*<script src="\/vod-ink\.js" defer><\/script>\s*<script src="\/vod-controls\.js" defer><\/script>\s*<script src="\/vod-player\.js" defer><\/script>\s*<script src="\/vod-live\.js" defer><\/script>\s*<script src="\/vod\.js" defer><\/script>/);
+  for (const asset of ['/tokens.css', '/styles.css', '/vod.css', '/vod-side.css', '/review-notes.css', '/vod-reviewer.css', '/vod-ink.css']) {
+    assert.match(html, new RegExp(`<link rel="stylesheet" href="${asset}" />`));
+  }
+  const order = [...html.matchAll(/<script src="\/([\w.-]+)" defer><\/script>/g)].map(m => m[1]);
+  assert.deepEqual(order, ['vod-lib.js', 'review-notes.js', 'review-notes-ui.js', 'vod-ink.js', 'vod-controls.js', 'vod-player.js',
+    'vod-live.js', 'vod-side.js', 'vod.js'], 'every helper loads before the page script that uses it');
   assert.doesNotMatch(html, /<script\b(?![^>]*\bsrc=)[^>]*>/);
   for (const tag of html.match(/<[^>]+>/g)) assert.doesNotMatch(tag, /\son[a-z]+\s*=/i, tag);
   assert.doesNotMatch(html, /(?:href|src)="(?!\/|https:\/\/)[^"]*"/, 'every local path is absolute (the page is served at /v/<id>)');

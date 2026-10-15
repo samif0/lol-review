@@ -137,7 +137,7 @@
     var mute = tbtn('volume', 'Mute', 'Mute (M)', null, function () { video.muted = !video.muted; });
     var pen = tbtn('pen', 'Draw on the video', 'Draw on the video (D)', 'D', function () { if (ink) ink.toggle(); });
     pen.classList.add('tpen');
-    var full = tbtn('enlarge', 'Full screen', 'Full screen (F)', null, function () { toggleFull(); });
+    var full = tbtn('enlarge', 'Full screen', 'Full screen (F)', 'F', function () { toggleFull(); });
     [back, play, fwd, time, spring, rate, mute, pen, full].forEach(function (el) { bar.appendChild(el); });
     if (!ink) pen.hidden = true;
 

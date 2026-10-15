@@ -82,7 +82,7 @@ test('meta states, waiting copy, polling and the line under the player', () => {
   assert.equal(say({ atEdge: true }), 'Waiting for more of the game to upload');
   assert.equal(say({ paused: true, edge: 760 }), 'The sharer started another game. You can watch up to 12:40; the rest uploads after it.');
   assert.equal(say({ stalled: true, edge: 760 }), 'The upload has stalled. You can watch up to 12:40.');
-  assert.equal(say({ ended: true }), 'The whole game is here.');
+  assert.equal(say({ ended: true }), 'The whole game has uploaded.', 'announced only: the page shows no line for it');
   assert.equal(say({ ended: true, truncated: true, edge: 2110 }), 'The sharer stopped before the end. Shared up to 35:10.');
   assert.equal(say({ gone: true }), 'The sharer stopped sharing this game.');
   // 0.85x: from 12:46 the edge reaches the end in (2256 - 766) / 0.85 = 1753 s. Playing the rest from 1:40

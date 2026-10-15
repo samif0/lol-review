@@ -1,17 +1,24 @@
 /*
- * Shared full game page (vod.html at /v/<id>): an expiry banner, the player in the
- * app reviewer's shape (its transport, pen and timeline are in vod-reviewer.css), the
- * header, the events to watch and the sharer's notes when they chose to include them;
- * before that, the upload's progress while the sharer's upload runs. Before the first
- * play a Play button sits over the player; a game that plays while it uploads adds one
- * quiet line under it and the uploaded part of the lane. Same Neutral system as
- * clip.css: tokens only (tokens.css), hairlines, no gradients or uppercase. Mobile
- * first: one column, then a 340px side column at 1024px and up.
+ * Shared full game page (vod.html at /v/<id>): the player in the app reviewer's shape (its
+ * transport and timeline are in vod-reviewer.css, the pen in vod-ink.css), the header, and a
+ * side column with the viewer's own notes, the sharer's notes and the game's events; before
+ * that, the upload's progress while the sharer's upload runs. Before the first play a Play
+ * button sits over the player; a game that plays while it uploads adds one quiet line under it
+ * and the uploaded part of the lane. Same Neutral system as clip.css: tokens only (tokens.css),
+ * hairlines, no gradients or uppercase. Mobile first: one column, then the side column at
+ * 1200px and up, where the player is as large as the window's height lets the whole deck fit.
  */
+
+.vod-watch {
+  /* Below the picture: the transport, the timeline and their gaps. Above it: the header and
+     the page's top padding. The whole deck fits the window when the picture is this tall. */
+  --vod-deck-chrome: 268px;
+  --vod-fit: calc((100vh - var(--vod-deck-chrome)) * 16 / 9);
+}
 
 .vod-main {
   width: 100%;
-  max-width: var(--container);
+  max-width: 2240px;
   margin: 0 auto;
   padding: 24px var(--gutter) 40px;
 }
@@ -26,16 +33,6 @@
 .vod-layout > *,
 .vod-head > * {
   min-width: 0;
-}
-
-.vod-banner {
-  margin-bottom: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-row);
-  background: var(--surface);
-  color: var(--t2);
-  font-size: 14px;
 }
 
 /* Player: shaped like the app's VOD reviewer. The deck goes full screen as one: the picture
@@ -56,7 +53,7 @@
 .vod-video {
   display: block;
   width: 100%;
-  max-height: 72vh;
+  max-height: max(320px, calc(100vh - var(--vod-deck-chrome)));
   aspect-ratio: 16 / 9;
   object-fit: contain;
   background: var(--well);
@@ -114,7 +111,7 @@
   text-align: center;
 }
 
-/* Before the first play of a game shared in segments: one large Play button, the accent. */
+/* Before the first play: one large Play button, the accent. */
 .vod-play {
   position: absolute;
   top: 50%;
@@ -216,6 +213,12 @@
   font-size: 14px;
 }
 
+.vod-expiry {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .vod-pill {
   display: inline-flex;
   align-items: center;
@@ -230,7 +233,6 @@
 .vod-foot {
   display: grid;
   gap: 4px;
-  margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
   color: var(--muted);
@@ -245,90 +247,6 @@
 .vod-foot-id {
   font-family: var(--font-mono);
   white-space: nowrap;
-}
-
-/* Player notes */
-
-.vod-notes {
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--surface);
-}
-
-.vod-notes-title {
-  margin-bottom: 8px;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.vod-notes-list {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.vod-note {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 4px 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-row);
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.vod-note:hover,
-.vod-note:focus-visible {
-  background: var(--hover);
-}
-
-.vod-note-time {
-  color: var(--t2);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.vod-note-kind {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.vod-note-text {
-  overflow-wrap: anywhere;
-  line-height: 1.5;
-}
-
-.vod-side-block + .vod-side-block {
-  margin-top: 18px;
-}
-
-/* Events to watch, as in the app's reviewer: the time, the name and the event's color. */
-.vod-events-list .vod-note {
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.vod-events-list .vod-note-kind {
-  color: var(--text);
-  font-size: 14px;
-}
-
-.vod-event-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--evc);
 }
 
 /* Loading and unavailable states */
@@ -424,15 +342,33 @@
   .vod-lane-uploaded { transition: none; }
 }
 
-@media (min-width: 1024px) {
-  .vod-layout.has-notes {
-    grid-template-columns: minmax(0, 1fr) 340px;
+/* Wide windows: the player beside a 320px side column, both centered. The player is as wide
+   as the window's height lets the whole deck show at once, never under 960px when there is
+   room, and never wider than the room beside the side column. */
+@media (min-width: 1200px) {
+  /* The header and footer line up with the player and the side column. */
+  .vod-watch .site-header-inner,
+  .vod-watch .site-footer-inner {
+    max-width: calc(max(960px, var(--vod-fit)) + 344px + 2 * var(--gutter));
   }
 
-  .vod-notes {
-    position: sticky;
-    top: calc(var(--header-h) + 16px);
-    max-height: calc(100vh - var(--header-h) - 32px);
-    overflow: auto;
+  .vod-layout {
+    grid-template-columns: min(100%, max(960px, var(--vod-fit)));
+    justify-content: center;
+  }
+
+  .vod-layout.has-notes {
+    grid-template-columns: min(calc(100% - 344px), max(960px, var(--vod-fit))) 320px;
+  }
+
+  /* The footer under the player; the side column beside both. */
+  .vod-layout.has-notes > .vod-notes {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .vod-layout.has-notes > .vod-foot {
+    grid-column: 1;
+    grid-row: 2;
   }
 }

@@ -26,6 +26,16 @@
   <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/clip.css" />
+  <link rel="stylesheet" href="/review-notes.css" />
+  <link rel="stylesheet" href="/vod-ink.css" />
+  <link rel="stylesheet" href="/clip-coach.css" />
+
+  <!-- The coach tools: the pen and review notes (clip-coach.js). The player is the inline script
+       at the end of the page, pinned by hash in _headers; these only add to it. -->
+  <script src="/review-notes.js" defer></script>
+  <script src="/review-notes-ui.js" defer></script>
+  <script src="/vod-ink.js" defer></script>
+  <script src="/clip-coach.js" defer></script>
 </head>
 <body class="clip-watch">
   <header class="site-header">
@@ -63,13 +73,16 @@
               <span class="clip-track-rail">
                 <span id="clip-track-fill" class="clip-track-fill"></span>
               </span>
+              <span id="clip-track-range" class="clip-track-range" aria-hidden="true" hidden></span>
+              <span id="clip-track-marks" class="clip-track-marks" aria-hidden="true"></span>
               <span id="clip-track-thumb" class="clip-track-thumb"></span>
             </div>
             <span id="clip-total-time" class="clip-time">0:00</span>
             <button id="clip-cc" class="clip-icon-button" type="button" aria-pressed="true" aria-label="Captions" hidden>CC</button>
             <button id="clip-speed" class="clip-icon-button is-speed" type="button" aria-label="Playback speed">1.0x</button>
             <button id="clip-mute" class="clip-icon-button" type="button">Mute</button>
-            <button id="clip-fullscreen" class="clip-icon-button" type="button" aria-label="Fullscreen">Full</button>
+            <button id="clip-draw" class="clip-icon-button" type="button" aria-pressed="false" aria-label="Draw on the video" title="Draw on the video (D)" hidden>Draw <kbd aria-hidden="true">D</kbd></button>
+            <button id="clip-fullscreen" class="clip-icon-button" type="button" aria-label="Fullscreen" title="Full screen (F)">Full <kbd aria-hidden="true">F</kbd></button>
           </div>
         </div>
 
@@ -98,6 +111,35 @@
       </div>
 
       <aside class="clip-aside" aria-label="Clip details">
+        <!-- Review notes: bookmarks (B) and clips inside this clip (I, then O), kept in this
+             browser until Copy link with notes puts them in a link. -->
+        <section id="clip-notes" class="clip-side-panel clip-notes" aria-labelledby="clip-notes-title" hidden>
+          <h2 id="clip-notes-title" class="clip-side-title">Notes</h2>
+          <div class="vod-add" role="group" aria-label="Add a note">
+            <button id="clip-add-bookmark" class="vod-add-btn" type="button" title="Bookmark this moment (B)">Bookmark <kbd aria-hidden="true">B</kbd></button>
+            <button id="clip-add-clip" class="vod-add-btn" type="button" aria-pressed="false" title="Start a clip here (I), then end it with O"><span id="clip-add-clip-label">Clip</span> <kbd id="clip-add-clip-key" aria-hidden="true">I</kbd></button>
+          </div>
+          <form id="clip-composer" class="vod-composer" hidden>
+            <p id="clip-composer-when" class="vod-composer-when" role="status"></p>
+            <label for="clip-composer-text" class="visually-hidden">Note</label>
+            <textarea id="clip-composer-text" class="vod-composer-text" rows="2" maxlength="500" placeholder="What should they see here?" autocomplete="off"></textarea>
+            <p id="clip-composer-hint" class="vod-composer-hint" role="status" hidden></p>
+            <div class="vod-composer-actions">
+              <button class="vod-save" type="submit">Save</button>
+              <button id="clip-composer-cancel" class="vod-cancel" type="button">Cancel</button>
+              <span class="vod-composer-keys">Enter saves, Esc cancels</span>
+            </div>
+          </form>
+          <p id="clip-notes-status" class="vod-notes-status" role="status" aria-live="polite"></p>
+          <p id="clip-mine-empty" class="vod-side-empty">Bookmark a moment or clip part of this clip. Your notes stay in this browser until you copy the link.</p>
+          <ol id="clip-mine-list" class="vod-notes-list vod-mine-list"></ol>
+          <div id="clip-share" class="vod-share" hidden>
+            <button id="clip-copy-notes" class="vod-copy" type="button">Copy link with notes</button>
+            <p id="clip-copy-status" class="vod-copy-status" role="status" aria-live="polite"></p>
+            <input id="clip-copy-link" class="vod-copy-link" type="text" readonly spellcheck="false" aria-label="Link with notes" hidden />
+          </div>
+        </section>
+
         <section id="clip-transcript" class="clip-side-panel clip-transcript" hidden aria-label="Transcript">
           <div class="clip-transcript-head">
             <div>

@@ -10,7 +10,8 @@ const site = new URL('../', import.meta.url);
 const appUi = new URL('../../desktop/ui/', import.meta.url);
 const read = (name, base = site) => readFileSync(new URL(name, base), 'utf8').replace(/\r\n/g, '\n');
 const stripComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
-const PAGE_CSS = ['styles.css', 'landing.css', 'webapp.css', 'account.css', 'clip.css', 'vod.css', 'vod-reviewer.css'];
+const PAGE_CSS = ['styles.css', 'landing.css', 'webapp.css', 'account.css', 'clip.css', 'clip-coach.css', 'vod.css', 'vod-side.css',
+  'review-notes.css', 'vod-reviewer.css', 'vod-ink.css'];
 const PAGES = ['index.html', 'review.html', 'privacy.html', 'terms.html', 'discord.html', 'discord/index.html',
   'sign-in.html', 'my-clips.html', 'account.html', 'clip.html', 'vod.html'];
 

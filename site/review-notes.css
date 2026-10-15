@@ -1,0 +1,285 @@
+/*
+ * Review notes (review-notes.js) on the shared game page (vod.html) and the shared clip page
+ * (clip.html): Bookmark (B) and Clip (I, then O), the composer, the note rows with a delete
+ * button on the viewer's own, and Copy link with notes. Both pages use these class names.
+ */
+
+.vod-notes-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vod-note {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vod-note:hover,
+.vod-note:focus-visible {
+  background: var(--hover);
+}
+
+.vod-note-time {
+  color: var(--t3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vod-note-kind,
+.vod-note-length {
+  color: var(--t3);
+  font-size: 12px;
+}
+
+.vod-note-text {
+  grid-column: 1 / -1;
+  color: var(--t1);
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.vod-side-empty {
+  padding: 4px 8px 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.vod-side-empty[hidden] {
+  display: none;
+}
+
+.vod-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.vod-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--btn-radius);
+  background: transparent;
+  color: var(--t1);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.vod-add-btn:hover {
+  background: var(--hover);
+}
+
+.vod-add-btn[aria-pressed="true"] {
+  border-color: var(--mk-clip, var(--pending));
+  background: var(--selected);
+}
+
+.vod-add-btn kbd {
+  height: 18px;
+  min-width: 18px;
+  background: transparent;
+  color: var(--t3);
+  font: 500 11px/1 var(--f-data);
+}
+
+.vod-composer {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+
+.vod-composer[hidden] {
+  display: none;
+}
+
+.vod-composer-when {
+  color: var(--t2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vod-composer-text {
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.vod-composer-hint {
+  color: var(--pending);
+  font-size: 13px;
+}
+
+.vod-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.vod-save {
+  min-height: 32px;
+  padding: 0 16px;
+  border: 1px solid var(--primary);
+  border-radius: var(--btn-radius);
+  background: var(--primary);
+  color: var(--primary-ink);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.vod-save:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.vod-cancel,
+.vod-copy,
+.vod-undo {
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--t2);
+  font: 500 13px/1 var(--font-ui);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.vod-cancel:hover,
+.vod-copy:hover,
+.vod-undo:hover {
+  color: var(--t1);
+  text-decoration-color: var(--t1);
+}
+
+.vod-composer-keys {
+  color: var(--t3);
+  font-size: 12px;
+}
+
+.vod-notes-status {
+  padding: 0 8px;
+  color: var(--t2);
+  font-size: 13px;
+}
+
+.vod-notes-status:empty {
+  display: none;
+}
+
+.vod-mine-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.vod-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t3);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.vod-mine-list li:hover .vod-delete,
+.vod-delete:focus-visible {
+  opacity: 1;
+}
+
+.vod-delete:hover {
+  background: var(--hover);
+  color: var(--t1);
+}
+
+.vod-share {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0 4px;
+}
+
+.vod-share[hidden] {
+  display: none;
+}
+
+.vod-copy-status {
+  color: var(--t2);
+  font-size: 13px;
+}
+
+.vod-copy-status:empty {
+  display: none;
+}
+
+.vod-copy-link {
+  width: 100%;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* Touch screens: the delete buttons always show; nothing hides behind a hover. Phones get
+   44px targets, and a 16px field so the page does not zoom in on it. */
+@media (hover: none) {
+  .vod-delete {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 639.98px) {
+  .vod-add-btn,
+  .vod-save,
+  .vod-cancel,
+  .vod-copy {
+    min-height: 44px;
+  }
+
+  .vod-delete {
+    width: 44px;
+    height: 44px;
+  }
+
+  .vod-composer-text {
+    font-size: 16px;
+  }
+}

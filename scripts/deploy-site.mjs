@@ -6,7 +6,8 @@
 //   node scripts/deploy-site.mjs --stage-only  stage without deploying, to inspect the upload
 // Local preview commands are in site/README.md.
 import { spawnSync } from 'node:child_process';
-import { copyFile, lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardDeploy, repositoryRoot } from './guard-deploy.mjs';
@@ -59,6 +60,34 @@ async function listFiles(root, relative = '') {
   return files;
 }
 
+// Cloudflare keeps a page's stylesheets and scripts in the browser for hours, while the pages
+// themselves are checked on every load, so after a deploy a viewer could meet a new page with
+// the CSS or JS it replaced. Each staged page therefore asks for the exact files it was staged
+// with: href="/vod.css" becomes href="/vod.css?v=<12 hex of its SHA-256>". Only <link> and
+// <script> tags are touched, never inline script text (clip.html's is pinned by hash in
+// _headers), and only root-relative .css and .js files that are staged themselves.
+const assetTag = /<(?:link|script)\b[^>]*>/gi;
+const assetAttribute = /(\s(?:href|src)=")(\/[A-Za-z0-9._/-]+\.(?:css|js))(")/;
+const inlineScript = /<script\b(?![^>]*\ssrc=)[^>]*>[\s\S]*?<\/script>/gi;
+
+/** The tags of `html` that name a file in `versions` (path -> version), with ?v=<version> added. */
+export function fingerprintHtml(html, versions) {
+  const tags = text => text.replace(assetTag, tag => tag.replace(assetAttribute, (match, before, url, after) =>
+    (versions.has(url) ? `${before}${url}?v=${versions.get(url)}${after}` : match)));
+  // The text of an inline script is never touched, whatever it says.
+  let out = '', last = 0;
+  for (const block of html.matchAll(inlineScript)) {
+    out += tags(html.slice(last, block.index)) + block[0];
+    last = block.index + block[0].length;
+  }
+  return out + tags(html.slice(last));
+}
+
+/** The first 12 hex digits of the SHA-256 of `content`. */
+export function contentVersion(content) {
+  return createHash('sha256').update(content).digest('hex').slice(0, 12);
+}
+
 /** Copies the public files of `source` into a fresh `destination`; returns their relative paths. */
 export async function stageSite(source = siteRoot, destination = stageRoot) {
   const files = await listFiles(source);
@@ -77,6 +106,16 @@ export async function stageSite(source = siteRoot, destination = stageRoot) {
     if (!(await lstat(from)).isFile()) throw new Error(`Expected a regular file: site/${file}`);
     await mkdir(path.dirname(to), { recursive: true });
     await copyFile(from, to);
+  }
+  const versions = new Map();
+  for (const file of published.filter(name => /\.(?:css|js)$/.test(name))) {
+    versions.set(`/${file}`, contentVersion(await readFile(path.join(destination, file))));
+  }
+  for (const page of published.filter(name => name.endsWith('.html'))) {
+    const staged = path.join(destination, page);
+    const html = await readFile(staged, 'utf8');
+    const versioned = fingerprintHtml(html, versions);
+    if (versioned !== html) await writeFile(staged, versioned);
   }
   return published;
 }
