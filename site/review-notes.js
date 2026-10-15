@@ -7,11 +7,12 @@
  * from it.
  *
  * A note is { t, end, text }: t, and end for a clip, in the page's own clock (game seconds
- * on vod.html, seconds into the clip on clip.html); a bookmark's end is null.
+ * on vod.html, seconds into the clip on clip.html); a bookmark's end is null. A note saved
+ * while the pen's ink was on screen also has ink: its drawing, in the compact form below.
  *
- * This file is the data: cleaning, links (encode, decode), storage, and adopt(), which reads a
- * share's notes and adds a link's. review-notes-ui.js runs the composer and Copy link with
- * notes. Everything here is pure or takes its storage as an argument, for the tests.
+ * This file is the data: cleaning, drawings, links (encode, decode), storage, and adopt(),
+ * which reads a share's notes and adds a link's. review-notes-ui.js runs the composer and Copy
+ * link with notes. Everything here is pure or takes its storage as an argument, for the tests.
  */
 (function (root) {
   'use strict';
@@ -29,6 +30,21 @@
   // game or clip is kept for 3 days).
   var KEEP_MS = 14 * 86400000;
   var PREFIX = 'revu.notes.';
+  // A note's drawing (vod-ink.js's strokes), as storage and links keep it: one array per stroke,
+  // [tool, color, size, x1, y1, x2, y2, ...]. Tool and color are indexes into these lists, size
+  // an index into the pen's three widths, and the points are whole thousandths of the picture
+  // (0..1000, from its left and its top). The lists are the format: only ever add to their ends.
+  var INK_TOOLS = ['pen', 'highlighter', 'arrow', 'rect', 'ellipse'];
+  var INK_COLORS = ['red', 'yellow', 'green', 'blue', 'white'];
+  var INK_SIZES = 3;
+  var INK_SCALE = 1000;
+  // A note keeps at most this many strokes, points in a stroke, and points in all, so a link
+  // with drawings stays short. A freehand line first loses the points that bend it by less than
+  // INK_TOLERANCE thousandths, then more until it fits.
+  var MAX_STROKES = 32;
+  var MAX_POINTS = 64;
+  var MAX_INK_POINTS = 256;
+  var INK_TOLERANCE = 2;
   // Line breaks stay; other control characters and the bidirectional overrides (which could
   // make a note read differently from what it says) go.
   var STRIP = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
@@ -44,8 +60,149 @@
     return chars.length > MAX_TEXT ? chars.slice(0, MAX_TEXT).join('').trim() : text;
   }
 
+  // Drawings.
+
+  // A whole number from 0 up to, not including, `below`.
+  function whole(value, below) {
+    return typeof value === 'number' && value % 1 === 0 && value >= 0 && value < below;
+  }
+
+  // Arrows, boxes and circles are two corners; pen and highlighter lines any number of points.
+  function isShape(tool) {
+    return INK_TOOLS[tool] !== 'pen' && INK_TOOLS[tool] !== 'highlighter';
+  }
+
+  // One stroke from storage or a link, or null: a known tool, color and size, whole points on
+  // the picture, a shape's two corners, and a line's first MAX_POINTS points.
+  function cleanStroke(stroke) {
+    if (!Array.isArray(stroke) || stroke.length < 5 || stroke.length % 2 === 0) return null;
+    if (!whole(stroke[0], INK_TOOLS.length) || !whole(stroke[1], INK_COLORS.length) || !whole(stroke[2], INK_SIZES)) return null;
+    if (isShape(stroke[0]) && stroke.length !== 7) return null;
+    var out = stroke.slice(0, 3 + MAX_POINTS * 2);
+    for (var i = 3; i < out.length; i += 1) if (!whole(out[i], INK_SCALE + 1)) return null;
+    return out;
+  }
+
+  // A note's drawing from storage or a link, or null when it has none: its strokes, up to
+  // MAX_STROKES of them and MAX_INK_POINTS points. Anything that isn't a stroke is left out.
+  function cleanInk(ink) {
+    if (!Array.isArray(ink)) return null;
+    var out = [];
+    var total = 0;
+    for (var i = 0; i < ink.length && out.length < MAX_STROKES; i += 1) {
+      var stroke = cleanStroke(ink[i]);
+      if (!stroke) continue;
+      total += (stroke.length - 3) / 2;
+      if (total > MAX_INK_POINTS) break;
+      out.push(stroke);
+    }
+    return out.length ? out : null;
+  }
+
+  function distanceToSegment(p, a, b) {
+    var dx = b[0] - a[0];
+    var dy = b[1] - a[1];
+    var len = dx * dx + dy * dy;
+    var t = len > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len)) : 0;
+    var x = a[0] + t * dx - p[0];
+    var y = a[1] + t * dy - p[1];
+    return Math.sqrt(x * x + y * y);
+  }
+
+  // The fewest of a line's points that keep it within `tolerance` of where it was drawn
+  // (Ramer-Douglas-Peucker), first and last kept.
+  function simplify(points, tolerance) {
+    if (points.length < 3) return points;
+    var keep = [];
+    keep[0] = keep[points.length - 1] = true;
+    var spans = [[0, points.length - 1]];
+    while (spans.length) {
+      var span = spans.pop();
+      var far = -1;
+      var most = tolerance;
+      for (var i = span[0] + 1; i < span[1]; i += 1) {
+        var d = distanceToSegment(points[i], points[span[0]], points[span[1]]);
+        if (d > most) { most = d; far = i; }
+      }
+      if (far >= 0) {
+        keep[far] = true;
+        spans.push([span[0], far], [far, span[1]]);
+      }
+    }
+    return points.filter(function (p, i) { return keep[i]; });
+  }
+
+  // At most `most` of a line's points, evenly spaced, first and last kept: a long scribble is
+  // thinned before it is simplified, which takes time that grows with its points squared.
+  function thin(points, most) {
+    if (points.length <= most) return points;
+    var out = [];
+    for (var i = 0; i < most; i += 1) out.push(points[Math.round((i * (points.length - 1)) / (most - 1))]);
+    return out;
+  }
+
+  // A line simplified at `tolerance`, then harder until it has at most `most` points. Each pass
+  // works on the last one's points.
+  function fewer(points, tolerance, most) {
+    var out = simplify(points, tolerance);
+    for (var t = tolerance * 2; out.length > most; t *= 2) out = simplify(out, t);
+    return out;
+  }
+
+  // One of the pen's strokes in thousandths, or null: a known tool, color and size, each point
+  // on the picture once in a row, a shape's two corners.
+  function penLine(s) {
+    if (!s || !Array.isArray(s.points)) return null;
+    var head = [INK_TOOLS.indexOf(s.tool), INK_COLORS.indexOf(s.color), s.size];
+    if (head[0] < 0 || head[1] < 0 || !whole(head[2], INK_SIZES)) return null;
+    var thousandths = function (v) { return Math.round(Math.max(0, Math.min(1, v)) * INK_SCALE); };
+    var points = [];
+    s.points.forEach(function (p) {
+      if (!Array.isArray(p) || typeof p[0] !== 'number' || typeof p[1] !== 'number' || !isFinite(p[0]) || !isFinite(p[1])) return;
+      var q = [thousandths(p[0]), thousandths(p[1])];
+      var last = points[points.length - 1];
+      if (!last || last[0] !== q[0] || last[1] !== q[1]) points.push(q);
+    });
+    var shape = isShape(head[0]);
+    if (shape) points = points.length > 1 ? [points[0], points[points.length - 1]] : [];
+    return points.length ? { head: head, points: shape ? points : thin(points, MAX_POINTS * 8), shape: shape } : null;
+  }
+
+  // The pen's strokes (vod-ink.js strokes(): { tool, color, size, points } in 0..1 of the
+  // picture) as a note keeps them, or null when there are none. The first MAX_STROKES strokes
+  // are kept, their lines simplified harder until the drawing fits MAX_INK_POINTS.
+  function packInk(strokes) {
+    var lines = (Array.isArray(strokes) ? strokes : []).map(penLine).filter(Boolean).slice(0, MAX_STROKES);
+    var total = Infinity;
+    // Each pass works on the last one's points, twice as loosely.
+    for (var tolerance = INK_TOLERANCE; total > MAX_INK_POINTS && tolerance <= INK_SCALE * 4; tolerance *= 2) {
+      total = 0;
+      for (var i = 0; i < lines.length; i += 1) {
+        if (!lines[i].shape) lines[i].points = fewer(lines[i].points, tolerance, MAX_POINTS);
+        total += lines[i].points.length;
+      }
+    }
+    return cleanInk(lines.map(function (line) {
+      var stroke = line.head.slice();
+      line.points.forEach(function (p) { stroke.push(p[0], p[1]); });
+      return stroke;
+    }));
+  }
+
+  // A note's drawing as the pen shows it (vod-ink.js show()): [{ tool, color, size, points }].
+  function inkStrokes(ink) {
+    return (cleanInk(ink) || []).map(function (s) {
+      var points = [];
+      for (var i = 3; i < s.length; i += 2) points.push([s[i] / INK_SCALE, s[i + 1] / INK_SCALE]);
+      return { tool: INK_TOOLS[s[0]], color: INK_COLORS[s[1]], size: s[2], points: points };
+    });
+  }
+
+  // Notes.
+
   // One note in range, or null: t from 0 to MAX_T, a clip's end at least MIN_CLIP after t
-  // (closer is a bookmark), times to a tenth of a second.
+  // (closer is a bookmark), times to a tenth of a second. A drawing that can't be read is left
+  // out; the note stays.
   function cleanNote(note) {
     if (!note || typeof note !== 'object') return null;
     var t = tenth(note.t);
@@ -56,11 +213,15 @@
       if (typeof note.end !== 'number' || !isFinite(end) || end > MAX_T) return null;
       if (end - t < MIN_CLIP) end = null;
     }
-    return { t: t, end: end, text: cleanText(note.text) };
+    var out = { t: t, end: end, text: cleanText(note.text) };
+    var ink = cleanInk(note.ink);
+    if (ink) out.ink = ink;
+    return out;
   }
 
+  // Two notes are the same when their times, words and drawings are.
   function noteKey(note) {
-    return note.t + '|' + (note.end === null ? '' : note.end) + '|' + note.text;
+    return note.t + '|' + (note.end === null ? '' : note.end) + '|' + note.text + (note.ink ? '|' + JSON.stringify(note.ink) : '');
   }
 
   // Clean notes in time order, each once, at most MAX_NOTES.
@@ -84,9 +245,13 @@
     return clean([].concat(mine || [], incoming || []));
   }
 
-  // A note as a link writes it: [t, text] for a bookmark, [t, end, text] for a clip.
+  // A note as a link writes it: [t, text] for a bookmark, [t, end, text] for a clip, and
+  // [t, end or null, text, ink] for either with a drawing.
   function pack(notes) {
-    return JSON.stringify(clean(notes).map(function (n) { return n.end === null ? [n.t, n.text] : [n.t, n.end, n.text]; }));
+    return JSON.stringify(clean(notes).map(function (n) {
+      if (n.ink) return [n.t, n.end, n.text, n.ink];
+      return n.end === null ? [n.t, n.text] : [n.t, n.end, n.text];
+    }));
   }
 
   function unpack(json) {
@@ -97,6 +262,7 @@
       if (!Array.isArray(row)) return null;
       if (row.length === 2) return { t: row[0], end: null, text: row[1] };
       if (row.length === 3) return { t: row[0], end: row[1], text: row[2] };
+      if (row.length === 4) return { t: row[0], end: row[1], text: row[2], ink: row[3] };
       return null;
     }));
   }
@@ -268,9 +434,12 @@
 
   root.RevuNotes = {
     clean: clean, cleanNote: cleanNote, cleanText: cleanText, merge: merge, pack: pack, unpack: unpack, tenth: tenth,
+    cleanInk: cleanInk, packInk: packInk, inkStrokes: inkStrokes, simplify: simplify,
     encode: encode, encodeNow: encodeNow, decode: decode, fromHash: fromHash, linkFor: linkFor, withoutHash: withoutHash,
     storageKey: storageKey, browserStorage: browserStorage, load: load, save: save, prune: prune, adopt: adopt,
     adoptedText: adoptedText,
-    MAX_NOTES: MAX_NOTES, MAX_TEXT: MAX_TEXT, MAX_PAYLOAD: MAX_PAYLOAD, MIN_CLIP: MIN_CLIP, KEEP_MS: KEEP_MS, PREFIX: PREFIX
+    MAX_NOTES: MAX_NOTES, MAX_TEXT: MAX_TEXT, MAX_PAYLOAD: MAX_PAYLOAD, MIN_CLIP: MIN_CLIP, KEEP_MS: KEEP_MS, PREFIX: PREFIX,
+    INK_TOOLS: INK_TOOLS, INK_COLORS: INK_COLORS, INK_SCALE: INK_SCALE, MAX_STROKES: MAX_STROKES, MAX_POINTS: MAX_POINTS,
+    MAX_INK_POINTS: MAX_INK_POINTS
   };
 })(typeof window !== 'undefined' ? window : globalThis);

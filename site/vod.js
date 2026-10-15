@@ -61,7 +61,8 @@
   var side = root.RevuVodSide ? root.RevuVodSide.attach({ root: root, doc: document, video: video, $: $, V: V, id: id,
     offset: function () { return V.offsetOf(meta && meta.meta); },
     length: function () { return laneLength; },
-    redraw: function () { if (lastMoments) drawMoments(lastMoments); } }) : null;
+    redraw: function () { if (lastMoments) drawMoments(lastMoments); },
+    ink: function () { return ink; } }) : null;
   var markMoment = root.RevuVodSide ? function (button, item, label) { return root.RevuVodSide.markMoment(V, button, item, label); }
     : function () { return ''; };
 

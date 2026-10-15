@@ -51,9 +51,10 @@ function memoryStorage() {
 }
 
 // A stand-in for vod-ink.js: it records what reaches it. While it is out, C clears and Escape
-// puts it away, as the real pen does.
+// puts it away, as the real pen does. `drawn` is the ink a test puts on screen, `shown` every
+// drawing the page shows.
 function fakeInk() {
-  const seen = { keys: [], toggles: 0 };
+  const seen = { keys: [], toggles: 0, drawn: [], shown: [] };
   const Ink = { attach(o) {
     let active = false;
     seen.stage = o.stage;
@@ -67,10 +68,15 @@ function fakeInk() {
         if (ev.key === 'Escape') { set(false); return true; }
         return ev.key === 'c' || ev.key === '[';
       },
+      strokes: () => seen.drawn,
+      show(list) { seen.shown.push(JSON.parse(JSON.stringify(list))); seen.drawn = list; },
     };
   } };
   return { Ink, seen };
 }
+const ARROW = { tool: 'arrow', color: 'yellow', size: 2, points: [[0.1, 0.2], [0.3, 0.4]] };
+const BOX = { tool: 'rect', color: 'blue', size: 0, points: [[0.2, 0.2], [0.4, 0.6]] };
+const BOX_INK = [3, 3, 0, 200, 200, 400, 600];
 
 function clipPage({ search = '?id=Clip001', hash = '', storage = memoryStorage(), ink = fakeInk() } = {}) {
   const page = { focused: null };
@@ -189,6 +195,50 @@ test('notes on a clip: B and I then O at the clip\'s clock, diamonds on the trac
   assert.deepEqual(run.rows(), [['0:08', 'Clip', '7s']]);
   run.$('clip-notes-status').children[1].click();
   assert.deepEqual(run.rows().length, 2, 'Undo brings it back');
+});
+
+test('a note saved with ink on screen keeps the drawing; choosing it opens its first frame, paused, with the drawing, and a clip still stops at its end', async () => {
+  const run = clipPage();
+  await flush();
+  run.video.duration = 40;
+  run.video.currentTime = 3;
+  run.ink.drawn = [ARROW];
+  run.press('b');
+  run.press('Enter', { target: run.$('clip-composer-text') });
+  run.video.currentTime = 8;
+  run.press('i');
+  run.video.currentTime = 15;
+  run.press('o');
+  run.ink.drawn = [BOX];
+  run.$('clip-composer-text').value = 'Box their jungler';
+  run.press('Enter', { target: run.$('clip-composer-text') });
+  assert.deepEqual(JSON.parse(run.storage.getItem('revu.notes.c.Clip001')).notes, [
+    { t: 3, end: null, text: '', ink: [[2, 1, 2, 100, 200, 300, 400]] }, { t: 8, end: 15, text: 'Box their jungler', ink: [BOX_INK] }]);
+  assert.deepEqual(run.$('clip-mine-list').children.map(li => li.children[0].children.map(c => c.className)), [
+    ['vod-note-time', 'vod-note-kind', 'vod-note-ink'], ['vod-note-time', 'vod-note-kind', 'vod-note-length', 'vod-note-ink', 'vod-note-text']],
+  'the pen\'s mark on each row with a drawing');
+
+  run.video.play();
+  run.video.currentTime = 30;
+  run.$('clip-mine-list').children[1].children[0].click();
+  assert.deepEqual([run.video.currentTime, run.video.paused, run.ink.shown], [8, true, [[BOX]]], 'paused on its first frame, with the drawing');
+  run.video.play();
+  run.video.currentTime = 15.2;
+  run.video.dispatch('timeupdate');
+  assert.equal(run.video.paused, true, 'played on, the clip still stops at its end');
+  run.$('clip-mine-list').children[0].children[0].click();
+  assert.deepEqual([run.video.currentTime, run.video.paused, run.ink.shown.at(-1)], [3, true, [ARROW]]);
+
+  // A link carries the drawings. Without the pen, the note plays as one without a drawing would.
+  const payload = 'j' + Buffer.from(JSON.stringify([[2, null, 'Look here', [BOX_INK]]])).toString('base64url');
+  const linked = clipPage({ hash: `#notes=${payload}` });
+  await flush();
+  linked.$('clip-mine-list').children[0].children[0].click();
+  assert.deepEqual([linked.video.currentTime, linked.video.paused, linked.ink.shown], [2, true, [[BOX]]]);
+  const penless = clipPage({ hash: `#notes=${payload}`, ink: { Ink: undefined, seen: {} } });
+  await flush();
+  penless.$('clip-mine-list').children[0].children[0].click();
+  assert.deepEqual([penless.video.currentTime, penless.video.paused], [2, false]);
 });
 
 test('a clip link with notes adds them; without a clip id there are no notes, and the pen still works', async () => {

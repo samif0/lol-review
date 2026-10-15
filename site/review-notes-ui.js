@@ -4,9 +4,10 @@
  * (clip-coach.js).
  *
  * RevuNotesUi.composer(o) runs the app reviewer's keys over the page's form: B bookmarks the
- * moment on screen, I starts a clip and O ends it, Enter saves and Esc drops the draft.
- * RevuNotesUi.sharer(o) runs Copy link with notes. statusLine() writes the quiet line over the
- * notes, with an Undo when one is given.
+ * moment on screen, I starts a clip and O ends it, Enter saves and Esc drops the draft. A note
+ * keeps the pen's ink that is on screen when it is saved. RevuNotesUi.sharer(o) runs Copy link
+ * with notes. statusLine() writes the quiet line over the notes, with an Undo when one is
+ * given, and inkMark() the mark on a note's row when it has a drawing.
  */
 (function (root) {
   'use strict';
@@ -31,7 +32,8 @@
   /*
    * The composer over the page's form. o: { els: { form, when, text, cancel, clip, clipLabel,
    * clipKey, hint }, now() (the page's clock now), clock(t), pause(), open() (show the notes),
-   * onSave(note), onDraft(draft) }. The draft is null or { kind, t, end }.
+   * ink() (the drawing on screen as review-notes.js keeps it, or null), onSave(note),
+   * onDraft(draft) }. The draft is null or { kind, t, end }.
    */
   function composer(o) {
     var els = o.els;
@@ -127,7 +129,8 @@
         clipOut();
         if (!draft || draft.end === null) return false;
       }
-      var note = N.cleanNote({ t: draft.t, end: draft.end, text: els.text.value });
+      var ink = typeof o.ink === 'function' ? o.ink() : null;
+      var note = N.cleanNote({ t: draft.t, end: draft.end, text: els.text.value, ink: ink });
       if (!note) return false;
       o.onSave(note);
       close();
@@ -198,8 +201,14 @@
     function copy() {
       var notes = o.notes();
       if (!notes.length) return;
-      var link = '';
-      try { link = N.linkFor(o.href(), payload || N.encodeNow(notes)); } catch (e) { say("This browser can't make the link."); return; }
+      var value = '';
+      try { value = payload || N.encodeNow(notes); } catch (e) { say("This browser can't make the link."); return; }
+      // Past MAX_PAYLOAD the page that opens the link can't read it: say so instead.
+      if (value.length > N.MAX_PAYLOAD) {
+        say('These notes are too long for one link. Delete some notes or drawings, then copy again.');
+        return;
+      }
+      var link = N.linkFor(o.href(), value);
       var fallback = function () {
         say('Copy this link:');
         els.link.value = link;
@@ -244,5 +253,32 @@
     return button;
   }
 
-  root.RevuNotesUi = { composer: composer, sharer: sharer, statusLine: statusLine, whenText: whenText, editable: editable };
+  // The mark on a note's row when it was saved with a drawing: the pen's icon, and its words
+  // for a screen reader.
+  function inkMark(doc) {
+    var mark = doc.createElement('span');
+    mark.className = 'vod-note-ink';
+    mark.title = 'With a drawing';
+    if (typeof doc.createElementNS === 'function') {
+      var ns = 'http://www.w3.org/2000/svg';
+      var svg = doc.createElementNS(ns, 'svg');
+      var attrs = { viewBox: '0 0 24 24', width: '14', height: '14', 'aria-hidden': 'true', focusable: 'false', fill: 'none',
+        stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+      Object.keys(attrs).forEach(function (name) { svg.setAttribute(name, attrs[name]); });
+      ['M4 20l4.5-1L19 8.5 15.5 5 5 15.5z', 'M13.5 7l3.5 3.5'].forEach(function (d) {
+        var path = doc.createElementNS(ns, 'path');
+        path.setAttribute('d', d);
+        svg.appendChild(path);
+      });
+      mark.appendChild(svg);
+    }
+    var words = doc.createElement('span');
+    words.className = 'visually-hidden';
+    words.textContent = 'With a drawing';
+    mark.appendChild(words);
+    return mark;
+  }
+
+  root.RevuNotesUi = { composer: composer, sharer: sharer, statusLine: statusLine, whenText: whenText, editable: editable,
+    inkMark: inkMark };
 })(typeof window !== 'undefined' ? window : globalThis);

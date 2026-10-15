@@ -47,6 +47,13 @@
   font-size: 12px;
 }
 
+/* A note saved with a drawing: the pen's icon after its kind. */
+.vod-note-ink {
+  display: inline-flex;
+  align-self: center;
+  color: var(--t3);
+}
+
 .vod-note-text {
   grid-column: 1 / -1;
   color: var(--t1);

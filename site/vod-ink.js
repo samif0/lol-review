@@ -1,16 +1,17 @@
 /*
- * Ink on the shared game page (vod.html): screen-pen drawing over the video, for a coach
- * walking someone through a game. Nothing is saved or sent: the ink lives in this page until
- * it is cleared, or until the video plays on (unless Keep ink is pinned). Starting a stroke
- * pauses the video.
+ * Ink on the shared game page (vod.html) and the shared clip page (clip.html): screen-pen
+ * drawing over the video, for a coach walking someone through a game. The pen sends nothing:
+ * the ink lives in this page until it is cleared, or until the video plays on (unless Keep ink
+ * is pinned). Starting a stroke pauses the video. A note saved while ink is on screen keeps a
+ * copy (strokes(), kept by review-notes.js), and choosing that note shows it again (show()).
  *
  * Strokes are vectors in the picture's own coordinates (0..1 of the video frame, not of the
  * element), so a stroke stays on the same spot of the game when the player resizes or goes
  * full screen. Line widths are a share of the picture's height for the same reason.
  *
  * RevuVodInk.attach({ doc, video, stage, onChange }) adds the canvas and the tool palette to
- * `stage` and returns { setActive, toggle, active, clear, undo, hasInk, key, layout }.
- * frameRect, toFrame, hitStroke and arrowHead are pure and exported for the tests.
+ * `stage` and returns { setActive, toggle, active, clear, undo, hasInk, key, layout, strokes,
+ * show }. frameRect, toFrame, hitStroke and arrowHead are pure and exported for the tests.
  */
 (function (root) {
   'use strict';
@@ -114,6 +115,20 @@
       [to[0] - size * Math.cos(angle - spread), to[1] - size * Math.sin(angle - spread)],
       [to[0] - size * Math.cos(angle + spread), to[1] - size * Math.sin(angle + spread)]
     ];
+  }
+
+  // A stroke to show, as strokes() gives it ({ tool, color, size: an index into SIZES, points }),
+  // checked: a tool that draws, a color and a size from the palette, points on the picture. A
+  // shape keeps its two corners. Null when it can't be drawn.
+  function inkStroke(s) {
+    if (!s || !Array.isArray(s.points) || s.tool === 'eraser' || COLORS.indexOf(s.color) < 0) return null;
+    var tool = TOOLS.filter(function (t) { return t.id === s.tool; })[0];
+    if (!tool || typeof s.size !== 'number' || !SIZES[s.size]) return null;
+    var onPicture = function (v) { return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : NaN; };
+    var points = s.points.map(function (p) { return Array.isArray(p) ? [onPicture(p[0]), onPicture(p[1])] : [NaN, NaN]; })
+      .filter(function (p) { return !isNaN(p[0]) && !isNaN(p[1]); });
+    if (tool.id !== 'pen' && tool.id !== 'highlighter') points = points.length > 1 ? [points[0], points[points.length - 1]] : [];
+    return points.length ? { tool: tool.id, color: s.color, size: SIZES[s.size], points: points } : null;
   }
 
   // ── The page part ──────────────────────────────────────────────────────────
@@ -381,8 +396,31 @@
         last.removed.slice().reverse().forEach(function (r) { strokes.splice(Math.min(r.index, strokes.length), 0, r.stroke); });
       } else if (last.kind === 'clear') {
         strokes = last.strokes.concat(strokes);
+      } else if (last.kind === 'show') {
+        strokes = last.strokes;
       }
       soon();
+      refresh();
+    }
+
+    // The ink on screen, for a note to keep: [{ tool, color, size, points }], size an index into
+    // SIZES and points in picture coordinates (0..1).
+    function exportStrokes() {
+      return strokes.map(function (s) {
+        return { tool: s.tool, color: s.color, size: Math.max(0, SIZES.indexOf(s.size)),
+          points: s.points.map(function (p) { return [p[0], p[1]]; }) };
+      });
+    }
+
+    // A note's drawing (in strokes()'s shape) in place of the ink on screen, which Undo brings
+    // back. The page pauses the video first; playing on clears it as it clears any ink, unless
+    // Keep ink is pinned.
+    function show(list) {
+      var next = (Array.isArray(list) ? list : []).map(inkStroke).filter(Boolean);
+      if (!next.length && !strokes.length) return;
+      actions.push({ kind: 'show', strokes: strokes });
+      strokes = next;
+      layout();
       refresh();
     }
 
@@ -396,8 +434,9 @@
       refresh();
     }
 
-    // The video playing on clears the ink, unless Keep ink is pinned.
-    video.addEventListener('play', function () { if (!state.keep && !drawing) clear(); });
+    // The video playing on clears the ink, unless Keep ink is pinned. A play the page pauses
+    // again at once (opening a note with its drawing) is not playing on.
+    video.addEventListener('play', function () { if (!state.keep && !drawing && !video.paused) clear(); });
     ['loadedmetadata', 'resize'].forEach(function (name) { video.addEventListener(name, layout); });
     if (typeof win.ResizeObserver === 'function') new win.ResizeObserver(layout).observe(stage);
     else if (typeof win.addEventListener === 'function') win.addEventListener('resize', layout);
@@ -429,6 +468,8 @@
       hasInk: function () { return strokes.length > 0; },
       key: key,
       layout: layout,
+      strokes: exportStrokes,
+      show: show,
       state: function () { return { tool: state.tool, color: state.color, size: state.size, keep: state.keep, strokes: strokes.length }; }
     };
   }
