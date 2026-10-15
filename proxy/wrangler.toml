@@ -101,10 +101,11 @@ VOD_SHARING = "1"
 VOD_SERVING = "1"
 # New HLS shares (watch a game while it uploads): "0" off, "1" on, or
 # "users:<id>,<id>" for those accounts only (the canary). It gates new starts
-# only; shares already uploading keep uploading and serving. Turn it on only
-# after Workers Paid, the WAF rate rule on clips.revu.lol, the VOD_PLAY_SECRET
-# secret and the site's HLS player are in place (README "HLS shares").
-VOD_HLS = "0"
+# only; shares already uploading keep uploading and serving. It needs Workers
+# Paid, the WAF rate rule on clips.revu.lol, the VOD_PLAY_SECRET secret and the
+# site's HLS player (README "HLS shares"). The ops_flags row vod_hls = '0' holds
+# it off without a deploy; deleting the row turns it on within 30 s.
+VOD_HLS = "1"
 
 [[d1_databases]]
 binding = "DB"
