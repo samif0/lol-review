@@ -214,6 +214,21 @@ describe("PUT /vod-shares/:id/hls/seg/:seq", () => {
     expect(hlsRow(s, id)?.ingest_milli).toBe(Math.floor((prev * 30000 + 2000 * 1000) / 60000));
   });
 
+  it("leaves the ingest rate null while nothing is contiguous from 0, then seeds it", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.UTC(2026, 9, 14, 12, 0, 0);
+    vi.setSystemTime(t0);
+    const { s, id } = await share();
+    vi.setSystemTime(t0 + 2000);
+    expect((await putSeg(s.env, id, 1)).status).toBe(200);
+    vi.setSystemTime(t0 + 2500);
+    expect((await putSeg(s.env, id, 2)).status).toBe(200);
+    expect(hlsRow(s, id)).toMatchObject({ segments: 0, media_ms: 0, ingest_milli: null });
+    vi.setSystemTime(t0 + 4000); // 6 s of media in the 4 s since the init
+    expect((await putSeg(s.env, id, 0)).status).toBe(200);
+    expect(hlsRow(s, id)).toMatchObject({ segments: 3, media_ms: 6000, ingest_milli: 1500 });
+  });
+
   it("runs the store and the commit as one task handed to ctx.waitUntil", async () => {
     const { s, id } = await share();
     const { ctx, waited } = fakeCtx();

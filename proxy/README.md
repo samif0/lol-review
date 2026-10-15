@@ -452,10 +452,11 @@ recalled, as with `/vod-file`.
 
 `/vod-meta/:id` adds for HLS shares `format`, `playable`, `media_seconds`,
 `ingest_x` (media seconds uploaded per wall second: an EWMA with a 30 s time
-constant, seeded at the second commit with the average since the init; null
-before two commits), `last_commit_age_s`, `paused_reason`, `ended`, `truncated`,
-`play_limited`, and `progress.parts` = committed segments. `duration_s` is the
-declared length while uploading and the media's after the end.
+constant, seeded from the second commit on with the contiguous media over the
+time since the init; null until then), `last_commit_age_s`, `paused_reason`,
+`ended`, `truncated`, `play_limited`, and `progress.parts` = committed
+segments. `duration_s` is the declared length while uploading and the media's
+after the end.
 
 Playlist (LF line ends; a resume run k gets a `DISCONTINUITY`, and a new
 `EXT-X-MAP` only when its init differs from run k-1's):

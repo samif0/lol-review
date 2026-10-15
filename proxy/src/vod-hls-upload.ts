@@ -343,8 +343,9 @@ type Commit =
  * still uploading and no later run covers the seq, moves the contiguous edge
  * forward with a gap query (the end of the committed run that starts at the
  * old edge; no recursive CTE), adds the newly contiguous media, updates the
- * ingest EWMA (seeded at the second commit with the average since the init,
- * not one noisy gap) and the commit time, and reads the state back.
+ * ingest EWMA (seeded from the second commit on with the contiguous media over
+ * the time since the init, not one noisy gap, and left null while that is 0)
+ * and the commit time, and reads the state back.
  */
 async function storeAndCommit(env: Env, timing: Timing, p: SegmentPut, body: ReadableStream): Promise<Commit> {
   const key = hlsSegmentKey(p.id, p.run, p.seq);
@@ -378,7 +379,7 @@ async function storeAndCommit(env: Env, timing: Timing, p: SegmentPut, body: Rea
            segments = (SELECT s1 FROM edge),
            media_ms = media_ms + (SELECT ms FROM gain),
            ingest_milli = CASE WHEN last_commit_ms IS NULL THEN NULL
-             WHEN ingest_milli IS NULL THEN CAST((media_ms + (SELECT ms FROM gain)) * 1000 / (SELECT since FROM gap) AS INTEGER)
+             WHEN ingest_milli IS NULL THEN NULLIF(CAST((media_ms + (SELECT ms FROM gain)) * 1000 / (SELECT since FROM gap) AS INTEGER), 0)
              ELSE CAST((ingest_milli * ${INGEST_TAU_MS} + (SELECT ms FROM gain) * 1000) / ((SELECT dt FROM gap) + ${INGEST_TAU_MS}) AS INTEGER) END,
            last_commit_ms = CAST(?3 AS INTEGER)
          WHERE clip_id = ?1 AND ${uploading}
