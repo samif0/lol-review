@@ -26,9 +26,15 @@ public sealed record VodSharePoolDto(long FreeBytes, bool Fits1080, bool Fits720
 public sealed record VodShareLimitsDto(int Live, int MaxLive, int Pending, int StartsToday, int MaxStartsPerDay,
     long DayResetsAt);
 
-/// <summary>The game's running job, or its last finished one since the sidecar started.</summary>
+/// <summary>
+/// The game's running job, or its last finished one since the sidecar started. Url and ExpiresAt:
+/// the share's link from the upload's init on, while the job runs (the watch page shows the
+/// upload's progress until the game is ready), and the finished link once done. LinkChanged: a
+/// link shown earlier in this job stopped working because its upload had to start over.
+/// </summary>
 public sealed record VodShareJobDto(string State, string Phase, int Percent, string? Quality, string? QualityReason,
-    string? ErrorCode, string? Error, long? RetryAt, bool NeedsLogin);
+    string? ErrorCode, string? Error, long? RetryAt, bool NeedsLogin, string? Url = null, long? ExpiresAt = null,
+    bool LinkChanged = false);
 
 /// <summary>A live share of this game (the store entry without its game id).</summary>
 public sealed record VodShareLinkDto(string Id, string Url, string Quality, bool IncludeNotes, long SizeBytes,

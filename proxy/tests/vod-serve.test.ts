@@ -5,8 +5,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetUserLimits } from "../src/user-limits";
-import { nextUtcMidnight, utcDayOf, VOD_DAILY_PLAY_CAP } from "../src/share-limits";
-import { MARKERS_DOC, body, get, nowSec, shareVod, vodInitOk, vodMarkers, vodSetup, VodSetup } from "./vod-fixtures";
+import { UPLOAD_IDLE_ABORT_SECONDS } from "../src/clips";
+import { nextUtcMidnight, utcDayOf, VOD_DAILY_PLAY_CAP, VOD_PART_SIZE_BYTES, VOD_TTL_SECONDS } from "../src/share-limits";
+import {
+  MARKERS_DOC, body, get, nowSec, payload, shareVod, vodComplete, vodInit, vodInitOk, vodMarkers, vodPart, vodSetup, VodSetup,
+} from "./vod-fixtures";
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -55,11 +58,12 @@ describe("GET /vod-meta/:id", () => {
     expect((await body(await get(s.env, `/vod-meta/${s.id}`))).play_limited).toBe(false);
   });
 
-  it("404s a bad slug, an unknown id, a pending upload and an expired share", async () => {
+  it("404s a bad slug, an unknown id and an expired share, and a pending upload's file", async () => {
     const s = await ready();
     const pendingId = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
-    expect((await get(s.env, `/vod-meta/${pendingId}`)).status).toBe(404);
+    expect((await get(s.env, `/vod-meta/${pendingId}`)).status).toBe(200);
     expect((await get(s.env, `/vod-file/${pendingId}`)).status).toBe(404);
+    expect((await get(s.env, `/vod-file/${pendingId}`, { method: "HEAD" })).status).toBe(404);
     for (const id of ["short", "Nope123", "abc12345"]) {
       const res = await get(s.env, `/vod-meta/${id}`);
       expect(res.status, id).toBe(404);
@@ -68,6 +72,112 @@ describe("GET /vod-meta/:id", () => {
     s.db.x("UPDATE clips SET expires_at = ?1 WHERE id = ?2", nowSec(), s.id);
     expect((await get(s.env, `/vod-meta/${s.id}`)).status).toBe(404);
     expect((await get(s.env, `/vod-file/${s.id}`)).status).toBe(404);
+  });
+});
+
+describe("GET /vod-meta/:id while the share is still uploading", () => {
+  // Three parts: two full 16 MiB parts and a 500-byte last one.
+  const SIZE = 2 * VOD_PART_SIZE_BYTES + 500;
+
+  async function uploading(opts: Parameters<typeof vodSetup>[0] = {}): Promise<VodSetup & { id: string }> {
+    const s = await vodSetup(opts);
+    const res = await vodInit(s.env, OWNER, { size: SIZE, duration: 1834, quality: "1080p", fps: 60 });
+    expect(res.status).toBe(201);
+    return { ...s, id: (await body(res)).id as string };
+  }
+
+  it("answers status uploading with the accepted parts, the share's expiry and no internal fields", async () => {
+    const s = await uploading();
+    const row = s.db.q<{ created_at: number }>("SELECT created_at FROM clips WHERE id = ?1", s.id)[0];
+    const res = await get(s.env, `/vod-meta/${s.id}`, { headers: { Origin: "https://revu.lol" } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://revu.lol");
+    const meta = await body(res);
+    expect(meta).toEqual({
+      id: s.id, kind: "vod", status: "uploading", quality: "1080p60", duration_s: 1834, created_at: row.created_at,
+      expires_at: row.created_at + VOD_TTL_SECONDS, serving: true, progress: { parts: 0, part_count: 3 }, stalled: false,
+      meta: null,
+    });
+    for (const key of ["user_id", "upload_id", "r2_key", "size_bytes", "part_size", "part_puts", "last_activity_at", "play_day",
+      "play_count", "content_type", "title", "champion"]) {
+      expect(meta).not.toHaveProperty(key);
+    }
+
+    // A part the proxy accepted moves the progress; the file still isn't served.
+    expect((await vodPart(s.env, OWNER, s.id, 3, payload(500))).status).toBe(200);
+    expect((await body(await get(s.env, `/vod-meta/${s.id}`))).progress).toEqual({ parts: 1, part_count: 3 });
+    expect((await get(s.env, `/vod-file/${s.id}`)).status).toBe(404);
+    // Retried parts can push the attempt count past part_count; progress never does.
+    s.db.x("UPDATE clips SET part_puts = 9 WHERE id = ?1", s.id);
+    expect((await body(await get(s.env, `/vod-meta/${s.id}`))).progress).toEqual({ parts: 3, part_count: 3 });
+  });
+
+  it("carries the markers once the desktop sent them, and the same document once the game is ready", async () => {
+    const s = await vodSetup();
+    const id = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    expect((await body(await get(s.env, `/vod-meta/${id}`))).meta).toBeNull();
+    expect((await vodMarkers(s.env, OWNER, id, MARKERS_DOC)).status).toBe(200);
+
+    const during = await body(await get(s.env, `/vod-meta/${id}`));
+    expect(during).toMatchObject({ status: "uploading", progress: { parts: 0, part_count: 1 }, stalled: false });
+    expect(during.meta).toEqual({
+      version: 1,
+      gameTimeAtVideoStart: 12.35,
+      game: { champion: "Jinx", opponentChampion: "Caitlyn", role: "BOTTOM", result: "win", durationS: 1834, playedAt: "2026-10-12" },
+      markers: [
+        { t: 95, kind: "KILL", label: "First blood", tone: "win" },
+        { t: 312, kind: "DRAGON", label: "Dragon", tone: "gold" },
+      ],
+      notes: null,
+    });
+    // An unreadable stored document is no document, not an error.
+    s.db.x("UPDATE vod_share_meta SET meta_json = '{' WHERE clip_id = ?1", id);
+    expect((await body(await get(s.env, `/vod-meta/${id}`))).meta).toBeNull();
+    expect((await vodMarkers(s.env, OWNER, id, MARKERS_DOC)).status).toBe(200);
+
+    const part = await body(await vodPart(s.env, OWNER, id, 1, payload(500)));
+    expect((await vodComplete(s.env, OWNER, id, [part])).status).toBe(201);
+    const after = await body(await get(s.env, `/vod-meta/${id}`));
+    expect(after).not.toHaveProperty("status");
+    expect(after.meta).toEqual(during.meta);
+  });
+
+  it("says stalled once no part arrived for the idle window, and reports serving off", async () => {
+    const s = await uploading({ env: { VOD_SERVING: "off" } });
+    const now = nowSec();
+    s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2", now - UPLOAD_IDLE_ABORT_SECONDS + 60, s.id);
+    expect(await body(await get(s.env, `/vod-meta/${s.id}`))).toMatchObject({ status: "uploading", stalled: false, serving: false });
+    s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2", now - UPLOAD_IDLE_ABORT_SECONDS, s.id);
+    expect((await body(await get(s.env, `/vod-meta/${s.id}`))).stalled).toBe(true);
+    // A row without part activity yet counts from its init.
+    s.db.x("UPDATE clips SET last_activity_at = NULL, created_at = ?1 WHERE id = ?2", now - UPLOAD_IDLE_ABORT_SECONDS - 5, s.id);
+    expect((await body(await get(s.env, `/vod-meta/${s.id}`))).stalled).toBe(true);
+  });
+
+  it("404s once the upload window ends or the upload is being discarded", async () => {
+    const s = await uploading();
+    s.db.x("UPDATE clips SET expires_at = ?1 WHERE id = ?2", nowSec(), s.id);
+    expect((await get(s.env, `/vod-meta/${s.id}`)).status).toBe(404);
+    s.db.x("UPDATE clips SET expires_at = ?1, status = 'purging' WHERE id = ?2", nowSec() + 3600, s.id);
+    expect((await get(s.env, `/vod-meta/${s.id}`)).status).toBe(404);
+  });
+
+  it("turns into the ready meta with the same expiry once the upload completes", async () => {
+    const s = await vodSetup();
+    const init = await body(await vodInitOk(s.env, OWNER, 500));
+    const id = init.id as string;
+    const during = await body(await get(s.env, `/vod-meta/${id}`));
+    expect(during).toMatchObject({ status: "uploading", progress: { parts: 0, part_count: 1 } });
+    const part = await body(await vodPart(s.env, OWNER, id, 1, payload(500)));
+    expect((await vodComplete(s.env, OWNER, id, [part])).status).toBe(201);
+    const after = await body(await get(s.env, `/vod-meta/${id}`));
+    expect(after).not.toHaveProperty("status");
+    expect(after).not.toHaveProperty("progress");
+    expect(after).toMatchObject({ id, size_bytes: 500, expires_at: during.expires_at, play_limited: false });
+    expect(after.expires_at).toBe(init.share_expires_at);
+    expect((await get(s.env, `/vod-file/${id}`)).status).toBe(200);
   });
 });
 

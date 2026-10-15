@@ -249,6 +249,11 @@ export function makeFakeDb(
           const c = clips.get(args[0] as string);
           return c && c.kind === "vod" && c.status === "ready" && c.expires_at > (args[1] as number) ? (c as T) : null;
         }
+        if (sql.includes("FROM clips WHERE id = ?1 AND kind = 'vod' AND status IN ('ready', 'uploading') AND expires_at > ?2 LIMIT 1")) {
+          const c = clips.get(args[0] as string);
+          return c && c.kind === "vod" && (c.status === "ready" || c.status === "uploading") && c.expires_at > (args[1] as number)
+            ? (c as T) : null;
+        }
         if (sql.includes("FROM clips WHERE id = ?1 AND user_id = ?2 AND status = 'uploading' AND expires_at > ?3 AND kind = ?4 LIMIT 1")) {
           const c = clips.get(args[0] as string);
           return c && c.user_id === args[1] && c.status === "uploading" && c.expires_at > (args[2] as number) && c.kind === args[3]

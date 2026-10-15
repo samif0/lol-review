@@ -1,18 +1,22 @@
 // "Share full game" on the VOD page (4.2). The sidecar encodes a share copy of this game's
 // own recording and uploads it as one background job: start_vod_share answers at once and
 // vodShareProgress SSE events (forwarded by shell-outer as `revu:vod-share-progress`) carry
-// the work, with a status poll as the fallback. The page never names a file. Its copy and
-// the start plan live in vod-share-copy.mjs (re-exported here).
+// the work, with a status poll as the fallback. A running job carries its link from the
+// upload's start (4.3): the link's page shows the upload's progress until the game plays, so
+// it can be copied right away. The page never names a file. Its copy and the start plan live
+// in vod-share-copy.mjs (re-exported here).
 
 import {
-  CHECKING, KEEP_REVIEWING, LINK_READY, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, formatShareTime,
-  safeShareUrl, vodShareErrorText, vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel, vodShareTtlText,
+  CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_LIVE, LINK_READY, LINK_REPLACING,
+  POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, formatShareTime, safeShareUrl, vodShareErrorText,
+  vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel, vodShareTtlText,
 } from './vod-share-copy.mjs';
 
 export {
-  SHARE_LINK, CHECKING, KEEP_REVIEWING, LINK_READY, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED,
-  formatShareSize, formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
-  vodShareProgressLabel, vodShareTtlText,
+  SHARE_LINK, CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_GONE, LINK_LIVE, LINK_READY,
+  LINK_REPLACING, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, formatShareSize, formatShareTime,
+  safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel,
+  vodShareTtlText,
 } from './vod-share-copy.mjs';
 
 const percentOf = value => Math.max(0, Math.min(100, Math.floor(Number(value) || 0)));
@@ -41,8 +45,18 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   const time = unix => formatShareTime(unix, { now: now(), locale, timeZone });
   const running = () => job?.state === 'running';
   const link = () => safeShareUrl(share?.url);
+  // A running share's link, from its upload's start: it already works.
+  const jobLink = () => (running() ? job.url || '' : '');
+  const anyLink = () => jobLink() || link();
   const textOf = entry => (entry?.text ? entry.text : vodShareErrorText(entry?.code, { retryAt: entry?.retryAt,
-    error: entry?.error, limits: status?.limits, time, can720: entry?.quality === '1080p' && status?.pool?.fits720 !== false }));
+    error: entry?.error, limits: status?.limits, time, can720: entry?.quality === '1080p' && status?.pool?.fits720 !== false,
+    linkShown: entry?.linkShown === true }));
+  // While a share runs: its progress, and that the link changed if the upload had to start over.
+  const runningDetail = () => (job.linkChanged ? `${vodShareProgressLabel(job)}. ${LINK_CHANGED_SHORT}` : vodShareProgressLabel(job));
+  // Spoken once per phase, and once more when the link arrives.
+  const runningSaid = () => (jobLink() ? `${vodSharePhaseLabel(job)}. ${LINK_LIVE}` : vodSharePhaseLabel(job));
+  // A calm result note: in the sheet when it is open, else in the row (where it fades).
+  const say = note => { if (sheetOpen) message = note; else showRowNote(note); };
 
   Promise.resolve().then(() => platform?.capabilities?.()).then(caps => {
     canOpen = caps?.externalLinks === true; paint();
@@ -59,8 +73,12 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   }
 
   function takeJob(source) {
+    // Events and status reads carry the upload's link (null until it starts); a start reply has none.
+    const url = 'url' in source ? safeShareUrl(source.url) : job?.url || '';
     job = { state: 'running', phase: source.phase || 'queued', percent: source.percent,
-      quality: source.quality ?? job?.quality ?? null, qualityReason: source.qualityReason ?? job?.qualityReason ?? null };
+      quality: source.quality ?? job?.quality ?? null, qualityReason: source.qualityReason ?? job?.qualityReason ?? null,
+      url, expiresAt: url ? source.expiresAt ?? job?.expiresAt ?? null : null,
+      linkChanged: 'linkChanged' in source ? source.linkChanged === true : job?.linkChanged === true };
     rowNote = null;
     if (!watching) { watching = true; startPolling(); }
   }
@@ -70,12 +88,13 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     if (code === 'not_allowed') { denied = true; closeSheet(); return; }
     if (code === 'cancelled') { message = null; return; }
     const entry = { code, retryAt: source?.retryAt ?? null, error: typeof source?.error === 'string' ? source.error : '',
-      quality: source?.quality ?? null };
+      quality: source?.quality ?? null, linkShown: source?.linkShown === true };
     if (sheetOpen) message = entry; else rowNote = { ...entry, error: true, retry: true };
   }
 
   function finishJob(source, { reread = true } = {}) {
     const attempted = source.quality ?? job?.quality ?? null;
+    const linkShown = !!job?.url, linkChanged = source.linkChanged === true || job?.linkChanged === true;
     watching = false; cancelling = false; job = null; stopPolling();
     if (source.state === 'done') {
       const url = safeShareUrl(source.url) || link();
@@ -85,11 +104,13 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
           quality: source.quality ?? share?.quality ?? null };
         // The next share starts from the defaults again: 1080p, notes off.
         message = null; rowNote = null; justDone = true; includeNotes = false; quality = '1080p';
+        // A link copied before the upload started over no longer works.
+        if (linkChanged) say({ text: LINK_CHANGED, error: false });
       }
       epoch++; // a read already in flight predates this link
       if (reread) void refresh(true); // the stored entry carries the id and the exact expiry
     } else if (source.state === 'cancelled') { message = null; rowNote = null; }
-    else report({ ...source, quality: attempted });
+    else report({ ...source, quality: attempted, linkShown: linkShown || linkChanged });
   }
 
   function applyStatus(reply, startedEpoch) {
@@ -217,11 +238,13 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
 
   async function cancel() {
     if (!running() || cancelling) return;
-    const id = gameId, gen = generation;
+    const id = gameId, gen = generation, linkShown = !!jobLink() || job?.linkChanged === true;
     cancelling = true; paint();
     try { await invoke('cancel_vod_share', { payload: { gameId: id } }); } catch (_) { /* the next status read settles it */ }
     if (gen !== generation) return;
     job = null; watching = false; message = null; rowNote = null; stopPolling();
+    // The link already shown stops working with the upload.
+    if (linkShown) say({ text: STOPPED, error: false });
     paint();
     if (sheetOpen) focus('share');
   }
@@ -253,7 +276,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   }
 
   async function copyLink(button, field) {
-    const url = link();
+    const url = anyLink();
     if (!url || !button) return;
     let ok = false;
     try { ok = (await invoke('copy_text_to_clipboard', { text: url }))?.ok === true; } catch (_) { ok = false; }
@@ -264,7 +287,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   }
 
   function openLink() {
-    if (link() && canOpen) Promise.resolve().then(() => platform.openExternal(link())).catch(() => {});
+    const url = anyLink();
+    if (url && canOpen) Promise.resolve().then(() => platform.openExternal(url)).catch(() => {});
   }
   function actionVisible() {
     if (running() || link()) return true;
@@ -273,7 +297,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
 
   function paintRow() {
     if (!row) return;
-    const url = link();
+    const url = link(), live = jobLink();
     // A result note stands alone, except beside an existing link (a failed stop keeps its actions).
     const mode = running() ? 'running' : url ? 'share' : rowNote ? 'note' : 'hidden';
     const note = mode === 'running' ? null : rowNote;
@@ -281,22 +305,24 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     if (row.dataset) row.dataset.state = mode;
     row.classList?.toggle?.('is-error', !!note?.error);
     showText(hook(row, 'row-label'), mode === 'running' ? 'Sharing full game' : mode === 'share' ? 'Full game link' : '');
-    showText(hook(row, 'row-url'), mode === 'share' ? url : '');
-    const detail = mode === 'running' ? vodShareProgressLabel(job)
+    // A running share shows its link as soon as its upload has started.
+    showText(hook(row, 'row-url'), mode === 'share' ? url : mode === 'running' ? live : '');
+    const detail = mode === 'running' ? runningDetail()
       : note ? textOf(note)
         : mode === 'share' && share.expiresAt ? `Link expires ${time(share.expiresAt)}.` : '';
     setText(hook(row, 'row-detail'), detail);
     // Spoken: each phase once (not every percent), a result note, a link that just arrived.
-    const said = mode === 'running' ? vodSharePhaseLabel(job)
+    const said = mode === 'running' ? runningSaid()
       : note ? textOf(note)
         : mode === 'share' ? (rowMode === 'running' || rowSaid === LINK_READY ? LINK_READY : '') : '';
     rowMode = mode;
     if (said !== rowSaid) { rowSaid = said; setText(hook(row, 'row-live'), said); }
     const confirm = confirming === 'row' && mode === 'share';
+    const linked = mode === 'share' || !!live;
     setHidden(hook(row, 'row-confirm'), !confirm);
     setHidden(hook(row, 'row-actions'), confirm);
-    setHidden(hook(row, 'row-copy'), mode !== 'share');
-    setHidden(hook(row, 'row-open'), mode !== 'share' || !canOpen);
+    setHidden(hook(row, 'row-copy'), !linked);
+    setHidden(hook(row, 'row-open'), !linked || !canOpen);
     setHidden(hook(row, 'row-stop'), mode !== 'share');
     setHidden(hook(row, 'row-cancel'), mode !== 'running');
     setHidden(hook(row, 'row-retry'), !(mode === 'note' && rowNote.retry));
@@ -326,7 +352,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       if (notes) { notes.checked = includeNotes; notes.disabled = starting; }
     } else if (view === 'progress') {
       setText(hook(sheet, 'progress-label'), cancelling ? 'Cancelling' : vodShareProgressLabel(job));
-      const phase = cancelling ? 'Cancelling' : vodSharePhaseLabel(job);
+      const phase = cancelling ? 'Cancelling' : runningSaid();
       if (phase !== progressSaid) { progressSaid = phase; setText(hook(sheet, 'progress-live'), phase); }
       const bar = hook(sheet, 'progress-bar');
       if (bar?.style) {
@@ -335,6 +361,13 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
         bar.style.transition = width < (parseFloat(bar.style.width) || 0) ? 'none' : '';
         bar.style.width = `${width}%`;
       }
+      // The link works from the upload's start, so it can be sent while the video is prepared.
+      const live = jobLink(), field = hook(sheet, 'progress-url');
+      setHidden(hook(sheet, 'progress-link'), !live);
+      if (field && field.value !== live) field.value = live;
+      setHidden(hook(sheet, 'progress-open'), !live || !canOpen);
+      showText(hook(sheet, 'progress-link-note'),
+        live ? (job.linkChanged ? LINK_CHANGED : LINK_EARLY) : job.linkChanged ? LINK_REPLACING : '');
       const reason = job.qualityReason === 'pool' ? POOL_720_HINT : job.qualityReason === 'size' ? SIZE_720_NOTE : '';
       setText(hook(sheet, 'progress-note'), reason ? `${reason} ${KEEP_REVIEWING}` : KEEP_REVIEWING);
     } else {
@@ -388,6 +421,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   on(sheet, 'cancel', () => (running() ? cancel() : closeSheet()));
   on(sheet, 'copy', () => copyLink(hook(sheet, 'copy'), hook(sheet, 'url')));
   on(sheet, 'open', openLink);
+  on(sheet, 'progress-copy', () => copyLink(hook(sheet, 'progress-copy'), hook(sheet, 'progress-url')));
+  on(sheet, 'progress-open', openLink);
   on(sheet, 'stop', () => { confirming = 'sheet'; paint(); focus('keep'); });
   on(sheet, 'keep', () => { confirming = null; paint(); focus('stop'); });
   on(sheet, 'confirm-stop', () => stop('sheet'));

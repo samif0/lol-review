@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createVodShare, formatShareSize, formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
-  vodShareProgressLabel, vodShareTtlText, CHECKING, KEEP_REVIEWING, LINK_READY, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED,
-  STOPPED, STOPPED_QUEUED } from '../ui/vod-share.mjs';
+  vodShareProgressLabel, vodShareTtlText, CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_GONE,
+  LINK_LIVE, LINK_READY, LINK_REPLACING, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED } from '../ui/vod-share.mjs';
 
 const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
 const flat = text => String(text).replace(/[  ]/g, ' ');
@@ -48,6 +48,7 @@ function container(doc, hooks, views = []) {
 const ROW_HOOKS = ['row-label', 'row-url', 'row-detail', 'row-live', 'row-actions', 'row-copy', 'row-open', 'row-stop',
   'row-cancel', 'row-retry', 'row-confirm', 'row-confirm-stop', 'row-keep'];
 const SHEET_HOOKS = ['close', 'size', 'q1080', 'q720', 'q1080-label', 'q720-label', 'hint', 'ttl', 'imported', 'notes', 'progress-label', 'progress-live', 'progress-bar',
+  'progress-link', 'progress-url', 'progress-copy', 'progress-open', 'progress-link-note',
   'progress-note', 'url', 'copy', 'open', 'expiry', 'markers', 'message-box', 'message', 'signin', 'folder', 'confirm',
   'confirm-stop', 'keep', 'actions', 'stop', 'cancel', 'share', 'done'];
 
@@ -638,6 +639,144 @@ test('the progress bar starts each phase over instead of sliding backwards', asy
   f.emit({ gameId: 123, state: 'running', phase: 'finishing', percent: 100 });
   assert.equal(bar.style.width, '100%');
   assert.equal(bar.style.transition, '');
+});
+
+test('a running share shows its link as soon as the upload starts, in the sheet and the row', async () => {
+  const f = setup({ replies: { get_vod_share_status: status(), start_vod_share: { ok: true, accepted: true, quality: '1080p' },
+    copy_text_to_clipboard: { ok: true } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  assert.equal(f.sheet.el('progress-link').hidden, true, 'no link before the upload starts');
+  assert.equal(f.sheet.el('progress-link-note').hidden, true);
+  assert.equal(f.row.el('row-url').hidden, true);
+  assert.equal(f.row.el('row-copy').hidden, true);
+
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 3, url: SHARE.url, expiresAt: SHARE.expiresAt,
+    linkChanged: false });
+  assert.equal(f.sheetView(), 'progress');
+  assert.equal(f.sheet.el('progress-label').textContent, 'Preparing video 3%');
+  assert.equal(f.sheet.el('progress-link').hidden, false);
+  assert.equal(f.sheet.el('progress-url').value, SHARE.url);
+  assert.equal(f.sheet.el('progress-open').hidden, false);
+  assert.equal(f.sheet.el('progress-link-note').textContent, LINK_EARLY);
+  assert.equal(f.sheet.el('progress-link-note').hidden, false);
+  assert.equal(f.sheet.el('progress-note').textContent, KEEP_REVIEWING);
+  assert.equal(f.sheet.el('progress-live').textContent, `Preparing video. ${LINK_LIVE}`, 'the link is announced once');
+  assert.equal(f.row.el('row-label').textContent, 'Sharing full game');
+  assert.equal(f.row.el('row-url').textContent, SHARE.url);
+  assert.equal(f.row.el('row-detail').textContent, 'Preparing video 3%');
+  assert.equal(f.row.el('row-live').textContent, `Preparing video. ${LINK_LIVE}`);
+  assert.deepEqual(['row-copy', 'row-open', 'row-cancel', 'row-stop'].map(name => f.row.el(name).hidden), [false, false, false, true],
+    'a running share is cancelled, not stopped');
+
+  f.sheet.el('progress-copy').click();
+  await flush();
+  assert.deepEqual(f.named('copy_text_to_clipboard'), [['copy_text_to_clipboard', { text: SHARE.url }]]);
+  assert.equal(f.sheet.el('progress-copy').textContent, 'Copied');
+  f.row.el('row-copy').click();
+  f.sheet.el('progress-open').click();
+  await flush();
+  assert.equal(f.named('copy_text_to_clipboard').length, 2);
+  assert.deepEqual(f.opened, [SHARE.url]);
+
+  // A later event keeps the link; the finished share has the same one.
+  f.emit({ gameId: 123, state: 'running', phase: 'uploading', percent: 80, url: SHARE.url, expiresAt: SHARE.expiresAt });
+  assert.equal(f.sheet.el('progress-live').textContent, `Uploading. ${LINK_LIVE}`);
+  assert.equal(f.sheet.el('progress-url').value, SHARE.url);
+  f.emit({ gameId: 123, state: 'done', phase: 'done', percent: 100, url: SHARE.url, expiresAt: SHARE.expiresAt,
+    markersAttached: true, linkChanged: false });
+  assert.equal(f.sheetView(), 'done');
+  assert.equal(f.sheet.el('url').value, SHARE.url);
+  assert.equal(f.sheetMessage(), '');
+});
+
+test('a link picked up by the status poll shows too, and only revu.lol watch links are ever shown', async () => {
+  let next = status({ job: { state: 'running', phase: 'preparing', percent: 20, url: SHARE.url, expiresAt: SHARE.expiresAt,
+    linkChanged: false } });
+  const f = setup({ replies: { get_vod_share_status: () => next } });
+  await f.share.check({ gameId: 123 });
+  await flush();
+  assert.equal(f.row.el('row-url').textContent, SHARE.url, 'a share started on another visit shows its link');
+  assert.equal(f.row.el('row-copy').hidden, false);
+  next = status({ job: { state: 'running', phase: 'preparing', percent: 25, url: 'https://evil.example/v/Abc1234' } });
+  await f.tick(15000);
+  assert.equal(f.row.el('row-url').hidden, true);
+  assert.equal(f.row.el('row-copy').hidden, true);
+  assert.equal(f.row.el('row-detail').textContent, 'Preparing video 25%');
+});
+
+test('an upload that starts over takes its link down and says the new link changed', async () => {
+  const B = 'https://revu.lol/v/Xyz9876';
+  const f = setup({ replies: { get_vod_share_status: () => status({ share: null }), start_vod_share: { ok: true, accepted: true } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 30, url: SHARE.url, expiresAt: SHARE.expiresAt });
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 30, url: null, expiresAt: null, linkChanged: true });
+  assert.equal(f.sheet.el('progress-link').hidden, true);
+  assert.equal(f.sheet.el('progress-link-note').textContent, LINK_REPLACING);
+  assert.equal(f.row.el('row-url').hidden, true);
+  assert.equal(f.row.el('row-copy').hidden, true);
+  assert.equal(f.row.el('row-detail').textContent, `Preparing video 30%. ${LINK_CHANGED_SHORT}`);
+
+  f.emit({ gameId: 123, state: 'running', phase: 'uploading', percent: 0, url: B, expiresAt: SHARE.expiresAt, linkChanged: true });
+  assert.equal(f.sheet.el('progress-url').value, B);
+  assert.equal(f.sheet.el('progress-link-note').textContent, LINK_CHANGED);
+  assert.equal(f.row.el('row-url').textContent, B);
+  assert.equal(f.row.el('row-detail').textContent, `Uploading 0%. ${LINK_CHANGED_SHORT}`);
+
+  f.emit({ gameId: 123, state: 'done', phase: 'done', url: B, expiresAt: SHARE.expiresAt, markersAttached: true, linkChanged: true });
+  assert.equal(f.sheetView(), 'done');
+  assert.equal(f.sheet.el('url').value, B);
+  assert.equal(f.sheetMessage(), LINK_CHANGED, 'a link copied before it changed no longer works');
+  assert.equal(f.sheet.el('message-box').classList.contains('is-error'), false);
+});
+
+test('a failed or cancelled share whose link was shown says the link stopped working', async () => {
+  assert.equal(vodShareErrorText('upload_failed', { linkShown: true }),
+    `The upload didn't finish. Check your connection and try again. ${LINK_GONE}`);
+  assert.equal(vodShareErrorText('upload_failed', { linkShown: false }), "The upload didn't finish. Check your connection and try again.");
+  assert.equal(vodShareErrorText('cancelled', { linkShown: true }), '');
+
+  const f = setup({ replies: { get_vod_share_status: status(), start_vod_share: { ok: true, accepted: true },
+    cancel_vod_share: { ok: true, cancelled: true } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 40, url: SHARE.url, expiresAt: SHARE.expiresAt });
+  f.emit({ gameId: 123, state: 'error', phase: 'error', errorCode: 'game_started', url: null });
+  assert.equal(f.sheetView(), 'start');
+  assert.equal(f.sheetMessage(), `Sharing stopped because a game started. Share again after the game. ${LINK_GONE}`);
+
+  // A link taken down while the upload started over is just as gone when the share then fails.
+  await f.share.start();
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 40, url: SHARE.url, expiresAt: SHARE.expiresAt });
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 40, url: null, linkChanged: true });
+  f.emit({ gameId: 123, state: 'error', phase: 'error', errorCode: 'upload_failed', url: null, linkChanged: true });
+  assert.equal(f.sheetMessage(), `The upload didn't finish. Check your connection and try again. ${LINK_GONE}`);
+
+  // Cancelled from the row with the sheet closed: a calm note that fades.
+  await f.share.start();
+  f.sheet.close();
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 10, url: SHARE.url, expiresAt: SHARE.expiresAt });
+  f.row.el('row-cancel').click();
+  await flush();
+  assert.equal(f.row.hidden, false);
+  assert.equal(f.row.el('row-detail').textContent, STOPPED);
+  assert.equal(f.row.el('row-url').hidden, true);
+  assert.equal(f.row.classList.contains('is-error'), false);
+  await f.tick(6000);
+  assert.equal(f.row.hidden, true);
+
+  // Cancelled from the sheet: the start view says so.
+  await f.share.open();
+  await f.share.start();
+  f.emit({ gameId: 123, state: 'running', phase: 'preparing', percent: 10, url: SHARE.url, expiresAt: SHARE.expiresAt });
+  f.sheet.el('cancel').click();
+  await flush();
+  assert.equal(f.sheetView(), 'start');
+  assert.equal(f.sheetMessage(), STOPPED);
 });
 
 test('a share made before access was removed still opens its sheet with Stop sharing', async () => {

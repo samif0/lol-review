@@ -11,7 +11,9 @@ namespace Revu.Sidecar;
 /// Full-game (VOD) sharing, 4.2 (contract 7.5): one job at a time, globally. A job encodes the
 /// game's linked recording into a share copy under <c>ShareTemp</c> at the recording's frame
 /// rate, uploads it in 16 MiB parts while it encodes (4.3), attaches the timeline markers and
-/// records the link in <see cref="VodShareStore"/>.
+/// records the link in <see cref="VodShareStore"/>. The link is shown from the upload's init on
+/// (the watch page shows the upload's progress until the game is ready), so it can be sent
+/// right away.
 /// Each job runs through <see cref="SidecarBackgroundWork.TryRun"/> on a token linked to
 /// shutdown. Progress goes out as <c>vodShareProgress</c> SSE events (percent throttled to
 /// 4 per second, phase changes always) and is kept per game for the status poll.
@@ -114,8 +116,14 @@ public sealed partial class VodShareWorker
         public string? CancelCode { get; set; }
         public string Phase { get; set; } = "queued";
         public int Percent { get; set; }
+        /// <summary>The running upload's link and share expiry, from its init on. Guarded by <c>_gate</c>.</summary>
+        public string? LinkUrl { get; set; }
+        public long? LinkExpiresAt { get; set; }
+        /// <summary>A link shown earlier in this job stopped working: its upload was given up. Guarded by <c>_gate</c>.</summary>
+        public bool LinkChanged { get; set; }
         public VodShareJobDto? Status { get; set; }
         public string LastPhase { get; set; } = "";
+        public string? LastUrl { get; set; }
         public long LastPublish { get; set; }
         public TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }

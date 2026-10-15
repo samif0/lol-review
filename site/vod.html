@@ -47,6 +47,21 @@
       <a href="/" class="btn-primary">Back to Revu</a>
     </section>
 
+    <!-- The link works as soon as the sharer's upload starts: until it finishes, this page
+         names the game (once the sharer's app has sent its details), shows how far along the
+         upload is and starts the game once it is ready. -->
+    <section id="state-uploading" class="vod-state" hidden>
+      <div id="upload-game" class="vod-upload-game" hidden>
+        <p id="upload-game-title" class="vod-upload-game-title"></p>
+        <p id="upload-game-meta" class="vod-meta" hidden></p>
+      </div>
+      <h1 id="upload-title" class="vod-state-title">Still uploading</h1>
+      <p id="upload-copy" class="vod-state-copy" role="status" aria-live="polite">This game plays here as soon as the upload finishes. You can leave this page open.</p>
+      <div id="upload-meter" class="vod-upload-meter" role="progressbar" aria-labelledby="upload-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="upload-bar" class="vod-upload-bar"></span>
+      </div>
+    </section>
+
     <section id="state-game" class="vod-layout" hidden>
       <div class="vod-primary">
         <p id="vod-expiry" class="vod-banner" role="status" hidden></p>

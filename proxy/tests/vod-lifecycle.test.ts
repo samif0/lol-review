@@ -12,6 +12,7 @@ import { resetClipViews } from "../src/clip-views";
 import { deleteAccountRows, listClipObjectsForUser } from "../src/db";
 import { storageUsage } from "../src/storage-budget";
 import { utcDayOf, VOD_TTL_SECONDS } from "../src/share-limits";
+import { UPLOAD_IDLE_ABORT_SECONDS } from "../src/clips";
 import { makeRequest, runScheduled } from "./fakes";
 import {
   BASE, MARKERS_DOC, MiB, body, del, get, nowSec, payload, shareVod, vodComplete, vodInitOk, vodMarkers, vodPart, vodSetup,
@@ -152,19 +153,74 @@ describe("PUT /vod-shares/:id/markers", () => {
     expect(s.db.q("SELECT title, champion FROM clips WHERE id = ?1", id)).toEqual([{ title: "Jinx game", champion: "Jinx" }]);
   });
 
-  it("needs the caller's own ready, unexpired VOD", async () => {
+  it("needs the caller's own unexpired VOD", async () => {
     const s = await vodSetup();
-    const pending = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
-    expect((await vodMarkers(s.env, OWNER, pending, MARKERS_DOC)).status).toBe(404);
-    s.db.x("DELETE FROM clips");
-    resetUserLimits();
     const { id } = await shareVod(s);
     expect((await vodMarkers(s.env, OTHER, id, MARKERS_DOC)).status).toBe(404);
     clipRow(s.db, "Clip001", s.users[OWNER]);
+    clipRow(s.db, "Clip002", s.users[OWNER], "uploading");
     expect((await vodMarkers(s.env, OWNER, "Clip001", MARKERS_DOC)).status).toBe(404);
+    expect((await vodMarkers(s.env, OWNER, "Clip002", MARKERS_DOC)).status).toBe(404);
     s.db.x("UPDATE clips SET expires_at = ?1 WHERE id = ?2", nowSec() - 1, id);
     expect((await vodMarkers(s.env, OWNER, id, MARKERS_DOC)).status).toBe(404);
     expect(s.db.q("SELECT * FROM vod_share_meta")).toHaveLength(0);
+    expect(s.db.q("SELECT title FROM clips WHERE id = ?1", id)).toEqual([{ title: null }]);
+  });
+
+  it("takes them while the upload runs, inside its upload window, and keeps them through complete", async () => {
+    const s = await vodSetup();
+    const id = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    // Markers are not upload activity: an upload that stopped still counts as idle.
+    s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2", nowSec() - 600, id);
+    const activity = s.db.q("SELECT part_puts, last_activity_at FROM clips WHERE id = ?1", id);
+    expect((await vodMarkers(s.env, OTHER, id, MARKERS_DOC)).status).toBe(404);
+    const res = await vodMarkers(s.env, OWNER, id, MARKERS_DOC);
+    expect(res.status).toBe(200);
+    expect(await body(res)).toEqual({ ok: true, markers: 2, notes: 0 });
+    expect(s.db.q("SELECT status, title, champion FROM clips WHERE id = ?1", id))
+      .toEqual([{ status: "uploading", title: "Jinx vs Caitlyn", champion: "Jinx" }]);
+    const stored = s.db.q<{ meta_json: string }>("SELECT meta_json FROM vod_share_meta WHERE clip_id = ?1", id);
+    expect(stored).toHaveLength(1);
+    expect(s.db.q("SELECT part_puts, last_activity_at FROM clips WHERE id = ?1", id)).toEqual(activity);
+
+    const part = await body(await vodPart(s.env, OWNER, id, 1, payload(500)));
+    expect((await vodComplete(s.env, OWNER, id, [part])).status).toBe(201);
+    expect(s.db.q("SELECT status, title, champion FROM clips WHERE id = ?1", id))
+      .toEqual([{ status: "ready", title: "Jinx vs Caitlyn", champion: "Jinx" }]);
+    expect(s.db.q("SELECT meta_json FROM vod_share_meta WHERE clip_id = ?1", id)).toEqual(stored);
+
+    // Past its upload window, or once it is being discarded, an upload takes none.
+    const late = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    s.db.x("UPDATE clips SET expires_at = ?1 WHERE id = ?2", nowSec(), late);
+    expect((await vodMarkers(s.env, OWNER, late, MARKERS_DOC)).status).toBe(404);
+    s.db.x("UPDATE clips SET expires_at = ?1, status = 'purging' WHERE id = ?2", nowSec() + 3600, late);
+    expect((await vodMarkers(s.env, OWNER, late, MARKERS_DOC)).status).toBe(404);
+    expect(s.db.q("SELECT clip_id FROM vod_share_meta")).toEqual([{ clip_id: id }]);
+  });
+
+  it("never stores markers for an upload deleted while they were checked", async () => {
+    const s = await vodSetup();
+    const id = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    // Stop sharing lands between the row check and the write.
+    s.db._after("SELECT id FROM clips WHERE id = ?1 AND user_id = ?2 AND kind = 'vod'", async () => {
+      expect((await del(s.env, OWNER, id)).status).toBe(200);
+    });
+    const res = await vodMarkers(s.env, OWNER, id, MARKERS_DOC);
+    expect(res.status).toBe(404);
+    expect(await body(res)).toEqual({ error: "not_found" });
+    expect(s.db.q("SELECT * FROM clips")).toHaveLength(0);
+    expect(s.db.q("SELECT * FROM vod_share_meta")).toHaveLength(0);
+  });
+
+  it("an upload discarded as idle takes its markers with it", async () => {
+    const s = await vodSetup();
+    const idle = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    expect((await vodMarkers(s.env, OWNER, idle, MARKERS_DOC)).status).toBe(200);
+    s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2", nowSec() - UPLOAD_IDLE_ABORT_SECONDS, idle);
+    const next = (await body(await vodInitOk(s.env, OWNER, 500))).id as string;
+    expect(s.db.q("SELECT id FROM clips")).toEqual([{ id: next }]);
+    expect(s.db.q("SELECT * FROM vod_share_meta")).toHaveLength(0);
+    expect((await get(s.env, `/vod-meta/${idle}`)).status).toBe(404);
   });
 
   it("refuses an oversized body and bad or oversized documents", async () => {
@@ -211,11 +267,12 @@ describe("kinds stay isolated", () => {
     }), s.env);
     expect(done.status).toBe(404);
 
-    // The bare slug goes straight to the watch page: no Open Graph video tags.
+    // The bare slug goes straight to the watch page (which shows a pending
+    // upload's progress): no Open Graph video tags.
     const bare = await get(s.env, `/${id}`, { redirect: "manual" });
     expect(bare.status).toBe(302);
     expect(bare.headers.get("Location")).toBe(`https://revu.lol/v/${id}`);
-    expect((await get(s.env, `/${pending}`, { redirect: "manual" })).headers.get("Location")).toBe(`https://revu.lol/clip.html?id=${pending}`);
+    expect((await get(s.env, `/${pending}`, { redirect: "manual" })).headers.get("Location")).toBe(`https://revu.lol/v/${pending}`);
   });
 
   it("no VOD route serves or changes a clip row", async () => {
@@ -224,6 +281,7 @@ describe("kinds stay isolated", () => {
     clipRow(s.db, "Clip002", s.users[OWNER], "uploading");
     s.r2.store.set("clips/Clip001.mp4", payload(100));
     expect((await get(s.env, "/vod-meta/Clip001")).status).toBe(404);
+    expect((await get(s.env, "/vod-meta/Clip002")).status).toBe(404);
     expect((await get(s.env, "/vod-file/Clip001")).status).toBe(404);
     expect((await vodPart(s.env, OWNER, "Clip002", 1, payload(100))).status).toBe(404);
     expect((await vodComplete(s.env, OWNER, "Clip002", [{ part_number: 1, etag: "x" }])).status).toBe(404);

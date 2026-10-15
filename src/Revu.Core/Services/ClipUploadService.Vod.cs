@@ -54,7 +54,7 @@ public sealed partial class ClipUploadService : IVodShareClient
     }
 
     public async Task<VodUploadResult> UploadVodAsync(string filePath, string sessionToken, VodUploadRequest request,
-        IProgress<ClipUploadProgress>? progress = null, Action<string>? onRemoteIdAssigned = null,
+        IProgress<ClipUploadProgress>? progress = null, Action<VodUploadStarted>? onStarted = null,
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -62,20 +62,20 @@ public sealed partial class ClipUploadService : IVodShareClient
         if (!File.Exists(filePath)) throw VodError("upload_failed", "The prepared video is missing. Share again.");
         var size = new FileInfo(filePath).Length;
         if (size <= 0) throw VodError("upload_failed", "The prepared video is empty. Share again.");
-        return await UploadVodCoreAsync(filePath, size, null, sessionToken, request, progress, onRemoteIdAssigned, ct)
+        return await UploadVodCoreAsync(filePath, size, null, sessionToken, request, progress, onStarted, ct)
             .ConfigureAwait(false);
     }
 
     public async Task<VodUploadResult> UploadVodWhileWritingAsync(string filePath, long declaredSize, Task<bool> written,
         string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress = null,
-        Action<string>? onRemoteIdAssigned = null, CancellationToken ct = default)
+        Action<VodUploadStarted>? onStarted = null, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(written);
         ValidateVodRequest(sessionToken, request);
         if (declaredSize <= 0) throw VodError("upload_failed", "The prepared video is empty. Share again.");
-        return await UploadVodCoreAsync(filePath, declaredSize, written, sessionToken, request, progress, onRemoteIdAssigned,
-            ct).ConfigureAwait(false);
+        return await UploadVodCoreAsync(filePath, declaredSize, written, sessionToken, request, progress, onStarted, ct)
+            .ConfigureAwait(false);
     }
 
     private static void ValidateVodRequest(string sessionToken, VodUploadRequest request)
@@ -87,17 +87,20 @@ public sealed partial class ClipUploadService : IVodShareClient
 
     private async Task<VodUploadResult> UploadVodCoreAsync(string filePath, long size, Task<bool>? written,
         string sessionToken, VodUploadRequest request, IProgress<ClipUploadProgress>? progress,
-        Action<string>? onRemoteIdAssigned, CancellationToken ct)
+        Action<VodUploadStarted>? onStarted, CancellationToken ct)
     {
         if (size > GameConstants.MaxVodShareBytes) throw VodError("payload_too_large");
         var duration = Math.Clamp(request.DurationSeconds, 1, GameConstants.MaxVodShareSeconds);
 
         var fps = VodShareEncoderArgs.Fps(request.Fps);
         var init = await VodInitAsync(size, request.Quality, fps, duration, sessionToken, ct).ConfigureAwait(false);
+        // The proxy shows an uploading VOD's progress at its link, so the link is good from init on.
+        var started = new VodUploadStarted(init.id, init.url ?? "", init.share_expires_at);
+        Action<string>? assigned = onStarted is null ? null : _ => onStarted(started);
         try
         {
             var done = await UploadPartsAndCompleteAsync(VodRouteBase, init.id, init.part_size, init.part_count, filePath,
-                size, sessionToken, progress, onRemoteIdAssigned, "VOD", ct, written).ConfigureAwait(false);
+                size, sessionToken, progress, assigned, "VOD", ct, written).ConfigureAwait(false);
             return new VodUploadResult(done.Id, done.Url, done.ExpiresAt > 0 ? done.ExpiresAt : init.share_expires_at);
         }
         catch (ClipUploadException ex) when (ex.Code is null)

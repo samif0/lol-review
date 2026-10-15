@@ -198,12 +198,13 @@ public sealed class ClipUploadServiceVodTests : IDisposable
         var size = 40 * MiB;   // under the clip legacy threshold: VODs still go multipart
         var file = MakeFile(size);
         var progress = new Collect();
-        var assigned = new List<string>();
+        var assigned = new List<VodUploadStarted>();
 
         var result = await service.UploadVodAsync(file, "tok", new VodUploadRequest("720p", 2256), progress, assigned.Add);
 
         Assert.Equal(new VodUploadResult("vod1234", "https://revu.lol/v/vod1234", 1_760_659_200), result);
-        Assert.Equal(new[] { "vod1234" }, assigned);
+        // Init's link and share expiry, reported once.
+        Assert.Equal(new[] { new VodUploadStarted("vod1234", "https://revu.lol/v/vod1234", 1_760_659_200) }, assigned);
         var init = proxy.Requests[0];
         Assert.Equal(("POST", "/vod-shares/uploads"), (init.Method, init.Path));
         Assert.Equal($"?size={size}&duration=2256&quality=720p&fps=30", init.Query);
@@ -481,11 +482,20 @@ public sealed class ClipUploadServiceVodTests : IDisposable
         var file = Path.Combine(_dir, "growing.mp4");
         var written = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var progress = new Collect();
+        VodUploadStarted? started = null;
+        var requestsWhenStarted = -1;
 
-        // The upload starts before the encoder has created the file.
+        // The upload starts before the encoder has created the file, and its link is reported
+        // right after init, before any part.
         var upload = service.UploadVodWhileWritingAsync(file, 10 * MiB, written.Task, "tok",
-            new VodUploadRequest("1080p", 600, 60), progress);
-        await WaitUntilAsync(() => proxy.Requests.Count >= 1);
+            new VodUploadRequest("1080p", 600, 60), progress, s =>
+            {
+                lock (proxy.Requests) requestsWhenStarted = proxy.Requests.Count;
+                started = s;
+            });
+        await WaitUntilAsync(() => proxy.Requests.Count >= 1 && started is not null);
+        Assert.Equal(new VodUploadStarted("vod1234", "https://revu.lol/v/vod1234", 1_760_659_200), started);
+        Assert.Equal(1, requestsWhenStarted);
         Grow(file, 8 * MiB);
 
         // Parts 2..4 end at least 4 MiB before the end of what is written; nothing else may go yet.
