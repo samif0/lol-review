@@ -102,7 +102,8 @@ export async function removeHlsShare(env: Env, id: string, now: number, knownMax
       env.DB
         .prepare(
           `INSERT INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before)
-           VALUES (?1, NULL, (SELECT COALESCE(SUM(bytes), 0) FROM vod_hls_segments WHERE clip_id = ?2 AND committed = 0), 'vod', ?3, ?4, ?5)
+           SELECT ?1, NULL, (SELECT COALESCE(SUM(bytes), 0) FROM vod_hls_segments WHERE clip_id = ?2 AND committed = 0), 'vod', ?3, ?4, ?5
+           WHERE EXISTS (SELECT 1 FROM clips WHERE id = ?2 AND format = 'hls' AND status = 'purging')
            ON CONFLICT (r2_key) DO UPDATE SET size_bytes = MAX(size_bytes, excluded.size_bytes),
              key_count = MAX(COALESCE(key_count, 0), excluded.key_count), not_before = MAX(COALESCE(not_before, 0), excluded.not_before)`,
         )
