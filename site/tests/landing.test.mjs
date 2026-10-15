@@ -28,7 +28,10 @@ test('The hero leads with the download and the agreed copy', () => {
   assert.match(hero, /<a class="btn-secondary btn-lg" href="\/review">Review a game in your browser<\/a>/);
   assert.match(hero, /<span data-download-version>Latest version<\/span> &middot; Windows 10\/11<span data-download-size><\/span>/);
   assert.match(hero, /<p class="download-note" data-download-note hidden><\/p>/);
-  assert.match(hero, /<p class="hero-trust">Your recordings and notes are stored on your PC\.<\/p>/);
+  // Nothing under the buttons but the version line: the FFmpeg notice lives in the footer.
+  assert.doesNotMatch(hero, /hero-trust|FFmpeg|GPL/);
+  const footer = html.match(/<footer class="site-footer">[\s\S]*?<\/footer>/)?.[0];
+  assert.match(footer, /<p class="footer-note">Revu includes FFmpeg under the GPLv3: <a href="\/terms#third-party">licenses and source code<\/a>\.<\/p>/);
   // The H1 and the button come before any screenshot, so they lead the first screen.
   assert.ok(html.indexOf('id="download-btn"') < html.indexOf('<figure'));
 });
