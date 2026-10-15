@@ -11,11 +11,11 @@ public sealed class GameRepositoryRemakeTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
-        var now = DateTimeOffset.Now;
+        var start = RecentToday;
         using (var conn = scope.OpenConnection())
         {
-            await InsertGameAsync(conn, 5001, win: true, now.AddMinutes(-60));
-            await InsertGameAsync(conn, 5002, win: false, now.AddMinutes(-30), duration: 386);
+            await InsertGameAsync(conn, 5001, win: true, start);
+            await InsertGameAsync(conn, 5002, win: false, start.AddMinutes(1), duration: 386);
         }
         await MarkAsync(scope, 5002);
 

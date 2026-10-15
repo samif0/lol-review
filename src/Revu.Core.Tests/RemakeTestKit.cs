@@ -73,4 +73,16 @@ internal static class RemakeTestKit
     }
 
     public static string Today => DateTime.Today.ToString("yyyy-MM-dd");
+
+    // A moment that is still today, for games read back as today's (DateTime.Today onward):
+    // ten minutes ago, or local midnight itself when the day is younger than that.
+    public static DateTimeOffset RecentToday
+    {
+        get
+        {
+            var tenMinutesAgo = DateTimeOffset.Now.AddMinutes(-10);
+            var midnight = new DateTimeOffset(DateTime.Today);
+            return tenMinutesAgo > midnight ? tenMinutesAgo : midnight;
+        }
+    }
 }
