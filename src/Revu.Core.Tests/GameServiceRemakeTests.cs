@@ -16,7 +16,9 @@ public sealed class GameServiceRemakeTests
         scope.ConnectionFactory, scope.Games, scope.SessionLog, new RulesRepository(scope.ConnectionFactory),
         scope.GameEvents, scope.DerivedEvents, new TestConfigService(), NullLogger<GameService>.Instance);
 
-    private static long _clock = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 600;
+    // Still today just after midnight: each session row takes its game's local date, and
+    // GetTodayAsync reads today's.
+    private static long _clock = RemakeTestKit.RecentToday.ToUnixTimeSeconds();
 
     private static GameStats Game(long id, int duration = 1800, bool? flag = false, bool win = false)
     {
