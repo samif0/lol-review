@@ -8,12 +8,13 @@ import vm from 'node:vm';
 
 const read = name => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 const html = read('vod.html');
-// The page is four scripts, loaded in this order into one global scope.
+// The page's scripts, loaded in this order into one global scope (vod-ink.js and vod-controls.js
+// draw the reviewer chrome; these tests run the page without them).
 const lib = read('vod-lib.js');
 const playerScript = read('vod-player.js');
 const liveScript = read('vod-live.js');
 const script = read('vod.js');
-const scripts = [lib, playerScript, liveScript, script].join('\n');
+const scripts = [lib, read('vod-ink.js'), read('vod-controls.js'), playerScript, liveScript, script].join('\n');
 const flush = async (rounds = 8) => { for (let i = 0; i < rounds; i += 1) await new Promise(resolve => setImmediate(resolve)); };
 const flat = text => String(text).replace(/[  ]/g, ' ');
 
@@ -160,8 +161,8 @@ test('the lane maps game time to video time with a negative or positive offset',
   // Recording started 12 s before the game clock: game 100 s plays at video 112 s.
   const early = laneItems(doc(-12), 1000);
   assert.deepEqual([...early].map(item => [item.label, item.vt, Math.round(item.left * 10) / 10, item.tone, item.note]), [
-    ['Start', 12, 1.2, '', false], ['Dragon', 112, 11.2, 'gold', false], ['Baron', 962, 96.2, '', false],
-    ['Clip', 412, 41.2, 'note', true], ['Bookmark', 667, 66.7, 'note', true]]);
+    ['Start', 12, 1.2, 'structure', false], ['Dragon', 112, 11.2, 'dragon', false], ['Baron', 962, 96.2, 'void', false],
+    ['Clip', 412, 41.2, 'clip', true], ['Bookmark', 667, 66.7, 'note', true]]);
   // A moment past the end of the video (here game 1000 s at video 1012 s) is skipped.
   assert.equal(laneItems({ gameTimeAtVideoStart: -12, markers: [{ t: 1000, kind: 'END', label: 'End' }] }, 1000).length, 0);
   assert.equal(early.find(item => item.label === 'Dragon').aria, 'Dragon at 1:40');
@@ -169,7 +170,9 @@ test('the lane maps game time to video time with a negative or positive offset',
   // Recording started 30 s into the game: game 100 s plays at video 70 s, and earlier moments clamp to 0.
   const late = laneItems(doc(30), 1000);
   assert.deepEqual([...late].map(item => [item.label, item.vt]), [['Start', 0], ['Dragon', 70], ['Baron', 920], ['Clip', 370], ['Bookmark', 625]]);
-  assert.equal(late.find(item => item.label === 'Baron').tone, '', 'an unknown tone draws plain');
+  // Colored and sized by kind, as in the app's timeline; a kind it doesn't name is a plain minor stem.
+  assert.deepEqual(['Start', 'Dragon', 'Baron'].map(label => { const item = late.find(i => i.label === label); return [item.code, item.tier]; }),
+    [['STA', 'minor'], ['DRG', 'major'], ['BAR', 'major']]);
   assert.equal(laneItems(doc(0), 0).length, 0, 'no duration, no lane');
   assert.deepEqual([...noteRows(doc(30))].map(row => [row.time, row.kind, row.text, row.vt]),
     [['6:40', 'Clip', 'Should have backed', 370], ['10:55', 'Bookmark', '', 625]]);
@@ -219,7 +222,7 @@ test('a ready game renders its header, banner, lane and notes as text, and marke
   assert.equal(run.$('vod-lane').hidden, false);
   assert.equal(marks().length, 4);
   const dragon = marks().find(mark => mark.getAttribute('aria-label') === 'Dragon at 5:12');
-  assert.equal(dragon.className, 'vod-mark is-gold');
+  assert.equal(dragon.className, 'vod-mark is-dragon tier-major');
   assert.equal(dragon.style.left, `${(324 / 1840) * 100}%`);
   run.video.duration = 2000;
   run.video.dispatch('loadedmetadata');
@@ -228,7 +231,8 @@ test('a ready game renders its header, banner, lane and notes as text, and marke
   dragonAfter.click();
   assert.equal(run.video.currentTime, 324);
   assert.equal(run.video.plays, 1);
-  assert.equal(marks().filter(mark => mark.className === 'vod-mark is-note').length, 2);
+  assert.deepEqual(marks().filter(mark => mark.className.endsWith('tier-note')).map(mark => mark.className),
+    ['vod-mark is-clip tier-note', 'vod-mark is-note tier-note']);
 
   assert.equal(run.$('vod-notes').hidden, false);
   assert.equal(run.$('state-game').classList.contains('has-notes'), true);
@@ -254,12 +258,12 @@ test('the quality pill shows the frame rate when the share has one, and nothing 
   }
 });
 
-test('without notes or markers the lane and notes stay hidden; a playback error rechecks the meta', async () => {
+test('without notes or markers the side column stays hidden and the lane is still the seek bar; a playback error rechecks the meta', async () => {
   let current = meta({}, { markers: [], notes: [] });
   const run = page({ hostname: 'localhost', search: '?proxy=http://localhost:8787', routes: { '/vod-meta/Abc1234': () => current } });
   await flush();
   assert.equal(run.video.src, 'http://localhost:8787/vod-file/Abc1234');
-  assert.equal(run.$('vod-lane').hidden, true);
+  assert.equal(run.$('vod-lane').hidden, false, 'the lane is the seek bar, moments or not');
   assert.equal(run.$('vod-notes').hidden, true);
   current = meta({ play_limited: true });
   run.video.dispatch('error');
@@ -429,8 +433,8 @@ test('the page is unlisted, has no video card or inline script, and offers a rep
   assert.match(html, /<meta property="og:description" content="Watch a League of Legends game shared with Revu\." \/>/);
   assert.match(html, /<meta property="og:image" content="https:\/\/revu\.lol\/og-image\.jpg" \/>/);
   assert.doesNotMatch(html, /og:video|twitter:player|twitter:card/);
-  for (const asset of ['/tokens.css', '/styles.css', '/vod.css']) assert.match(html, new RegExp(`<link rel="stylesheet" href="${asset}" />`));
-  assert.match(html, /<script src="\/vod-lib\.js" defer><\/script>\s*<script src="\/vod-player\.js" defer><\/script>\s*<script src="\/vod-live\.js" defer><\/script>\s*<script src="\/vod\.js" defer><\/script>/);
+  for (const asset of ['/tokens.css', '/styles.css', '/vod.css', '/vod-reviewer.css']) assert.match(html, new RegExp(`<link rel="stylesheet" href="${asset}" />`));
+  assert.match(html, /<script src="\/vod-lib\.js" defer><\/script>\s*<script src="\/vod-ink\.js" defer><\/script>\s*<script src="\/vod-controls\.js" defer><\/script>\s*<script src="\/vod-player\.js" defer><\/script>\s*<script src="\/vod-live\.js" defer><\/script>\s*<script src="\/vod\.js" defer><\/script>/);
   assert.doesNotMatch(html, /<script\b(?![^>]*\bsrc=)[^>]*>/);
   for (const tag of html.match(/<[^>]+>/g)) assert.doesNotMatch(tag, /\son[a-z]+\s*=/i, tag);
   assert.doesNotMatch(html, /(?:href|src)="(?!\/|https:\/\/)[^"]*"/, 'every local path is absolute (the page is served at /v/<id>)');
@@ -438,8 +442,9 @@ test('the page is unlisted, has no video card or inline script, and offers a rep
   assert.match(text, /Only people with the link can see this page\./);
   assert.match(text, /To report this video, contact us on Discord \. Video ID/);
   assert.match(html, /<a href="\/discord">Discord<\/a>/);
-  // preload="none": an MP4 share counts a play when the viewer presses play, not when the page opens.
-  assert.match(html, /<video id="vod-video" class="vod-video" controls playsinline preload="none"><\/video>/);
+  // preload="none": an MP4 share counts a play when the viewer presses play, not when the page opens. No
+  // browser controls: the page's own transport (vod-controls.js) is the app reviewer's.
+  assert.match(html, /<video id="vod-video" class="vod-video" playsinline preload="none"><\/video>/);
   assert.doesNotMatch(html + scripts, /[–—]/);
   assert.doesNotMatch(html, /@/, 'no email address on the page');
   assert.doesNotMatch(scripts, /innerHTML|insertAdjacentHTML|outerHTML|document\.write|\beval\(|new Function/);

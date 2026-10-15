@@ -27,7 +27,8 @@
   /*
    * page: { video, doc, api, id, $(id), fetch(url, init), fetchMeta(), poll(ms), stopPolling(),
    *   online(), onOnline(fn), showState(name), waiting(view), renderGame(meta), header(meta),
-   *   gameTitle(), moments({ length, live, choose }), playhead(), message(text, retry) }
+   *   gameTitle(), moments({ length, live, choose }), playhead(), message(text, retry), drawing() }
+   * drawing() is true while the viewer has the pen out (vod-ink.js).
    */
   function create(page) {
     var video = page.video, doc = page.doc, $ = page.$;
@@ -85,15 +86,14 @@
 
     // What the page shows.
 
+    // The page's own transport (vod-controls.js) replaces the browser's controls throughout.
     function showOverlay(at) {
       overlayLabel.textContent = at > 0 ? 'Play' : 'Play from the start';
       overlay.hidden = false;
-      video.controls = false;
     }
 
     function hideOverlay() {
       overlay.hidden = true;
-      video.controls = true;
     }
 
     function renderMoments() {
@@ -234,12 +234,14 @@
       renderLine();
     }
 
+    // A wait that ends while the viewer draws leaves the picture where it is: playing on would
+    // clear their ink. They press play when they are done.
     function release() {
       var was = hold;
       hold = null;
       syncLoad();
       schedule();
-      if (was && was.kind === 'rebuffer') playQuietly();
+      if (was && was.kind === 'rebuffer' && !(typeof page.drawing === 'function' && page.drawing())) playQuietly();
       renderLine();
     }
 

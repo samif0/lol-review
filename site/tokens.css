@@ -60,6 +60,18 @@
   --container:1380px;--container-home:1120px;--container-read:720px;
 }
 
+/* The game page's timeline: the app's Neutral dark event colors, value for value
+   (desktop/ui/appearance.css), so a shared game's moments read as they do in the app. */
+:root{
+  --ev-kill:#f3f4f6;--ev-assist:#76a0f4;--ev-death:#ef7f88;--ev-dragon:#ec9a4f;--ev-void:#b8a0f4;--ev-structure:#979ba3;
+  --ev-recall:#6c6f75;--ev-summoner:#8fb2ff;--mk-clip:#e6bd6c;--mk-note:#c9ccd1;--playhead:#ffffff;--track:rgba(255,255,255,.14);
+}
+
+/* Ink on the game page (vod-ink.js reads these): bright on game footage. */
+:root{
+  --ink-red:#ff5a5f;--ink-yellow:#ffd54a;--ink-green:#5ee08a;--ink-blue:#5aa9ff;--ink-white:#ffffff;
+}
+
 @media (min-width:640px){
   :root{--gutter:24px}
 }

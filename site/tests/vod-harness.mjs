@@ -1,4 +1,4 @@
-// A fake browser for the shared game page (vod.html and its four scripts): the DOM from the
+// A fake browser for the shared game page (vod.html and its scripts): the DOM from the
 // page's HTML, a video element with an autoplay policy, a fake hls.js that records every call,
 // timers on a fake clock, and a fake proxy. Not a test suite itself (tests/index.js only loads
 // *.test.mjs).
@@ -8,7 +8,10 @@ import vm from 'node:vm';
 
 export const read = name => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 export const html = read('vod.html');
-export const sources = { lib: read('vod-lib.js'), player: read('vod-player.js'), live: read('vod-live.js'), page: read('vod.js') };
+// ink and controls (the canvas and the reviewer transport) are checked for their rules here but not
+// run: this DOM has no canvas or SVG, and the page works without them.
+export const sources = { lib: read('vod-lib.js'), ink: read('vod-ink.js'), controls: read('vod-controls.js'),
+  player: read('vod-player.js'), live: read('vod-live.js'), page: read('vod.js') };
 // The tests swap the real pin (empty until hls.js is vendored) for this one; the fake loader checks it.
 export const TEST_INTEGRITY = `sha384-${'A'.repeat(64)}`;
 const PIN = /var HLS_INTEGRITY = '[^']*';/;
@@ -72,7 +75,11 @@ function makeElement(win, tag, attributes = '') {
     removeAttribute(key) { attrs.delete(key); if (key === 'src') el.src = ''; },
     addEventListener(type, fn) { if (!listeners.has(type)) listeners.set(type, []); listeners.get(type).push(fn); },
     removeEventListener(type, fn) { listeners.set(type, (listeners.get(type) || []).filter(f => f !== fn)); },
-    dispatch(type) { for (const fn of [...(listeners.get(type) || [])]) fn({ type, target: el }); },
+    dispatch(type) {
+      const event = { type, target: el, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+      for (const fn of [...(listeners.get(type) || [])]) fn(event);
+      return event;
+    },
     // A press: a user gesture while the handlers run (Safari's rule) and sticky activation after (Chromium's).
     click() {
       if (el.type === 'checkbox') el.checked = !el.checked;
@@ -158,8 +165,10 @@ function response(status, body) {
  * Opens the page. routes: { 'GET /vod-meta/Abc1234': reply | fn, 'POST /vod-play/Abc1234': ... }.
  * A reply is a JSON body, { httpStatus, body } for an error answer, or an Error for a network
  * failure. POST /vod-play answers a fresh token each time unless a route says otherwise.
+ * globals: names defined before the scripts run (a test's stand-ins for vod-ink.js and
+ * vod-controls.js).
  */
-export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLoads = true, pathname = '/v/Abc1234' } = {}) {
+export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLoads = true, pathname = '/v/Abc1234', globals = {} } = {}) {
   let now = NOW;
   let mints = 0;
   const win = { caps: BROWSERS[browser], activated: false, gesture: false, focused: null };
@@ -208,6 +217,7 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
       if (typeof reply.httpStatus === 'number') return response(reply.httpStatus, reply.body ?? {});
       return response(200, reply);
     },
+    ...globals,
   };
   vm.createContext(context);
   assert.equal(sources.player.match(new RegExp(PIN.source, 'g'))?.length, 1, 'vod-player.js has one HLS_INTEGRITY pin');
@@ -246,6 +256,8 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
     mints: () => count('POST', '/vod-play/'),
     pendingPolls: () => timers.filter(t => t.live && !t.every).map(t => t.at - now),
     online(on) { context.navigator.onLine = on; if (on) for (const fn of winListeners.get('online') || []) fn({ type: 'online' }); },
+    // The window changes size and the lane is now `width` px wide.
+    resize(width) { $('vod-lane-track').clientWidth = width; for (const fn of winListeners.get('resize') || []) fn({ type: 'resize' }); },
     state: () => ['state-loading', 'state-missing', 'state-uploading', 'state-game'].find(id => !$(id).hidden),
     message: () => ($('vod-player-msg').hidden ? null : $('vod-player-msg').textContent),
   };

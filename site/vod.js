@@ -35,6 +35,18 @@
   var playhead = $('vod-lane-playhead');
   var notesPanel = $('vod-notes');
   var notesList = $('vod-notes-list');
+  var notesBlock = $('vod-notes-block');
+  var eventsBlock = $('vod-events');
+  var eventsList = $('vod-events-list');
+  var fill = $('vod-lane-fill');
+  var tip = $('vod-lane-tip');
+  var axis = $('vod-lane-axis');
+  var axisKey = '';
+  var lastMoments = null;
+  var liveEdge = null;
+  var controls = null;
+  var ink = null;
+  var eventEntries = [];
   var meta = null;
   var live = null;
   var expiryTimer = null;
@@ -204,7 +216,26 @@
     renderExpiry();
     if (panels.missing.hidden === false) return false;
     expiryTimer = setInterval(renderExpiry, 60000);
+    attachControls();
     return true;
+  }
+
+  // The app-style transport and the pen (vod-controls.js, vod-ink.js), once. Before the first
+  // start of a game that plays while it uploads, Play presses the page's own Play button, which
+  // mints the token and counts the play.
+  function attachControls() {
+    if (controls || !root.RevuVodControls) return;
+    var playButton = $('vod-play');
+    ink = root.RevuVodInk ? root.RevuVodInk.attach({ doc: document, video: video, stage: $('vod-stage'),
+      onChange: function (s) { if (controls) controls.penPressed(s.active); } }) : null;
+    controls = root.RevuVodControls.attach({
+      doc: document, video: video, deck: $('vod-deck'), bar: $('vod-bar'), track: track, fill: fill, playhead: playhead,
+      tip: tip, ink: ink,
+      length: function () { return laneLength; },
+      edge: function () { return liveEdge; },
+      started: function () { return playButton.hidden; },
+      start: function () { playButton.click(); }
+    });
   }
 
   // A moment past the uploaded edge stays a button: pressing it arms "jump there when it
@@ -225,13 +256,14 @@
     var same = items.length === marks.length && items.every(function (item, i) { return item.vt === marks[i].item.vt && item.aria === marks[i].item.aria; });
     if (!same) {
       while (track.firstChild) track.removeChild(track.firstChild);
-      track.appendChild(uploaded);
-      track.appendChild(playhead);
+      [uploaded, fill, playhead, tip].forEach(function (el) { if (el) track.appendChild(el); });
       marks = items.map(function (item) {
         var entry = { button: document.createElement('button'), item: item, choose: choose };
         entry.button.type = 'button';
-        entry.button.className = 'vod-mark' + (item.tone ? ' is-' + item.tone : '');
+        // A stem in the app's style: its color by the event kind, its height by the tier.
+        entry.button.className = 'vod-mark is-' + item.tone + ' tier-' + item.tier;
         entry.button.addEventListener('click', function () { entry.choose(entry.item); });
+        entry.button.addEventListener('mousedown', keepFocus);
         track.appendChild(entry.button);
         return entry;
       });
@@ -241,68 +273,128 @@
       entry.item = item;
       entry.choose = choose;
       entry.button.style.left = item.left + '%';
+      // A code that would crowd its row (or a minor stem's) shows on hover, as in the app.
+      entry.button.setAttribute('data-code', item.code);
+      entry.button.classList.toggle('is-unlabeled', !!item.code && !item.labeled);
       var suffix = markMoment(entry.button, item, item.aria);
       entry.button.title = item.title + (suffix ? ' (' + suffix.slice(2) + ')' : '');
     });
   }
 
-  function drawNotes(rows, choose) {
-    var same = rows.length === noteEntries.length && rows.every(function (row, i) { return row.vt === noteEntries[i].row.vt && row.text === noteEntries[i].row.text; });
+  // A click on a moment leaves the keyboard where it was: Space then pauses the game it
+  // jumped to instead of pressing the moment again. Tab and Enter still reach every moment.
+  function keepFocus(ev) { ev.preventDefault(); }
+
+  function span(className, value) {
+    var el = document.createElement('span');
+    el.className = className;
+    if (value !== undefined) el.textContent = value;
+    return el;
+  }
+
+  // A side list of rows (notes, or events to watch), rebuilt only when its rows change so
+  // keyboard focus survives every upload update. `parts(row)` gives a row's own spans and
+  // `name(row)` the name its tooltip gives.
+  function drawRows(list, entries, rows, choose, name, parts) {
+    var same = rows.length === entries.length && rows.every(function (row, i) {
+      var was = entries[i].row;
+      return row.vt === was.vt && row.aria === was.aria && row.text === was.text;
+    });
     if (!same) {
-      while (notesList.firstChild) notesList.removeChild(notesList.firstChild);
-      noteEntries = rows.map(function (row) {
+      while (list.firstChild) list.removeChild(list.firstChild);
+      entries = rows.map(function (row) {
         var li = document.createElement('li');
         var button = document.createElement('button');
         button.type = 'button';
         button.className = 'vod-note';
-        var time = document.createElement('span');
-        time.className = 'vod-note-time';
-        time.textContent = row.time;
-        var kind = document.createElement('span');
-        kind.className = 'vod-note-kind';
-        kind.textContent = row.kind;
-        button.appendChild(time);
-        button.appendChild(kind);
-        if (row.text) {
-          var body = document.createElement('span');
-          body.className = 'vod-note-text';
-          body.textContent = row.text;
-          button.appendChild(body);
-        }
+        parts(row).forEach(function (el) { button.appendChild(el); });
         var entry = { button: button, row: row, choose: choose, suffix: null };
         button.addEventListener('click', function () { entry.choose(entry.row); });
+        button.addEventListener('mousedown', keepFocus);
         li.appendChild(button);
-        notesList.appendChild(li);
+        list.appendChild(li);
         return entry;
       });
     }
-    noteEntries.forEach(function (entry, i) {
+    entries.forEach(function (entry, i) {
       entry.row = rows[i];
       entry.choose = choose;
-      // A note keeps its text as its name; a pending one gets a visually hidden suffix.
+      // A row keeps its text as its name; a pending one gets a visually hidden suffix.
       var suffix = markMoment(entry.button, entry.row, '');
       if (suffix && !entry.suffix) {
-        entry.suffix = document.createElement('span');
-        entry.suffix.className = 'visually-hidden';
+        entry.suffix = span('visually-hidden');
         entry.button.appendChild(entry.suffix);
       }
       if (entry.suffix) entry.suffix.textContent = suffix;
-      entry.button.title = suffix ? entry.row.time + ' ' + entry.row.kind + ' (' + suffix.slice(2) + ')' : '';
+      entry.button.title = suffix ? entry.row.time + ' ' + name(entry.row) + ' (' + suffix.slice(2) + ')' : '';
     });
-    notesPanel.hidden = rows.length === 0;
-    panels.game.classList.toggle('has-notes', rows.length > 0);
+    return entries;
   }
 
-  // The lane and the notes. While an HLS game uploads, `live` is { edge, rate, armed } and the
-  // lane spans `length`, the whole game, even without moments (its fill shows the upload).
+  function drawNotes(rows, choose) {
+    noteEntries = drawRows(notesList, noteEntries, rows, choose, function (row) { return row.kind; }, function (row) {
+      var parts = [span('vod-note-time', row.time), span('vod-note-kind', row.kind)];
+      if (row.text) parts.push(span('vod-note-text', row.text));
+      return parts;
+    });
+    notesBlock.hidden = rows.length === 0;
+  }
+
+  // Events to watch, as in the app's reviewer: time, name and the event's color.
+  function drawEvents(items, choose) {
+    eventEntries = drawRows(eventsList, eventEntries, items, choose, function (item) { return item.label; }, function (item) {
+      var dot = span('vod-event-dot is-' + item.tone);
+      dot.setAttribute('aria-hidden', 'true');
+      return [span('vod-note-time', item.time), span('vod-note-kind', item.label), dot];
+    });
+    eventsBlock.hidden = items.length === 0;
+  }
+
+  // Clock ticks under the lane (game time), redrawn only when they change.
+  function drawAxis(doc) {
+    var ticks = V.axisTicks(laneLength, V.offsetOf(doc));
+    var key = ticks.map(function (t) { return t.label + '@' + t.left.toFixed(2); }).join(',');
+    if (key === axisKey) return;
+    axisKey = key;
+    while (axis.firstChild) axis.removeChild(axis.firstChild);
+    ticks.forEach(function (t) {
+      var tick = span('vod-lane-tick', t.label);
+      tick.style.left = t.left + '%';
+      axis.appendChild(tick);
+    });
+  }
+
+  // The lane (the seek bar), the events and the notes. While an HLS game uploads, `live` is
+  // { edge, rate, armed } and the lane spans `length`, the whole game (its fill shows the upload).
   function drawMoments(o) {
+    lastMoments = o;
     var doc = meta && meta.meta;
     laneLength = Number(o.length) || 0;
-    var items = V.laneItems(doc, laneLength, o.live);
+    liveEdge = o.live ? Number(o.live.edge) : null;
+    // Shown before it is measured: a hidden lane is 0 px wide.
+    lane.hidden = !(laneLength > 0);
+    var items = V.laneItems(doc, laneLength, o.live, labelGap());
     drawLane(items, o.choose);
-    drawNotes(V.noteRows(doc, o.live), o.choose);
-    lane.hidden = items.length === 0 && !o.live;
+    drawAxis(doc);
+    var rows = V.noteRows(doc, o.live);
+    drawNotes(rows, o.choose);
+    drawEvents(items.filter(function (item) { return !item.note; }), o.choose);
+    var side = rows.length > 0 || !eventsBlock.hidden;
+    notesPanel.hidden = !side;
+    panels.game.classList.toggle('has-notes', side);
     updatePlayhead();
+    if (controls) controls.paint();
+  }
+
+  // A code needs about 30 px: a narrow lane (a phone) shows fewer of them, and every moment
+  // is still in the list. A window that changes size draws them again.
+  function labelGap() {
+    var width = track.clientWidth || 0;
+    return width > 0 ? Math.max(V.LABEL_GAP, (30 / width) * 100) : V.LABEL_GAP;
+  }
+
+  if (typeof root.addEventListener === 'function') {
+    root.addEventListener('resize', function () { if (lastMoments) drawMoments(lastMoments); });
   }
 
   function updatePlayhead() {
@@ -346,7 +438,23 @@
     video.addEventListener('timeupdate', updatePlayhead);
     video.addEventListener('error', recheck);
     video.src = API + '/vod-file/' + encodeURIComponent(id);
+    offerPlay();
     drawMp4();
+  }
+
+  // Nothing loads before the first play (preload="none"), so the picture is dark until then:
+  // the big Play button over it, as for a game that plays while it uploads.
+  function offerPlay() {
+    var button = $('vod-play');
+    var hide = function () { button.hidden = true; };
+    $('vod-play-label').textContent = 'Play';
+    button.hidden = false;
+    button.addEventListener('click', function () {
+      hide();
+      var playing = video.play();
+      if (playing && typeof playing.catch === 'function') playing.catch(function () {});
+    });
+    video.addEventListener('play', hide);
   }
 
   // HLS shares.
@@ -360,7 +468,8 @@
       onOnline: function (fn) { if (typeof root.addEventListener === 'function') root.addEventListener('online', fn, { once: true }); },
       showState: showState, waiting: waiting, renderGame: renderGame,
       header: function (fresh) { meta = fresh; renderHeader(); },
-      gameTitle: gameTitle, moments: drawMoments, playhead: updatePlayhead, message: playerMessage
+      gameTitle: gameTitle, moments: drawMoments, playhead: updatePlayhead, message: playerMessage,
+      drawing: function () { return !!(ink && ink.active()); }
     };
   }
 

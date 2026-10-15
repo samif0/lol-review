@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
-import { BROWSERS, DASHES, DOC, NOW_S, SPACES, TEST_INTEGRITY, hlsMeta, openPage, playlist, sources } from './vod-harness.mjs';
+import { BROWSERS, DASHES, DOC, NOW_S, SPACES, TEST_INTEGRITY, finishedMeta, hlsMeta, openPage, playlist, sources } from './vod-harness.mjs';
 
 function pure() {
   const context = { URLSearchParams };
@@ -136,7 +136,7 @@ test('a playable game loads nothing from the proxy before play, then mints one t
     liveDurationInfinity: false, maxBufferLength: 30, backBufferLength: 90 });
   assert.equal(run.$('vod-play').hidden, false);
   assert.equal(run.$('vod-play-label').textContent, 'Play from the start');
-  assert.equal(run.video.controls, false, 'the button stands in for the controls until the first play');
+  assert.equal(run.video.controls, false, 'the page draws its own transport, never the browser controls');
   assert.equal(run.lineText(), 'Ready from the start. 2:00 of 16:40 uploaded so far');
   assert.equal(run.$('vod-live-say').textContent, 'Ready from the start. 2:00 of 16:40 uploaded so far');
   assert.equal(run.document.title, 'Ready to watch · Jinx vs Caitlyn');
@@ -155,7 +155,7 @@ test('a playable game loads nothing from the proxy before play, then mints one t
   assert.deepEqual({ ...mint.init }, { method: 'POST' }, 'no body, no headers');
   assert.deepEqual(hls.calls, [['attachMedia'], ['loadSource', playlist(1)], ['startLoad', 0]]);
   assert.equal(run.video.plays, 1);
-  assert.equal(run.video.controls, true);
+  assert.equal(run.video.controls, false, 'still the page transport after the first play');
   assert.equal(run.$('vod-play').hidden, true);
   assert.equal(run.document.title, 'Jinx vs Caitlyn - Revu');
   assert.equal(run.lineText(), 'Watchable up to 2:00 of 16:40 · still uploading');
@@ -175,7 +175,7 @@ test('THE BLOCKER: a live page nobody plays keeps up with the upload for 3 minut
   const dragon = run.mark('Dragon at 5:12');
   assert.equal(dragon.getAttribute('aria-label'), 'Dragon at 5:12, not uploaded yet, about 1 min');
   assert.equal(dragon.getAttribute('aria-pressed'), 'false');
-  assert.equal(dragon.className, 'vod-mark is-gold is-pending');
+  assert.equal(dragon.className, 'vod-mark is-dragon tier-major is-pending');
   assert.equal(run.mark('Baron at 15:20').getAttribute('aria-label'), 'Baron at 15:20, not uploaded yet, about 4 min');
   const note = run.$('vod-notes-list').children[0].children[0];
   assert.equal(note.className, 'vod-note is-pending');
@@ -188,7 +188,7 @@ test('THE BLOCKER: a live page nobody plays keeps up with the upload for 3 minut
   assert.equal(run.mark('Dragon at 5:12'), dragon, 'the same button: keyboard focus survives');
   assert.equal(dragon.getAttribute('aria-label'), 'Dragon at 5:12');
   assert.equal(dragon.getAttribute('aria-pressed'), null);
-  assert.equal(dragon.className, 'vod-mark is-gold');
+  assert.equal(dragon.className, 'vod-mark is-dragon tier-major');
   assert.equal(note.className, 'vod-note', 'the 6:40 note arrived too');
   assert.equal(note.title, '');
   assert.equal(note.children.at(-1).textContent, '');
@@ -322,6 +322,66 @@ test('rebuffer: an upload slower than playback pauses at the edge until 30 s ahe
   assert.deepEqual(hls.last(), ['startLoad', 147.5]);
 });
 
+// Stand-ins for vod-ink.js and vod-controls.js: what the page hands the transport, and a pen
+// the test takes out and puts away.
+function chrome() {
+  const seen = { pen: { out: false, active() { return this.out; } }, transport: null };
+  seen.globals = {
+    RevuVodInk: { attach: () => seen.pen },
+    RevuVodControls: { attach: o => { seen.transport = o; return { paint() {}, penPressed() {} }; } },
+  };
+  return seen;
+}
+
+test('the transport gets the whole game\'s length, the uploaded edge and the page\'s own Play', async () => {
+  let media = 120;
+  const seen = chrome();
+  const run = openPage({ globals: seen.globals, routes: { [META]: () => (media < 1000 ? hlsMeta({ media_seconds: media }) : finishedMeta()) } });
+  await run.advance(0);
+  const o = seen.transport;
+  assert.deepEqual([o.length(), o.edge(), o.started(), o.ink === seen.pen], [1000, 120, false, true]);
+  o.start();
+  await run.advance(0);
+  assert.equal(run.mints(), 1, 'Play on the transport is the page\'s Play: one token, one play');
+  assert.equal(o.started(), true);
+  media = 1000;
+  await run.advance(30000);
+  assert.equal(o.edge(), null, 'all of it uploaded: seeks go anywhere');
+});
+
+test('a narrow lane shows fewer codes: each needs about 30 px, and every moment is still in the list', async () => {
+  const meta = { ...DOC, markers: [{ t: 100, kind: 'KILL', label: 'Kill' }, { t: 170, kind: 'DEATH', label: 'Death' }] };
+  const run = openPage({ routes: { [META]: hlsMeta({ meta }) } });
+  await run.advance(0);
+  const codes = () => run.marks().filter(m => m.className.includes('tier-kill'))
+    .map(m => m.getAttribute('data-code') + (m.className.includes('is-unlabeled') ? ' on hover' : ''));
+  assert.deepEqual(codes(), ['KIL', 'DTH'], '7% apart is room enough on a wide lane');
+  run.resize(300);
+  assert.deepEqual(codes(), ['KIL', 'DTH on hover'], 'on a phone the second code shows on hover only');
+  assert.equal(run.$('vod-events-list').children.length, 2);
+  run.resize(1000);
+  assert.deepEqual(codes(), ['KIL', 'DTH']);
+});
+
+test('a wait at the edge that ends while the viewer draws leaves the game paused, with their ink', async () => {
+  let media = 120;
+  const seen = chrome();
+  const run = openPage({ globals: seen.globals, routes: { [META]: () => hlsMeta({ media_seconds: media, ingest_x: 0.8 }) } });
+  await run.advance(0);
+  run.$('vod-play').click();
+  await run.advance(0);
+  run.playTo(118.5);
+  assert.equal(run.video.paused, true, 'waiting for a lead');
+  seen.pen.out = true;
+  media = 149;
+  await run.advance(15000);
+  assert.deepEqual(run.hls().last(), ['startLoad', 118.5], 'loading goes on');
+  assert.equal(run.video.paused, true, 'the picture stays put under the pen');
+  seen.pen.out = false;
+  await run.advance(30000);
+  assert.equal(run.video.paused, true, 'they press play when they are done');
+});
+
 test('Play now with pauses turns the rebuffer off: playback goes on as each bit arrives', async () => {
   let media = 120;
   const run = openPage({ routes: { [META]: () => hlsMeta({ media_seconds: media, ingest_x: 0.8 }) } });
@@ -377,9 +437,12 @@ test('a moment that is not uploaded yet arms a jump: the page goes there when it
   const run = openPage({ routes: { [META]: () => hlsMeta({ media_seconds: media, ingest_x: 4 }) } });
   await run.advance(0);
   const dragon = run.mark('Dragon at 5:12');
+  assert.equal(dragon.dispatch('mousedown').defaultPrevented, true, 'a click leaves the keyboard where it was: Space still plays');
+  assert.equal(run.$('vod-events-list').children[0].children[0].dispatch('mousedown').defaultPrevented, true);
+  assert.equal(run.$('vod-notes-list').children[0].children[0].dispatch('mousedown').defaultPrevented, true);
   dragon.click();
   assert.equal(dragon.getAttribute('aria-pressed'), 'true');
-  assert.equal(dragon.className, 'vod-mark is-gold is-pending is-armed');
+  assert.equal(dragon.className, 'vod-mark is-dragon tier-major is-pending is-armed');
   assert.equal(run.$('vod-jump').hidden, false);
   assert.equal(run.$('vod-jump-text').textContent, 'Jumps to Dragon at 5:12 when it arrives, in about 1 min.');
   assert.equal(run.$('vod-live-say').textContent, 'Jumps to Dragon at 5:12 when it arrives, in about 1 min.');
