@@ -193,7 +193,10 @@ public sealed partial class VodShareWorkerTests
 
             var queued = await WaitPhaseAsync(tap, "queued");
             Assert.Equal(new[] { "gameId", "state", "phase", "percent", "quality", "qualityReason", "url", "expiresAt",
-                "markersAttached", "errorCode", "error", "retryAt", "needsLogin", "linkChanged" }, queued.EnumerateObject().Select(p => p.Name));
+                "markersAttached", "errorCode", "error", "retryAt", "needsLogin", "linkChanged", "format", "mediaSeconds", "durationSeconds",
+                "watchable", "uplinkSlow", "paused", "truncated" }, queued.EnumerateObject().Select(p => p.Name));
+            Assert.Equal(("mp4", JsonValueKind.Null, 2255.4), (queued.GetProperty("format").GetString(),
+                queued.GetProperty("mediaSeconds").ValueKind, queued.GetProperty("durationSeconds").GetDouble()));
             Assert.Equal(("running", 0, "1080p"), (queued.GetProperty("state").GetString(), queued.GetProperty("percent").GetInt32(),
                 queued.GetProperty("quality").GetString()));
             await WaitPhaseAsync(tap, "preparing");

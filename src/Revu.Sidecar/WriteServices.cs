@@ -158,6 +158,8 @@ public sealed class WriteServices : IDisposable
         // 4.2 full-game sharing: the same typed ClipUploadService speaks the /vod-shares routes,
         // and the share copy encoder caches its probed (ffmpeg, H.264 encoder) pair for the process.
         services.AddTransient<IVodShareClient>(sp => (ClipUploadService)sp.GetRequiredService<IClipUploadService>());
+        // 4.4: cached HLS self-tests and each account's measured upload speed (a cache, safe to lose).
+        services.AddSingleton(sp => new VodShareMemory(AppDataPaths.VodShareMemoryPath, sp.GetRequiredService<ILogger<VodShareMemory>>()));
         services.AddSingleton<IVodShareEncoder, VodShareEncoder>();
         // Backfill services walk games missing enemy_laner / laning@10 / map state
         // and resolve them via Match-V5 (through IRiotMatchClient). All write to
@@ -265,6 +267,7 @@ public sealed class WriteServices : IDisposable
     // (the remote delete is ClipUpload.DeleteAsync, kind-agnostic on the proxy).
     public IVodShareClient VodShare => _provider.GetRequiredService<IVodShareClient>();
     public IVodShareEncoder VodShareEncoder => _provider.GetRequiredService<IVodShareEncoder>();
+    public VodShareMemory VodShareMemory => _provider.GetRequiredService<VodShareMemory>();
 
     // ── 3.14 narrated clips ───────────────────────────────────────────────────
     // clip_narrations rows (POST /api/clip/narration/*, the share and transcription

@@ -84,6 +84,12 @@ public static class AppDataPaths
     /// <summary>Temporary share copies of full games while they are prepared and uploaded.</summary>
     public static string VodShareTempDirectory => Path.Combine(SidecarHandshakeDirectory, "ShareTemp");
 
+    /// <summary>
+    /// 4.4 full-game sharing as segments: cached HLS encoder self-tests and each account's measured upload speed.
+    /// A cache only: deleting it costs one self-test and the 720p preselect.
+    /// </summary>
+    public static string VodShareMemoryPath => Path.Combine(SidecarHandshakeDirectory, "vod-share-memory.json");
+
     private static string GetLocalAppDataRoot()
     {
         // Dev/e2e override: point ALL app data (DB, config, clips, backups, and

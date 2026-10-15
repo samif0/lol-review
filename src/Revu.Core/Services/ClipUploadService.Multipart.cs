@@ -43,25 +43,6 @@ public sealed partial class ClipUploadService
     /// </summary>
     internal const long MaxPartBytes = 256L * 1024 * 1024;
 
-    /// <summary>Delays between the 4 attempts of one part (tests shorten these).</summary>
-    internal TimeSpan[] PartRetryDelays { get; set; } =
-        [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
-
-    /// <summary>
-    /// Full-game (VOD) parts only: how long one part keeps retrying while the network is down
-    /// (connection failures never reach the proxy, so they don't count against its
-    /// 2 x part_count + 4 cap). Attempts that reach the proxy keep the clip limit of 4.
-    /// Kept well under the proxy's 30-minute idle sweep. Tests shorten it.
-    /// </summary>
-    internal TimeSpan VodPartOutageWindow { get; set; } = TimeSpan.FromMinutes(10);
-
-    /// <summary>Full-game parts: backoff between connection-failure retries, the last one repeating (tests shorten these).</summary>
-    internal TimeSpan[] VodPartOutageDelays { get; set; } =
-    [
-        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20),
-        TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(60),
-    ];
-
     /// <summary>Delays between the 3 attempts of complete (tests shorten these).</summary>
     internal TimeSpan[] CompleteRetryDelays { get; set; } =
         [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)];
@@ -339,14 +320,10 @@ public sealed partial class ClipUploadService
         // Clips: 4 attempts of any kind. Full games run for hours, so a short outage must not
         // throw the whole upload away: attempts that reach the proxy keep the clip limit, and
         // connection failures retry with backoff for up to VodPartOutageWindow.
-        var vod = routeBase == VodRouteBase;
-        var serverAttempts = 0;
-        var outageAttempts = 0;
-        var outageSince = 0L;
+        var retry = routeBase == VodRouteBase ? VodRetry() : null;
         for (var attempt = 1; ; attempt++)
         {
-            var canRetry = attempt <= PartRetryDelays.Length;
-            var outage = false;
+            TimeSpan? delay = attempt <= PartRetryDelays.Length ? PartRetryDelays[attempt - 1] : null;
             try
             {
                 using var content = new ByteArrayContent(buffer, 0, length);
@@ -368,12 +345,8 @@ public sealed partial class ClipUploadService
                 }
 
                 var status = (int)res.StatusCode;
-                if (vod)
-                {
-                    outageAttempts = 0;
-                    canRetry = ++serverAttempts <= PartRetryDelays.Length;
-                }
-                if (canRetry && (status >= 500 || res.StatusCode == HttpStatusCode.TooManyRequests))
+                if (retry is not null) delay = retry.Server();
+                if (delay is not null && (status >= 500 || res.StatusCode == HttpStatusCode.TooManyRequests))
                 {
                     _logger.LogWarning("Part {Part} of {Id} returned {Status}; retrying", partNumber, id, status);
                 }
@@ -394,42 +367,15 @@ public sealed partial class ClipUploadService
             catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException or IOException
                                        or JsonException)
             {
-                if (vod)
-                {
-                    outage = IsConnectFailure(ex);
-                    if (outage)
-                    {
-                        if (outageAttempts++ == 0) outageSince = Stopwatch.GetTimestamp();
-                        canRetry = Stopwatch.GetElapsedTime(outageSince) < VodPartOutageWindow;
-                    }
-                    else
-                    {
-                        outageAttempts = 0;
-                        canRetry = ++serverAttempts <= PartRetryDelays.Length;
-                    }
-                }
-                if (!canRetry)
+                if (retry is not null) delay = retry.After(ex);
+                if (delay is null)
                     throw new ClipUploadException(ex is OperationCanceledException ? TimeoutMessage : NetworkMessage, ex);
                 _logger.LogWarning(ex, "Part {Part} of {Id} failed; retrying", partNumber, id);
             }
 
-            var delay = !vod ? PartRetryDelays[attempt - 1]
-                : outage ? VodPartOutageDelays[Math.Min(outageAttempts, VodPartOutageDelays.Length) - 1]
-                : PartRetryDelays[serverAttempts - 1];
-            await Task.Delay(delay, ct).ConfigureAwait(false);
+            await Task.Delay(delay.Value, ct).ConfigureAwait(false);
         }
     }
-
-    /// <summary>
-    /// A send that failed before any request reached the proxy (no DNS, no route, refused,
-    /// TLS never set up). Anything else may have been counted by the proxy's part cap.
-    /// </summary>
-    internal static bool IsConnectFailure(Exception ex) =>
-        ex is HttpRequestException
-        {
-            HttpRequestError: HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError
-                or HttpRequestError.SecureConnectionError or HttpRequestError.ProxyTunnelError,
-        };
 
     private async Task<ClipUploadResult> CompleteAsync(string routeBase, string id, IReadOnlyList<PartDto> parts,
         string sessionToken, CancellationToken ct)

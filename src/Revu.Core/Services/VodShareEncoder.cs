@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Diagnostics;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 
 namespace Revu.Core.Services;
@@ -34,17 +35,40 @@ public interface IVodShareEncoder
     Task<VodEncodeResult> EncodeAsync(string sourcePath, string outputPath, VodShareQuality quality, int fps,
         double durationSeconds, IProgress<int>? percent, CancellationToken ct,
         Func<CancellationToken, Task>? beforeRetry = null);
+
+    /// <summary>
+    /// The first working pair for an HLS share: it passes its probe and its HLS self-test (two IDR-first 2.000 s
+    /// fragments), hardware first; null when none does.
+    /// </summary>
+    Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct);
+
+    /// <summary>Select the HLS pair ahead of a share (the share sheet opened, no game in progress).</summary>
+    Task PrewarmHlsAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Encode <paramref name="request"/> into HLS segments in its folder, announcing each run's init and every
+    /// finished segment on <paramref name="writer"/> in order (plan 4.1). A run that fails resumes at the edge: the
+    /// same encoder once, then the next qualified one; two runs in a row without a new segment end it there.
+    /// <paramref name="mediaSeconds"/> reports where the last finished segment ends. Cancellation kills ffmpeg and
+    /// throws; the segments already announced stay on disk.
+    /// </summary>
+    Task<VodHlsEncodeResult> EncodeHlsAsync(VodHlsEncodeRequest request, ChannelWriter<HlsItem> writer,
+        IProgress<double>? mediaSeconds, CancellationToken ct);
 }
 
-/// <summary>One ffmpeg run as the encoder sees it.</summary>
-internal readonly record struct VodEncoderRun(int ExitCode, string StderrTail, bool TimedOut)
+/// <summary>One ffmpeg run as the encoder sees it. ConsumerError: a binary stdout consumer threw (ffmpeg was killed).</summary>
+internal readonly record struct VodEncoderRun(int ExitCode, string StderrTail, bool TimedOut, Exception? ConsumerError = null)
 {
-    public bool Succeeded => !TimedOut && ExitCode == 0;
+    public bool Succeeded => !TimedOut && ExitCode == 0 && ConsumerError is null;
 }
 
 /// <summary>Runs ffmpeg (tests inject a fake; production uses <see cref="FfmpegRunner"/>).</summary>
 internal delegate Task<VodEncoderRun> VodFfmpegRunner(string ffmpegPath, IReadOnlyList<string> args, int timeoutSeconds,
     Action<string>? onStdoutLine, CancellationToken ct);
+
+/// <summary>Runs ffmpeg with its stdout handed to a binary consumer (tests feed a synthetic stream).</summary>
+internal delegate Task<VodEncoderRun> VodFfmpegBinaryRunner(string ffmpegPath, IReadOnlyList<string> args,
+    int timeoutSeconds, Func<Stream, CancellationToken, Task> onStdout, CancellationToken ct);
 
 /// <summary>
 /// Picks a working H.264 encoder by probing (hardware on any candidate binary beats the CPU
@@ -54,7 +78,7 @@ internal delegate Task<VodEncoderRun> VodFfmpegRunner(string ffmpegPath, IReadOn
 /// disk or a timeout says nothing about the encoder and must not cost later shares the
 /// hardware encoder.
 /// </summary>
-public sealed class VodShareEncoder : IVodShareEncoder
+public sealed partial class VodShareEncoder : IVodShareEncoder
 {
     private const int ListTimeoutSeconds = 15;
     private const int ProbeTimeoutSeconds = 20;
@@ -64,23 +88,28 @@ public sealed class VodShareEncoder : IVodShareEncoder
     private readonly ILogger _logger;
     private readonly Func<CancellationToken, Task<IReadOnlyList<string>>> _candidates;
     private readonly VodFfmpegRunner _run;
+    private readonly VodFfmpegBinaryRunner _runBinary;
+    private readonly VodShareMemory? _memory;
     private readonly SemaphoreSlim _selectGate = new(1, 1);
     private readonly Dictionary<string, IReadOnlyList<string>> _encoderLists = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<(string Path, string Encoder)> _broken = new();
     private VodEncoderChoice? _cached;
 
-    public VodShareEncoder(INarrationMixer mixer, ILogger<VodShareEncoder> logger)
-        : this(mixer, logger, DefaultCandidatesAsync, RunFfmpegAsync)
+    public VodShareEncoder(INarrationMixer mixer, ILogger<VodShareEncoder> logger, VodShareMemory? memory = null)
+        : this(mixer, logger, DefaultCandidatesAsync, RunFfmpegAsync, RunFfmpegBinaryAsync, memory)
     {
     }
 
     internal VodShareEncoder(INarrationMixer? mixer, ILogger logger,
-        Func<CancellationToken, Task<IReadOnlyList<string>>> candidates, VodFfmpegRunner run)
+        Func<CancellationToken, Task<IReadOnlyList<string>>> candidates, VodFfmpegRunner run,
+        VodFfmpegBinaryRunner? runBinary = null, VodShareMemory? memory = null)
     {
         _mixer = mixer;
         _logger = logger;
         _candidates = candidates;
         _run = run;
+        _runBinary = runBinary ?? RunFfmpegBinaryAsync;
+        _memory = memory;
     }
 
     public async Task<VodEncoderChoice?> SelectAsync(CancellationToken ct)
@@ -405,6 +434,21 @@ public sealed class VodShareEncoder : IVodShareEncoder
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A binary that cannot start (blocked, wrong architecture) is just an unusable candidate.
+            return new VodEncoderRun(-1, ex.Message, false);
+        }
+    }
+
+    private static async Task<VodEncoderRun> RunFfmpegBinaryAsync(string ffmpegPath, IReadOnlyList<string> args,
+        int timeoutSeconds, Func<Stream, CancellationToken, Task> onStdout, CancellationToken ct)
+    {
+        try
+        {
+            var run = await FfmpegRunner.RunAsync(ffmpegPath, args, timeoutSeconds, ct, onStdout: onStdout)
+                .ConfigureAwait(false);
+            return new VodEncoderRun(run.ExitCode, run.StderrTail, run.TimedOut, run.ConsumerError);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
             return new VodEncoderRun(-1, ex.Message, false);
         }
     }

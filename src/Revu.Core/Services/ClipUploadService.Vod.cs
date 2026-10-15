@@ -97,11 +97,31 @@ public sealed partial class ClipUploadService : IVodShareClient
         // The proxy shows an uploading VOD's progress at its link, so the link is good from init on.
         var started = new VodUploadStarted(init.id, init.url ?? "", init.share_expires_at);
         Action<string>? assigned = onStarted is null ? null : _ => onStarted(started);
+        return await ContinueVodUploadAsync(init.id, init.part_size, init.part_count, init.share_expires_at, filePath, size,
+            written, sessionToken, progress, assigned, ct).ConfigureAwait(false);
+    }
+
+    public async Task<VodUploadResult> UploadVodWhileWritingAsync(VodMp4Reservation reserved, string filePath,
+        Task<bool> written, string sessionToken, IProgress<ClipUploadProgress>? progress = null, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(reserved);
+        ArgumentNullException.ThrowIfNull(written);
+        if (string.IsNullOrWhiteSpace(sessionToken)) throw VodError("unauthorized");
+        return await ContinueVodUploadAsync(reserved.Id, reserved.PartSize, reserved.PartCount, reserved.ShareExpiresAt,
+            filePath, reserved.DeclaredSize, written, sessionToken, progress, null, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The parts and complete of a VOD row whose init already succeeded.</summary>
+    private async Task<VodUploadResult> ContinueVodUploadAsync(string id, long partSize, int partCount, long shareExpiresAt,
+        string filePath, long size, Task<bool>? written, string sessionToken, IProgress<ClipUploadProgress>? progress,
+        Action<string>? assigned, CancellationToken ct)
+    {
         try
         {
-            var done = await UploadPartsAndCompleteAsync(VodRouteBase, init.id, init.part_size, init.part_count, filePath,
+            var done = await UploadPartsAndCompleteAsync(VodRouteBase, id, partSize, partCount, filePath,
                 size, sessionToken, progress, assigned, "VOD", ct, written).ConfigureAwait(false);
-            return new VodUploadResult(done.Id, done.Url, done.ExpiresAt > 0 ? done.ExpiresAt : init.share_expires_at);
+            return new VodUploadResult(done.Id, done.Url, done.ExpiresAt > 0 ? done.ExpiresAt : shareExpiresAt);
         }
         catch (ClipUploadException ex) when (ex.Code is null)
         {
@@ -296,6 +316,7 @@ public sealed partial class ClipUploadService : IVodShareClient
         public UsageDto? usage { get; set; }
         public PoolDto? pool { get; set; }
         public List<ShareDto>? shares { get; set; }
+        public HlsDto? hls { get; set; }
 
         public VodShareServerStatus ToStatus() => new(
             Supported: true,
@@ -309,8 +330,26 @@ public sealed partial class ClipUploadService : IVodShareClient
             Shares: (shares ?? new List<ShareDto>())
                 .Where(s => !string.IsNullOrWhiteSpace(s.id))
                 .Select(s => new VodShareServerShare(s.id!.Trim(), s.status ?? "", s.quality, s.size_bytes, s.created_at,
-                    s.expires_at))
-                .ToList());
+                    s.expires_at, s.format == "hls" ? "hls" : "mp4", s.format == "hls" ? s.segments : null, s.paused == true))
+                .ToList(),
+            Hls: allowed ? hls?.ToHls() : null);
+    }
+
+    private sealed class HlsDto
+    {
+        public bool enabled { get; set; }
+        public int segment_seconds { get; set; }
+        public int target_duration { get; set; }
+        public long max_segment_bytes { get; set; }
+        public int init_max_bytes { get; set; }
+        public int playable_ms { get; set; }
+        public int max_runs { get; set; }
+
+        /// <summary>Settings the desktop was not built for read as "off": it only speaks 2 s segments.</summary>
+        public VodShareHlsInfo ToHls() => new(
+            enabled && segment_seconds == VodShareEncoderArgs.HlsSegmentSeconds && max_segment_bytes > 0 && init_max_bytes > 0
+                && max_runs > 0,
+            segment_seconds, target_duration, max_segment_bytes, init_max_bytes, playable_ms, max_runs);
     }
 
     private sealed class LimitsDto
@@ -369,5 +408,8 @@ public sealed partial class ClipUploadService : IVodShareClient
         public long size_bytes { get; set; }
         public long created_at { get; set; }
         public long expires_at { get; set; }
+        public string? format { get; set; }
+        public int? segments { get; set; }
+        public bool? paused { get; set; }
     }
 }

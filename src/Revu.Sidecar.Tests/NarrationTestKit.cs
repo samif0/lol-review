@@ -61,9 +61,10 @@ internal sealed class FakeMixer : INarrationMixer
 
     public double ProbeDuration { get; set; } = 30;
     public double? ProbeFrameRate { get; set; }
+    public double? ProbeStart { get; set; }
 
     public Task<MediaProbe?> ProbeAsync(string path, CancellationToken ct) =>
-        Task.FromResult<MediaProbe?>(new MediaProbe(true, ProbeDuration, ProbeFrameRate));
+        Task.FromResult<MediaProbe?>(new MediaProbe(true, ProbeDuration, ProbeFrameRate, ProbeStart));
 
     public async Task<bool> MixAsync(MixPlan plan, CancellationToken ct)
     {

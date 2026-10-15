@@ -31,10 +31,14 @@ public sealed record VodShareLimitsDto(int Live, int MaxLive, int Pending, int S
 /// the share's link from the upload's init on, while the job runs (the watch page shows the
 /// upload's progress until the game is ready), and the finished link once done. LinkChanged: a
 /// link shown earlier in this job stopped working because its upload had to start over.
+/// 4.4 HLS shares (Format "hls") also carry the media acknowledged so far and the game's length,
+/// whether people can watch already, whether the upload runs slower than the video plays, whether
+/// the share waits for the player's game, and whether it ended before the end of the game.
 /// </summary>
 public sealed record VodShareJobDto(string State, string Phase, int Percent, string? Quality, string? QualityReason,
     string? ErrorCode, string? Error, long? RetryAt, bool NeedsLogin, string? Url = null, long? ExpiresAt = null,
-    bool LinkChanged = false);
+    bool LinkChanged = false, string Format = "mp4", double? MediaSeconds = null, double? DurationSeconds = null,
+    bool Watchable = false, bool UplinkSlow = false, bool Paused = false, bool Truncated = false);
 
 /// <summary>A live share of this game (the store entry without its game id).</summary>
 public sealed record VodShareLinkDto(string Id, string Url, string Quality, bool IncludeNotes, long SizeBytes,
@@ -44,7 +48,7 @@ public sealed record VodShareLinkDto(string Id, string Url, string Quality, bool
         new(e.Id, e.Url, e.Quality, e.IncludeNotes, e.SizeBytes, e.CreatedAt, e.ExpiresAt, e.MarkersAttached);
 }
 
-/// <summary>GET /api/vod-share/status?gameId=N.</summary>
+/// <summary>GET /api/vod-share/status?gameId=N. PreferredQuality: "720p" when this account's last upload was too slow for 1080p.</summary>
 public sealed record VodShareStatusDto(
     long GameId,
     bool SignedIn,
@@ -58,7 +62,8 @@ public sealed record VodShareStatusDto(
     long TtlSeconds,
     VodShareJobDto? Job,
     VodShareLinkDto? Share,
-    long? BusyGameId);
+    long? BusyGameId,
+    string? PreferredQuality = null);
 
 /// <summary>
 /// POST /api/vod-share/start reply (HTTP status + JSON body, like <see cref="ApiReply"/>). A

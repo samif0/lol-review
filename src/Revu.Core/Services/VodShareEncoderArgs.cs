@@ -149,28 +149,106 @@ public static class VodShareEncoderArgs
     public static IReadOnlyList<string> EncodeArgs(string encoder, string sourcePath, string outputPath,
         VodShareQuality quality, int fps, double durationSeconds, double sourceStartSeconds = 0)
     {
-        var args = new List<string>
-        {
-            "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
-            "-i", sourcePath,
-            "-map", "0:v:0", "-map", "0:a:0?",
-            "-map_metadata", "-1", "-map_chapters", "-1", "-sn", "-dn",
-            "-vf", VideoFilter(encoder, quality, fps),
-        };
-        args.AddRange(VideoArgs(encoder, quality, fps, durationSeconds));
-        args.AddRange(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]);
-        // No -avoid_negative_ts make_zero: with B-frames it shifts the whole
-        // output by the reorder delay (0.1 s measured with NVENC -bf 3). Left alone, the mp4
-        // muxer writes an edit list and the copy starts at 0.000 exactly like the source.
-        args.AddRange(["-max_muxing_queue_size", "1024"]);
+        var args = new List<string>(Prefix) { "-progress", "pipe:1", "-i", sourcePath };
+        args.AddRange(Streams("0:a:0?", encoder, quality, fps, durationSeconds));
         if (double.IsFinite(sourceStartSeconds) && sourceStartSeconds > StartOffsetThresholdSeconds)
-            args.AddRange(["-output_ts_offset", sourceStartSeconds.ToString("0.######", CultureInfo.InvariantCulture)]);
+            args.AddRange(["-output_ts_offset", Seconds(sourceStartSeconds)]);
         // No +faststart: the moov goes at the end, so every byte past the header is final once
         // written and the upload can send parts while the encode runs. Browsers fetch the moov
         // with one extra range request.
         args.AddRange(["-f", "mp4", outputPath]);
         return args;
     }
+
+    /// <summary>The arguments every share encode starts with.</summary>
+    private static readonly string[] Prefix = ["-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-nostats"];
+
+    /// <summary>
+    /// The stream mapping and the video/audio encoding the MP4 copy and the HLS share have in common, with the audio
+    /// taken from <paramref name="audioMap"/>.
+    /// </summary>
+    private static List<string> Streams(string audioMap, string encoder, VodShareQuality quality, int fps,
+        double durationSeconds, bool hls = false)
+    {
+        var args = new List<string>
+        {
+            "-map", "0:v:0", "-map", audioMap,
+            "-map_metadata", "-1", "-map_chapters", "-1", "-sn", "-dn",
+            "-vf", VideoFilter(encoder, quality, fps),
+        };
+        args.AddRange(VideoArgs(encoder, quality, fps, durationSeconds));
+        // libx264 would also cut a keyframe at each scene change, which makes an irregular fragment.
+        if (hls && encoder == "libx264") args.AddRange(["-x264-params", "scenecut=0"]);
+        args.AddRange(["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]);
+        // No -avoid_negative_ts make_zero: with B-frames it shifts the whole
+        // output by the reorder delay (0.1 s measured with NVENC -bf 3). Left alone, the mp4
+        // muxer writes an edit list and the copy starts at 0.000 exactly like the source.
+        args.AddRange(["-max_muxing_queue_size", "1024"]);
+        return args;
+    }
+
+    // ── HLS (plan 4.1): one fragmented MP4 on stdout, one 2 s GOP per fragment ──
+
+    /// <summary>One GOP is one fragment is one segment.</summary>
+    public const int HlsSegmentSeconds = 2;
+    /// <summary>The playlist's fixed EXT-X-TARGETDURATION (the proxy writes the playlist).</summary>
+    public const int HlsTargetDuration = 6;
+    /// <summary>
+    /// A resumed run's audio starts this much before its video: fragments are cut at the video keyframe, so audio
+    /// that started with the video would leave a 26.7 ms hole that stalls Chromium for good (plan 2, rows 10 and 11).
+    /// </summary>
+    public const double HlsAudioLeadSeconds = 0.1;
+    /// <summary>Fragment at every keyframe, init first, one moof per fragment relative to itself.</summary>
+    public const string HlsMovflags = "+frag_keyframe+empty_moov+default_base_moof+delay_moov";
+
+    /// <summary>
+    /// The HLS run's arguments: today's prefix and video/audio arguments (no <c>-progress</c>, no
+    /// <c>-output_ts_offset</c>: the share's timeline starts at the source's 0), one fragmented MP4 on stdout.
+    /// <paramref name="durationSeconds"/> is the whole game's (it fits the bitrate, so every run of one encoder writes
+    /// the same init). A run resumed at <paramref name="resumeAtSeconds"/> &gt; 0 reads the source twice: video from
+    /// there, audio from <see cref="HlsAudioLeadSeconds"/> earlier; the splitter moves each onto the timeline.
+    /// </summary>
+    public static IReadOnlyList<string> HlsEncodeArgs(string encoder, string sourcePath, VodShareQuality quality, int fps,
+        double durationSeconds, double resumeAtSeconds = 0)
+    {
+        var args = new List<string>(Prefix);
+        var resume = double.IsFinite(resumeAtSeconds) && resumeAtSeconds > 0;
+        if (resume)
+        {
+            args.AddRange(["-ss", Seconds(resumeAtSeconds), "-i", sourcePath,
+                "-ss", Seconds(HlsAudioStartSeconds(resumeAtSeconds)), "-i", sourcePath]);
+        }
+        else
+        {
+            args.AddRange(["-i", sourcePath]);
+        }
+        args.AddRange(Streams(resume ? "1:a:0?" : "0:a:0?", encoder, quality, fps, durationSeconds, hls: true));
+        args.AddRange(["-movflags", HlsMovflags, "-f", "mp4", "pipe:1"]);
+        return args;
+    }
+
+    /// <summary>
+    /// The 4 s HLS self-test of an encoder (plan 4.1): testsrc2 at 1080p60 and a sine wave through the share's HLS
+    /// arguments. The splitter must see two IDR-first fragments of exactly 2.000 s.
+    /// </summary>
+    public static IReadOnlyList<string> HlsSelfTestArgs(string encoder)
+    {
+        var args = new List<string>(Prefix)
+        {
+            "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=60",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-t", "4",
+        };
+        args.AddRange(Streams("1:a:0", encoder, VodShareQuality.P1080, 60, 60, hls: true));
+        args.AddRange(["-movflags", HlsMovflags, "-f", "mp4", "pipe:1"]);
+        return args;
+    }
+
+    /// <summary>Where a run resumed at <paramref name="resumeAtSeconds"/> starts its audio (never before 0).</summary>
+    public static double HlsAudioStartSeconds(double resumeAtSeconds) =>
+        double.IsFinite(resumeAtSeconds) && resumeAtSeconds > 0 ? Math.Max(0, resumeAtSeconds - HlsAudioLeadSeconds) : 0;
+
+    private static string Seconds(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Bytes an upload that starts with the encode reserves: the estimate plus 3%, the same margin

@@ -1,6 +1,8 @@
 #nullable enable
 
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
@@ -25,6 +27,8 @@ public sealed partial class VodShareWorker
     private static readonly TimeSpan DurationProbeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan AllowedCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan StopWaitForJob = TimeSpan.FromSeconds(15);
+    /// <summary>A start reuses the share sheet's status read this recent (one round trip less at Share).</summary>
+    internal static readonly TimeSpan SheetStatusReuse = TimeSpan.FromSeconds(60);
     internal const long DefaultTtlSeconds = 259200;
 
     private readonly IVodShareClient _client;
@@ -40,6 +44,7 @@ public sealed partial class VodShareWorker
     private readonly SidecarEventHub _hub;
     private readonly SidecarBackgroundWork _work;
     private readonly ILogger<VodShareWorker> _logger;
+    private readonly VodShareMemory? _memory;
 
     private readonly object _gate = new();
     private readonly SemaphoreSlim _startGate = new(1, 1);
@@ -47,6 +52,8 @@ public sealed partial class VodShareWorker
     private readonly Dictionary<string, SourceInfo> _sources = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> _storedAt = new(StringComparer.Ordinal);
     private (string Token, bool Allowed, long At)? _allowed;
+    private (string Token, VodShareServerStatus Status, long At)? _sheetStatus;
+    private int _prewarming;
     private VodShareJob? _running;
     private int _started;
 
@@ -64,7 +71,8 @@ public sealed partial class VodShareWorker
         RemoteClipCleanupStore cleanup,
         SidecarEventHub hub,
         SidecarBackgroundWork work,
-        ILogger<VodShareWorker> logger)
+        ILogger<VodShareWorker> logger,
+        VodShareMemory? memory = null)
     {
         _client = client;
         _clips = clips;
@@ -79,6 +87,7 @@ public sealed partial class VodShareWorker
         _hub = hub;
         _work = work;
         _logger = logger;
+        _memory = memory;
         LoadSnapshotAsync = loadSnapshot;
         ResolveRecordingAsync = id => SidecarEndpoints.ResolveLocalVodPathAsync(_vod, id);
     }
@@ -97,8 +106,11 @@ public sealed partial class VodShareWorker
     /// <summary>How long a start waits for a cancelled share of the same game to finish cleaning up.</summary>
     internal TimeSpan CancelledJobWait { get; set; } = TimeSpan.FromSeconds(5);
 
-    /// <summary>The recording's length and the share copy's frame rate (60 or 30).</summary>
-    internal readonly record struct SourceInfo(double Seconds, int Fps);
+    /// <summary>
+    /// The recording's length and the share copy's frame rate (60 or 30). Probed: the length came from ffmpeg (not
+    /// the game's length); StartSeconds: the container's start time (an imported recording can start at 4.956 s).
+    /// </summary>
+    internal readonly record struct SourceInfo(double Seconds, int Fps, bool Probed = true, double StartSeconds = 0);
 
     /// <summary>One queued or running share.</summary>
     internal sealed class VodShareJob
@@ -112,6 +124,21 @@ public sealed partial class VodShareWorker
         public required CancellationTokenSource Cts { get; init; }
         public VodShareQuality Quality { get; set; }
         public string? QualityReason { get; set; }
+        /// <summary>The proxy's HLS settings when this job shares as HLS segments (4.4); null for the MP4 path.</summary>
+        public VodShareHlsInfo? Hls { get; init; }
+        /// <summary>The source's container start time: an HLS share's timeline starts at the first frame, so markers move by it.</summary>
+        public double SourceStartSeconds { get; init; }
+        /// <summary>"hls" while the job shares as segments, "mp4" otherwise (an older proxy turns an HLS job into MP4).</summary>
+        public string Format { get; set; } = "mp4";
+        /// <summary>HLS: media seconds the proxy acknowledged so far; whether people can watch; the upload is slower than
+        /// the video; the share waits for the player's game; it switched to 720p once; it ended before the game did.
+        /// Guarded by <c>_gate</c>.</summary>
+        public double MediaSeconds { get; set; }
+        public bool Watchable { get; set; }
+        public bool UplinkSlow { get; set; }
+        public bool Paused { get; set; }
+        public bool Switched { get; set; }
+        public bool Truncated { get; set; }
         /// <summary>Why the job was cancelled ("cancelled" or "game_started"). Guarded by <c>_gate</c>.</summary>
         public string? CancelCode { get; set; }
         public string Phase { get; set; } = "queued";
@@ -124,6 +151,7 @@ public sealed partial class VodShareWorker
         public VodShareJobDto? Status { get; set; }
         public string LastPhase { get; set; } = "";
         public string? LastUrl { get; set; }
+        public string LastFlags { get; set; } = "";
         public long LastPublish { get; set; }
         public TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
@@ -162,6 +190,9 @@ public sealed partial class VodShareWorker
                 var status = await FetchStatusAsync(session.Token, ct).ConfigureAwait(false);
                 allowed = status.Supported && status.Allowed;
                 sharingOn = status.Supported && status.Sharing;
+                lock (_gate) _sheetStatus = (session.Token, status, Stopwatch.GetTimestamp());
+                // The sheet is open: pick and self-test the HLS encoder now, so Share starts the encode at once.
+                if (allowed && status.Hls is { Enabled: true } && !_live.IsGameInProgress) Prewarm();
                 ttl = status.Limits?.TtlSeconds is > 0 ? status.Limits.TtlSeconds : DefaultTtlSeconds;
                 if (allowed && status.Pool is { } p && estimates is not null)
                 {
@@ -202,8 +233,48 @@ public sealed partial class VodShareWorker
             busy = _running is { } other && other.GameId != gameId ? other.GameId : null;
         }
         var entry = _store.Get(gameId);
+        var preferred = d > 0 && signedIn ? await PreferredQualityAsync(fps, d).ConfigureAwait(false) : null;
         return new VodShareStatusDto(gameId, signedIn, allowed, sharingOn, reachable, recording, estimates, pool, limits,
-            ttl, job, entry is null ? null : VodShareLinkDto.From(entry), busy);
+            ttl, job, entry is null ? null : VodShareLinkDto.From(entry), busy, preferred);
+    }
+
+    /// <summary>"720p" when this account's last measured upload could not carry 1080p (below 1.1x its rate), else null.</summary>
+    private async Task<string?> PreferredQualityAsync(int fps, double durationSeconds)
+    {
+        if (_memory is null) return null;
+        var rate = _memory.UplinkBytesPerSecond(await AccountKeyAsync().ConfigureAwait(false));
+        return rate is { } r && r < PreselectRatio * Rate1080BytesPerSecond(fps, durationSeconds) ? "720p" : null;
+    }
+
+    /// <summary>A one-way key for the signed-in Revu account: the upload speed is remembered per account, never its email.</summary>
+    internal async Task<string> AccountKeyAsync()
+    {
+        var email = ((await _config.LoadAsync().ConfigureAwait(false)).RiotSessionEmail ?? "").Trim().ToLowerInvariant();
+        return email.Length == 0 ? "account" : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(email)))[..16];
+    }
+
+    /// <summary>Select and self-test the HLS encoder in the background (one at a time).</summary>
+    private void Prewarm()
+    {
+        if (Interlocked.Exchange(ref _prewarming, 1) == 1) return;
+        var started = _work.TryRun("vod-share-prewarm", async () =>
+        {
+            try { await _encoder.PrewarmHlsAsync(_work.Stopping).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "HLS encoder prewarm failed"); }
+            finally { Volatile.Write(ref _prewarming, 0); }
+        });
+        if (!started) Volatile.Write(ref _prewarming, 0);
+    }
+
+    /// <summary>The share sheet's status read when it is recent enough for a start (used once).</summary>
+    private VodShareServerStatus? TakeSheetStatus(string token)
+    {
+        lock (_gate)
+        {
+            if (_sheetStatus is not { } s || s.Token != token) return null;
+            _sheetStatus = null;
+            return Stopwatch.GetElapsedTime(s.At) <= SheetStatusReuse ? s.Status : null;
+        }
     }
 
     /// <summary>GET /vod-shares/status, then cache "allowed" for this token and reconcile the store.</summary>
@@ -280,10 +351,11 @@ public sealed partial class VodShareWorker
             var session = await ClipShareLinks.SessionAsync(_config).ConfigureAwait(false);
             if (!session.SignedIn) return Refuse("needs_login", needsLogin: true);
 
-            VodShareServerStatus status;
-            using (var timeout = new CancellationTokenSource(StartStatusTimeout))
-            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token))
+            var status = TakeSheetStatus(session.Token);
+            if (status is null)
             {
+                using var timeout = new CancellationTokenSource(StartStatusTimeout);
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
                 try
                 {
                     status = await FetchStatusAsync(session.Token, linked.Token).ConfigureAwait(false);
@@ -322,6 +394,7 @@ public sealed partial class VodShareWorker
             }
             if (free < VodShareQualityPolicy.DiskNeeded(decision.Quality, fps, duration)) return Refuse("disk_full");
 
+            var hls = info is { } src && HlsAllowed(status, src) ? status.Hls : null;
             var job = new VodShareJob
             {
                 GameId = gameId,
@@ -332,6 +405,9 @@ public sealed partial class VodShareWorker
                 Cts = CancellationTokenSource.CreateLinkedTokenSource(_work.Stopping),
                 Quality = decision.Quality,
                 QualityReason = decision.Reason,
+                Hls = hls,
+                Format = hls is null ? "mp4" : "hls",
+                SourceStartSeconds = info?.StartSeconds ?? 0,
             };
             lock (_gate)
             {
@@ -345,8 +421,8 @@ public sealed partial class VodShareWorker
                 job.Cts.Dispose();
                 return Refuse("closing");
             }
-            _logger.LogInformation("Full-game share queued: game {GameId} at {Quality} (reason {Reason}, notes {Notes})",
-                gameId, VodShareEncoderArgs.Label(decision.Quality, fps), decision.Reason ?? "none", includeNotes);
+            _logger.LogInformation("Full-game share queued: game {GameId} at {Quality} as {Format} (reason {Reason}, notes {Notes})",
+                gameId, VodShareEncoderArgs.Label(decision.Quality, fps), job.Format, decision.Reason ?? "none", includeNotes);
             return VodShareStartReply.Accepted(VodShareEncoderArgs.Wire(decision.Quality), decision.Reason);
         }
         finally
@@ -437,14 +513,21 @@ public sealed partial class VodShareWorker
 
         double? seconds = null;
         double? frameRate = null;
+        double? start = null;
+        var probed = false;
         using (var timeout = new CancellationTokenSource(DurationProbeTimeout))
         using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token))
         {
             try
             {
                 var probe = await _mixer.ProbeAsync(path, linked.Token).ConfigureAwait(false);
-                if (probe?.DurationSeconds is { } p && double.IsFinite(p) && p > 0) seconds = p;
+                if (probe?.DurationSeconds is { } p && double.IsFinite(p) && p > 0)
+                {
+                    seconds = p;
+                    probed = true;
+                }
                 frameRate = probe?.FrameRate;
+                start = probe?.StartSeconds;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -468,7 +551,9 @@ public sealed partial class VodShareWorker
             }
         }
         if (seconds is not { } s) return null;
-        var source = new SourceInfo(s, VodShareEncoderArgs.Fps(frameRate));
+        // Like the MP4 copy's -output_ts_offset: only a start past 0.05 s counts.
+        var offset = start is { } st && double.IsFinite(st) && st > VodShareEncoderArgs.StartOffsetThresholdSeconds ? st : 0;
+        var source = new SourceInfo(s, VodShareEncoderArgs.Fps(frameRate), probed, offset);
         lock (_gate) _sources[key] = source;
         return source;
     }

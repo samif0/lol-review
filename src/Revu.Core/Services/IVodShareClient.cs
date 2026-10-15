@@ -59,16 +59,40 @@ public sealed record VodShareServerLimits(long MaxBytes, int MaxSeconds, long Tt
 /// <summary>The caller's current VOD usage (idle uploads excluded).</summary>
 public sealed record VodShareServerUsage(int Live, int Pending, int StartsToday, long DayResetsAt);
 
-/// <summary>One of the caller's own live VOD shares (status ready or uploading).</summary>
-public sealed record VodShareServerShare(string Id, string Status, string? Quality, long SizeBytes, long CreatedAt, long ExpiresAt);
+/// <summary>
+/// One of the caller's own live VOD shares (status ready or uploading). Format is "mp4" or "hls" (4.4); an HLS share
+/// also reports its committed segments and whether it is paused.
+/// </summary>
+public sealed record VodShareServerShare(string Id, string Status, string? Quality, long SizeBytes, long CreatedAt, long ExpiresAt,
+    string Format = "mp4", int? Segments = null, bool Paused = false);
+
+/// <summary>
+/// The proxy's HLS settings (4.4, GET /vod-shares/status <c>hls</c>): whether this account may start an HLS share
+/// now, and the limits its segments, inits and runs must keep.
+/// </summary>
+public sealed record VodShareHlsInfo(bool Enabled, int SegmentSeconds, int TargetDuration, long MaxSegmentBytes,
+    int InitMaxBytes, int PlayableMs, int MaxRuns);
 
 /// <summary>
 /// GET /vod-shares/status. <see cref="Supported"/> is false for a proxy without VOD routes
-/// (then nothing else is meaningful); limits, usage and pool are null unless allowed.
+/// (then nothing else is meaningful); limits, usage and pool are null unless allowed. Hls is null for a
+/// proxy without HLS shares.
 /// </summary>
 public sealed record VodShareServerStatus(bool Supported, bool Allowed, bool Sharing, bool Serving, long Now,
     VodShareServerLimits? Limits, VodShareServerUsage? Usage, VodSharePool? Pool,
-    IReadOnlyList<VodShareServerShare> Shares);
+    IReadOnlyList<VodShareServerShare> Shares, VodShareHlsInfo? Hls = null);
+
+/// <summary>
+/// The MP4 multipart row an older proxy answered an HLS init with (it ignores <c>format</c>): the upload continues as
+/// today's pipelined MP4 on this row, so no second daily start is spent.
+/// </summary>
+public sealed record VodMp4Reservation(string Id, long PartSize, int PartCount, long DeclaredSize, long ShareExpiresAt, string Url);
+
+/// <summary>
+/// What an HLS init returned: the started share (its link works at once) and either the HLS upload session or, from
+/// an older proxy, an MP4 reservation for today's path.
+/// </summary>
+public sealed record VodHlsStart(VodUploadStarted Started, IVodHlsUpload? Session, VodMp4Reservation? Mp4);
 
 /// <summary>
 /// The proxy side of full-game sharing (4.2): status, the multipart upload of the share copy,
@@ -107,4 +131,20 @@ public interface IVodShareClient
 
     /// <summary>PUT /vod-shares/{id}/markers (30 s). Throws <see cref="ClipUploadException"/> with Code.</summary>
     Task PutVodMarkersAsync(string id, string sessionToken, string markersJson, CancellationToken ct = default);
+
+    /// <summary>
+    /// 4.4: POST /vod-shares/uploads with <c>format=hls</c> (30 s), reserving <paramref name="declaredSize"/> bytes.
+    /// Returns an HLS upload session, or the MP4 reservation an older proxy answered with. Throws
+    /// <see cref="ClipUploadException"/> with Code (<c>hls_unavailable</c> when HLS is off for this account).
+    /// </summary>
+    Task<VodHlsStart> StartVodHlsUploadAsync(string sessionToken, VodUploadRequest request, long declaredSize,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Today's pipelined MP4 upload (see <see cref="UploadVodWhileWritingAsync(string, long, Task{bool}, string,
+    /// VodUploadRequest, IProgress{ClipUploadProgress}?, Action{VodUploadStarted}?, CancellationToken)"/>) on a row
+    /// an HLS init already reserved: no second init.
+    /// </summary>
+    Task<VodUploadResult> UploadVodWhileWritingAsync(VodMp4Reservation reserved, string filePath, Task<bool> written,
+        string sessionToken, IProgress<ClipUploadProgress>? progress = null, CancellationToken ct = default);
 }

@@ -3,20 +3,23 @@
 // vodShareProgress SSE events (forwarded by shell-outer as `revu:vod-share-progress`) carry
 // the work, with a status poll as the fallback. A running job carries its link from the
 // upload's start (4.3): the link's page shows the upload's progress until the game plays, so
-// it can be copied right away. The page never names a file. Its copy and the start plan live
-// in vod-share-copy.mjs (re-exported here).
+// it can be copied right away. A game shared as segments (4.4, format "hls") plays at its link
+// while it uploads, so Cancel asks first once people can watch it. The page never names a file.
+// Its copy and the start plan live in vod-share-copy.mjs (re-exported here).
 
 import {
-  CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_LIVE, LINK_READY, LINK_REPLACING,
-  POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, formatShareTime, safeShareUrl, vodShareErrorText,
-  vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel, vodShareTtlText,
+  CHECKING, CONFIRM_STOP, CONFIRM_STOP_LIVE, ENDED_EARLY, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY,
+  LINK_LIVE, LINK_READY, LINK_REPLACING, PAUSED_GAME, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED,
+  formatShareTime, safeShareUrl, vodShareErrorText, vodShareLiveNote, vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel,
+  vodShareTtlText,
 } from './vod-share-copy.mjs';
 
 export {
-  SHARE_LINK, CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_GONE, LINK_LIVE, LINK_READY,
-  LINK_REPLACING, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, formatShareSize, formatShareTime,
-  safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel,
-  vodShareTtlText,
+  SHARE_LINK, CHECKING, CONFIRM_STOP, CONFIRM_STOP_LIVE, ENDED_EARLY, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT,
+  LINK_EARLY, LINK_GONE, LINK_LIVE, LINK_READY, LINK_REPLACING, LINK_WATCH_NOW, LINK_WATCH_SOON, PAUSED_GAME, POOL_720_HINT,
+  SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, SWITCHED_720, UPLINK_720_HINT, UPLINK_SLOW, formatShareSize,
+  formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodShareLiveNote, vodSharePhaseLabel, vodSharePlan,
+  vodShareProgressLabel, vodShareTtlText,
 } from './vod-share-copy.mjs';
 
 const percentOf = value => Math.max(0, Math.min(100, Math.floor(Number(value) || 0)));
@@ -38,7 +41,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   let gameId = 0, generation = 0, epoch = 0, lastRead = -Infinity, reading = null;
   let status = null, job = null, share = null, denied = false, watching = false, cancelling = false;
   let starting = false, stopping = false, checking = false, sheetOpen = false, confirming = null;
-  let quality = '1080p', includeNotes = false, message = null, rowNote = null, canOpen = false;
+  let quality = '1080p', qualityPicked = false, includeNotes = false, message = null, rowNote = null, canOpen = false;
   let pollTimer = null, polling = false, pollFailures = 0, rowNoteTimer = null, justDone = false;
   let rowMode = 'hidden', rowSaid = '', progressSaid = '';
   const copyTimers = new Map();
@@ -50,9 +53,12 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   const anyLink = () => jobLink() || link();
   const textOf = entry => (entry?.text ? entry.text : vodShareErrorText(entry?.code, { retryAt: entry?.retryAt,
     error: entry?.error, limits: status?.limits, time, can720: entry?.quality === '1080p' && status?.pool?.fits720 !== false,
-    linkShown: entry?.linkShown === true }));
-  // While a share runs: its progress, and that the link changed if the upload had to start over.
-  const runningDetail = () => (job.linkChanged ? `${vodShareProgressLabel(job)}. ${LINK_CHANGED_SHORT}` : vodShareProgressLabel(job));
+    linkShown: entry?.linkShown === true, kept: entry?.kept === true }));
+  // The start plan: the player's pick, or 'auto' (720p for an account whose last upload was too slow) before any.
+  const planNow = () => vodSharePlan(status, qualityPicked ? quality : 'auto');
+  // While a share runs: its progress, that it waits for the player's game, or that the link changed.
+  const runningDetail = () => (job.paused ? `${vodShareProgressLabel(job)}. ${PAUSED_GAME}`
+    : job.linkChanged ? `${vodShareProgressLabel(job)}. ${LINK_CHANGED_SHORT}` : vodShareProgressLabel(job));
   // Spoken once per phase, and once more when the link arrives.
   const runningSaid = () => (jobLink() ? `${vodSharePhaseLabel(job)}. ${LINK_LIVE}` : vodSharePhaseLabel(job));
   // A calm result note: in the sheet when it is open, else in the row (where it fades).
@@ -67,7 +73,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   function reset(id) {
     generation++; gameId = id; status = null; job = null; share = null; watching = false; cancelling = false;
     starting = false; stopping = false; checking = false; confirming = null; message = null; rowNote = null;
-    quality = '1080p'; includeNotes = false; lastRead = -Infinity; reading = null; justDone = false; denied = false;
+    quality = '1080p'; qualityPicked = false; includeNotes = false; lastRead = -Infinity; reading = null; justDone = false;
+    denied = false;
     stopPolling();
     closeSheet();
   }
@@ -75,10 +82,12 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   function takeJob(source) {
     // Events and status reads carry the upload's link (null until it starts); a start reply has none.
     const url = 'url' in source ? safeShareUrl(source.url) : job?.url || '';
+    const flag = name => (name in source ? source[name] === true : job?.[name] === true);
     job = { state: 'running', phase: source.phase || 'queued', percent: source.percent,
       quality: source.quality ?? job?.quality ?? null, qualityReason: source.qualityReason ?? job?.qualityReason ?? null,
-      url, expiresAt: url ? source.expiresAt ?? job?.expiresAt ?? null : null,
-      linkChanged: 'linkChanged' in source ? source.linkChanged === true : job?.linkChanged === true };
+      url, expiresAt: url ? source.expiresAt ?? job?.expiresAt ?? null : null, linkChanged: flag('linkChanged'),
+      format: source.format ?? job?.format ?? 'mp4', watchable: flag('watchable'), uplinkSlow: flag('uplinkSlow'),
+      paused: flag('paused') };
     rowNote = null;
     if (!watching) { watching = true; startPolling(); }
   }
@@ -88,13 +97,16 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     if (code === 'not_allowed') { denied = true; closeSheet(); return; }
     if (code === 'cancelled') { message = null; return; }
     const entry = { code, retryAt: source?.retryAt ?? null, error: typeof source?.error === 'string' ? source.error : '',
-      quality: source?.quality ?? null, linkShown: source?.linkShown === true };
+      quality: source?.quality ?? null, linkShown: source?.linkShown === true, kept: source?.kept === true };
     if (sheetOpen) message = entry; else rowNote = { ...entry, error: true, retry: true };
   }
 
   function finishJob(source, { reread = true } = {}) {
     const attempted = source.quality ?? job?.quality ?? null;
     const linkShown = !!job?.url, linkChanged = source.linkChanged === true || job?.linkChanged === true;
+    // A segmented share people could already watch keeps its link when it ends early.
+    const kept = (source.format ?? job?.format) === 'hls' && (source.watchable === true || job?.watchable === true);
+    if (confirming === 'sheet-cancel' || confirming === 'row-cancel') confirming = null;
     watching = false; cancelling = false; job = null; stopPolling();
     if (source.state === 'done') {
       const url = safeShareUrl(source.url) || link();
@@ -103,14 +115,18 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
           markersAttached: source.markersAttached ?? share?.markersAttached ?? null,
           quality: source.quality ?? share?.quality ?? null };
         // The next share starts from the defaults again: 1080p, notes off.
-        message = null; rowNote = null; justDone = true; includeNotes = false; quality = '1080p';
+        message = null; rowNote = null; justDone = true; includeNotes = false; quality = '1080p'; qualityPicked = false;
         // A link copied before the upload started over no longer works.
         if (linkChanged) say({ text: LINK_CHANGED, error: false });
+        else if (source.truncated === true) say({ text: ENDED_EARLY, error: false });
       }
       epoch++; // a read already in flight predates this link
       if (reread) void refresh(true); // the stored entry carries the id and the exact expiry
     } else if (source.state === 'cancelled') { message = null; rowNote = null; }
-    else report({ ...source, quality: attempted, linkShown: linkShown || linkChanged });
+    else {
+      report({ ...source, quality: attempted, linkShown: (linkShown || linkChanged) && !kept, kept });
+      if (kept && reread) { epoch++; void refresh(true); } // the stored link of the part that uploaded
+    }
   }
 
   function applyStatus(reply, startedEpoch) {
@@ -218,7 +234,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   }
 
   async function start() {
-    const plan = vodSharePlan(status, quality);
+    const plan = planNow();
     if (!(gameId > 0) || starting || running() || checking || !plan.canShare) return;
     const id = gameId, gen = generation;
     starting = true; message = null; paint();
@@ -236,10 +252,16 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     if (sheetOpen) focusView();
   }
 
-  async function cancel() {
+  // Once people can watch a segmented share, Cancel asks first, like Stop sharing.
+  async function cancel(where = 'sheet', confirmed = false) {
     if (!running() || cancelling) return;
+    if (job.watchable && !confirmed) {
+      confirming = where === 'row' ? 'row-cancel' : 'sheet-cancel'; paint();
+      (where === 'row' ? hook(row, 'row-keep') : hook(sheet, 'keep'))?.focus?.();
+      return;
+    }
     const id = gameId, gen = generation, linkShown = !!jobLink() || job?.linkChanged === true;
-    cancelling = true; paint();
+    cancelling = true; confirming = null; paint();
     try { await invoke('cancel_vod_share', { payload: { gameId: id } }); } catch (_) { /* the next status read settles it */ }
     if (gen !== generation) return;
     job = null; watching = false; message = null; rowNote = null; stopPolling();
@@ -270,7 +292,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     const stopped = reply?.ok === true && !stillLive;
     const note = stopped ? { text: STOPPED, error: false } : { text: stillLive ? STOPPED_QUEUED : STOP_FAILED, error: true };
     if (inRow) showRowNote(note); else message = note;
-    if (stopped) { share = null; includeNotes = false; quality = '1080p'; epoch++; void refresh(true); }
+    if (stopped) { share = null; includeNotes = false; quality = '1080p'; qualityPicked = false; epoch++; void refresh(true); }
     paint();
     if (!inRow) focusView();
   }
@@ -317,8 +339,9 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
         : mode === 'share' ? (rowMode === 'running' || rowSaid === LINK_READY ? LINK_READY : '') : '';
     rowMode = mode;
     if (said !== rowSaid) { rowSaid = said; setText(hook(row, 'row-live'), said); }
-    const confirm = confirming === 'row' && mode === 'share';
+    const confirm = (confirming === 'row' && mode === 'share') || (confirming === 'row-cancel' && mode === 'running');
     const linked = mode === 'share' || !!live;
+    setText(hook(row, 'row-confirm-text'), confirming === 'row-cancel' ? CONFIRM_STOP_LIVE : CONFIRM_STOP);
     setHidden(hook(row, 'row-confirm'), !confirm);
     setHidden(hook(row, 'row-actions'), confirm);
     setHidden(hook(row, 'row-copy'), !linked);
@@ -335,7 +358,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     const view = viewNow();
     if (sheet.dataset) sheet.dataset.view = view;
     for (const name of ['start', 'progress', 'done']) setHidden(viewOf(sheet, name), name !== view);
-    const plan = vodSharePlan(status, quality);
+    const plan = planNow();
     // Leaving the progress view clears what was spoken, so the next share's phases are heard again.
     if (view !== 'progress' && progressSaid) { progressSaid = ''; setText(hook(sheet, 'progress-live'), ''); }
     if (view === 'start') {
@@ -366,8 +389,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       setHidden(hook(sheet, 'progress-link'), !live);
       if (field && field.value !== live) field.value = live;
       setHidden(hook(sheet, 'progress-open'), !live || !canOpen);
-      showText(hook(sheet, 'progress-link-note'),
-        live ? (job.linkChanged ? LINK_CHANGED : LINK_EARLY) : job.linkChanged ? LINK_REPLACING : '');
+      showText(hook(sheet, 'progress-link-note'), job.format === 'hls' ? vodShareLiveNote(job)
+        : live ? (job.linkChanged ? LINK_CHANGED : LINK_EARLY) : job.linkChanged ? LINK_REPLACING : '');
       const reason = job.qualityReason === 'pool' ? POOL_720_HINT : job.qualityReason === 'size' ? SIZE_720_NOTE : '';
       setText(hook(sheet, 'progress-note'), reason ? `${reason} ${KEEP_REVIEWING}` : KEEP_REVIEWING);
     } else {
@@ -388,7 +411,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     setText(hook(sheet, 'message'), text);
     setHidden(hook(sheet, 'signin'), entry?.code !== 'needs_login');
     setHidden(hook(sheet, 'folder'), !(entry?.code === 'pool_full' && plan.builtIn));
-    const confirm = confirming === 'sheet' && view === 'done';
+    const confirm = (confirming === 'sheet' && view === 'done') || (confirming === 'sheet-cancel' && view === 'progress');
+    setText(hook(sheet, 'confirm-text'), confirming === 'sheet-cancel' ? CONFIRM_STOP_LIVE : CONFIRM_STOP);
     setHidden(hook(sheet, 'confirm'), !confirm);
     setHidden(hook(sheet, 'actions'), confirm);
     setHidden(hook(sheet, 'share'), view !== 'start');
@@ -412,26 +436,28 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   on(row, 'row-copy', () => copyLink(hook(row, 'row-copy')));
   on(row, 'row-open', openLink);
   on(row, 'row-stop', () => { confirming = 'row'; showRowNote(null); paint(); hook(row, 'row-keep')?.focus?.(); });
-  on(row, 'row-keep', () => { confirming = null; paint(); hook(row, 'row-stop')?.focus?.(); });
-  on(row, 'row-confirm-stop', () => stop('row'));
-  on(row, 'row-cancel', () => cancel());
+  on(row, 'row-keep', () => {
+    const was = confirming; confirming = null; paint(); hook(row, was === 'row-cancel' ? 'row-cancel' : 'row-stop')?.focus?.();
+  });
+  on(row, 'row-confirm-stop', () => (confirming === 'row-cancel' ? cancel('row', true) : stop('row')));
+  on(row, 'row-cancel', () => cancel('row'));
   on(row, 'row-retry', () => { void open(); });
   on(sheet, 'close', () => closeSheet());
   on(sheet, 'share', () => start());
-  on(sheet, 'cancel', () => (running() ? cancel() : closeSheet()));
+  on(sheet, 'cancel', () => (running() ? cancel('sheet') : closeSheet()));
   on(sheet, 'copy', () => copyLink(hook(sheet, 'copy'), hook(sheet, 'url')));
   on(sheet, 'open', openLink);
   on(sheet, 'progress-copy', () => copyLink(hook(sheet, 'progress-copy'), hook(sheet, 'progress-url')));
   on(sheet, 'progress-open', openLink);
   on(sheet, 'stop', () => { confirming = 'sheet'; paint(); focus('keep'); });
-  on(sheet, 'keep', () => { confirming = null; paint(); focus('stop'); });
-  on(sheet, 'confirm-stop', () => stop('sheet'));
+  on(sheet, 'keep', () => { const was = confirming; confirming = null; paint(); focus(was === 'sheet-cancel' ? 'cancel' : 'stop'); });
+  on(sheet, 'confirm-stop', () => (confirming === 'sheet-cancel' ? cancel('sheet', true) : stop('sheet')));
   on(sheet, 'done', () => closeSheet());
   on(sheet, 'folder', () => { Promise.resolve().then(() => invoke('open_recordings_folder')).catch(() => {}); });
   for (const name of ['q1080', 'q720']) {
     hook(sheet, name)?.addEventListener?.('change', event => {
       if (event?.target?.checked === false) return;
-      quality = name === 'q720' ? '720p' : '1080p'; message = null; paint();
+      quality = name === 'q720' ? '720p' : '1080p'; qualityPicked = true; message = null; paint();
     });
   }
   hook(sheet, 'notes')?.addEventListener?.('change', event => { includeNotes = event?.target?.checked === true; });
@@ -439,7 +465,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   sheet?.addEventListener?.('keydown', event => event.stopPropagation());
   sheet?.addEventListener?.('close', () => {
     sheetOpen = false;
-    if (confirming === 'sheet') confirming = null;
+    if (confirming === 'sheet' || confirming === 'sheet-cancel') confirming = null;
     if (!running()) message = null;
     paint();
   });

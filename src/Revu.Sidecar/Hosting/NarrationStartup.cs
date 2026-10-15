@@ -223,9 +223,11 @@ public static class NarrationStartup
     }
 
     /// <summary>
-    /// Delete every file in the full-game share temp folder (top level only; never follows a
-    /// reparse point). Runs before the worker starts, so nothing in it can be in use by Revu.
-    /// Returns how many files were deleted.
+    /// Delete every file in the full-game share temp folder, and every HLS job folder
+    /// (<c>game-&lt;gameId&gt;-&lt;guid32&gt;</c>) with the files directly in it. Never follows a reparse
+    /// point: a junction or link is left alone, and a job folder that still holds anything else
+    /// stays. Runs before the worker starts, so nothing in it can be in use by Revu. Returns how
+    /// many files and job folders were deleted.
     /// </summary>
     internal static int ClearVodShareTemp(string directory, ILogger log)
     {
@@ -243,8 +245,29 @@ public static class NarrationStartup
         {
             if (TryDelete(file.FullName, log)) removed++;
         }
-        if (removed > 0) log.LogInformation("Full-game share: deleted {Count} leftover share file(s)", removed);
+        foreach (var folder in SafeEnumerateFolders(directory))
+        {
+            if (!VodShareWorker.JobFolderName.IsMatch(folder.Name)) continue;
+            if ((folder.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+            foreach (var file in SafeEnumerate(folder.FullName, "*")) TryDelete(file.FullName, log);
+            try
+            {
+                Directory.Delete(folder.FullName, recursive: false);
+                removed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                log.LogDebug(ex, "Could not delete leftover share folder {Path}", folder.FullName);
+            }
+        }
+        if (removed > 0) log.LogInformation("Full-game share: deleted {Count} leftover share file(s) and folder(s)", removed);
         return removed;
+    }
+
+    private static IEnumerable<DirectoryInfo> SafeEnumerateFolders(string dir)
+    {
+        try { return new DirectoryInfo(dir).EnumerateDirectories("*", SearchOption.TopDirectoryOnly).ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return Array.Empty<DirectoryInfo>(); }
     }
 
     private static bool IsStaleUnreferenced(FileInfo file, HashSet<string> referenced, DateTime cutoffUtc)

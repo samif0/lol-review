@@ -7,8 +7,11 @@ using Revu.Core.Constants;
 
 namespace Revu.Core.Services;
 
-/// <summary>What ffmpeg reports about a media file. FrameRate is the first video stream's.</summary>
-public sealed record MediaProbe(bool HasAudio, double? DurationSeconds, double? FrameRate = null);
+/// <summary>
+/// What ffmpeg reports about a media file. FrameRate is the first video stream's; StartSeconds is the container's start
+/// time (an imported recording can start at 4.956 s).
+/// </summary>
+public sealed record MediaProbe(bool HasAudio, double? DurationSeconds, double? FrameRate = null, double? StartSeconds = null);
 
 /// <summary>
 /// One narrated-clip render: the clip (input 0) mixed with the voice track (input 1).
@@ -82,7 +85,8 @@ public sealed partial class NarrationMixer : INarrationMixer
                 + int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) * 60
                 + double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
         }
-        return new MediaProbe(hasAudio, duration, VodShareEncoderArgs.ParseFrameRate(stderr));
+        return new MediaProbe(hasAudio, duration, VodShareEncoderArgs.ParseFrameRate(stderr),
+            VodShareEncoderArgs.ParseStartSeconds(stderr));
     }
 
     /// <summary>The ffmpeg argument list for <paramref name="p"/>. Pure; invariant culture.</summary>

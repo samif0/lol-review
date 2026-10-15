@@ -108,7 +108,7 @@ public static class SidecarServices
             return new VodShareWorker(w.VodShare, w.ClipUpload, w.VodShareEncoder, w.NarrationMixer, w.Vod, w.Games,
                 snapshots.BuildAsync, w.Config, sp.GetRequiredService<LcuLiveState>(), sp.GetRequiredService<VodShareStore>(),
                 sp.GetRequiredService<RemoteClipCleanupStore>(), sp.GetRequiredService<SidecarEventHub>(),
-                sp.GetRequiredService<SidecarBackgroundWork>(), sp.GetRequiredService<ILogger<VodShareWorker>>());
+                sp.GetRequiredService<SidecarBackgroundWork>(), sp.GetRequiredService<ILogger<VodShareWorker>>(), w.VodShareMemory);
         });
         services.AddSingleton(sp =>
         {

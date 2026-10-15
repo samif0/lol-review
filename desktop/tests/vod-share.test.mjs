@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createVodShare, formatShareSize, formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodSharePhaseLabel, vodSharePlan,
   vodShareProgressLabel, vodShareTtlText, CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_GONE,
-  LINK_LIVE, LINK_READY, LINK_REPLACING, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED } from '../ui/vod-share.mjs';
+  LINK_LIVE, LINK_READY, LINK_REPLACING, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, CONFIRM_STOP,
+  CONFIRM_STOP_LIVE, ENDED_EARLY, LINK_WATCH_NOW, LINK_WATCH_SOON, PAUSED_GAME, SWITCHED_720, UPLINK_720_HINT, UPLINK_SLOW,
+  vodShareLiveNote } from '../ui/vod-share.mjs';
 
 const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
 const flat = text => String(text).replace(/[  ]/g, ' ');
@@ -46,11 +48,11 @@ function container(doc, hooks, views = []) {
     el: name => map.get(`[data-vs="${name}"]`), view: name => map.get(`[data-vs-view="${name}"]`) });
 }
 const ROW_HOOKS = ['row-label', 'row-url', 'row-detail', 'row-live', 'row-actions', 'row-copy', 'row-open', 'row-stop',
-  'row-cancel', 'row-retry', 'row-confirm', 'row-confirm-stop', 'row-keep'];
+  'row-cancel', 'row-retry', 'row-confirm', 'row-confirm-text', 'row-confirm-stop', 'row-keep'];
 const SHEET_HOOKS = ['close', 'size', 'q1080', 'q720', 'q1080-label', 'q720-label', 'hint', 'ttl', 'imported', 'notes', 'progress-label', 'progress-live', 'progress-bar',
   'progress-link', 'progress-url', 'progress-copy', 'progress-open', 'progress-link-note',
   'progress-note', 'url', 'copy', 'open', 'expiry', 'markers', 'message-box', 'message', 'signin', 'folder', 'confirm',
-  'confirm-stop', 'keep', 'actions', 'stop', 'cancel', 'share', 'done'];
+  'confirm-text', 'confirm-stop', 'keep', 'actions', 'stop', 'cancel', 'share', 'done'];
 
 function setup({ replies = {}, caps = { externalLinks: true } } = {}) {
   const doc = { active: null };
@@ -838,4 +840,125 @@ test('the VOD page carries every hook, the agreed copy, and only minimal wiring'
   assert.match(js, /^import \{ createVodShare \} from '\.\/vod-share\.mjs';$/m);
   assert.equal((js.match(/_vodShare\?\.check\(core \? data : null\)/g) || []).length, 2);
   assert.doesNotMatch(module, /filePath|vodPath/, 'the page never names a file');
+});
+
+// ── 4.4: a game shared as segments plays at its link while it uploads ──
+
+const HLS = { gameId: 123, state: 'running', format: 'hls', url: SHARE.url, expiresAt: SHARE.expiresAt, linkChanged: false };
+
+test('the segmented share notes follow its state, most urgent first, with no dashes', () => {
+  const job = over => ({ ...HLS, phase: 'uploading', percent: 12, watchable: false, uplinkSlow: false, paused: false, ...over });
+  assert.equal(vodShareLiveNote(job()), LINK_WATCH_SOON);
+  assert.equal(vodShareLiveNote(job({ url: '' })), '');
+  assert.equal(vodShareLiveNote(job({ watchable: true })), LINK_WATCH_NOW);
+  assert.equal(vodShareLiveNote(job({ watchable: true, uplinkSlow: true })), UPLINK_SLOW);
+  assert.equal(vodShareLiveNote(job({ watchable: true, qualityReason: 'uplink' })), SWITCHED_720);
+  assert.equal(vodShareLiveNote(job({ watchable: true, uplinkSlow: true, paused: true })), PAUSED_GAME);
+  assert.equal(vodShareLiveNote(job({ format: 'mp4', watchable: true })), '');
+  assert.equal(vodShareProgressLabel(job({ phase: 'queued', percent: 0 })), 'Uploading 0%');
+  assert.equal(vodShareProgressLabel(job({ phase: 'preparing', percent: 7 })), 'Uploading 7%');
+  assert.equal(vodSharePhaseLabel(job()), 'Uploading');
+  assert.equal(vodShareErrorText('upload_failed', { linkShown: true, kept: true }),
+    `The upload didn't finish. Check your connection and try again. ${ENDED_EARLY}`);
+  for (const text of [LINK_WATCH_SOON, LINK_WATCH_NOW, UPLINK_SLOW, SWITCHED_720, PAUSED_GAME, CONFIRM_STOP_LIVE, CONFIRM_STOP,
+    ENDED_EARLY, UPLINK_720_HINT]) {
+    assert.doesNotMatch(text, /[–—]/, text);
+    assert.match(text, /[.?]$/, text);
+  }
+});
+
+test('a segmented share shows one Uploading phase and says when people can watch, pause or see pauses', async () => {
+  const f = setup({ replies: { get_vod_share_status: status(), start_vod_share: { ok: true, accepted: true, quality: '1080p' } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  f.emit({ ...HLS, phase: 'uploading', percent: 0, watchable: false });
+  assert.equal(f.sheet.el('progress-label').textContent, 'Uploading 0%');
+  assert.equal(f.sheet.el('progress-link-note').textContent, LINK_WATCH_SOON);
+  f.emit({ ...HLS, phase: 'uploading', percent: 3, watchable: true });
+  assert.equal(f.sheet.el('progress-link-note').textContent, LINK_WATCH_NOW);
+  f.emit({ ...HLS, phase: 'uploading', percent: 4, watchable: true, uplinkSlow: true });
+  assert.equal(f.sheet.el('progress-link-note').textContent, UPLINK_SLOW);
+  f.emit({ ...HLS, phase: 'uploading', percent: 5, watchable: true, paused: true });
+  assert.equal(f.sheet.el('progress-link-note').textContent, PAUSED_GAME);
+  assert.equal(f.row.el('row-detail').textContent, `Uploading 5%. ${PAUSED_GAME}`);
+  f.emit({ ...HLS, phase: 'uploading', percent: 6, watchable: true, paused: false, uplinkSlow: false, quality: '720p',
+    qualityReason: 'uplink' });
+  assert.equal(f.sheet.el('progress-link-note').textContent, SWITCHED_720);
+  assert.equal(f.row.el('row-detail').textContent, 'Uploading 6%');
+});
+
+test('Cancel asks first once people can watch a segmented share, in the sheet and in the row', async () => {
+  const f = setup({ replies: { get_vod_share_status: status(), start_vod_share: { ok: true, accepted: true, quality: '1080p' },
+    cancel_vod_share: { ok: true } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  f.emit({ ...HLS, phase: 'uploading', percent: 2, watchable: false });
+  f.sheet.el('cancel').click();
+  await flush();
+  assert.equal(f.named('cancel_vod_share').length, 1, 'nobody could watch yet: no question');
+
+  await f.share.start();
+  f.emit({ ...HLS, phase: 'uploading', percent: 20, watchable: true });
+  f.sheet.el('cancel').click();
+  await flush();
+  assert.equal(f.named('cancel_vod_share').length, 1);
+  assert.equal(f.sheet.el('confirm').hidden, false);
+  assert.equal(f.sheet.el('confirm-text').textContent, CONFIRM_STOP_LIVE);
+  assert.equal(f.sheet.el('actions').hidden, true);
+  f.sheet.el('keep').click();
+  assert.equal(f.sheet.el('confirm').hidden, true);
+  assert.equal(f.doc.active, f.sheet.el('cancel'));
+  f.sheet.el('cancel').click();
+  f.sheet.el('confirm-stop').click();
+  await flush();
+  assert.equal(f.named('cancel_vod_share').length, 2);
+  assert.equal(f.sheet.el('confirm').hidden, true);
+
+  await f.share.start();
+  f.emit({ ...HLS, phase: 'uploading', percent: 30, watchable: true });
+  f.sheet.close();
+  f.row.el('row-cancel').click();
+  assert.equal(f.row.el('row-confirm').hidden, false);
+  assert.equal(f.row.el('row-confirm-text').textContent, CONFIRM_STOP_LIVE);
+  f.row.el('row-confirm-stop').click();
+  await flush();
+  assert.equal(f.named('cancel_vod_share').length, 3);
+});
+
+test('a slow last upload preselects 720p with its reason until the player picks a quality', async () => {
+  const slow = status({ preferredQuality: '720p' });
+  assert.equal(vodSharePlan(slow, 'auto').quality, '720p');
+  assert.equal(vodSharePlan(slow, 'auto').hint, UPLINK_720_HINT);
+  assert.equal(vodSharePlan(slow, '1080p').quality, '1080p');
+  assert.equal(vodSharePlan(slow, '1080p').hint, '');
+  assert.equal(vodSharePlan(status(), 'auto').quality, '1080p');
+
+  const f = setup({ replies: { get_vod_share_status: slow, start_vod_share: { ok: true, accepted: true, quality: '1080p' } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  assert.equal(f.sheet.el('q720').checked, true);
+  assert.equal(f.sheet.el('hint').textContent, UPLINK_720_HINT);
+  f.sheet.el('q1080').checked = true;
+  f.sheet.el('q1080').dispatch('change');
+  assert.equal(f.sheet.el('hint').hidden, true);
+  await f.share.start();
+  assert.equal(f.named('start_vod_share')[0][1].payload.quality, '1080p');
+});
+
+test('a segmented share people could watch keeps its link when it ends early', async () => {
+  const f = setup({ replies: { get_vod_share_status: status(), start_vod_share: { ok: true, accepted: true, quality: '1080p' } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  await f.share.start();
+  f.emit({ ...HLS, phase: 'uploading', percent: 40, watchable: true });
+  f.emit({ ...HLS, state: 'error', phase: 'error', errorCode: 'upload_failed', watchable: true });
+  assert.equal(f.sheetMessage(), `The upload didn't finish. Check your connection and try again. ${ENDED_EARLY}`);
+
+  await f.share.start();
+  f.emit({ ...HLS, phase: 'uploading', percent: 50, watchable: true });
+  f.emit({ ...HLS, state: 'done', phase: 'done', percent: 100, truncated: true, markersAttached: true });
+  assert.equal(f.sheetView(), 'done');
+  assert.equal(f.sheetMessage(), ENDED_EARLY);
 });
