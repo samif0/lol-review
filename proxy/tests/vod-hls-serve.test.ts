@@ -462,4 +462,25 @@ describe("routing and logs", () => {
     expect(logged.join("\n")).toContain(`/vod-hls/${id}/-/index.m3u8`);
     expect(logged.join("\n")).not.toContain(t.split(".")[1]);
   });
+
+  it("a D1 failure is a 502 that still carries the public headers", async () => {
+    const s = await hlsSetup();
+    const id = await liveShare(s, 4);
+    const t = await token(s, id);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    s.db._failNext("FROM clips c JOIN vod_hls h");
+    const failedMedia = await media(s.env, id, t, "index.m3u8");
+    s.db._failNext("UPDATE clips SET play_count");
+    const failedPlay = await play(s.env, id);
+    for (const res of [failedMedia, failedPlay]) {
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({ error: "clip_error" });
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+      expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe("same-site");
+      expect(res.headers.get("Vary")).toBe("Origin");
+    }
+    expect(clipRow(s, id)?.play_count).toBe(1);
+  });
 });

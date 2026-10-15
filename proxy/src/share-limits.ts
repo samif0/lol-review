@@ -109,6 +109,12 @@ export const HLS_PLAYABLE_MS = 8000;
 export const HLS_MAX_RUNS = 8;
 /** A paused share is ended (or discarded) by the cron after this long. */
 export const HLS_PAUSE_MAX_SECONDS = 21_600;
+/**
+ * A PUT clears a pause only once the pause is this old: one that was already
+ * on its way when the desktop paused can't undo it (a real resume comes after
+ * at least 30 s with no game).
+ */
+export const HLS_PAUSE_GRACE_SECONDS = 10;
 /** Attempts per share: segment and run PUTs < 2 x part_count + HLS_PUT_SLACK. */
 export const HLS_PUT_SLACK = 16;
 /** Stored bytes (hls_bytes) may pass the reservation by one segment at most. */
@@ -125,8 +131,9 @@ export const HLS_TOMBSTONE_EXTRA_KEYS = 8;
 export const HLS_SETTLE_PER_RUN = 10;
 /**
  * R2 delete calls (1000 keys each) one hourly run may spend on HLS keys, purge
- * and tombstones together; a 2-hour game costs 4. The rest waits for the next
- * run. Sized for Workers Paid, which HLS needs anyway.
+ * and tombstones together; a 2-hour game costs 4 per run (8 runs at most, so a
+ * share always fits a fresh budget). The rest waits for the next run. Sized
+ * for Workers Paid, which HLS needs anyway.
  */
 export const HLS_PURGE_R2_CALLS_PER_RUN = 40;
 

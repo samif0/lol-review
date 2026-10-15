@@ -179,7 +179,7 @@ export function handleAuthFirst(state: FakeAuthState, sql: string, args: unknown
 
 const TOMBSTONE_COPY = /^INSERT OR IGNORE INTO storage_tombstones \(r2_key, upload_id, size_bytes, kind, created_at\) SELECT r2_key, upload_id, size_bytes, kind, \?2 FROM clips WHERE user_id = \?1 AND format IS NULL AND id IN \((\?\d+(?:, \?\d+)*)\)$/;
 /** deleteAccountRows' delayed prefix tombstones for HLS shares: the fake holds none. */
-const HLS_TOMBSTONES = "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT c.r2_key, NULL, (SELECT COALESCE(SUM(s.bytes), 0) FROM vod_hls_segments s WHERE s.clip_id = c.id AND s.committed = 0), 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND h.max_seq >= 0";
+const HLS_TOMBSTONES = "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT 'vods/' || c.id || '/' || r.k || '/', NULL, CASE WHEN r.k = h.runs - 1 THEN (SELECT COALESCE(SUM(s.bytes), 0) FROM vod_hls_segments s WHERE s.clip_id = c.id AND s.committed = 0) ELSE 0 END, 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id JOIN vod_hls_runs r ON r.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND h.max_seq >= 0";
 
 export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]): AuthResult {
   const [a1, a2, a3, a4, a5, a6] = args;

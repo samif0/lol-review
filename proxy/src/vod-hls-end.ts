@@ -18,14 +18,14 @@
 
 import { Env } from "./types";
 import { jsonResponse, readSmallBody, Timing } from "./http";
-import { deleteCalls, deleteKeys, removeHlsShare, segmentKeys, hlsSegmentKey } from "./hls-objects";
-import { tombstoneObject } from "./upload-cleanup";
+import { delayedTombstones, deleteCalls, deleteKeys, hlsSegmentKey, keyStateOf, r2KeysFor, removeHlsShare, runFor } from "./hls-objects";
 import { spend, HlsBudget } from "./clip-purge";
 import { refuse } from "./vod-hls-upload";
 import {
   HLS_PAUSE_MAX_SECONDS,
   HLS_PLAYABLE_MS,
   HLS_SETTLE_PER_RUN,
+  HLS_TOMBSTONE_DELAY_SECONDS,
   IDLE_SWEEP_SECONDS,
   VOD_TTL_SECONDS,
   vodWatchUrl,
@@ -58,6 +58,8 @@ interface EndState {
   truncated: number;
   ended: number;
   max_seq: number;
+  /** R2 calls the end spent deleting objects past the edge. */
+  deleted_calls?: number;
 }
 
 /**
@@ -77,8 +79,11 @@ const RECOUNT = "(SELECT COALESCE(SUM(bytes), 0) FROM vod_hls_segments WHERE cli
 /**
  * One batch: drop the rows at or after the edge, turn the share ready (exact
  * bytes, 3-day expiry from init, duration from the media), mark it ended, read
- * it back. Then delete the objects at or after the edge. Null when the guard
- * failed (nothing changed).
+ * it back. Then delete every run's objects at or after the edge, and leave a
+ * delayed tombstone for each dropped seq (the key its run would store), so an
+ * object a PUT in flight stores later is deleted and counted even if that
+ * PUT's own commit can't delete it. Null when the guard failed (nothing
+ * changed).
  */
 async function endAtEdge(env: Env, timing: Timing, a: EndArgs): Promise<EndState | null> {
   const guard = [a.id, a.userId, a.now, a.minSegments, a.minMediaMs, a.settle?.idleBefore ?? null, a.settle?.pausedBefore ?? null];
@@ -101,19 +106,22 @@ async function endAtEdge(env: Env, timing: Timing, a: EndArgs): Promise<EndState
     env.DB
       .prepare("SELECT c.status, c.expires_at, c.size_bytes, h.segments, h.media_ms, h.truncated, h.ended, h.max_seq FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.id = ?1")
       .bind(a.id),
+    env.DB.prepare("SELECT k, from_seq FROM vod_hls_runs WHERE clip_id = ?1 ORDER BY k").bind(a.id),
   ]));
   if (Number((results[1] as D1Result).meta?.changes ?? 0) !== 1) return null;
   const state = ((results[3] as D1Result<EndState>).results ?? [])[0];
   if (!state) return null;
+  const runs = ((results[4] as D1Result<{ k: number; from_seq: number }>).results ?? []).map((r) => ({ k: Number(r.k), from: Number(r.from_seq) }));
 
   // Objects at or after the edge: what PUTs in flight stored. A PUT still on
-  // the wire deletes its own object when its commit finds the share ended.
+  // the wire deletes its own object when its commit finds the share ended;
+  // the delayed tombstones cover one whose commit never runs.
   const dropped = ((results[0] as D1Result<{ seq: number; bytes: number }>).results ?? []);
-  const from = Number(state.segments);
-  const count = Number(state.max_seq) - from + 1;
-  if (count > 0 && !(await timing.r2op(() => deleteKeys(env, segmentKeys(a.id, from, count))))) {
-    for (const row of dropped) await tombstoneObject(env, hlsSegmentKey(a.id, Number(row.seq)), null, Number(row.bytes), "vod");
-  }
+  const keys = r2KeysFor({ id: a.id, max_seq: Number(state.max_seq), runs }, Number(state.segments));
+  state.deleted_calls = deleteCalls(keys.length);
+  if (keys.length > 0) await timing.r2op(() => deleteKeys(env, keys));
+  const objects = dropped.map((row) => ({ key: hlsSegmentKey(a.id, runFor(runs, Number(row.seq)), Number(row.seq)), bytes: Number(row.bytes) }));
+  await timing.db(() => delayedTombstones(env, objects, a.now, a.now + HLS_TOMBSTONE_DELAY_SECONDS));
   return state;
 }
 
@@ -194,7 +202,7 @@ export async function settleHlsShare(
     id, userId: null, minSegments: 1, minMediaMs: HLS_PLAYABLE_MS, truncated: true, now, settle,
   });
   if (ended) {
-    budget.calls -= deleteCalls(Number(ended.max_seq) - Number(ended.segments) + 1); // already spent
+    budget.calls -= ended.deleted_calls ?? 0; // already spent
     return "ended";
   }
   const claimed = await env.DB
@@ -208,9 +216,8 @@ export async function settleHlsShare(
   if (!claimed) return "kept";
   // A claimed row whose keys don't fit this run's budget (or whose R2 delete
   // fails) stays claimed and expired, counted, for the hourly purge.
-  const maxSeq = await env.DB.prepare("SELECT max_seq FROM vod_hls WHERE clip_id = ?1").bind(id).first<{ max_seq: number }>();
-  const seqs = Number(maxSeq?.max_seq ?? -1);
-  if (spend(budget, deleteCalls(seqs + 1))) await removeHlsShare(env, id, now, seqs);
+  const state = await keyStateOf(env, id);
+  if (spend(budget, deleteCalls(r2KeysFor({ id, ...state }).length))) await removeHlsShare(env, id, now, state);
   return "discarded";
 }
 

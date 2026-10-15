@@ -18,10 +18,10 @@
  */
 
 import { Env } from "./types";
-import { Timing } from "./http";
+import { loggablePath, Timing } from "./http";
 import { ClipRow } from "./clips";
 import { serveR2Object } from "./r2-serve";
-import { hlsSegmentKey } from "./hls-objects";
+import { hlsSegmentKey, runFor } from "./hls-objects";
 import { opsFlagOn } from "./ops-flags";
 import { mintPlayToken, playSecretOk, verifyPlayToken } from "./play-token";
 import {
@@ -88,6 +88,25 @@ function crossSiteRefused(request: Request, env: Env): boolean {
 
 async function servingNow(env: Env): Promise<boolean> {
   return vodServingOn(env) && (await opsFlagOn(env, "vod_serving"));
+}
+
+/**
+ * A D1 or R2 failure: a retryable 502 that still carries the public headers
+ * (index.ts would answer with the desktop's bare JSON). The path is logged
+ * without its token.
+ */
+async function guarded(request: Request, scope: string, run: () => Promise<Response>): Promise<Response> {
+  try {
+    return await run();
+  } catch (err) {
+    console.error(JSON.stringify({
+      scope,
+      path: loggablePath(new URL(request.url).pathname),
+      method: request.method,
+      error: (err as Error)?.message ?? String(err),
+    }));
+    return publicError(502, "clip_error", "Clip service hit a temporary error. Try again.");
+  }
 }
 
 // ── playlist text ───────────────────────────────────────────────────────────
@@ -248,7 +267,11 @@ async function shareStateFor(env: Env, timing: Timing, id: string, past: (e: Sha
 // ── POST /vod-play/:id ──────────────────────────────────────────────────────
 
 /** The only place a play of an HLS share is counted (VOD_DAILY_PLAY_CAP per UTC day). */
-export async function handleVodPlay(request: Request, env: Env): Promise<Response> {
+export function handleVodPlay(request: Request, env: Env): Promise<Response> {
+  return guarded(request, "vod.play", () => countPlay(request, env));
+}
+
+async function countPlay(request: Request, env: Env): Promise<Response> {
   if (!onPublicHost(request, env)) return publicError(404, "not_found");
   const m = /^\/vod-play\/([0-9A-Za-z]{7})$/.exec(new URL(request.url).pathname);
   if (!m) return publicError(404, "not_found");
@@ -293,7 +316,11 @@ export async function handleVodPlay(request: Request, env: Env): Promise<Respons
 
 // ── GET|HEAD /vod-hls/:id/:token/... ────────────────────────────────────────
 
-export async function handleHlsMedia(request: Request, env: Env): Promise<Response> {
+export function handleHlsMedia(request: Request, env: Env): Promise<Response> {
+  return guarded(request, "vod.hls", () => serveMedia(request, env));
+}
+
+async function serveMedia(request: Request, env: Env): Promise<Response> {
   if (!onPublicHost(request, env)) return publicError(404, "not_found");
   const m = MEDIA_PATH.exec(new URL(request.url).pathname);
   if (!m) return publicError(404, "not_found");
@@ -360,7 +387,8 @@ async function serveSegment(request: Request, env: Env, timing: Timing, id: stri
   headers.set("Content-Type", "video/mp4");
   headers.set("Accept-Ranges", "bytes");
   headers.set("Content-Security-Policy", "sandbox");
-  const res = await timing.r2op(() => serveR2Object(request, env.CLIPS, hlsSegmentKey(id, seq), entry.sizes[seq], headers));
+  const key = hlsSegmentKey(id, runFor(entry.runs, seq), seq);
+  const res = await timing.r2op(() => serveR2Object(request, env.CLIPS, key, entry.sizes[seq], headers));
   if (res.status === 404) return publicError(404, "not_found", undefined, {}, timing); // stopped meanwhile
   const out = new Headers(res.headers);
   out.set("Server-Timing", timing.header());

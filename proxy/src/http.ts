@@ -80,9 +80,15 @@ export function parseStrictInt(value: string | null): number | null {
  * R2 as `request.body`.
  */
 export async function readSmallBody(request: Request, maxBytes: number): Promise<string | null> {
+  const bytes = await readSmallBytes(request, maxBytes);
+  return bytes === null ? null : new TextDecoder().decode(bytes);
+}
+
+/** readSmallBody's bytes, undecoded (an HLS init: a few KiB of ftyp + moov). */
+export async function readSmallBytes(request: Request, maxBytes: number): Promise<Uint8Array | null> {
   const declared = parseStrictInt(request.headers.get("Content-Length"));
   if (declared !== null && declared > maxBytes) return null;
-  if (!request.body) return "";
+  if (!request.body) return new Uint8Array(0);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -104,5 +110,5 @@ export async function readSmallBody(request: Request, maxBytes: number): Promise
   const out = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
-  return new TextDecoder().decode(out);
+  return out;
 }

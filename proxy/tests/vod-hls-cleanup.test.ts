@@ -1,8 +1,8 @@
 /**
  * HLS shares: format isolation in both directions, every delete path with its
- * exact key list and prefix tombstone (discard, owner delete, hourly purge,
- * tombstone retry, account deletion, cron settle), and the cron settle rules.
- * Real SQLite + fake R2 (whose list() throws: nothing may list a prefix).
+ * exact key list and a prefix tombstone per run (discard, owner delete, hourly
+ * purge, tombstone retry, account deletion, cron settle), and the cron settle
+ * rules. Real SQLite + fake R2 (whose list() throws: nothing may list a prefix).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ import { webReq } from "./web-fixtures";
 import worker from "../src/index";
 import {
   OTHER, OWNER, call, clipRow, countR2, endShare, hlsInit, hlsRow, hlsSetup, json, liveShare, nowSec, pause, putRun, putSeg,
-  resetHlsState, segBytes, segRows, storedKeys,
+  resetHlsState, segBytes, segKey, segRows, storedKeys,
 } from "./hls-fixtures";
 import { payload, shareVod, vodComplete, vodInitOk, vodPart } from "./vod-fixtures";
 
@@ -31,7 +31,7 @@ afterEach(() => {
 
 type Setup = Awaited<ReturnType<typeof hlsSetup>>;
 const T0 = Date.UTC(2026, 9, 14, 12, 0, 0);
-const keys = (id: string, from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => `vods/${id}/${from + i}.m4s`);
+const keys = (id: string, from: number, to: number, run = 0) => Array.from({ length: to - from + 1 }, (_, i) => segKey(id, from + i, run));
 const tombstones = (s: Setup) => s.db.q("SELECT r2_key, upload_id, size_bytes, kind, key_count, not_before FROM storage_tombstones ORDER BY r2_key");
 
 /** Every D1 row of a share, by table. */
@@ -83,16 +83,16 @@ describe("format isolation", () => {
   it("the storage budget counts an HLS share's reservation and its tombstones", async () => {
     const s = await hlsSetup();
     await hlsInit(s.env, OWNER, { size: 12345 });
-    s.db.x("INSERT INTO storage_tombstones (r2_key, size_bytes, kind, created_at, key_count, not_before) VALUES ('vods/Gone001/', 55, 'vod', 1, 9, 2)");
+    s.db.x("INSERT INTO storage_tombstones (r2_key, size_bytes, kind, created_at, key_count, not_before) VALUES ('vods/Gone001/0/', 55, 'vod', 1, 9, 2)");
     expect(await storageUsage(s.db)).toEqual({ used: 12345 + 55, vod_used: 12345 + 55 });
   });
 });
 
-describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombstone", () => {
-  /** The tombstone every path leaves: keys 0..max_seq+8, pending bytes, 10 minutes out. */
+describe("every delete path: each run's keys up to max_seq, rows, then a delayed tombstone per run", () => {
+  /** The tombstone every path leaves for a one-run share: keys 0..max_seq+8, pending bytes, 10 minutes out. */
   const expectTombstone = (s: Setup, id: string, maxSeq: number, bytes: number, now: number) =>
     expect(tombstones(s)).toEqual([{
-      r2_key: `vods/${id}/`, upload_id: null, size_bytes: bytes, kind: "vod", key_count: maxSeq + 9, not_before: now + HLS_TOMBSTONE_DELAY_SECONDS,
+      r2_key: `vods/${id}/0/`, upload_id: null, size_bytes: bytes, kind: "vod", key_count: maxSeq + 9, not_before: now + HLS_TOMBSTONE_DELAY_SECONDS,
     }]);
 
   it("discardRow", async () => {
@@ -132,6 +132,38 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     expect(tombstones(s)).toEqual([]);
   });
 
+  it("a share with several runs: each run's keys from its start, and a tombstone per run", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    const s = await hlsSetup();
+    const id = await liveShare(s, 4);
+    expect((await putRun(s.env, id, 1, { from: 4 })).status).toBe(200);
+    for (const seq of [4, 5]) expect((await putSeg(s.env, id, seq, { run: 1 })).status).toBe(200);
+    expect((await putRun(s.env, id, 2, { from: 6 })).status).toBe(200);
+    s.db.x("INSERT INTO vod_hls_segments (clip_id, seq, duration_ms, bytes, committed) VALUES (?1, 7, 2000, 444, 0)", id);
+    s.db.x("UPDATE vod_hls SET max_seq = 7 WHERE clip_id = ?1", id);
+    s.r2.store.set(segKey(id, 6, 0), segBytes(6)); // a late write of run 0, already replaced
+    const r2 = countR2(s);
+    expect((await call(s.env, `/clips/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${OWNER}` } })).status).toBe(200);
+    expect(r2.deleted).toEqual([[...keys(id, 0, 7, 0), ...keys(id, 4, 7, 1), ...keys(id, 6, 7, 2)]]);
+    expect(storedKeys(s, id)).toEqual([]);
+    expect(rowsOf(s, id)).toEqual(NO_ROWS);
+    const later = { upload_id: null, kind: "vod", key_count: 16, not_before: T0 / 1000 + HLS_TOMBSTONE_DELAY_SECONDS };
+    expect(tombstones(s)).toEqual([
+      { r2_key: `vods/${id}/0/`, size_bytes: 0, ...later },
+      { r2_key: `vods/${id}/1/`, size_bytes: 0, ...later },
+      { r2_key: `vods/${id}/2/`, size_bytes: 444, ...later }, // the latest run counts the pending bytes
+    ]);
+    // Ten minutes on, each run's keys 0..max_seq+8 go once more: one call per run.
+    s.r2.store.set(segKey(id, 9, 1), segBytes(9));
+    r2.deleted.length = 0;
+    vi.setSystemTime(T0 + HLS_TOMBSTONE_DELAY_SECONDS * 1000);
+    expect(await purgeTombstones(s.env)).toBe(3);
+    expect([...r2.deleted].sort()).toEqual([keys(id, 0, 15, 0), keys(id, 0, 15, 1), keys(id, 0, 15, 2)]);
+    expect(storedKeys(s, id)).toEqual([]);
+    expect(tombstones(s)).toEqual([]);
+  });
+
   it("deletes at most 1000 keys per call, never lists, and keeps the claimed row counted when R2 fails", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(T0);
@@ -153,7 +185,7 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     await runScheduled(worker, s.env);
     expect(r2.deleted.slice(0, 3)).toEqual([keys(id, 0, 999), keys(id, 1000, 1999), keys(id, 2000, 2500)]);
     expect(rowsOf(s, id)).toEqual(NO_ROWS);
-    expect(tombstones(s)).toEqual([expect.objectContaining({ r2_key: `vods/${id}/`, key_count: 2509 })]);
+    expect(tombstones(s)).toEqual([expect.objectContaining({ r2_key: `vods/${id}/0/`, key_count: 2509 })]);
   });
 
   it("the hourly purge of an expired share, inside the run's budget of R2 calls", async () => {
@@ -161,9 +193,10 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     vi.setSystemTime(T0);
     const s = await hlsSetup({ allow: ["sess-owner", "sess-other"] });
     const a = await busyShare(s);
-    expect((await endShare(s.env, a, 4)).status).toBe(201);
+    expect((await endShare(s.env, a, 4)).status).toBe(201); // drops pending seq 5, tombstoned on its own
     // A second, bigger share of another account: 40 R2 calls of keys, over what is left.
     const b = (await json(await hlsInit(s.env, OTHER))).id as string;
+    expect((await putRun(s.env, b, 0, { token: OTHER })).status).toBe(200);
     s.db.x("UPDATE vod_hls SET max_seq = 39999 WHERE clip_id = ?1", b);
     s.db.x("UPDATE clips SET status = 'ready', expires_at = ?2 WHERE id = ?1", b, T0 / 1000 - 1);
     s.db.x("UPDATE clips SET expires_at = ?2 WHERE id = ?1", a, T0 / 1000 - 1);
@@ -173,7 +206,10 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     expect(r2.deleted[0]).toEqual(keys(a, 0, 5));
     expect(rowsOf(s, a)).toEqual(NO_ROWS);
     expect(clipRow(s, b)).toMatchObject({ status: "purging" });
-    expect(tombstones(s)).toEqual([expect.objectContaining({ r2_key: `vods/${a}/`, key_count: 14, size_bytes: 0 })]);
+    expect(tombstones(s)).toEqual([
+      expect.objectContaining({ r2_key: `vods/${a}/0/`, key_count: 14, size_bytes: 0 }),
+      expect.objectContaining({ r2_key: segKey(a, 5), key_count: null, size_bytes: 333 }),
+    ]);
   });
 
   it("the tombstone retry deletes keys 0..key_count-1 once not_before has passed", async () => {
@@ -182,7 +218,7 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     const s = await hlsSetup();
     const id = await busyShare(s);
     await discardRow(s.env, id);
-    s.r2.store.set(`vods/${id}/13.m4s`, segBytes(13)); // a PUT that landed after the delete
+    s.r2.store.set(segKey(id, 13), segBytes(13)); // a PUT that landed after the delete
     const r2 = countR2(s);
     expect(await purgeTombstones(s.env)).toBe(0); // not yet
     expect(r2.total()).toBe(0);
@@ -192,7 +228,7 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     expect(storedKeys(s, id)).toEqual([]);
     expect(tombstones(s)).toEqual([]);
     // A failed delete keeps it for the next run.
-    s.db.x("INSERT INTO storage_tombstones (r2_key, size_bytes, kind, created_at, key_count, not_before) VALUES ('vods/Gone001/', 5, 'vod', 1, 3, 2)");
+    s.db.x("INSERT INTO storage_tombstones (r2_key, size_bytes, kind, created_at, key_count, not_before) VALUES ('vods/Gone001/0/', 5, 'vod', 1, 3, 2)");
     s.r2.bucket.delete = (async () => { throw new Error("R2 internal error"); }) as typeof s.r2.bucket.delete;
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await purgeTombstones(s.env)).toBe(0);
@@ -212,7 +248,7 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     expect(res.status).toBe(200);
     expect(r2.deleted).toEqual([keys(live, 0, 5)]);
     expect(rowsOf(s, live)).toEqual(NO_ROWS);
-    expect(tombstones(s)).toEqual([{ r2_key: `vods/${live}/`, upload_id: null, size_bytes: 333, kind: "vod", key_count: 14, not_before: now + 600 }]);
+    expect(tombstones(s)).toEqual([{ r2_key: `vods/${live}/0/`, upload_id: null, size_bytes: 333, kind: "vod", key_count: 14, not_before: now + 600 }]);
     expect(s.db.q("SELECT * FROM users WHERE email = 'user1@example.com'")).toEqual([]);
   });
 
@@ -231,7 +267,7 @@ describe("every delete path: keys 0..max_seq, rows, then a delayed prefix tombst
     expect(res.status).toBe(200);
     expect(rowsOf(s, live)).toEqual(NO_ROWS);
     expect(tombstones(s)).toEqual([{
-      r2_key: `vods/${live}/`, upload_id: null, size_bytes: Math.max(before.size_bytes as number, before.hls_bytes as number), kind: "vod", key_count: 14, not_before: now + 600,
+      r2_key: `vods/${live}/0/`, upload_id: null, size_bytes: Math.max(before.size_bytes as number, before.hls_bytes as number), kind: "vod", key_count: 14, not_before: now + 600,
     }]);
   });
 });
@@ -275,7 +311,7 @@ describe("the cron settle (before the purge)", () => {
     s.db.x("UPDATE vod_hls SET paused_at = ?2, paused_reason = 'game' WHERE clip_id = ?1", paused, T0 / 1000 - HLS_PAUSE_MAX_SECONDS + 3600);
     await runScheduled(worker, s.env);
     expect(rowsOf(s, idle)).toEqual(NO_ROWS);
-    expect(tombstones(s)).toEqual([expect.objectContaining({ r2_key: `vods/${idle}/`, key_count: 4 + 9 })]);
+    expect(tombstones(s)).toEqual([expect.objectContaining({ r2_key: `vods/${idle}/0/`, key_count: 4 + 9 })]);
     expect(clipRow(s, active)?.status).toBe("uploading");
     expect(clipRow(s, paused)?.status).toBe("uploading");
   });

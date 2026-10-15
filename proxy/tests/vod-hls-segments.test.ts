@@ -5,12 +5,16 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HLS_SEGMENT_MAX_BYTES, VOD_MAX_BYTES, VOD_TTL_SECONDS } from "../src/share-limits";
+import { HLS_SEGMENT_MAX_BYTES, HLS_TOMBSTONE_DELAY_SECONDS, VOD_MAX_BYTES, VOD_TTL_SECONDS } from "../src/share-limits";
+import { purgeTombstones } from "../src/clip-purge";
 import { knownLengthStreams } from "./fake-r2";
 import {
-  MiB, OTHER, OWNER, call, clipRow, countR2, endShare, fakeCtx, hlsInit, hlsRow, hlsSetup, json, liveShare,
-  pause, putRun, putSeg, resetHlsState, segBytes, segRows, storedKeys,
+  MiB, OTHER, OWNER, call, clipRow, countR2, endShare, fakeCtx, hlsInit, hlsRow, hlsSetup, json, liveShare, media,
+  pause, putRun, putSeg, resetHlsState, segBytes, segKey, segRows, storedKeys, token,
 } from "./hls-fixtures";
+
+const tombstones = (s: Awaited<ReturnType<typeof hlsSetup>>) =>
+  s.db.q("SELECT r2_key, size_bytes, key_count, not_before FROM storage_tombstones ORDER BY r2_key");
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -43,7 +47,7 @@ describe("PUT /vod-shares/:id/hls/seg/:seq", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]).toBeInstanceOf(ReadableStream);
     expect(knownLengthStreams.has(seen[0] as ReadableStream)).toBe(true);
-    expect(s.r2.store.get(`vods/${id}/0.m4s`)).toEqual(segBytes(0, 5000));
+    expect(s.r2.store.get(segKey(id, 0))).toEqual(segBytes(0, 5000));
     expect(segRows(s, id)).toEqual([{ seq: 0, duration_ms: 2000, bytes: 5000, committed: 1 }]);
     expect(clipRow(s, id)).toMatchObject({ hls_bytes: 1408 + 5000, part_puts: 2 });
     expect(hlsRow(s, id)).toMatchObject({ max_seq: 0, segments: 1, media_ms: 2000 });
@@ -188,22 +192,25 @@ describe("PUT /vod-shares/:id/hls/seg/:seq", () => {
     expect((await json(await putSeg(s.env, id, 8))).playable).toBe(true); // 9 x ~2 s past 8,000 ms
   });
 
-  it("keeps an EWMA of the ingest rate and the last commit time", async () => {
+  it("keeps an EWMA of the ingest rate, seeded with the average since the init, and the last commit time", async () => {
     vi.useFakeTimers();
     const t0 = Date.UTC(2026, 9, 14, 12, 0, 0);
     vi.setSystemTime(t0);
     const { s, id } = await share();
+    vi.setSystemTime(t0 + 2000);
     expect((await putSeg(s.env, id, 0)).status).toBe(200);
-    expect(hlsRow(s, id)).toMatchObject({ last_commit_ms: t0, ingest_milli: null });
-    vi.setSystemTime(t0 + 500); // 2 s of media in 0.5 s: 4x
+    expect(hlsRow(s, id)).toMatchObject({ last_commit_ms: t0 + 2000, ingest_milli: null });
+    // The seed: 4 s of media in the 3 s since the init, not 2 s over the 1 s since the first commit.
+    vi.setSystemTime(t0 + 3000);
     expect((await putSeg(s.env, id, 1)).status).toBe(200);
-    expect(hlsRow(s, id)).toMatchObject({ last_commit_ms: t0 + 500, ingest_milli: 4000 });
-    vi.setSystemTime(t0 + 1500); // 2 s in 1 s: (4000 x 30000 + 2000 x 1000) / (1000 + 30000)
+    const seed = Math.floor((4000 * 1000) / 3000);
+    expect(hlsRow(s, id)).toMatchObject({ last_commit_ms: t0 + 3000, ingest_milli: seed });
+    vi.setSystemTime(t0 + 4000); // 2 s in 1 s: (seed x 30000 + 2000 x 1000) / (1000 + 30000)
     expect((await putSeg(s.env, id, 2)).status).toBe(200);
-    expect(hlsRow(s, id)?.ingest_milli).toBe(Math.floor((4000 * 30000 + 2000 * 1000) / 31000));
+    const prev = Math.floor((seed * 30000 + 2000 * 1000) / 31000);
+    expect(hlsRow(s, id)?.ingest_milli).toBe(prev);
     vi.setSystemTime(t0 + 3_600_000); // a long gap counts as 30 s at most
     expect((await putSeg(s.env, id, 3)).status).toBe(200);
-    const prev = Math.floor((4000 * 30000 + 2000 * 1000) / 31000);
     expect(hlsRow(s, id)?.ingest_milli).toBe(Math.floor((prev * 30000 + 2000 * 1000) / 60000));
   });
 
@@ -266,8 +273,8 @@ describe("PUT /vod-shares/:id/hls/seg/:seq", () => {
     }) as typeof s.r2.bucket.delete;
     expect((await putSeg(s.env, id, 0, { bytes: segBytes(0, 3000) })).status).toBe(404);
     expect(s.db.q("SELECT r2_key, size_bytes, kind, key_count FROM storage_tombstones ORDER BY r2_key")).toEqual([
-      { r2_key: `vods/${id}/`, size_bytes: 3000, kind: "vod", key_count: 9 },
-      { r2_key: `vods/${id}/0.m4s`, size_bytes: 3000, kind: "vod", key_count: null },
+      { r2_key: `vods/${id}/0/`, size_bytes: 3000, kind: "vod", key_count: 9 },
+      { r2_key: segKey(id, 0), size_bytes: 3000, kind: "vod", key_count: null },
     ]);
   });
 });
@@ -312,19 +319,44 @@ describe("races around one segment PUT", () => {
     expect(await json(await putSeg(s.env, id, 6, { run: 1 }))).toMatchObject({ committed: 7 });
   });
 
+  it("a late write of a replaced run lands on its own key, never over what the new run committed", async () => {
+    const s = await hlsSetup();
+    const id = await liveShare(s, 5);
+    const fresh = segBytes(5, 5000);
+    // The desktop resumed at the edge while run 0's PUT of seq 5 was still on the wire.
+    whilePutting(s, async () => {
+      expect((await putRun(s.env, id, 1, { from: 5 })).status).toBe(200);
+      expect((await putSeg(s.env, id, 5, { run: 1, bytes: fresh })).status).toBe(200);
+    });
+    const late = await putSeg(s.env, id, 5, { run: 0, bytes: segBytes(5, 3000) });
+    expect(late.status).toBe(409);
+    expect((await json(late)).error).toBe("run_mismatch");
+    expect(storedKeys(s, id)).toEqual([...[0, 1, 2, 3, 4].map((q) => segKey(id, q)), segKey(id, 5, 1)]);
+    expect(segRows(s, id)[5]).toEqual({ seq: 5, duration_ms: 2000, bytes: 5000, committed: 1 });
+    expect(clipRow(s, id)?.hls_bytes).toBe(2 * 1408 + 5 * 4096 + 5000);
+    const res = await media(s.env, id, await token(s, id), "5.m4s");
+    expect(res.status).toBe(200);
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(fresh);
+  });
+
   it("an end that lands while a later seq is in flight: that PUT is 404 and its object goes", async () => {
+    vi.useFakeTimers();
+    const t0 = Date.UTC(2026, 9, 14, 12, 0, 0);
+    vi.setSystemTime(t0);
     const s = await hlsSetup();
     const id = await liveShare(s, 4);
     whilePutting(s, async () => { expect((await endShare(s.env, id, 4)).status).toBe(201); });
     const late = await putSeg(s.env, id, 4);
     expect(late.status).toBe(404);
-    expect(storedKeys(s, id)).toEqual([0, 1, 2, 3].map((q) => `vods/${id}/${q}.m4s`));
+    expect(storedKeys(s, id)).toEqual([0, 1, 2, 3].map((q) => segKey(id, q)));
     expect(clipRow(s, id)).toMatchObject({ status: "ready", size_bytes: 1408 + 4 * 4096 });
+    // Had that PUT's own delete never run, the end's delayed tombstone deletes it later.
+    expect(tombstones(s)).toEqual([{ r2_key: segKey(id, 4), size_bytes: 4096, key_count: null, not_before: t0 / 1000 + HLS_TOMBSTONE_DELAY_SECONDS }]);
   });
 });
 
 describe("POST /vod-shares/:id/hls/pause", () => {
-  it("accepts only reason game, is idempotent, and the next PUT clears it", async () => {
+  it("accepts only reason game, is idempotent, and a PUT 10 s or more later clears it", async () => {
     vi.useFakeTimers();
     const t0 = Date.UTC(2026, 9, 14, 12, 0, 0);
     vi.setSystemTime(t0);
@@ -335,11 +367,21 @@ describe("POST /vod-shares/:id/hls/pause", () => {
     const res = await pause(s.env, id);
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({ paused: true, reason: "game" });
+    // PUTs already on their way when the desktop paused don't undo it.
+    vi.setSystemTime(t0 + 9_000);
+    expect((await putSeg(s.env, id, 2)).status).toBe(200);
+    expect((await putRun(s.env, id, 0)).status).toBe(200); // a replay of run 0
+    expect(hlsRow(s, id)).toMatchObject({ paused_at: t0 / 1000, paused_reason: "game" });
     vi.setSystemTime(t0 + 60_000);
     expect((await pause(s.env, id)).status).toBe(200);
     expect(hlsRow(s, id)).toMatchObject({ paused_at: t0 / 1000, paused_reason: "game" });
     expect((await pause(s.env, id, "game", OTHER)).status).toBe(404);
-    expect((await putSeg(s.env, id, 2)).status).toBe(200);
+    expect((await putSeg(s.env, id, 3)).status).toBe(200);
+    expect(hlsRow(s, id)).toMatchObject({ paused_at: null, paused_reason: null });
+    // A resume as a new run clears it the same way.
+    expect((await pause(s.env, id)).status).toBe(200);
+    vi.setSystemTime(t0 + 95_000);
+    expect((await putRun(s.env, id, 1, { from: 4 })).status).toBe(200);
     expect(hlsRow(s, id)).toMatchObject({ paused_at: null, paused_reason: null });
     s.db.x("UPDATE clips SET status = 'ready' WHERE id = ?1", id);
     expect((await pause(s.env, id)).status).toBe(404);
@@ -364,7 +406,8 @@ describe("POST /vod-shares/:id/hls/end", () => {
 
   it("ends at the committed edge: drops later rows and objects, recounts the bytes, and a replay gets the same 201", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(Date.UTC(2026, 9, 14, 12, 0, 0));
+    const t0 = Date.UTC(2026, 9, 14, 12, 0, 0);
+    vi.setSystemTime(t0);
     const s = await hlsSetup();
     const id = await liveShare(s, 5, { ms: (q) => (q === 4 ? 1500 : 2000) });
     // Seq 7 committed out of order and seq 6 pending: both past the edge (5).
@@ -385,12 +428,24 @@ describe("POST /vod-shares/:id/hls/end", () => {
     expect(row).toMatchObject({ status: "ready", size_bytes: exact, hls_bytes: exact, duration_s: 10, expires_at: (row.created_at as number) + VOD_TTL_SECONDS });
     expect(hlsRow(s, id)).toMatchObject({ ended: 1, truncated: 1, segments: 5 });
     expect(segRows(s, id).map((r) => r.seq)).toEqual([0, 1, 2, 3, 4]);
-    expect(storedKeys(s, id)).toEqual([0, 1, 2, 3, 4].map((q) => `vods/${id}/${q}.m4s`));
-    expect(r2.deleted).toEqual([[5, 6, 7].map((q) => `vods/${id}/${q}.m4s`)]);
+    expect(storedKeys(s, id)).toEqual([0, 1, 2, 3, 4].map((q) => segKey(id, q)));
+    expect(r2.deleted).toEqual([[5, 6, 7].map((q) => segKey(id, q))]);
+    // Every dropped seq keeps its bytes counted for 10 minutes, then is deleted once more.
+    const notBefore = t0 / 1000 + HLS_TOMBSTONE_DELAY_SECONDS;
+    expect(tombstones(s)).toEqual([
+      { r2_key: segKey(id, 6), size_bytes: 123, key_count: null, not_before: notBefore },
+      { r2_key: segKey(id, 7), size_bytes: 4096, key_count: null, not_before: notBefore },
+    ]);
     const replay = await endShare(s.env, id, 99, false);
     expect(replay.status).toBe(201);
     expect(await json(replay)).toEqual(out);
     expect((await putSeg(s.env, id, 5)).status).toBe(404); // ended: no more segments
+    s.r2.store.set(segKey(id, 6), segBytes(6)); // a PUT in flight whose commit never ran
+    expect(await purgeTombstones(s.env)).toBe(0);
+    vi.setSystemTime(t0 + HLS_TOMBSTONE_DELAY_SECONDS * 1000);
+    expect(await purgeTombstones(s.env)).toBe(2);
+    expect(storedKeys(s, id)).toEqual([0, 1, 2, 3, 4].map((q) => segKey(id, q)));
+    expect(tombstones(s)).toEqual([]);
   });
 
   it("keeps the bytes of objects R2 refused to delete as tombstones", async () => {
@@ -401,6 +456,6 @@ describe("POST /vod-shares/:id/hls/end", () => {
     s.r2.bucket.delete = (async () => { throw new Error("R2 internal error"); }) as typeof s.r2.bucket.delete;
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect((await endShare(s.env, id, 4)).status).toBe(201);
-    expect(s.db.q("SELECT r2_key, size_bytes FROM storage_tombstones")).toEqual([{ r2_key: `vods/${id}/4.m4s`, size_bytes: 777 }]);
+    expect(s.db.q("SELECT r2_key, size_bytes FROM storage_tombstones")).toEqual([{ r2_key: segKey(id, 4), size_bytes: 777 }]);
   });
 });

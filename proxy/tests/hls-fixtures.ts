@@ -188,10 +188,17 @@ export function segRows(s: VodSetup, id: string): { seq: number; duration_ms: nu
   return s.db.q("SELECT seq, duration_ms, bytes, committed FROM vod_hls_segments WHERE clip_id = ?1 ORDER BY seq", id);
 }
 
-export function storedKeys(s: VodSetup, id: string): string[] {
-  return [...s.r2.store.keys()].filter((k) => k.startsWith(`vods/${id}/`)).sort((a, b) => seqOf(a) - seqOf(b));
+/** Segment `seq` of run `run` (the key layout: vods/<id>/<k>/<seq>.m4s). */
+export function segKey(id: string, seq: number, run = 0): string {
+  return `vods/${id}/${run}/${seq}.m4s`;
 }
 
-function seqOf(key: string): number {
-  return Number(/\/(\d+)\.m4s$/.exec(key)?.[1] ?? -1);
+/** The share's stored segment keys, by run then seq. */
+export function storedKeys(s: VodSetup, id: string): string[] {
+  return [...s.r2.store.keys()].filter((k) => k.startsWith(`vods/${id}/`)).sort((a, b) => order(a) - order(b));
+}
+
+function order(key: string): number {
+  const m = /\/(\d+)\/(\d+)\.m4s$/.exec(key);
+  return m ? Number(m[1]) * 1_000_000 + Number(m[2]) : -1;
 }

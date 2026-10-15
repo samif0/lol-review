@@ -34,7 +34,7 @@
 
 import { Env } from "./types";
 import { abortUpload } from "./upload-cleanup";
-import { deleteCalls, deleteKeys, idOfHlsPrefix, maxSeqOf, removeHlsShare, segmentKeys } from "./hls-objects";
+import { deleteCalls, deleteKeys, keyStateOf, parseHlsRunPrefix, r2KeysFor, removeHlsShare, segmentKeys } from "./hls-objects";
 import { HLS_PURGE_R2_CALLS_PER_RUN } from "./share-limits";
 
 export const PURGE_BATCH_ROWS = 500;
@@ -110,9 +110,9 @@ export async function purgeExpiredClips(env: Env, hls: HlsBudget = hlsRunBudget(
     // run's budget of R2 calls lasts. The others stay claimed and expired.
     for (const row of claimedRows.filter((r) => r.format === "hls")) {
       if (hls.calls <= 0) break;
-      const maxSeq = await maxSeqOf(env, row.id);
-      if (!spend(hls, deleteCalls(maxSeq + 1))) continue;
-      if (await removeHlsShare(env, row.id, now, maxSeq)) purged++;
+      const state = await keyStateOf(env, row.id);
+      if (!spend(hls, deleteCalls(r2KeysFor({ id: row.id, ...state }).length))) continue;
+      if (await removeHlsShare(env, row.id, now, state)) purged++;
     }
     const rows = claimedRows.filter((r) => r.format !== "hls");
 
@@ -165,9 +165,11 @@ interface TombstoneRow {
  * until their objects are really gone: on an R2 failure they are kept for the
  * next hourly run, and so is one whose upload abort really failed.
  *
- * A prefix tombstone (an HLS share, key_count set) deletes its segment keys
- * 0..key_count-1 by name, once its not_before has passed, inside the run's
- * budget of R2 calls; one that doesn't fit waits for the next run.
+ * A prefix tombstone (one run of an HLS share, vods/<id>/<k>/ with key_count
+ * set) deletes that run's segment keys 0..key_count-1 by name; it, and any
+ * tombstone with a not_before, waits until that time. HLS key deletes stay
+ * inside the cron run's budget of R2 calls; one that doesn't fit waits for the
+ * next run.
  */
 export async function purgeTombstones(env: Env, hls: HlsBudget = hlsRunBudget()): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
@@ -180,14 +182,14 @@ export async function purgeTombstones(env: Env, hls: HlsBudget = hlsRunBudget())
 
   const done: TombstoneRow[] = [];
   for (const row of all.filter((r) => r.key_count !== null && r.key_count !== undefined)) {
-    const id = idOfHlsPrefix(row.r2_key);
+    const prefix = parseHlsRunPrefix(row.r2_key);
     const count = Math.max(0, Number(row.key_count) || 0);
-    if (!id) {
+    if (!prefix) {
       done.push(row); // not a key this code ever writes: nothing to delete
       continue;
     }
     if (!spend(hls, deleteCalls(count))) continue;
-    if (await deleteKeys(env, segmentKeys(id, 0, count))) done.push(row);
+    if (await deleteKeys(env, segmentKeys(prefix.id, prefix.run, 0, count))) done.push(row);
   }
 
   const rows = all.filter((r) => r.key_count === null || r.key_count === undefined);

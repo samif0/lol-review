@@ -235,13 +235,17 @@ async function deleteHlsSharesOf(env: Env, userId: number): Promise<string[]> {
     .prepare("UPDATE clips SET status = 'purging', expires_at = ?2 WHERE user_id = ?1 AND format = 'hls'")
     .bind(userId, now)
     .run();
-  const res = await env.DB
-    .prepare("SELECT h.clip_id AS id, h.max_seq FROM vod_hls h JOIN clips c ON c.id = h.clip_id WHERE c.user_id = ?1 AND c.format = 'hls'")
-    .bind(userId)
-    .all<{ id: string; max_seq: number }>();
+  const [shares, runs] = await env.DB.batch([
+    env.DB.prepare("SELECT h.clip_id AS id, h.max_seq FROM vod_hls h JOIN clips c ON c.id = h.clip_id WHERE c.user_id = ?1 AND c.format = 'hls'").bind(userId),
+    env.DB
+      .prepare("SELECT r.clip_id AS id, r.k, r.from_seq FROM vod_hls_runs r JOIN clips c ON c.id = r.clip_id WHERE c.user_id = ?1 AND c.format = 'hls' ORDER BY r.clip_id, r.k")
+      .bind(userId),
+  ]);
+  const runRows = (runs as D1Result<{ id: string; k: number; from_seq: number }>).results ?? [];
   const failed: string[] = [];
-  for (const row of res.results ?? []) {
-    if (Number(row.max_seq) >= 0 && !(await deleteKeys(env, r2KeysFor(row)))) failed.push(row.id);
+  for (const row of (shares as D1Result<{ id: string; max_seq: number }>).results ?? []) {
+    const own = runRows.filter((r) => r.id === row.id).map((r) => ({ k: Number(r.k), from: Number(r.from_seq) }));
+    if (Number(row.max_seq) >= 0 && !(await deleteKeys(env, r2KeysFor({ id: row.id, max_seq: Number(row.max_seq), runs: own })))) failed.push(row.id);
   }
   return failed;
 }

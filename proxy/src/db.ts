@@ -363,11 +363,11 @@ const TOMBSTONE_ID_CHUNK = 90;
  * stays small whatever the number of clips.
  *
  * HLS shares (format 'hls', claimed by the caller before their keys were
- * deleted) always get a prefix tombstone for keys 0..max_seq+8, not purged
- * for HLS_TOMBSTONE_DELAY_SECONDS: those in `hlsTombstoneIds` (their key
- * delete failed) count every stored byte, the others only their pending rows
- * (what a PUT in flight may still store). Their segment, run and state rows go
- * with the clips.
+ * deleted) always get a prefix tombstone per run (vods/<id>/<k>/, keys
+ * 0..max_seq+8), not purged for HLS_TOMBSTONE_DELAY_SECONDS. The latest run's
+ * counts every stored byte for those in `hlsTombstoneIds` (their key delete
+ * failed), and only the pending rows (what a PUT in flight may still store)
+ * for the others. Their segment, run and state rows go with the clips.
  */
 export async function deleteAccountRows(
   db: D1Database,
@@ -397,7 +397,7 @@ export async function deleteAccountRows(
     tombstones.push(
       db
         .prepare(
-          `INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT c.r2_key, NULL, MAX(c.size_bytes, c.hls_bytes), 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND c.id IN (${marks})`,
+          `INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT 'vods/' || c.id || '/' || r.k || '/', NULL, CASE WHEN r.k = h.runs - 1 THEN MAX(c.size_bytes, c.hls_bytes) ELSE 0 END, 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id JOIN vod_hls_runs r ON r.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND c.id IN (${marks})`,
         )
         .bind(userId, now, notBefore, extra, ...ids),
     );
@@ -405,7 +405,7 @@ export async function deleteAccountRows(
   tombstones.push(
     db
       .prepare(
-        "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT c.r2_key, NULL, (SELECT COALESCE(SUM(s.bytes), 0) FROM vod_hls_segments s WHERE s.clip_id = c.id AND s.committed = 0), 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND h.max_seq >= 0",
+        "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT 'vods/' || c.id || '/' || r.k || '/', NULL, CASE WHEN r.k = h.runs - 1 THEN (SELECT COALESCE(SUM(s.bytes), 0) FROM vod_hls_segments s WHERE s.clip_id = c.id AND s.committed = 0) ELSE 0 END, 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id JOIN vod_hls_runs r ON r.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND h.max_seq >= 0",
       )
       .bind(userId, now, notBefore, extra),
   );

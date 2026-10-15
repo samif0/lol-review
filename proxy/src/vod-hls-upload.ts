@@ -21,7 +21,7 @@
  */
 
 import { Env } from "./types";
-import { jsonResponse, parseStrictInt, readSmallBody, Timing } from "./http";
+import { jsonResponse, parseStrictInt, readSmallBody, readSmallBytes, Timing } from "./http";
 import { hasVideoMagicBytes } from "./clips";
 import { storageUsage, vodFits } from "./storage-budget";
 import { hlsPrefix, hlsSegmentKey } from "./hls-objects";
@@ -31,6 +31,7 @@ import {
   HLS_INIT_MAX_BYTES,
   HLS_MAX_RUNS,
   HLS_MAX_SEGMENT_MS,
+  HLS_PAUSE_GRACE_SECONDS,
   HLS_PAUSE_REASONS,
   HLS_PLAYABLE_MS,
   HLS_PUT_SLACK,
@@ -65,6 +66,15 @@ export function refuse(status: number, error: string, message?: string, extra: R
   const body: Record<string, unknown> = { error };
   if (message !== undefined) body.message = message;
   return jsonResponse({ ...body, ...extra }, status, headers);
+}
+
+/**
+ * SET clause that ends a pause at least HLS_PAUSE_GRACE_SECONDS old (`now` is
+ * the statement's parameter holding unix seconds); a younger one stays.
+ */
+function clearPause(now: string): string {
+  const old = `paused_at <= ${now} - ${HLS_PAUSE_GRACE_SECONDS}`;
+  return `paused_at = CASE WHEN ${old} THEN NULL ELSE paused_at END, paused_reason = CASE WHEN ${old} THEN NULL ELSE paused_reason END`;
 }
 
 function timed(res: Response, timing: Timing): Response {
@@ -116,33 +126,6 @@ export async function reserveHlsShare(
 
 // ── PUT /vod-shares/:id/hls/runs/:k ─────────────────────────────────────────
 
-/** A small binary body with a hard cap (inits only, never segments). */
-async function readBytes(request: Request, maxBytes: number): Promise<Uint8Array | null> {
-  if (!request.body) return new Uint8Array(0);
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        try { await reader.cancel(); } catch { /* best effort */ }
-        return null;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) { out.set(c, offset); offset += c.byteLength; }
-  return out;
-}
-
 /**
  * Runs are append-only: k must be the next run (run 0 from seq 0; run k >= 1
  * from a seq past run k-1's start with no committed segment at or after it),
@@ -168,7 +151,7 @@ export async function handleHlsRunPut(request: Request, env: Env, userId: number
   if (len === null || len < 0) return refuse(400, "bad_request", "Content-Length must be a byte count");
   if (len > HLS_INIT_MAX_BYTES) return refuse(413, "payload_too_large", `an init can be at most ${HLS_INIT_MAX_BYTES} bytes`);
   if (k >= HLS_MAX_RUNS) return refuse(429, "too_many_runs", `a share can have at most ${HLS_MAX_RUNS} runs`);
-  const init = await readBytes(request, HLS_INIT_MAX_BYTES);
+  const init = await readSmallBytes(request, HLS_INIT_MAX_BYTES);
   if (init === null) return refuse(413, "payload_too_large", `an init can be at most ${HLS_INIT_MAX_BYTES} bytes`);
   if (init.byteLength !== len) return refuse(400, "bad_request", "the body does not match Content-Length");
   if (len < 1 || !hasVideoMagicBytes(init, "video/mp4")) return refuse(415, "not_video", "an init must start with an ftyp box");
@@ -181,7 +164,7 @@ export async function handleHlsRunPut(request: Request, env: Env, userId: number
   const results = await timing.db(() => env.DB.batch([
     // Replay: identical bytes and from on the last run.
     env.DB
-      .prepare(`UPDATE vod_hls SET paused_at = NULL, paused_reason = NULL WHERE clip_id = ?1 AND runs = ?4 + 1 AND ${same} AND EXISTS (SELECT 1 FROM clips WHERE ${owned})`)
+      .prepare(`UPDATE vod_hls SET ${clearPause("?3")} WHERE clip_id = ?1 AND runs = ?4 + 1 AND ${same} AND EXISTS (SELECT 1 FROM clips WHERE ${owned})`)
       .bind(id, userId, now, k, from, init),
     env.DB
       .prepare(`UPDATE clips SET part_puts = part_puts + 1, last_activity_at = ?3 WHERE ${owned} AND (SELECT runs FROM vod_hls WHERE clip_id = ?1) = ?4 + 1 AND ${same}`)
@@ -202,8 +185,8 @@ export async function handleHlsRunPut(request: Request, env: Env, userId: number
       .prepare(`UPDATE clips SET part_puts = part_puts + 1, last_activity_at = ?3, hls_bytes = hls_bytes + ?4, quality = ?5 WHERE id = ?1 AND (SELECT runs FROM vod_hls WHERE clip_id = ?1) = ?2 AND ${inserted}`)
       .bind(id, k, now, len, quality),
     env.DB
-      .prepare(`UPDATE vod_hls SET runs = runs + 1, paused_at = NULL, paused_reason = NULL WHERE clip_id = ?1 AND runs = ?2 AND ${inserted}`)
-      .bind(id, k),
+      .prepare(`UPDATE vod_hls SET runs = runs + 1, ${clearPause("?3")} WHERE clip_id = ?1 AND runs = ?2 AND ${inserted}`)
+      .bind(id, k, now),
   ]));
   if (changes(results[2]) === 1) return timed(jsonResponse({ k, from, quality }, 200), timing);
   if (changes(results[1]) === 1) {
@@ -279,8 +262,8 @@ async function claimSegment(env: Env, timing: Timing, p: SegmentPut, now: number
       .prepare(`UPDATE clips SET part_puts = part_puts + 1, last_activity_at = ?4, hls_bytes = hls_bytes - (SELECT bytes FROM vod_hls_segments WHERE clip_id = ?1 AND seq = ?2) + ?5 WHERE id = ?1 AND ${marked}`)
       .bind(p.id, p.seq, mark, now, p.len),
     env.DB
-      .prepare(`UPDATE vod_hls SET max_seq = MAX(max_seq, ?2), paused_at = NULL, paused_reason = NULL WHERE clip_id = ?1 AND ${marked}`)
-      .bind(p.id, p.seq, mark),
+      .prepare(`UPDATE vod_hls SET max_seq = MAX(max_seq, ?2), ${clearPause("?4")} WHERE clip_id = ?1 AND ${marked}`)
+      .bind(p.id, p.seq, mark, now),
     env.DB
       .prepare("UPDATE vod_hls_segments SET bytes = ?4, duration_ms = ?5 WHERE clip_id = ?1 AND seq = ?2 AND duration_ms = ?3 RETURNING seq")
       .bind(p.id, p.seq, mark, p.len, p.ms),
@@ -347,19 +330,24 @@ function progress(s: ShareState): { committed: number; media_ms: number; playabl
 }
 
 type Commit =
-  | { kind: "committed" | "already"; state: ShareState }
+  | { kind: "committed"; state: ShareState }
+  | { kind: "already"; state: ShareState }
   | { kind: "mismatch" }
+  | { kind: "replaced" }
   | { kind: "stopped" };
 
 /**
- * Store and commit, as one task. The commit batch marks the row committed only
- * while the share is still uploading and no later run covers the seq, moves
- * the contiguous edge forward with a gap query (the end of the committed run
- * that starts at the old edge; no recursive CTE), adds the newly contiguous
- * media, updates the ingest EWMA and the commit time, and reads the state back.
+ * Store and commit, as one task. The object goes to this run's key, so a run
+ * replaced while this body was on the wire can never overwrite what the new run
+ * committed. The commit batch marks the row committed only while the share is
+ * still uploading and no later run covers the seq, moves the contiguous edge
+ * forward with a gap query (the end of the committed run that starts at the
+ * old edge; no recursive CTE), adds the newly contiguous media, updates the
+ * ingest EWMA (seeded at the second commit with the average since the init,
+ * not one noisy gap) and the commit time, and reads the state back.
  */
 async function storeAndCommit(env: Env, timing: Timing, p: SegmentPut, body: ReadableStream): Promise<Commit> {
-  const key = hlsSegmentKey(p.id, p.seq);
+  const key = hlsSegmentKey(p.id, p.run, p.seq);
   // Known-length request body straight into R2: consumed natively, no JS per chunk.
   await timing.r2op(() => env.CLIPS.put(key, body, { httpMetadata: { contentType: "video/mp4" } }));
 
@@ -375,7 +363,7 @@ async function storeAndCommit(env: Env, timing: Timing, p: SegmentPut, body: Rea
       .bind(p.id, p.seq, p.len, p.ms, p.run),
     env.DB
       .prepare(
-        `WITH cur AS (SELECT segments AS s0, last_commit_ms AS t0 FROM vod_hls WHERE clip_id = ?1),
+        `WITH cur AS (SELECT segments AS s0, last_commit_ms AS t0, (SELECT created_at FROM clips WHERE id = ?1) AS c0 FROM vod_hls WHERE clip_id = ?1),
          edge AS (
            SELECT CASE WHEN EXISTS (SELECT 1 FROM vod_hls_segments WHERE clip_id = ?1 AND seq = cur.s0 AND committed = 1)
              THEN (SELECT MIN(s.seq) + 1 FROM vod_hls_segments s
@@ -385,12 +373,12 @@ async function storeAndCommit(env: Env, timing: Timing, p: SegmentPut, body: Rea
          gain AS (
            SELECT COALESCE(SUM(s.duration_ms), 0) AS ms FROM vod_hls_segments s, cur, edge
            WHERE s.clip_id = ?1 AND s.committed = 1 AND s.seq >= cur.s0 AND s.seq < edge.s1),
-         gap AS (SELECT CAST(MAX(1, MIN(?3 - cur.t0, ${INGEST_TAU_MS})) AS INTEGER) AS dt FROM cur)
+         gap AS (SELECT CAST(MAX(1, MIN(?3 - cur.t0, ${INGEST_TAU_MS})) AS INTEGER) AS dt, CAST(MAX(1000, ?3 - cur.c0 * 1000) AS INTEGER) AS since FROM cur)
          UPDATE vod_hls SET
            segments = (SELECT s1 FROM edge),
            media_ms = media_ms + (SELECT ms FROM gain),
            ingest_milli = CASE WHEN last_commit_ms IS NULL THEN NULL
-             WHEN ingest_milli IS NULL THEN CAST((SELECT ms FROM gain) * 1000 / (SELECT dt FROM gap) AS INTEGER)
+             WHEN ingest_milli IS NULL THEN CAST((media_ms + (SELECT ms FROM gain)) * 1000 / (SELECT since FROM gap) AS INTEGER)
              ELSE CAST((ingest_milli * ${INGEST_TAU_MS} + (SELECT ms FROM gain) * 1000) / ((SELECT dt FROM gap) + ${INGEST_TAU_MS}) AS INTEGER) END,
            last_commit_ms = CAST(?3 AS INTEGER)
          WHERE clip_id = ?1 AND ${uploading}
@@ -400,27 +388,33 @@ async function storeAndCommit(env: Env, timing: Timing, p: SegmentPut, body: Rea
     env.DB
       .prepare(
         `SELECT c.status, h.segments, h.media_ms, h.runs, h.ended,
-           (SELECT committed FROM vod_hls_segments WHERE clip_id = ?1 AND seq = ?2) AS row_committed
+           (SELECT committed FROM vod_hls_segments WHERE clip_id = ?1 AND seq = ?2) AS row_committed,
+           (SELECT COUNT(*) FROM vod_hls_runs WHERE clip_id = ?1 AND k > ?3 AND from_seq <= ?2) AS later_runs
          FROM clips c JOIN vod_hls h ON h.clip_id = c.id WHERE c.id = ?1`,
       )
-      .bind(p.id, p.seq),
+      .bind(p.id, p.seq, p.run),
   ]));
-  const state = rowsOf<ShareState>(results[2])[0];
+  const state = rowsOf<ShareState & { later_runs: number }>(results[2])[0];
   if (changes(results[0]) === 1 && state) return { kind: "committed", state };
-  if (state && Number(state.row_committed) === 1 && (state.status === "uploading" || state.status === "ready")) {
+  const shown = !!state && (state.status === "uploading" || state.status === "ready");
+  // A newer run covers this seq: whatever is committed there lives under that
+  // run's key, so nothing serves this object.
+  const replaced = shown && Number(state.later_runs) > 0;
+  if (shown && !replaced && Number(state.row_committed) === 1) {
     return { kind: "already", state }; // a concurrent retry of the same seq committed it
   }
-  if (state && state.status === "uploading" && state.row_committed !== null) return { kind: "mismatch" };
+  if (shown && !replaced && state.status === "uploading" && state.row_committed !== null) return { kind: "mismatch" };
 
-  // Stopped, discarded or ended past this seq while the body was on the wire:
-  // the cleanup may already have run, so delete what this call stored. If R2
-  // refuses, a tombstone keeps the bytes counted and the hourly purge retries.
+  // Stopped, discarded or ended past this seq while the body was on the wire,
+  // or replaced by a newer run: the cleanup may already have run, so delete
+  // what this call stored. If R2 refuses, a tombstone keeps the bytes counted
+  // and the hourly purge retries.
   try {
     await timing.r2op(() => env.CLIPS.delete(key));
   } catch {
     await tombstoneObject(env, key, null, p.len, "vod");
   }
-  return { kind: "stopped" };
+  return { kind: replaced ? "replaced" : "stopped" };
 }
 
 export async function handleHlsSegmentPut(
@@ -468,7 +462,9 @@ export async function handleHlsSegmentPut(
   ctx?.waitUntil(task.then(() => undefined, () => undefined));
   const outcome = await task;
   if (outcome.kind === "stopped") return timed(refuse(404, "not_found"), timing);
-  if (outcome.kind === "mismatch") return timed(refuse(409, "run_mismatch", "a newer run or upload replaced this segment"), timing);
+  if (outcome.kind === "mismatch" || outcome.kind === "replaced") {
+    return timed(refuse(409, "run_mismatch", "a newer run or upload replaced this segment"), timing);
+  }
   const out: Record<string, unknown> = { seq, ...progress(outcome.state) };
   if (outcome.kind === "already") out.already = true;
   return timed(jsonResponse(out, 200), timing);
@@ -476,7 +472,11 @@ export async function handleHlsSegmentPut(
 
 // ── POST /vod-shares/:id/hls/pause ──────────────────────────────────────────
 
-/** Idempotent. The next accepted segment or run PUT clears it; the cron ends one paused 6 h. */
+/**
+ * Idempotent. The next accepted segment or run PUT at least
+ * HLS_PAUSE_GRACE_SECONDS later clears it (an earlier one was already on its
+ * way); the cron ends one paused 6 h.
+ */
 export async function handleHlsPause(request: Request, env: Env, userId: number, id: string): Promise<Response> {
   const timing = new Timing();
   const text = await readSmallBody(request, PAUSE_MAX_BODY_BYTES);
