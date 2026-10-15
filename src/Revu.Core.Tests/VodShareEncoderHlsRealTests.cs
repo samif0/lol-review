@@ -202,6 +202,54 @@ public sealed class VodShareEncoderHlsRealTests(Xunit.Abstractions.ITestOutputHe
         Assert.InRange(duration ?? 0, SourceSeconds - 0.15, SourceSeconds + 0.15);
     }
 
+    /// <summary>
+    /// A 1080p run resumed at 30 s by another encoder or at 720p writes its own init and still lands on the share's
+    /// timeline (video at 30.000 s, audio at 29.900 s); each part decodes. The sets are left in REVU_VOD_ENCODE_OUT/gates
+    /// with a manifest, as the media of browser gate G3 (plan 7.4).
+    /// </summary>
+    [VodEncodeFact]
+    public async Task ResumedRunsWithANewInit_LandOnTheTimeline_AndDecode()
+    {
+        var ffmpeg = await FfmpegAsync();
+        var dir = OutDir("gates");
+        var source = await SourceAsync(ffmpeg, dir);
+        var first = VodShareEncoderArgs.EncoderPriority.First(e => ProbePassesAsync(ffmpeg, e).GetAwaiter().GetResult());
+        var run0 = await RunHlsAsync(ffmpeg, first, source, Path.Combine(dir, "run0"));
+        Assert.True(run0.Result.Succeeded, run0.Result.StderrTail);
+
+        var variants = new List<(string Name, string Encoder, VodShareQuality Quality)>
+        {
+            ("same", first, VodShareQuality.P1080), ("x264", "libx264", VodShareQuality.P1080), ("720p", first, VodShareQuality.P720),
+        };
+        if (first != "h264_amf" && await ProbePassesAsync(ffmpeg, "h264_amf")) variants.Add(("amf", "h264_amf", VodShareQuality.P1080));
+        foreach (var (name, encoder, quality) in variants)
+        {
+            var set = Path.Combine(dir, name);
+            var resumed = await RunHlsAsync(ffmpeg, encoder, source, set, run: 1, firstSeq: 15, resumeAt: 30, quality: quality);
+            Assert.True(resumed.Result.Succeeded, $"{name}: {resumed.Result.StderrTail}");
+            var tracks = Fmp4Splitter.ParseInit(resumed.Init!.Bytes);
+            var (_, tfdt) = Fmp4TestMedia.ReadSegment(File.ReadAllBytes(resumed.Segments[0].Path));
+            var video = tracks.Values.Single(t => t.Handler == "vide");
+            var audio = tracks.Values.Single(t => t.Handler == "soun");
+            Assert.Equal(30.0, tfdt[video.TrackId] / (double)video.Timescale, 3);
+            Assert.InRange(tfdt[audio.TrackId] / (double)audio.Timescale, 29.85, 29.95);
+            var (errors, duration) = await DecodeAsync(ffmpeg, Join(Path.Combine(set, "part1.mp4"), resumed.Init.Bytes, resumed.Segments));
+            Assert.Equal("", errors);
+            var same = run0.Init!.Bytes.SequenceEqual(resumed.Init.Bytes);
+            output.WriteLine($"{name} ({encoder} {VodShareEncoderArgs.Wire(quality)}): resumed init {(same ? "same" : "new")}, part decodes to {duration:F3} s");
+
+            // The gate's set: run 0's first 15 segments and this run's, with both inits and a manifest.
+            foreach (var s in run0.Segments.Take(15)) File.Copy(s.Path, Path.Combine(set, Path.GetFileName(s.Path)), overwrite: true);
+            await File.WriteAllBytesAsync(Path.Combine(set, "init-0.mp4"), run0.Init.Bytes);
+            await File.WriteAllBytesAsync(Path.Combine(set, "init-1.mp4"), resumed.Init.Bytes);
+            var segments = run0.Segments.Take(15).Concat(resumed.Segments)
+                .Select(s => $"{{\"seq\":{s.Seq},\"ms\":{s.DurationMs},\"run\":{s.Run},\"file\":\"{Path.GetFileName(s.Path)}\"}}");
+            await File.WriteAllTextAsync(Path.Combine(set, "manifest.json"), $"{{\"name\":\"{name}\",\"encoder\":\"{encoder}\",\"quality\":\""
+                + $"{VodShareEncoderArgs.Wire(quality)}\",\"sameInit\":{(same ? "true" : "false")},\"runs\":[{{\"k\":0,\"from\":0}},{{\"k\":1,\"from\":15}}],"
+                + $"\"segments\":[{string.Join(",", segments)}]}}");
+        }
+    }
+
     [VodEncodeFact]
     public async Task NvencVideo_IsTheMp4PathsVideo()
     {
