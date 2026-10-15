@@ -59,18 +59,27 @@
 # Shared full games (vod.html). /v/<id> is a _redirects rewrite to /vod, and Pages
 # matches headers on the request path, so all three paths carry the same block.
 # Unlisted: never indexed or framed; media and metadata come only from clips.revu.lol
-# (localhost:8787 in wrangler dev). No inline script: vod.js loads with src.
+# (localhost:8787 in wrangler dev). No inline script: the vod*.js files load with src,
+# and vod-player.js adds hls.js (/vendor/, pinned by SRI) with a script element. A game
+# that plays while it uploads plays through MediaSource, so media-src allows blob:;
+# hls.js runs without a worker (enableWorker false), so worker-src is 'none'.
 /v/*
   ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787 blob:; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; worker-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Robots-Tag: noindex, nofollow
 
 /vod
   ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787 blob:; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; worker-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Robots-Tag: noindex, nofollow
 
 /vod.html
   ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; media-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787 blob:; connect-src https://clips.revu.lol http://localhost:8787 http://127.0.0.1:8787; worker-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Robots-Tag: noindex, nofollow
+
+# Self-hosted third-party scripts (site/vendor/<name>-<version>/). The version is in the
+# path, so a file there never changes: browsers may keep it for a year. Nothing else here
+# sets Cache-Control, so this rule needs no detach.
+/vendor/*
+  Cache-Control: public, max-age=31536000, immutable

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
@@ -138,11 +138,14 @@ test('The shared game page is unlisted, unframeable and reads media only from cl
     assert.ok(lines, `missing block ${path}`);
     assert.deepEqual(lines, first, `${path} matches /v/*`);
     assert.equal(lines[0], '! Content-Security-Policy', `${path} detaches first`);
+    assert.equal(lines.filter(line => line.startsWith('Content-Security-Policy:')).length, 1, `${path} sets exactly one CSP`);
     assert.ok(lines.includes('X-Robots-Tag: noindex, nofollow'), `${path} noindex`);
     const policy = csp(path);
     assert.deepEqual(policy['default-src'], ["'self'"]);
-    assert.deepEqual(policy['script-src'], ["'self'"], `${path} script-src`);
-    assert.deepEqual(policy['media-src'], ['https://clips.revu.lol', 'http://localhost:8787', 'http://127.0.0.1:8787']);
+    assert.deepEqual(policy['script-src'], ["'self'"], `${path} script-src: hls.js loads from /vendor/ with SRI`);
+    assert.deepEqual(policy['media-src'], ['https://clips.revu.lol', 'http://localhost:8787', 'http://127.0.0.1:8787', 'blob:'],
+      `${path}: MediaSource playback (hls.js) needs blob:, nothing else`);
+    assert.deepEqual(policy['worker-src'], ["'none'"], `${path}: hls.js runs with enableWorker false`);
     assert.deepEqual(policy['connect-src'], ['https://clips.revu.lol', 'http://localhost:8787', 'http://127.0.0.1:8787']);
     assert.deepEqual(policy['frame-ancestors'], ["'none'"]);
     assert.deepEqual(policy['object-src'], ["'none'"]);
@@ -153,4 +156,15 @@ test('The shared game page is unlisted, unframeable and reads media only from cl
   // The only rewrite: /v/<id> serves the game page. (/learn's 301s are checked in landing.test.mjs.)
   assert.deepEqual(rules.filter(rule => rule[2] === '200'), [['/v/:id', '/vod', '200']]);
   assert.doesNotMatch(read('sitemap.xml'), /\/v\/|vod/);
+});
+
+test('Self-hosted scripts under /vendor/ are cached for good, because their path names the version', () => {
+  assert.deepEqual(blocks.get('/vendor/*'), ['Cache-Control: public, max-age=31536000, immutable']);
+  // Pages comma-joins a header set by several matching rules: nothing else may set Cache-Control.
+  const cacheRules = [...blocks].filter(([, lines]) => lines.some(line => /^!?\s*Cache-Control/i.test(line))).map(([path]) => path);
+  assert.deepEqual(cacheRules, ['/vendor/*']);
+  const vendor = new URL('../vendor/', import.meta.url);
+  if (existsSync(vendor)) {
+    for (const dir of readdirSync(vendor)) assert.match(dir, /^[a-z0-9.-]+-\d+\.\d+\.\d+$/, `vendor/${dir} names its version`);
+  }
 });

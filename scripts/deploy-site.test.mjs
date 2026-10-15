@@ -40,6 +40,16 @@ test('only public site files are classified for publishing', () => {
     '.well-known']) assert.equal(classifySiteFile(name), 'unknown', name);
 });
 
+test('self-hosted vendor code ships only from a versioned folder, as scripts and licence texts', () => {
+  for (const name of ['vendor/hls-1.7.3/hls.light.min.js', 'vendor/hls-1.7.3/LICENSE.txt', 'vendor/hls-1.7.3/LICENSE-Apache-2.0.txt'])
+    assert.equal(classifySiteFile(name), 'publish', name);
+  // _headers caches /vendor/* as immutable for a year: an unversioned path could never change.
+  for (const name of ['vendor/hls-1.7.3/LICENSE', 'vendor/hls-1.7.3/hls.light.min.js.map', 'vendor/hls.light.min.js',
+    'vendor/hls-latest/hls.light.min.js', 'vendor/hls-1.7.3/hls.css', 'vendor/hls-1.7.3/nested/hls.js', 'vendor/hls-1.7/hls.js'])
+    assert.equal(classifySiteFile(name), 'unknown', name);
+  assert.equal(classifySiteFile('vendor/hls-1.7.3/.DS_Store'), 'skip');
+});
+
 test('staging copies public files only and refuses unrecognized files', async t => {
   const root = await scratch(t), source = path.join(root, 'site'), destination = path.join(root, 'stage');
   for (const name of ['index.html', '_headers', 'discord/index.html', 'styles.css', 'README.md', 'wrangler.toml',
@@ -54,6 +64,22 @@ test('staging copies public files only and refuses unrecognized files', async t 
   await rm(path.join(source, 'notes.md'));
   await rm(path.join(source, '_headers'));
   await assert.rejects(stageSite(source, destination), /site\/_headers is missing/);
+});
+
+test('staging publishes vendored hls.js and its LICENSE.txt, and refuses a bare LICENSE or a source map', async t => {
+  const root = await scratch(t), source = path.join(root, 'site'), destination = path.join(root, 'stage');
+  for (const name of ['index.html', '_headers', 'vod.html', 'vod-player.js', 'vendor/hls-1.7.3/hls.light.min.js',
+    'vendor/hls-1.7.3/LICENSE.txt', 'vendor/hls-1.7.3/.DS_Store']) await file(source, name);
+  const published = await stageSite(source, destination);
+  assert.deepEqual(published, ['_headers', 'index.html', 'vendor/hls-1.7.3/LICENSE.txt', 'vendor/hls-1.7.3/hls.light.min.js',
+    'vod-player.js', 'vod.html']);
+  assert.deepEqual(await tree(destination), published);
+  assert.equal(await readFile(path.join(destination, 'vendor/hls-1.7.3/hls.light.min.js'), 'utf8'), 'fixture');
+  await file(source, 'vendor/hls-1.7.3/LICENSE');
+  await assert.rejects(stageSite(source, destination), /: vendor\/hls-1\.7\.3\/LICENSE A licence file needs its extension: LICENSE\.txt\.$/);
+  await rm(path.join(source, 'vendor/hls-1.7.3/LICENSE'));
+  await file(source, 'vendor/hls-1.7.3/hls.light.min.js.map');
+  await assert.rejects(stageSite(source, destination), /Unrecognized files in site\/.*: vendor\/hls-1\.7\.3\/hls\.light\.min\.js\.map$/);
 });
 
 const isLocal = value => value && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#|\$\{)/i.test(value);
