@@ -11,7 +11,8 @@ export const html = read('vod.html');
 // ink and controls (the canvas and the reviewer transport) are checked for their rules here but not
 // run: this DOM has no canvas or SVG, and the page works without them.
 export const sources = { lib: read('vod-lib.js'), ink: read('vod-ink.js'), controls: read('vod-controls.js'),
-  player: read('vod-player.js'), live: read('vod-live.js'), page: read('vod.js') };
+  player: read('vod-player.js'), live: read('vod-live.js'), notes: read('review-notes.js'), notesUi: read('review-notes-ui.js'),
+  side: read('vod-side.js'), page: read('vod.js') };
 // The tests swap the real pin (empty until hls.js is vendored) for this one; the fake loader checks it.
 export const TEST_INTEGRITY = `sha384-${'A'.repeat(64)}`;
 const PIN = /var HLS_INTEGRITY = '[^']*';/;
@@ -62,7 +63,7 @@ function makeElement(win, tag, attributes = '') {
   for (const m of attributes.matchAll(/\s(id|type|role|aria-[\w-]+)="([^"]*)"/g)) attrs.set(m[1], m[2]);
   const el = {
     tagName: tag.toUpperCase(), hidden: /\shidden\b/.test(` ${attributes}`), textContent: '', title: '', style: {},
-    type: attrs.get('type') || '', checked: false, children: [], parentNode: null,
+    type: attrs.get('type') || '', checked: false, value: '', children: [], parentNode: null,
     get className() { return [...classes].join(' '); },
     set className(value) { classes.clear(); String(value).split(/\s+/).filter(Boolean).forEach(c => classes.add(c)); },
     classList: { toggle: (c, on) => { if (on) classes.add(c); else classes.delete(c); }, contains: c => classes.has(c),
@@ -88,6 +89,8 @@ function makeElement(win, tag, attributes = '') {
       try { el.dispatch('click'); if (el.type === 'checkbox') el.dispatch('change'); } finally { win.gesture = false; }
     },
     focus() { win.focused = el; },
+    blur() { if (win.focused === el) win.focused = null; },
+    select() {},
   };
   if (tag === 'video') makeVideo(win, el, attributes);
   return el;
@@ -168,7 +171,7 @@ function response(status, body) {
  * globals: names defined before the scripts run (a test's stand-ins for vod-ink.js and
  * vod-controls.js).
  */
-export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLoads = true, pathname = '/v/Abc1234', globals = {} } = {}) {
+export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLoads = true, pathname = '/v/Abc1234', hash = '', globals = {} } = {}) {
   let now = NOW;
   let mints = 0;
   const win = { caps: BROWSERS[browser], activated: false, gesture: false, focused: null };
@@ -197,7 +200,9 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
   const schedule = (fn, ms, every) => { timers.push({ fn, at: now + ms, every, live: true }); return timers.length; };
   const cancel = handle => { if (timers[handle - 1]) timers[handle - 1].live = false; };
   const context = {
-    document, URLSearchParams, location: { pathname, search: '', hostname: 'revu.lol' }, navigator: { onLine: true },
+    document, URLSearchParams, location: { pathname, search: '', hostname: 'revu.lol', href: `https://revu.lol${pathname}${hash}` },
+    navigator: { onLine: true }, TextEncoder, TextDecoder, btoa, atob,
+    history: { state: null, replaceState(state, title, url) { context.location.href = url; context.history.replaced.push(url); }, replaced: [] },
     MediaSource: source(win.caps.mse), ManagedMediaSource: source(win.caps.mms),
     Date: class extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } },
     setTimeout: (fn, ms) => schedule(fn, ms, 0), clearTimeout: cancel,
@@ -222,7 +227,7 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
   vm.createContext(context);
   assert.equal(sources.player.match(new RegExp(PIN.source, 'g'))?.length, 1, 'vod-player.js has one HLS_INTEGRITY pin');
   const player = sources.player.replace(PIN, `var HLS_INTEGRITY = '${pinned ? TEST_INTEGRITY : ''}';`);
-  for (const code of [sources.lib, player, sources.live, sources.page]) vm.runInContext(code, context);
+  for (const code of [sources.lib, sources.notes, sources.notesUi, player, sources.live, sources.side, sources.page]) vm.runInContext(code, context);
   const $ = id => document.byId.get(id);
 
   // Moves the fake clock on, running every timer that comes due, in order.
@@ -256,6 +261,13 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
     mints: () => count('POST', '/vod-play/'),
     pendingPolls: () => timers.filter(t => t.live && !t.every).map(t => t.at - now),
     online(on) { context.navigator.onLine = on; if (on) for (const fn of winListeners.get('online') || []) fn({ type: 'online' }); },
+    // A key press on the page (the body, unless `target` says otherwise), as the document's listeners see it.
+    press(key, init = {}) {
+      const event = { type: 'keydown', key, target: { tagName: 'BODY' }, repeat: false, shiftKey: false, ctrlKey: false, metaKey: false,
+        altKey: false, isComposing: false, defaultPrevented: false, ...init, preventDefault() { this.defaultPrevented = true; } };
+      for (const fn of docListeners.get('keydown') || []) fn(event);
+      return event;
+    },
     // The window changes size and the lane is now `width` px wide.
     resize(width) { $('vod-lane-track').clientWidth = width; for (const fn of winListeners.get('resize') || []) fn({ type: 'resize' }); },
     state: () => ['state-loading', 'state-missing', 'state-uploading', 'state-game'].find(id => !$(id).hidden),

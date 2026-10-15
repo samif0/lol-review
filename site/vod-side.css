@@ -1,0 +1,161 @@
+/*
+ * The shared game page's side column (vod-side.js): Notes or Events, one at a time, behind a
+ * two-way switch. Notes are review-notes.css; Events are the time, the event's color and its
+ * name, under a filter (All, Deaths, Kills, Objectives). From 1200px the column sits beside
+ * the player and stays in view, its switch and the filter fixed while the list scrolls.
+ */
+
+.vod-notes {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.vod-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin-bottom: 12px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+
+.vod-tabs[hidden] {
+  display: none;
+}
+
+.vod-tab,
+.vod-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t3);
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.vod-tab:hover,
+.vod-filter-btn:hover {
+  color: var(--t1);
+}
+
+.vod-tab[aria-pressed="true"],
+.vod-filter-btn[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--t1);
+}
+
+.vod-tab-count,
+.vod-filter-count {
+  color: var(--t3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.vod-tab-count:empty,
+.vod-filter-count:empty {
+  display: none;
+}
+
+.vod-notes-title {
+  margin: 0 0 6px;
+  padding: 0 8px;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vod-side-block + .vod-side-block,
+.vod-review + .vod-side-block {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Events: a filter (All, Deaths, Kills, Objectives), then the time, the event's color and its
+   name, as in the app's reviewer. */
+
+.vod-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.vod-filter[hidden] {
+  display: none;
+}
+
+.vod-filter-btn {
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 7px;
+  border-radius: var(--btn-radius);
+  font-size: 12px;
+}
+
+.vod-events-list .vod-note {
+  grid-template-columns: 40px 8px minmax(0, 1fr);
+  align-items: center;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.vod-events-list .vod-note-kind {
+  color: var(--t2);
+  font-size: 13px;
+}
+
+.vod-event-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--evc, var(--t3));
+}
+
+@media (max-width: 639.98px) {
+  .vod-tab {
+    min-height: 44px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .vod-notes {
+    position: sticky;
+    top: calc(var(--header-h) + 16px);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - var(--header-h) - 32px);
+  }
+
+  .vod-notes > .vod-tabs {
+    flex: none;
+  }
+
+  .vod-panel {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .vod-panel[hidden] {
+    display: none;
+  }
+
+  .vod-filter {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    background: var(--surface);
+  }
+}

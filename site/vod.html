@@ -24,13 +24,19 @@
   <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/vod.css" />
+  <link rel="stylesheet" href="/vod-side.css" />
+  <link rel="stylesheet" href="/review-notes.css" />
   <link rel="stylesheet" href="/vod-reviewer.css" />
+  <link rel="stylesheet" href="/vod-ink.css" />
 
   <script src="/vod-lib.js" defer></script>
+  <script src="/review-notes.js" defer></script>
+  <script src="/review-notes-ui.js" defer></script>
   <script src="/vod-ink.js" defer></script>
   <script src="/vod-controls.js" defer></script>
   <script src="/vod-player.js" defer></script>
   <script src="/vod-live.js" defer></script>
+  <script src="/vod-side.js" defer></script>
   <script src="/vod.js" defer></script>
 </head>
 <body class="vod-watch">
@@ -75,8 +81,6 @@
 
     <section id="state-game" class="vod-layout" hidden>
       <div class="vod-primary">
-        <p id="vod-expiry" class="vod-banner" role="status" hidden></p>
-
         <!-- The deck goes full screen as one, like the app's VOD reviewer: the picture with its
              ink (vod-ink.js), the transport (vod-controls.js) and the timeline. preload="none":
              nothing is fetched, and no play counts, until the viewer presses play. -->
@@ -93,6 +97,7 @@
           <div id="vod-lane" class="vod-lane" hidden>
             <div id="vod-lane-track" class="vod-lane-track" role="group" aria-label="Moments in this game">
               <span id="vod-lane-uploaded" class="vod-lane-uploaded" aria-hidden="true" hidden></span>
+              <span id="vod-lane-range" class="vod-lane-range" aria-hidden="true" hidden></span>
               <span id="vod-lane-fill" class="vod-lane-fill" aria-hidden="true"></span>
               <span id="vod-lane-playhead" class="vod-lane-playhead" aria-hidden="true"></span>
               <span id="vod-lane-tip" class="vod-lane-tip" aria-hidden="true" hidden></span>
@@ -112,26 +117,66 @@
           <div class="vod-head-text">
             <h1 id="vod-title" class="vod-title">Shared game</h1>
             <p id="vod-meta" class="vod-meta" hidden></p>
+            <p id="vod-expiry" class="vod-expiry" role="status" hidden></p>
           </div>
           <span id="vod-quality" class="vod-pill" hidden></span>
         </div>
-
-        <div class="vod-foot">
-          <p>Only people with the link can see this page.</p>
-          <p>To report this video, contact us on <a href="/discord">Discord</a>. <span class="vod-foot-id">Video ID <span id="vod-id"></span></span></p>
-        </div>
       </div>
 
-      <aside id="vod-notes" class="vod-notes" aria-label="Moments" hidden>
-        <section id="vod-events" class="vod-side-block" aria-labelledby="vod-events-title" hidden>
-          <h2 id="vod-events-title" class="vod-notes-title">Events to watch</h2>
-          <ol id="vod-events-list" class="vod-notes-list vod-events-list"></ol>
-        </section>
-        <section id="vod-notes-block" class="vod-side-block" aria-labelledby="vod-notes-title" hidden>
-          <h2 id="vod-notes-title" class="vod-notes-title">Player notes</h2>
-          <ol id="vod-notes-list" class="vod-notes-list"></ol>
-        </section>
+      <!-- The side column: notes (the viewer's own bookmarks and clips, made with B, I and O as in
+           the app, then the sharer's) and the game's events, one at a time. Review notes stay in
+           this browser (review-notes.js) until Copy link with notes puts them in a link. -->
+      <aside id="vod-notes" class="vod-notes" aria-label="Notes and events" hidden>
+        <div id="vod-side-tabs" class="vod-tabs" role="group" aria-label="Show" hidden>
+          <button id="vod-tab-notes" class="vod-tab" type="button" aria-pressed="true" aria-controls="vod-panel-notes">Notes<span id="vod-notes-count" class="vod-tab-count"></span></button>
+          <button id="vod-tab-events" class="vod-tab" type="button" aria-pressed="false" aria-controls="vod-panel-events">Events<span id="vod-events-count" class="vod-tab-count"></span></button>
+        </div>
+
+        <div id="vod-panel-notes" class="vod-panel">
+          <div id="vod-review" class="vod-review" hidden>
+            <div class="vod-add" role="group" aria-label="Add a note">
+              <button id="vod-add-bookmark" class="vod-add-btn" type="button" title="Bookmark this moment (B)">Bookmark <kbd aria-hidden="true">B</kbd></button>
+              <button id="vod-add-clip" class="vod-add-btn" type="button" aria-pressed="false" title="Start a clip here (I), then end it with O"><span id="vod-add-clip-label">Clip</span> <kbd id="vod-add-clip-key" aria-hidden="true">I</kbd></button>
+            </div>
+            <form id="vod-composer" class="vod-composer" hidden>
+              <p id="vod-composer-when" class="vod-composer-when" role="status"></p>
+              <label for="vod-composer-text" class="visually-hidden">Note</label>
+              <textarea id="vod-composer-text" class="vod-composer-text" rows="2" maxlength="500" placeholder="What should they see here?" autocomplete="off"></textarea>
+              <p id="vod-composer-hint" class="vod-composer-hint" role="status" hidden></p>
+              <div class="vod-composer-actions">
+                <button id="vod-composer-save" class="vod-save" type="submit">Save</button>
+                <button id="vod-composer-cancel" class="vod-cancel" type="button">Cancel</button>
+                <span class="vod-composer-keys">Enter saves, Esc cancels</span>
+              </div>
+            </form>
+            <p id="vod-notes-status" class="vod-notes-status" role="status" aria-live="polite"></p>
+            <p id="vod-mine-empty" class="vod-side-empty">Bookmark a moment or clip part of the game. Your notes stay in this browser until you copy the link.</p>
+            <ol id="vod-mine-list" class="vod-notes-list vod-mine-list"></ol>
+            <div id="vod-share" class="vod-share" hidden>
+              <button id="vod-copy-notes" class="vod-copy" type="button">Copy link with notes</button>
+              <p id="vod-copy-status" class="vod-copy-status" role="status" aria-live="polite"></p>
+              <input id="vod-copy-link" class="vod-copy-link" type="text" readonly spellcheck="false" aria-label="Link with notes" hidden />
+            </div>
+          </div>
+          <section id="vod-notes-block" class="vod-side-block" aria-labelledby="vod-notes-title" hidden>
+            <h2 id="vod-notes-title" class="vod-notes-title">Player notes</h2>
+            <ol id="vod-notes-list" class="vod-notes-list"></ol>
+          </section>
+        </div>
+
+        <div id="vod-panel-events" class="vod-panel" hidden>
+          <section id="vod-events" class="vod-side-block" aria-label="Events" hidden>
+            <div id="vod-event-filter" class="vod-filter" role="group" aria-label="Show events"></div>
+            <ol id="vod-events-list" class="vod-notes-list vod-events-list"></ol>
+          </section>
+        </div>
       </aside>
+
+      <!-- Under the player on wide windows; on phones after the notes, at the end of the page. -->
+      <div class="vod-foot">
+        <p>Only people with the link can see this page.</p>
+        <p>To report this video, contact us on <a href="/discord">Discord</a>. <span class="vod-foot-id">Video ID <span id="vod-id"></span></span></p>
+      </div>
     </section>
   </main>
 

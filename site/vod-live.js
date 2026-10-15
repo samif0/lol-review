@@ -121,7 +121,7 @@
 
     function renderLine() {
       var status = lineStatus();
-      lineEl.hidden = !status;
+      lineEl.hidden = !status || status.kind === 'ended'; // the end of the upload is only announced
       if (!status) return;
       if (lineBefore.textContent !== status.before) lineBefore.textContent = status.before;
       lineAction.hidden = !status.action;

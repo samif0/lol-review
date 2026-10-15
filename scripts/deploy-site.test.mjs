@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { classifySiteFile, pinnedWranglerVersion, siteRoot, stageRoot, stageSite } from './deploy-site.mjs';
+import { createHash } from 'node:crypto';
+import { classifySiteFile, contentVersion, fingerprintHtml, pinnedWranglerVersion, siteRoot, stageRoot, stageSite } from './deploy-site.mjs';
 
 async function scratch(t) {
   const base = path.resolve(os.tmpdir());
@@ -150,4 +151,46 @@ test('wrangler.toml points Pages at the stage and the deploy pins the proxy wran
   const output = /^pages_build_output_dir\s*=\s*"([^"]+)"/m.exec(config)?.[1];
   assert.equal(path.resolve(siteRoot, output), stageRoot);
   assert.match(await pinnedWranglerVersion(), /^\d+\.\d+\.\d+$/);
+});
+
+test('staged pages name the exact stylesheets and scripts they were staged with, and nothing else changes', async t => {
+  const versions = new Map([['/vod.css', 'aaaaaaaaaaaa'], ['/vod.js', 'bbbbbbbbbbbb']]);
+  const page = ['<link rel="stylesheet" href="/vod.css" />', '<link rel="icon" href="/revu.svg" />',
+    '<link rel="preload" href="/fonts/geist.woff2" as="font" />', '<script src="/vod.js" defer></script>',
+    '<script src="/other.js" defer></script>', '<script>var tag = \'<script src="/vod.js">\';</script>',
+    '<a href="/vod.css">text</a>', '<script src="https://challenges.cloudflare.com/api.js"></script>'].join('\n');
+  assert.deepEqual(fingerprintHtml(page, versions).split('\n'), ['<link rel="stylesheet" href="/vod.css?v=aaaaaaaaaaaa" />',
+    '<link rel="icon" href="/revu.svg" />', '<link rel="preload" href="/fonts/geist.woff2" as="font" />',
+    '<script src="/vod.js?v=bbbbbbbbbbbb" defer></script>', '<script src="/other.js" defer></script>',
+    '<script>var tag = \'<script src="/vod.js">\';</script>', '<a href="/vod.css">text</a>',
+    '<script src="https://challenges.cloudflare.com/api.js"></script>']);
+  assert.equal(contentVersion('body{}'), createHash('sha256').update('body{}').digest('hex').slice(0, 12));
+
+  const root = await scratch(t), source = path.join(root, 'site'), destination = path.join(root, 'stage');
+  await file(source, '_headers');
+  await file(source, 'site.css', 'body{color:var(--t1)}');
+  await file(source, 'app.js', 'console.log(1)');
+  const index = '<link rel="stylesheet" href="/site.css" />\n<script src="/app.js" defer></script>\n';
+  await file(source, 'index.html', index);
+  await stageSite(source, destination);
+  assert.equal(await readFile(path.join(destination, 'index.html'), 'utf8'),
+    `<link rel="stylesheet" href="/site.css?v=${contentVersion('body{color:var(--t1)}')}" />\n<script src="/app.js?v=${contentVersion('console.log(1)')}" defer></script>\n`);
+  assert.equal(await readFile(path.join(source, 'index.html'), 'utf8'), index, 'the source page is left as it was');
+});
+
+test('the staged production pages version every local stylesheet and script, and clip.html keeps its pinned inline script', async t => {
+  const root = await scratch(t), destination = path.join(root, 'stage');
+  const published = await stageSite(siteRoot, destination);
+  for (const page of published.filter(name => name.endsWith('.html'))) {
+    const html = await readFile(path.join(destination, page), 'utf8');
+    for (const tag of html.match(/<(?:link|script)\b[^>]*>/g) || []) {
+      const local = /\s(?:href|src)="(\/[^"?]+\.(?:css|js))(\?v=([0-9a-f]+))?"/.exec(tag);
+      if (!local) continue;
+      assert.ok(local[3], `${page}: ${local[1]} has no version`);
+      assert.equal(local[3], contentVersion(await readFile(path.join(destination, local[1].slice(1)))), `${page}: ${local[1]}`);
+    }
+  }
+  const staged = (await readFile(path.join(destination, 'clip.html'), 'utf8')).match(/<script>([\s\S]*?)<\/script>/)[1];
+  const source = (await readFile(path.join(siteRoot, 'clip.html'), 'utf8')).match(/<script>([\s\S]*?)<\/script>/)[1];
+  assert.equal(staged, source, 'the hashed inline script is byte for byte the same');
 });

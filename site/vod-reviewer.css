@@ -1,6 +1,6 @@
 /* The shared game page's player chrome, shaped like the app's VOD reviewer: the transport
- (vod-controls.js), the ink (vod-ink.js) and the timeline that is also the seek bar. The
- picture, the deck and the overlays stay in vod.css. */
+ (vod-controls.js) and the timeline that is also the seek bar. The picture, the deck and the
+ overlays stay in vod.css; the pen (vod-ink.js) is vod-ink.css, shared with the clip page. */
 
 /* Transport: the app's bar (desktop/ui/vodtransport.js), quiet buttons with key hints. */
 
@@ -95,124 +95,6 @@
   font: 500 13px/1 var(--f-body);
 }
 
-/* Ink (vod-ink.js): the canvas covers the picture and takes the pointer only while drawing;
-   the palette floats at the top of the picture. */
-
-.vod-ink {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  touch-action: none;
-}
-
-.vod-ink.is-active {
-  pointer-events: auto;
-  cursor: crosshair;
-}
-
-.vod-ink.is-erasing {
-  cursor: cell;
-}
-
-.vod-ink-bar {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 4px 10px;
-  max-width: calc(100% - 20px);
-  padding: 4px 6px;
-  border: var(--raised-border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  transform: translateX(-50%);
-}
-
-.vod-ink-bar[hidden] {
-  display: none;
-}
-
-.vod-ink-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.vod-ink-btn,
-.vod-ink-size {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--t2);
-  cursor: pointer;
-}
-
-.vod-ink-btn:hover,
-.vod-ink-size:hover {
-  background: var(--hover);
-  color: var(--t1);
-}
-
-.vod-ink-btn[aria-pressed="true"],
-.vod-ink-size[aria-pressed="true"] {
-  background: var(--selected);
-  color: var(--t1);
-}
-
-.vod-ink-btn:disabled {
-  opacity: .4;
-  cursor: default;
-}
-
-.vod-ink-btn:focus-visible,
-.vod-ink-size:focus-visible,
-.vod-ink-swatch:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.vod-ink-swatch {
-  width: 20px;
-  height: 20px;
-  margin: 0 3px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.vod-ink-swatch[aria-pressed="true"] {
-  outline: 2px solid var(--t1);
-  outline-offset: 2px;
-}
-
-.vod-ink-swatch.is-red { background: var(--ink-red); }
-.vod-ink-swatch.is-yellow { background: var(--ink-yellow); }
-.vod-ink-swatch.is-green { background: var(--ink-green); }
-.vod-ink-swatch.is-blue { background: var(--ink-blue); }
-.vod-ink-swatch.is-white { background: var(--ink-white); }
-
-.vod-ink-size span {
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.vod-ink-size.is-0 span { width: 4px; height: 4px; }
-.vod-ink-size.is-1 span { width: 7px; height: 7px; }
-.vod-ink-size.is-2 span { width: 11px; height: 11px; }
-
 /* Timeline: the app reviewer's (desktop/ui/vod-review.css), and the seek bar: press or drag
    anywhere on it. A 2px track at 72%, the played part in t3, a white playhead with a dot,
    one stem per moment in its kind's color (taller for objectives, a short code over the ones
@@ -237,7 +119,7 @@
   right: 0;
   left: 0;
   height: 2px;
-  background: var(--track);
+  background: var(--track, var(--line-strong));
   pointer-events: none;
 }
 
@@ -258,7 +140,7 @@
   left: 0;
   width: 2px;
   margin-left: -1px;
-  background: var(--playhead);
+  background: var(--playhead, var(--t1));
   pointer-events: none;
 }
 
@@ -270,7 +152,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--playhead);
+  background: var(--playhead, var(--t1));
 }
 
 .vod-lane-tip {
@@ -303,20 +185,22 @@
   transform: translateX(-50%);
 }
 
+/* Each kind's color. The second value is a token older than the timeline's own, so a page
+   that meets a cached tokens.css from before them still draws every stem in color. */
 .vod-mark,
 .vod-event-dot {
-  --evc: var(--ev-structure);
+  --evc: var(--ev-structure, var(--t3));
 }
 
-.vod-mark.is-kill, .vod-event-dot.is-kill { --evc: var(--ev-kill); }
-.vod-mark.is-assist, .vod-event-dot.is-assist { --evc: var(--ev-assist); }
-.vod-mark.is-death, .vod-event-dot.is-death { --evc: var(--ev-death); }
-.vod-mark.is-dragon, .vod-event-dot.is-dragon { --evc: var(--ev-dragon); }
-.vod-mark.is-void, .vod-event-dot.is-void { --evc: var(--ev-void); }
-.vod-mark.is-recall, .vod-event-dot.is-recall { --evc: var(--ev-recall); }
-.vod-mark.is-summoner, .vod-event-dot.is-summoner { --evc: var(--ev-summoner); }
-.vod-mark.is-clip { --evc: var(--mk-clip); }
-.vod-mark.is-note { --evc: var(--mk-note); }
+.vod-mark.is-kill, .vod-event-dot.is-kill { --evc: var(--ev-kill, var(--t1)); }
+.vod-mark.is-assist, .vod-event-dot.is-assist { --evc: var(--ev-assist, var(--win)); }
+.vod-mark.is-death, .vod-event-dot.is-death { --evc: var(--ev-death, var(--loss)); }
+.vod-mark.is-dragon, .vod-event-dot.is-dragon { --evc: var(--ev-dragon, var(--pending)); }
+.vod-mark.is-void, .vod-event-dot.is-void { --evc: var(--ev-void, var(--focus)); }
+.vod-mark.is-recall, .vod-event-dot.is-recall { --evc: var(--ev-recall, var(--t3)); }
+.vod-mark.is-summoner, .vod-event-dot.is-summoner { --evc: var(--ev-summoner, var(--focus)); }
+.vod-mark.is-clip, .vod-event-dot.is-clip { --evc: var(--mk-clip, var(--pending)); }
+.vod-mark.is-note, .vod-event-dot.is-note { --evc: var(--mk-note, var(--t2)); }
 
 /* A stem stands on the track; its button also covers the code above it. */
 .vod-mark {
@@ -341,7 +225,7 @@
   width: 2px;
   height: var(--evh);
   border-radius: 1px;
-  background: var(--evc);
+  background: var(--evc, var(--t3));
 }
 
 .vod-mark::after {
@@ -349,7 +233,7 @@
   position: absolute;
   bottom: calc(var(--evh) + 4px);
   left: 50%;
-  color: color-mix(in srgb, var(--evc) 72%, var(--t1));
+  color: color-mix(in srgb, var(--evc, var(--t3)) 72%, var(--t1));
   font: 600 11px/1 var(--f-body);
   white-space: nowrap;
   transform: translateX(-50%);
@@ -381,7 +265,7 @@
 }
 
 .vod-mark:hover::before {
-  outline: 1px solid var(--evc);
+  outline: 1px solid var(--evc, var(--t3));
   outline-offset: 3px;
 }
 
@@ -461,12 +345,18 @@
   .vp-rate-sel {
     font-size: 16px;
   }
+}
 
-  .vod-ink-bar {
-    top: 6px;
-    flex-wrap: nowrap;
-    justify-content: flex-start;
-    max-width: calc(100% - 12px);
-    overflow-x: auto;
-  }
+/* The clip being made (I, then O): a band on the track from its start to the playhead, then
+   to its end. */
+
+.vod-lane-range {
+  position: absolute;
+  top: calc(72% - 4px);
+  left: 0;
+  width: 0;
+  height: 10px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--mk-clip, var(--pending)) 38%, transparent);
+  pointer-events: none;
 }

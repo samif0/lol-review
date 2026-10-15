@@ -258,8 +258,8 @@ test('when the upload ends mid-play the page becomes a normal game page; an earl
   run.hls().level(1000, false);
   await run.advance(0);
   assert.equal(run.metaPolls(), polls + 1, 'one /vod-meta to learn how it ended');
-  assert.equal(run.lineText(), 'The whole game is here.');
-  assert.equal(run.$('vod-live-say').textContent, 'The whole game is here.');
+  assert.equal(run.lineText(), null, 'a game that uploaded to the end needs no line under it');
+  assert.equal(run.$('vod-live-say').textContent, 'The whole game has uploaded.', 'screen readers hear it once');
   assert.equal(run.$('vod-lane-uploaded').hidden, true);
   assert.ok(run.marks().every(mark => mark.getAttribute('aria-pressed') === null && !mark.className.includes('is-pending')));
   await run.advance(10 * 60000);
@@ -308,7 +308,14 @@ test('the page has a Play button over the player, a quiet live line with a polit
   const scripts = Object.values(sources).join('\n');
   assert.doesNotMatch(html + scripts, DASHES, 'no dashes in copy or comments');
   assert.doesNotMatch(scripts, /innerHTML|insertAdjacentHTML|outerHTML|document\.write|\beval\(|new Function/);
-  assert.doesNotMatch(scripts, /localStorage|sessionStorage|document\.cookie/);
+  // Only review notes keep anything in the browser: the viewer's own notes, under revu.notes.*,
+  // read and written through review-notes.js. Nothing names or follows the viewer.
+  for (const [name, source] of Object.entries(sources)) {
+    assert.doesNotMatch(source, /sessionStorage|document\.cookie|indexedDB/, name);
+    if (name !== 'notes') assert.doesNotMatch(source, /localStorage/, `${name} leaves storage to review-notes.js`);
+  }
+  assert.deepEqual([...sources.notes.matchAll(/localStorage/g)].length, 1, 'one place reads the storage');
+  assert.match(sources.notes, /var PREFIX = 'revu\.notes\.';/);
   for (const [name, source] of Object.entries(sources)) {
     assert.ok(source.split('\n').length <= 500, `${name} stays under 500 lines`);
   }

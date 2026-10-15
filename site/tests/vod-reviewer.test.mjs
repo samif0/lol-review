@@ -206,7 +206,11 @@ test('timeline stems take the app\'s colors, codes and heights by kind; a code t
   for (const tone of new Set([...styles.map(s => s.tone), 'clip', 'note'])) {
     if (tone !== 'structure') assert.match(css, new RegExp(`\\.vod-mark\\.is-${tone}\\b[^{]*\\{ --evc: var\\(--`), tone);
   }
-  assert.match(css, /\.vod-mark,\s*\.vod-event-dot \{\s*--evc: var\(--ev-structure\);/, 'structure is the default color');
+  assert.match(css, /\.vod-mark,\s*\.vod-event-dot \{\s*--evc: var\(--ev-structure, var\(--t3\)\);/, 'structure is the default color');
+  // Every kind's color falls back to a token tokens.css had before the timeline's own, so a page
+  // that meets a cached tokens.css still draws its stems in color.
+  for (const rule of css.matchAll(/--evc: (var\([^;]*\));/g)) assert.match(rule[1], /^var\(--(?:ev|mk)-[a-z]+, var\(--(?:t1|t2|t3|win|loss|pending|focus)\)\)$/, rule[1]);
+  assert.match(css, /\.vod-mark::before \{[^}]*background: var\(--evc, var\(--t3\)\);/, 'a stem never goes transparent');
   for (const tier of new Set([...styles.map(s => s.tier), 'note'])) assert.match(css, new RegExp(`\\.vod-mark\\.tier-${tier} \\{`), tier);
   assert.match(css, /\.vod-mark\.is-unlabeled:hover::after/, 'a code with no room shows on hover');
 });
@@ -237,7 +241,7 @@ test('the transport is the app\'s: step back, play, step forward, the time with 
   assert.deepEqual(bar.map(el => el.getAttribute('aria-label')),
     ['Back one step', 'Play', 'Forward one step', null, null, 'Playback speed', 'Mute', 'Draw on the video', 'Full screen']);
   assert.deepEqual(bar.map(el => el.children.find(c => c.tagName === 'KBD')?.textContent ?? null),
-    ['←', null, '→', null, null, null, null, 'D', null], 'key hints, as in the app');
+    ['←', null, '→', null, null, null, null, 'D', 'F'], 'key hints, as in the app');
   assert.ok(bar.filter(el => el.className.startsWith('tbtn')).every(b => b.children[0].tagName === 'SVG'), 'each button leads with its icon');
   assert.equal(bar[7].hidden, true, 'no pen without the ink');
   assert.deepEqual(bar[5].children.map(o => o.textContent), ['0.25', '0.5', '1', '1.5', '2', '3'].map(v => `${v}×`));

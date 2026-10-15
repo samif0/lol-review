@@ -293,6 +293,28 @@
     return kind === 'clip' ? 'Clip' : 'Bookmark';
   }
 
+  // The events list's filters: an objective is a tall stem, a kill or an assist a kill-height
+  // stem in its own color; everything else (summoner spells, recalls) shows under All only.
+  var EVENT_GROUPS = [{ id: 'all', label: 'All' }, { id: 'death', label: 'Deaths' }, { id: 'kill', label: 'Kills' },
+    { id: 'objective', label: 'Objectives' }];
+
+  function eventGroup(style) {
+    if (style.tier === 'major') return 'objective';
+    if (style.tier === 'kill') return style.tone === 'death' ? 'death' : 'kill';
+    return 'other';
+  }
+
+  // { all, death, kill, objective } counts of lane items that are events (not notes).
+  function groupCounts(items) {
+    var counts = { all: 0, death: 0, kill: 0, objective: 0 };
+    (items || []).forEach(function (item) {
+      if (item.note) return;
+      counts.all += 1;
+      if (Object.prototype.hasOwnProperty.call(counts, item.group)) counts[item.group] += 1;
+    });
+    return counts;
+  }
+
   // { tone, code, tier } of a marker kind, as the app's timeline draws it.
   function eventStyle(kind, tone) {
     var known = EVENT_STYLES[String(kind || '').toUpperCase()];
@@ -338,6 +360,18 @@
     return ', not uploaded yet' + (item.eta ? ', about ' + item.eta + ' min' : '');
   }
 
+  // A clip's length as a note row shows it: '29s' under a minute, else '1:05'.
+  function clipLength(seconds) {
+    var s = Math.max(0, Math.round(Number(seconds) || 0));
+    return s < 60 ? s + 's' : clock(s);
+  }
+
+  // A note's end in video time when it is a clip (an end after its start), else null.
+  function endOf(entry, offset) {
+    var end = Number(entry && entry.end);
+    return entry && entry.end !== null && entry.end !== undefined && isFinite(end) && end > Number(entry.t) ? videoTime(end, offset) : null;
+  }
+
   // Lane ticks for the markers and, when the sharer included them, the notes. While the
   // game uploads, `duration` is the whole game's length and `live` is { edge, rate, armed }.
   // `gap` is the least room (percent of the lane) between two codes; LABEL_GAP by default.
@@ -352,8 +386,9 @@
       if (vt > length) return;
       var label = isNote ? noteKind(entry.kind) : (text(entry.label) || text(entry.kind) || 'Moment');
       var style = isNote ? { tone: entry.kind === 'clip' ? 'clip' : 'note', code: '', tier: 'note' } : eventStyle(entry.kind, entry.tone);
-      items.push(liveFields({ note: isNote, vt: vt, left: (vt / length) * 100, label: label, tone: style.tone, code: style.code,
-        tier: style.tier, time: clock(entry.t), aria: label + ' at ' + clock(entry.t), title: clock(entry.t) + ' ' + label }, live));
+      items.push(liveFields({ note: isNote, vt: vt, vtEnd: isNote ? endOf(entry, offset) : null, left: (vt / length) * 100,
+        label: label, tone: style.tone, code: style.code, tier: style.tier, group: isNote ? 'note' : eventGroup(style),
+        time: clock(entry.t), aria: label + ' at ' + clock(entry.t), title: clock(entry.t) + ' ' + label }, live));
     };
     (Array.isArray(doc.markers) ? doc.markers : []).forEach(function (m) { add(m, false); });
     (Array.isArray(doc.notes) ? doc.notes : []).forEach(function (n) { add(n, true); });
@@ -374,7 +409,8 @@
     if (!doc || !Array.isArray(doc.notes)) return [];
     var offset = offsetOf(doc);
     return doc.notes.filter(function (n) { return n && isFinite(Number(n.t)); }).map(function (n) {
-      var row = { vt: videoTime(n.t, offset), time: clock(n.t), kind: noteKind(n.kind), text: text(n.text) };
+      var row = { vt: videoTime(n.t, offset), vtEnd: endOf(n, offset), time: clock(n.t), kind: noteKind(n.kind), text: text(n.text) };
+      row.length = row.vtEnd !== null ? clipLength(row.vtEnd - row.vt) : '';
       row.aria = row.kind + ' at ' + row.time;
       return liveFields(row, live);
     });
@@ -419,7 +455,8 @@
     return { kind: kind, text: value, before: value, action: '', after: '' };
   }
 
-  // What the line under the player says for a playable HLS share.
+  // What the line under the player says for a playable HLS share. A game that uploaded to the
+  // end says so only to screen readers ('ended' is announced, never shown: vod-live.js).
   // s: { gone, ended, truncated, paused, stalled, started, hold, atEdge, edge, duration,
   //      rate, position, rebufferOn, nowMs }
   function liveLine(s, options) {
@@ -427,7 +464,7 @@
     if (s.gone) return line('stopped', STATES.stopped.copy);
     if (s.ended) {
       return s.truncated ? line('truncated', 'The sharer stopped before the end. Shared up to ' + edge + '.')
-        : line('ended', 'The whole game is here.');
+        : line('ended', 'The whole game has uploaded.');
     }
     if (s.paused) return line('paused', 'The sharer started another game. You can watch up to ' + edge + '; the rest uploads after it.');
     if (s.stalled) return line('stalled', 'The upload has stalled. You can watch up to ' + edge + '.');
@@ -452,7 +489,8 @@
     uploadPercent: uploadPercent, livePercent: livePercent, uploadText: uploadText, pollDelay: pollDelay,
     hlsPollDelay: hlsPollDelay, expiryText: expiryText, timeOfDay: timeOfDay, etaMinutes: etaMinutes,
     pendingSuffix: pendingSuffix, laneItems: laneItems, noteRows: noteRows, jumpText: jumpText, eventStyle: eventStyle,
-    axisTicks: axisTicks, offsetOf: offsetOf,
+    axisTicks: axisTicks, offsetOf: offsetOf, eventGroup: eventGroup, groupCounts: groupCounts, EVENT_GROUPS: EVENT_GROUPS,
+    clipLength: clipLength,
     smoothWait: smoothWait, bufferedAhead: bufferedAhead, holdAtEdge: holdAtEdge, liveLine: liveLine,
     STATES: STATES, WAITING: WAITING, UNPLAYABLE: UNPLAYABLE, UNSUPPORTED: UNSUPPORTED, OFFLINE: OFFLINE,
     UPLOADING_COPY: UPLOADING_COPY, STALLED_COPY: STALLED_COPY, MOMENT_LEAD_S: MOMENT_LEAD_S, EDGE_NEAR_S: EDGE_NEAR_S,
