@@ -524,8 +524,8 @@ public sealed partial class VodShareWorkerTests
             Assert.Equal("cancelled", cancelled.GetProperty("state").GetString());
             Assert.Contains("mid1234", h.Cleanup.Snapshot());
             Assert.Null(h.Store.Get(GameId));
-            Assert.Empty(Directory.EnumerateFiles(h.TempDir));
-            Assert.False(h.Worker.Cancel(GameId));
+            // The job retires, and its temp files go, just after it reports cancelled; a repeated Cancel meanwhile is a no-op.
+            await WaitUntilAsync(() => !Directory.EnumerateFiles(h.TempDir).Any() && !h.Worker.Cancel(GameId));
         }
     }
 

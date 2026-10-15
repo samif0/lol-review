@@ -392,12 +392,23 @@ public sealed class ClipUploadServiceHlsTests : IDisposable
     public async Task ATooLargeAnswer_LetsWhatWasSentSettle_BeforeFailing()
     {
         var release = new TaskCompletionSource();
+        var fifthSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var proxy = new FakeProxy
         {
             Respond = async seen =>
             {
-                if (seen.Route == "hls/seg/5") await release.Task;
-                if (seen.Route == "hls/seg/4") return Json(HttpStatusCode.RequestEntityTooLarge, new { error = "over_reservation" });
+                if (seen.Route == "hls/seg/5")
+                {
+                    fifthSent.TrySetResult();
+                    await release.Task;
+                }
+                // The 413 comes back only once 5 is on its way, as when answers lag behind the bodies (on a slow machine
+                // it could otherwise arrive first, and then 5 is rightly never sent).
+                if (seen.Route == "hls/seg/4")
+                {
+                    await fifthSent.Task;
+                    return Json(HttpStatusCode.RequestEntityTooLarge, new { error = "over_reservation" });
+                }
                 return Happy(seen);
             },
         };
