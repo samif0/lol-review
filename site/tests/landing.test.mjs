@@ -28,10 +28,8 @@ test('The hero leads with the download and the agreed copy', () => {
   assert.match(hero, /<a class="btn-secondary btn-lg" href="\/review">Review a game in your browser<\/a>/);
   assert.match(hero, /<span data-download-version>Latest version<\/span> &middot; Windows 10\/11<span data-download-size><\/span>/);
   assert.match(hero, /<p class="download-note" data-download-note hidden><\/p>/);
-  // Nothing under the buttons but the version line: the FFmpeg notice lives in the footer.
+  // Nothing under the top buttons but the version line: the FFmpeg notice sits by the closing download.
   assert.doesNotMatch(hero, /hero-trust|FFmpeg|GPL/);
-  const footer = html.match(/<footer class="site-footer">[\s\S]*?<\/footer>/)?.[0];
-  assert.match(footer, /<p class="footer-note">Revu includes FFmpeg under the GPLv3: <a href="\/terms#third-party">licenses and source code<\/a>\.<\/p>/);
   // The H1 and the button come before any screenshot, so they lead the first screen.
   assert.ok(html.indexOf('id="download-btn"') < html.indexOf('<figure'));
 });
@@ -42,6 +40,8 @@ test('Three feature rows with screenshots, then a closing download band', () => 
   const closing = html.match(/<section class="closing"[\s\S]*?<\/section>/)?.[0];
   assert.match(closing, /<h2 class="closing-title" id="closing-title">Your next game starts with your last one\.<\/h2>/);
   assert.match(closing, new RegExp(`class="btn-primary btn-lg" data-download href="${INSTALLER.replace(/[.]/g, '\\.')}"`));
+  // GPLv3: directions to the FFmpeg source next to a download (desktop/tests/ffmpeg-notices.test.mjs).
+  assert.match(closing, /Includes FFmpeg under the GPLv3: <a href="\/terms#third-party">licenses and source code<\/a>/);
   assert.equal(html.split(`href="${INSTALLER}"`).length - 1, 2, 'hero and closing band link the installer');
 });
 
