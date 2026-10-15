@@ -77,7 +77,9 @@ test('revu.lol names the build and its source next to the download', () => {
   for (const value of [version, commit, tag, variant, 'GNU General Public License version 3']) assert.ok(text.includes(value), value);
   for (const href of [`https://github.com/FFmpeg/FFmpeg/tree/${commit}`, `https://github.com/BtbN/FFmpeg-Builds/tree/${tag}`,
     'https://github.com/samif0/lol-review/tree/main/licenses/ffmpeg']) assert.ok(section.includes(`href="${href}"`), href);
+  // GPLv3 6(d): clear directions to the source next to the download. The closing band's
+  // download carries them (the hero keeps only the version line).
   const home = read('site/index.html');
-  const hero = home.slice(home.indexOf('id="download-btn"'), home.indexOf('</section>', home.indexOf('id="download-btn"')));
-  assert.match(hero, /Includes FFmpeg under the GPLv3: <a href="\/terms#third-party">licenses and source code<\/a>/);
+  const closing = home.slice(home.indexOf('<section class="closing"'), home.indexOf('</section>', home.indexOf('<section class="closing"')));
+  assert.match(closing, /data-download href=[\s\S]*Includes FFmpeg under the GPLv3: <a href="\/terms#third-party">licenses and source code<\/a>/);
 });
