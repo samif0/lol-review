@@ -241,10 +241,12 @@ test('finished games: Safari and old iPhones play natively, Chromium through hls
   await plain.advance(0);
   assert.equal(plain.video.src, 'https://clips.revu.lol/vod-file/Abc1234');
   assert.equal(plain.video.preload, 'none', 'a play counts on Play');
-  assert.equal(plain.video.controls, true);
+  assert.equal(plain.video.controls, false, 'an MP4 share plays in the page transport too');
   assert.deepEqual(plain.scripts, []);
   assert.equal(plain.mints(), 0);
-  assert.equal(plain.$('vod-play').hidden, true);
+  assert.deepEqual([plain.$('vod-play').hidden, plain.$('vod-play-label').textContent], [false, 'Play'], 'a dark picture until then: Play over it');
+  plain.$('vod-play').click();
+  assert.deepEqual([plain.video.plays, plain.$('vod-play').hidden, plain.mints()], [1, true, 0]);
 });
 
 test('when the upload ends mid-play the page becomes a normal game page; an early end says how far it got', async () => {
@@ -302,7 +304,7 @@ test('the page has a Play button over the player, a quiet live line with a polit
   assert.match(html, /<button id="vod-retry" class="btn-pill vod-retry" type="button" hidden>Try again<\/button>/);
   assert.match(html, /<span id="vod-lane-uploaded" class="vod-lane-uploaded" aria-hidden="true" hidden><\/span>/);
   assert.match(html, /<label id="vod-when-ready-row" class="vod-when-ready" hidden>\s*<input id="vod-when-ready" type="checkbox" \/>\s*<span>Play when ready<\/span>\s*<\/label>/);
-  assert.match(html, /<video id="vod-video" class="vod-video" controls playsinline preload="none"><\/video>/);
+  assert.match(html, /<video id="vod-video" class="vod-video" playsinline preload="none"><\/video>/);
   const scripts = Object.values(sources).join('\n');
   assert.doesNotMatch(html + scripts, DASHES, 'no dashes in copy or comments');
   assert.doesNotMatch(scripts, /innerHTML|insertAdjacentHTML|outerHTML|document\.write|\beval\(|new Function/);

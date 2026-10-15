@@ -1,0 +1,472 @@
+/* The shared game page's player chrome, shaped like the app's VOD reviewer: the transport
+ (vod-controls.js), the ink (vod-ink.js) and the timeline that is also the seek bar. The
+ picture, the deck and the overlays stay in vod.css. */
+
+/* Transport: the app's bar (desktop/ui/vodtransport.js), quiet buttons with key hints. */
+
+.vp-transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 4px;
+}
+
+.vp-transport .tbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--btn-radius);
+  background: transparent;
+  color: var(--t2);
+  font: 500 13px/1 var(--f-body);
+  cursor: pointer;
+}
+
+.vp-transport .tbtn:hover,
+.vp-transport .tbtn[aria-pressed="true"] {
+  background: var(--hover);
+  color: var(--t1);
+}
+
+.vp-transport .tbtn[aria-pressed="true"] {
+  background: var(--selected);
+}
+
+.vp-transport .tbtn:focus-visible,
+.vp-rate-sel:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.vp-transport .tbtn.play {
+  justify-content: center;
+  min-width: 38px;
+}
+
+.vp-transport svg {
+  flex: none;
+}
+
+.vp-transport kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--t3);
+  font: 500 11px/1 var(--f-data);
+}
+
+.vp-transport .ttime {
+  color: var(--t1);
+  font: 500 13px/1.4 var(--f-body);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vp-transport .tstep {
+  margin-left: 10px;
+  color: var(--t3);
+  font-weight: 400;
+}
+
+.vp-transport .tspring {
+  flex: 1;
+}
+
+.vp-rate-sel {
+  flex: none;
+  width: auto;
+  height: 34px;
+  min-width: 68px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--field);
+  color: var(--t1);
+  font: 500 13px/1 var(--f-body);
+}
+
+/* Ink (vod-ink.js): the canvas covers the picture and takes the pointer only while drawing;
+   the palette floats at the top of the picture. */
+
+.vod-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.vod-ink.is-active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.vod-ink.is-erasing {
+  cursor: cell;
+}
+
+.vod-ink-bar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  max-width: calc(100% - 20px);
+  padding: 4px 6px;
+  border: var(--raised-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  transform: translateX(-50%);
+}
+
+.vod-ink-bar[hidden] {
+  display: none;
+}
+
+.vod-ink-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.vod-ink-btn,
+.vod-ink-size {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--t2);
+  cursor: pointer;
+}
+
+.vod-ink-btn:hover,
+.vod-ink-size:hover {
+  background: var(--hover);
+  color: var(--t1);
+}
+
+.vod-ink-btn[aria-pressed="true"],
+.vod-ink-size[aria-pressed="true"] {
+  background: var(--selected);
+  color: var(--t1);
+}
+
+.vod-ink-btn:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.vod-ink-btn:focus-visible,
+.vod-ink-size:focus-visible,
+.vod-ink-swatch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.vod-ink-swatch {
+  width: 20px;
+  height: 20px;
+  margin: 0 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.vod-ink-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--t1);
+  outline-offset: 2px;
+}
+
+.vod-ink-swatch.is-red { background: var(--ink-red); }
+.vod-ink-swatch.is-yellow { background: var(--ink-yellow); }
+.vod-ink-swatch.is-green { background: var(--ink-green); }
+.vod-ink-swatch.is-blue { background: var(--ink-blue); }
+.vod-ink-swatch.is-white { background: var(--ink-white); }
+
+.vod-ink-size span {
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.vod-ink-size.is-0 span { width: 4px; height: 4px; }
+.vod-ink-size.is-1 span { width: 7px; height: 7px; }
+.vod-ink-size.is-2 span { width: 11px; height: 11px; }
+
+/* Timeline: the app reviewer's (desktop/ui/vod-review.css), and the seek bar: press or drag
+   anywhere on it. A 2px track at 72%, the played part in t3, a white playhead with a dot,
+   one stem per moment in its kind's color (taller for objectives, a short code over the ones
+   with room), notes and clips as diamonds under the track, clock ticks below. */
+
+.vod-lane {
+  margin-top: 2px;
+}
+
+.vod-lane-track {
+  position: relative;
+  height: 108px;
+  margin: 0 8px;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.vod-lane-track::before {
+  content: '';
+  position: absolute;
+  top: 72%;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--track);
+  pointer-events: none;
+}
+
+.vod-lane-fill {
+  position: absolute;
+  top: 72%;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--t3);
+  pointer-events: none;
+}
+
+.vod-lane-playhead {
+  position: absolute;
+  top: 6px;
+  bottom: 16px;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--playhead);
+  pointer-events: none;
+}
+
+.vod-lane-playhead::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--playhead);
+}
+
+.vod-lane-tip {
+  position: absolute;
+  bottom: 0;
+  height: 16px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--t1);
+  font: 500 11px/14px var(--f-body);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.vod-lane-axis {
+  position: relative;
+  height: 16px;
+  margin: 0 8px;
+}
+
+.vod-lane-tick {
+  position: absolute;
+  color: var(--t3);
+  font: 500 11px/14px var(--f-body);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(-50%);
+}
+
+.vod-mark,
+.vod-event-dot {
+  --evc: var(--ev-structure);
+}
+
+.vod-mark.is-kill, .vod-event-dot.is-kill { --evc: var(--ev-kill); }
+.vod-mark.is-assist, .vod-event-dot.is-assist { --evc: var(--ev-assist); }
+.vod-mark.is-death, .vod-event-dot.is-death { --evc: var(--ev-death); }
+.vod-mark.is-dragon, .vod-event-dot.is-dragon { --evc: var(--ev-dragon); }
+.vod-mark.is-void, .vod-event-dot.is-void { --evc: var(--ev-void); }
+.vod-mark.is-recall, .vod-event-dot.is-recall { --evc: var(--ev-recall); }
+.vod-mark.is-summoner, .vod-event-dot.is-summoner { --evc: var(--ev-summoner); }
+.vod-mark.is-clip { --evc: var(--mk-clip); }
+.vod-mark.is-note { --evc: var(--mk-note); }
+
+/* A stem stands on the track; its button also covers the code above it. */
+.vod-mark {
+  --evh: 12px;
+  position: absolute;
+  bottom: 28%;
+  width: 12px;
+  height: calc(var(--evh) + 16px);
+  margin-left: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.vod-mark::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 5px;
+  width: 2px;
+  height: var(--evh);
+  border-radius: 1px;
+  background: var(--evc);
+}
+
+.vod-mark::after {
+  content: attr(data-code);
+  position: absolute;
+  bottom: calc(var(--evh) + 4px);
+  left: 50%;
+  color: color-mix(in srgb, var(--evc) 72%, var(--t1));
+  font: 600 11px/1 var(--f-body);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.vod-mark.tier-major { --evh: 34px; }
+.vod-mark.tier-kill { --evh: 22px; }
+.vod-mark.tier-summoner { --evh: 17px; }
+.vod-mark.tier-minor { opacity: .82; }
+.vod-mark.tier-recall { --evh: 10px; opacity: .5; }
+
+/* Notes and clips: diamonds just under the track. */
+.vod-mark.tier-note {
+  top: calc(72% + 6px);
+  bottom: auto;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+}
+
+.vod-mark.tier-note::before {
+  top: 3px;
+  bottom: auto;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.vod-mark:hover::before {
+  outline: 1px solid var(--evc);
+  outline-offset: 3px;
+}
+
+/* A code that would crowd its row shows on hover, on a small chip above its neighbors. */
+.vod-mark.is-unlabeled::after {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  opacity: 0;
+}
+
+.vod-mark:hover,
+.vod-mark:focus-visible {
+  z-index: 1;
+}
+
+.vod-mark.is-unlabeled:hover::after,
+.vod-mark.is-unlabeled:focus-visible::after {
+  opacity: 1;
+}
+
+.vod-mark:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* While the game uploads: the uploaded part of the track, and moments past it dimmed. A
+   dimmed moment is still a button: pressed, it is armed and the page jumps there when it
+   arrives. */
+
+.vod-lane-uploaded {
+  position: absolute;
+  top: calc(72% - 5px);
+  left: 0;
+  width: 0;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--selected);
+  pointer-events: none;
+  transition: width .6s ease;
+}
+
+.vod-mark.is-pending::before {
+  opacity: .35;
+}
+
+.vod-mark.is-armed {
+  background: var(--selected);
+}
+
+.vod-mark.is-armed::before {
+  opacity: 1;
+}
+
+/* Touch screens have no keys: no key hints (styles.css hides kbd on coarse pointers, and the
+   transport's own kbd rule would show them again) and no step size. Phones get 44px targets
+   and the palette in one row that scrolls sideways, so it covers less of a small picture. */
+
+@media (pointer: coarse) {
+  .vp-transport kbd,
+  .vp-transport .tstep {
+    display: none;
+  }
+}
+
+@media (max-width: 639.98px) {
+  .vp-transport .tbtn,
+  .vp-rate-sel {
+    height: 44px;
+  }
+
+  .vp-transport .tbtn {
+    justify-content: center;
+    min-width: 44px;
+  }
+
+  .vp-rate-sel {
+    font-size: 16px;
+  }
+
+  .vod-ink-bar {
+    top: 6px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    max-width: calc(100% - 12px);
+    overflow-x: auto;
+  }
+}
