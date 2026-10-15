@@ -56,7 +56,7 @@ describe("GET /vod-shares/status", () => {
       { at: nextHour(row.expires_at), bytes: 500, vod_bytes: 500 },
     ]);
     expect(out.shares).toEqual([
-      { id, status: "ready", quality: "1080p", size_bytes: 500, created_at: row.created_at, expires_at: row.created_at + VOD_TTL_SECONDS },
+      { id, status: "ready", quality: "1080p", size_bytes: 500, created_at: row.created_at, expires_at: row.created_at + VOD_TTL_SECONDS, format: "mp4" },
     ]);
   });
 

@@ -8,6 +8,8 @@
  */
 
 import { Env } from "./types";
+import { opsFlagOn } from "./ops-flags";
+import { playSecretOk } from "./play-token";
 
 export const DEFAULT_TOTAL_BUDGET_BYTES = 9_000_000_000;
 export const DEFAULT_VOD_BUDGET_BYTES = 7_000_000_000;
@@ -89,6 +91,78 @@ export function vodUploadWindowSeconds(sizeBytes: number): number {
 /** At most this many grouped release times in the status pool. */
 export const RELEASES_MAX = 48;
 
+// ── HLS shares: watch a full game while it uploads ──────────────────────────
+
+/** One GOP is one fragment is one segment (the desktop's -g). */
+export const HLS_SEGMENT_SECONDS = 2;
+/** #EXT-X-TARGETDURATION, fixed: EXTINF rounds to at most 6 (RFC 8216 4.3.3.1). */
+export const HLS_TARGET_DURATION = 6;
+/** Longest EXTINF a segment may declare; anything longer is an encoder fault. */
+export const HLS_MAX_SEGMENT_MS = 6499;
+/** One segment body (measured: at most 2.0 MB per 2 s at 1080p60). */
+export const HLS_SEGMENT_MAX_BYTES = 16_777_216;
+/** One run's init segment, ftyp + moov (measured 1,358 to 1,408 bytes). */
+export const HLS_INIT_MAX_BYTES = 16_384;
+/** Playable once this much media is committed contiguously from 0 (with run 0's init). */
+export const HLS_PLAYABLE_MS = 8000;
+/** Runs per share (k = 0..7): run 0 plus resumes at the edge. */
+export const HLS_MAX_RUNS = 8;
+/** A paused share is ended (or discarded) by the cron after this long. */
+export const HLS_PAUSE_MAX_SECONDS = 21_600;
+/**
+ * A PUT clears a pause only once the pause is this old: one that was already
+ * on its way when the desktop paused can't undo it (a real resume comes after
+ * at least 30 s with no game).
+ */
+export const HLS_PAUSE_GRACE_SECONDS = 10;
+/** Attempts per share: segment and run PUTs < 2 x part_count + HLS_PUT_SLACK. */
+export const HLS_PUT_SLACK = 16;
+/** Stored bytes (hls_bytes) may pass the reservation by one segment at most. */
+export const HLS_RESERVATION_SLACK_BYTES = HLS_SEGMENT_MAX_BYTES;
+/** A reservation that runs out grows by max(this, 2%), never past VOD_MAX_BYTES. */
+export const HLS_GROW_MIN_BYTES = 67_108_864;
+/** Paused reasons a desktop may send. */
+export const HLS_PAUSE_REASONS = new Set(["game"]);
+/** A cleanup deletes once more this long after it ran, once in-flight PUTs have settled. */
+export const HLS_TOMBSTONE_DELAY_SECONDS = 600;
+/** ...covering this many seqs past the highest claimed one. */
+export const HLS_TOMBSTONE_EXTRA_KEYS = 8;
+/** HLS shares the hourly cron settles at most (ends at the edge or discards) per run. */
+export const HLS_SETTLE_PER_RUN = 10;
+/**
+ * R2 delete calls (1000 keys each) one hourly run may spend on HLS keys, purge
+ * and tombstones together; a 2-hour game costs 4 per run (8 runs at most, so a
+ * share always fits a fresh budget). The rest waits for the next run. Sized
+ * for Workers Paid, which HLS needs anyway.
+ */
+export const HLS_PURGE_R2_CALLS_PER_RUN = 40;
+
+/**
+ * Segment slots for a declared duration of `durationS` seconds:
+ * ceil(d/2) + 2 + max(10, ceil(0.01 x d)). Slack for a short tail and a
+ * resume or two; slots come from the probed duration, never from bytes.
+ */
+export function hlsSlots(durationS: number): number {
+  return Math.ceil(durationS / HLS_SEGMENT_SECONDS) + 2 + Math.max(10, Math.ceil(0.01 * durationS));
+}
+
+/** Most PUT attempts (segments and runs) one HLS share may make. */
+export function hlsAttemptCap(partCount: number): number {
+  return PART_PUT_FACTOR * partCount + HLS_PUT_SLACK;
+}
+
+/**
+ * Does VOD_HLS let `userId` start HLS shares? "1" (or "on") is everyone,
+ * "users:<id>,<id>" is those accounts only; anything else, unset included,
+ * is nobody. Fails closed.
+ */
+export function vodHlsAllows(raw: string | undefined, userId: number): boolean {
+  const v = String(raw ?? "0").trim().toLowerCase();
+  if (v === "1" || v === "on") return true;
+  if (!v.startsWith("users:")) return false;
+  return v.slice("users:".length).split(",").map((s) => s.trim()).filter((s) => s.length > 0).includes(String(userId));
+}
+
 const BUDGET_PATTERN = /^\d{1,13}$/;
 
 /** Digits only (1 to 13 of them, no spaces or signs) and above zero, else the default. */
@@ -129,10 +203,51 @@ export function vodServingOn(env: Env): boolean {
   return switchOn(env.VOD_SERVING);
 }
 
+/**
+ * VOD playback right now: the VOD_SERVING var AND the `vod_serving` ops flag
+ * (ops-flags.ts), so an operator can stop every public VOD route within 30 s
+ * without a deploy.
+ */
+export async function vodServingLive(env: Env): Promise<boolean> {
+  return vodServingOn(env) && (await opsFlagOn(env, "vod_serving"));
+}
+
+/**
+ * May `userId` start an HLS share now? VOD_HLS must allow the account, the play
+ * token secret must be set (no secret, no way to play) and the `vod_hls` ops
+ * flag must not be "0". Gates new starts only.
+ */
+export async function vodHlsOn(env: Env, userId: number): Promise<boolean> {
+  return vodHlsAllows(env.VOD_HLS, userId) && playSecretOk(env) && (await opsFlagOn(env, "vod_hls"));
+}
+
 /** Public watch link for a VOD share: ${WATCH_BASE}/v/<id>. */
 export function vodWatchUrl(env: Env, id: string): string {
   const base = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
   return `${base}/v/${id}`;
+}
+
+/**
+ * True when the request came to the host of PUBLIC_BASE (clips.revu.lol, or
+ * localhost:8787 in local dev). The VOD media routes answer only there: never
+ * on workers.dev, where the desktop's API lives and which no page should embed.
+ */
+export function onPublicHost(request: Request, env: Env): boolean {
+  let host: string;
+  try {
+    host = new URL(env.PUBLIC_BASE || "https://clips.revu.lol").host;
+  } catch {
+    return false;
+  }
+  return new URL(request.url).host === host;
+}
+
+/**
+ * Watchable: run 0's init is stored and HLS_PLAYABLE_MS of media is committed
+ * contiguously from 0, or the share ended with at least one segment.
+ */
+export function hlsPlayable(s: { runs: number; media_ms: number; ended: number | boolean; segments: number }): boolean {
+  return (Number(s.runs) >= 1 && Number(s.media_ms) >= HLS_PLAYABLE_MS) || (!!s.ended && Number(s.segments) >= 1);
 }
 
 // ── UTC day helpers (daily starts and the play cap) ─────────────────────────

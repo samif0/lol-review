@@ -177,7 +177,9 @@ export function handleAuthFirst(state: FakeAuthState, sql: string, args: unknown
   return { handled: false };
 }
 
-const TOMBSTONE_COPY = /^INSERT OR IGNORE INTO storage_tombstones \(r2_key, upload_id, size_bytes, kind, created_at\) SELECT r2_key, upload_id, size_bytes, kind, \?2 FROM clips WHERE user_id = \?1 AND id IN \((\?\d+(?:, \?\d+)*)\)$/;
+const TOMBSTONE_COPY = /^INSERT OR IGNORE INTO storage_tombstones \(r2_key, upload_id, size_bytes, kind, created_at\) SELECT r2_key, upload_id, size_bytes, kind, \?2 FROM clips WHERE user_id = \?1 AND format IS NULL AND id IN \((\?\d+(?:, \?\d+)*)\)$/;
+/** deleteAccountRows' delayed prefix tombstones for HLS shares: the fake holds none. */
+const HLS_TOMBSTONES = "INSERT OR IGNORE INTO storage_tombstones (r2_key, upload_id, size_bytes, kind, created_at, key_count, not_before) SELECT 'vods/' || c.id || '/' || r.k || '/', NULL, CASE WHEN r.k = h.runs - 1 THEN (SELECT COALESCE(SUM(s.bytes), 0) FROM vod_hls_segments s WHERE s.clip_id = c.id AND s.committed = 0) ELSE 0 END, 'vod', ?2, h.max_seq + ?4, ?3 FROM clips c JOIN vod_hls h ON h.clip_id = c.id JOIN vod_hls_runs r ON r.clip_id = c.id WHERE c.user_id = ?1 AND c.format = 'hls' AND h.max_seq >= 0";
 
 export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]): AuthResult {
   const [a1, a2, a3, a4, a5, a6] = args;
@@ -188,13 +190,19 @@ export function handleAuthRun(state: FakeAuthState, sql: string, args: unknown[]
     let n = 0;
     for (const id of args.slice(2)) {
       const c = state.clips.get(id as string);
-      if (!c || c.user_id !== a1 || state.tombstones.has(c.r2_key)) continue;
+      if (!c || c.user_id !== a1 || c.format || state.tombstones.has(c.r2_key)) continue;
       state.tombstones.set(c.r2_key, { r2_key: c.r2_key, upload_id: c.upload_id, size_bytes: c.size_bytes, kind: c.kind, created_at: a2 as number });
       n++;
     }
     return ok(changes(n));
   }
   switch (sql) {
+    case HLS_TOMBSTONES:
+    case "DELETE FROM vod_hls_segments WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)":
+    case "DELETE FROM vod_hls_runs WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)":
+    case "DELETE FROM vod_hls WHERE clip_id IN (SELECT id FROM clips WHERE user_id = ?1)":
+      // Migration 0007 tables: the fake models no HLS share (tests/sqlite-d1.ts does).
+      return ok(changes(0));
     case "INSERT INTO login_requests (code, email, purpose, created_at, expires_at, consumed) VALUES (?1, ?2, ?3, ?4, ?5, 0)": {
       if (state.loginRequests.some((r) => r.code === a1)) throw new Error("UNIQUE constraint failed: login_requests.code");
       state.loginRequests.push({
@@ -328,10 +336,10 @@ export function handleAuthAll(state: FakeAuthState, sql: string, args: unknown[]
           .sort((x, y) => x.id - y.id)
           .map((i) => ({ provider: i.provider, email: i.email, display_name: i.display_name, created_at: i.created_at, last_used_at: i.last_used_at })),
       });
-    case "SELECT id, r2_key, upload_id, size_bytes, kind FROM clips WHERE user_id = ?1":
+    case "SELECT id, r2_key, upload_id, size_bytes, kind, format FROM clips WHERE user_id = ?1":
       return ok({
         results: [...state.clips.values()].filter((c) => c.user_id === a1)
-          .map((c) => ({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id, size_bytes: c.size_bytes, kind: c.kind })),
+          .map((c) => ({ id: c.id, r2_key: c.r2_key, upload_id: c.upload_id, size_bytes: c.size_bytes, kind: c.kind, format: c.format ?? null })),
       });
   }
   return { handled: false };

@@ -20,6 +20,7 @@ import { jsonResponse, badRequest, mediaTypeOf, parseStrictInt } from "./http";
 import { clipFits, overAccountShare, storageFull, storageUsage } from "./storage-budget";
 import { IDLE_SWEEP_ON_START, vodWatchUrl } from "./share-limits";
 import { abortUpload, sweepIdleUploads, tombstoneObject } from "./upload-cleanup";
+import { removeHlsShare } from "./hls-objects";
 import { serveR2Object } from "./r2-serve";
 
 export { parseRange } from "./r2-serve";
@@ -174,6 +175,10 @@ export interface ClipRow {
   quality?: string | null;
   play_day?: string | null;
   play_count?: number;
+  // Added by migration 0007. NULL for clips and MP4 shares; 'hls' for a share
+  // stored as segments (vod-hls-upload.ts), whose r2_key is the prefix vods/<id>/.
+  format?: string | null;
+  hls_bytes?: number;
 }
 
 /** Public share URL for a clip slug (what POST /clips and complete return). */
@@ -623,6 +628,12 @@ export async function handleClipFile(request: Request, env: Env, id: string): Pr
  *      KEEP the claimed row as an expired tombstone: it stays counted in the
  *      storage budget and the hourly purge retries both.
  *   5. Otherwise delete the transcript, the VOD meta, then the row.
+ *
+ * An HLS share (format 'hls') is Stop sharing while people may be watching:
+ * after the claim, removeHlsShare deletes its segment keys 0..max_seq, then
+ * its rows with a prefix tombstone that deletes them once more after 10
+ * minutes (a PUT in flight deletes its own object when its commit finds the
+ * row gone). The claim alone already stops every playlist, init and segment.
  */
 export async function handleDeleteClip(env: Env, id: string, userId: number | undefined): Promise<Response> {
   if (userId === undefined) return jsonResponse({ error: "login_required" }, 403);
@@ -634,10 +645,16 @@ export async function handleDeleteClip(env: Env, id: string, userId: number | un
 
   const now = Math.floor(Date.now() / 1000);
   const claimed = await env.DB
-    .prepare("UPDATE clips SET status = 'purging', expires_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING r2_key, upload_id")
+    .prepare("UPDATE clips SET status = 'purging', expires_at = ?3 WHERE id = ?1 AND user_id = ?2 RETURNING r2_key, upload_id, format")
     .bind(id, userId, now)
-    .first<{ r2_key: string; upload_id: string | null }>();
+    .first<{ r2_key: string; upload_id: string | null; format?: string | null }>();
   if (!claimed) return jsonResponse({ error: "not_found" }, 404);
+
+  if (claimed.format === "hls") {
+    // A failed R2 delete keeps the claimed row counted; the purge retries it.
+    await removeHlsShare(env, id, now);
+    return jsonResponse({ ok: true }, 200);
+  }
 
   // A pending multipart upload is aborted first (it may already be completed or
   // gone), then the key is ALWAYS deleted: that removes a completed-but-

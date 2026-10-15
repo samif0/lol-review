@@ -252,7 +252,8 @@ npx wrangler d1 migrations apply revu-db --remote
 
 ### Cron
 
-The scheduled handler runs hourly (`0 * * * *`). In order it purges expired
+The scheduled handler runs hourly (`0 * * * *`). In order it settles quiet HLS
+shares (see [HLS shares](#hls-shares-watch-while-it-uploads)), purges expired
 clips, full-game shares and expired pending uploads (aborting the upload and
 deleting the R2 object, the transcript and the VOD meta), retries
 `storage_tombstones`, then expired sessions, then `login_requests` rows that
@@ -304,8 +305,8 @@ VOD row, and VOD routes never touch a clip row.
 | PUT | `/vod-shares/:id/parts/:n` | owner | Same as the clip part route (16 MiB parts) |
 | POST | `/vod-shares/:id/complete` | owner | Same as clip complete. The share expires 3 days after INIT (`created_at` is never rewritten). Idempotent. 201 `{ id, url, expires_at }` |
 | PUT | `/vod-shares/:id/markers` | owner | Markers document v1 (at most 64 KB; markers 48 KiB, notes 14 KiB). Validated and normalized by `src/vod-markers.ts`. Sets the public title and champion. Accepted for a ready share and for one still uploading inside its upload window (the desktop sends it right after init), so the watch page can name the game while it uploads. 200 `{ ok, markers, notes }` |
-| GET | `/vod-meta/:id` | public | Ready: `{ id, kind, content_type, quality, duration_s, size_bytes, created_at, expires_at, serving, play_limited, meta }`. Still uploading (inside its upload window): `{ id, kind, status: "uploading", quality, duration_s, created_at, expires_at, serving, progress: { parts, part_count }, stalled, meta }`, where `parts` is the accepted part PUTs capped at `part_count` (an estimate: in-flight and retried parts count), `expires_at` is when the share will end, `stalled` means no part for 15 minutes, and `meta` is the markers document once attached (else null). `no-store`, `X-Robots-Tag: noindex, nofollow` |
-| GET, HEAD | `/vod-file/:id` | public | Ready shares only (404 while uploading). Same range, conditional and HEAD handling as `/clip-file`, `Cache-Control: private, max-age=3600`, noindex. 503 `vod_serving_disabled` when serving is off, 429 `play_limit` over the daily cap |
+| GET | `/vod-meta/:id` | public | Ready: `{ id, kind, content_type, quality, duration_s, size_bytes, created_at, expires_at, serving, play_limited, meta, now }`. Still uploading (inside its upload window): `{ id, kind, status: "uploading", quality, duration_s, created_at, expires_at, serving, progress: { parts, part_count }, stalled, meta, now }`, where `parts` is the accepted part PUTs capped at `part_count` (an estimate: in-flight and retried parts count), `expires_at` is when the share will end, `stalled` means no part for 15 minutes, `meta` is the markers document once attached (else null) and `now` is the server's unix time. HLS shares add their fields (see below). `no-store`, `X-Robots-Tag: noindex, nofollow` |
+| GET, HEAD | `/vod-file/:id` | public | Ready MP4 shares only (404 while uploading, and always for an HLS share). Answers only on the host of `PUBLIC_BASE` (404 on workers.dev). Same range, conditional and HEAD handling as `/clip-file`, `Cache-Control: private, max-age=3600`, noindex. 503 `vod_serving_disabled` when serving is off (var or ops flag), 429 `play_limit` over the daily cap |
 
 Limits (all in `src/share-limits.ts`):
 
@@ -356,7 +357,8 @@ row, and account deletion (and a rollback with no row left) writes
 
 `VOD_SHARING = "0"` (or `"off"`) refuses new VOD starts (parts and complete of an
 upload already started still work). `VOD_SERVING = "0"` (or `"off"`) stops VOD
-playback. Anything else, or unset, is on.
+playback. Anything else, or unset, is on. Playback can also be stopped without
+a deploy through the `ops_flags` table (see the HLS kill-switch runbook below).
 
 ### Migration 0006 and deploy order
 
@@ -388,6 +390,190 @@ For local runs: `npx wrangler d1 migrations apply revu-db --local`, then
 `PUBLIC_BASE` to `http://localhost:8787` and `WATCH_BASE` to
 `http://localhost:8788`. The tests run the VOD routes against an in-memory
 SQLite database with every migration applied (`tests/sqlite-d1.ts`).
+
+## HLS shares (watch while it uploads)
+
+A full-game share can also be stored as HLS: 2-second fMP4 segments (one GOP
+each), one R2 object per segment and run (`vods/<id>/<k>/<seq>.m4s`), with each
+run's init segment in D1. A seq is served from the run that covers it (the
+highest k whose start is at or below it), so a late write from a run the
+desktop already replaced lands on a key nobody serves, never over what the new
+run committed. Viewers play a growing EVENT playlist from 0:00 while the rest
+uploads. It is **off by default** (`VOD_HLS = "0"`) and needs Workers Paid: one
+full view costs about 1,200 Worker requests. The desktop asks for it with
+`format=hls` only when `GET /vod-shares/status` says `hls.enabled`; an older
+proxy ignores `format` and the desktop shares the MP4 way on the row it got.
+
+HLS rows live in `clips` (`kind = 'vod'`, `format = 'hls'`, `r2_key` the
+prefix `vods/<id>/`, `part_count` the segment slots, `size_bytes` the
+reservation) plus `vod_hls` (state), `vod_hls_runs` (inits) and
+`vod_hls_segments` (one row per claimed segment). MP4 routes never touch an HLS
+row and HLS routes never touch an MP4 row or a clip.
+
+### Upload routes (desktop, Bearer, allowlisted owner)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/vod-shares/status` | Allowed sharers also get `hls: { enabled, segment_seconds: 2, target_duration: 6, max_segment_bytes: 16777216, init_max_bytes: 16384, playable_ms: 8000, max_runs: 8 }`. Every `shares[]` row gets `format` (`hls` or `mp4`); HLS rows also `segments` (committed) and `paused` |
+| POST | `/vod-shares/uploads?size&duration&quality&fps&format=hls` | The MP4 init's checks in the same order; `format` other than `mp4` or `hls` is 400, and `hls` while HLS is off for the caller is 409 `hls_unavailable`, both before any idle discard, limit, pool check or daily start. One D1 batch, no R2 call. `part_count` = ceil(d/2) + 2 + max(10, ceil(0.01 d)) slots. 201 `{ id, format: "hls", part_count, segment_seconds, target_duration, max_segment_bytes, init_max_bytes, playable_ms, max_runs, expires_at, share_expires_at, url }` |
+| PUT | `/vod-shares/:id/hls/runs/:k?from&quality&fps` | Body: run k's init (1 to 16,384 bytes starting with `ftyp`; 411, 413, 415). Run 0 starts at 0; run k >= 1 at a seq past run k-1's start with no committed segment at or after it. A replay of the last run with identical bytes and `from` is 200 `already`; anything else that doesn't follow is 409 `run_conflict`; k >= 8 is 429 `too_many_runs`. Sets `quality`, counts one attempt. 200 `{ k, from, quality }` |
+| PUT | `/vod-shares/:id/hls/seg/:seq?ms&run` | Body: one segment, 1 byte to 16 MiB (411, 413). `ms` 1 to 6,499 (400 `bad_duration`), `seq` below `part_count` (400 `bad_segment_number`), run `run` must cover `seq` (409 `run_mismatch`). One claim batch checks the session too, then `env.CLIPS.put(key, request.body)` and the commit batch run as one task handed to `ctx.waitUntil`. A committed seq is 200 `already` and writes nothing. Over the reservation it grows by max(64 MiB, 2%) up to 2 GiB while the pool has room, else 413 `over_reservation`. At most `2 x part_count + 16` attempts (runs included), then 429 `too_many_part_uploads`; not counted in the daily part budget. A share stopped meanwhile: the object is deleted (or tombstoned) and 404; a seq that a newer run took over meanwhile: the same, and 409 `run_mismatch`. 200 `{ seq, committed, media_ms, playable }` with `Server-Timing: d1;dur=N, r2;dur=N` |
+| POST | `/vod-shares/:id/hls/pause` | `{ "reason": "game" }`. Idempotent; the next segment or run PUT at least 10 s later clears it (one already on its way when the desktop paused does not). A paused share keeps its pending slot and is never idle. 200 `{ paused: true, reason }` |
+| POST | `/vod-shares/:id/hls/end` | `{ segments: N, truncated }`. Needs run 0 and at least N >= 1 committed segments (409 `segments_incomplete` with `committed`). Ends at E = the committed count: rows and objects at or after E go (each dropped seq's key also gets a 10-minute tombstone, for a PUT still in flight), the bytes are recounted from the rows and inits, the share is ready for 3 days from init. A replay gets the same 201 `{ id, url, expires_at, size_bytes, media_ms, segments, truncated }` |
+
+`DELETE /clips/:id` (Stop sharing) and `PUT /vod-shares/:id/markers` work as
+for MP4 shares.
+
+### Public routes (only on the host of `PUBLIC_BASE`)
+
+Any other host, workers.dev included, gets 404. Every response carries
+`nosniff`, `X-Robots-Tag: noindex, nofollow`,
+`Cross-Origin-Resource-Policy: same-site` and `Vary: Origin` (CORS for
+`ALLOWED_ORIGINS` as everywhere), and never `public` or `s-maxage`. A request
+with `Sec-Fetch-Site: cross-site` from an origin outside `ALLOWED_ORIGINS` is
+403 before any D1 or R2 work. Serving off (var or ops flag) is 503
+`vod_serving_disabled`; a D1 or R2 failure is 502 `clip_error`, with the same
+headers.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| POST | `/vod-play/:id` | Needs an `Origin` in `ALLOWED_ORIGINS` (403 `forbidden_origin`). The only place an HLS play counts: 200 per share per UTC day, then 429 `play_limit` with `Retry-After` to UTC midnight. Not yet playable: 404 `not_ready`, nothing counted. 200 `{ token, expires_at }` (12 hours), `no-store` |
+| GET, HEAD | `/vod-hls/:id/:token/index.m3u8` | The EVENT playlist (ENDLIST once ended), built from committed rows. 404 `not_ready` until playable (8 s committed with run 0, or ended with a segment). `no-store` |
+| GET, HEAD | `/vod-hls/:id/:token/init-:k.mp4` | Run k's init. `private, max-age=3600`, `CSP: sandbox` |
+| GET, HEAD | `/vod-hls/:id/:token/:seq.m4s` | Committed segments only, with Range, 206 and conditional requests. `private, max-age=3600`, `CSP: sandbox` |
+
+The token is `<exp>.<sig>`: sig is the first 22 characters of
+base64url(HMAC-SHA256(`VOD_PLAY_SECRET`, `<id>.<exp>`)). It is checked first,
+CPU only; a bad or expired one is 403 `bad_token` and the page mints another.
+A reached cap never stops people already watching. Share state is cached per
+isolate for 1 s (playlist) or 2 s (init, segment), so Stop sharing reaches
+every viewer within 2 seconds; what a browser already downloaded can't be
+recalled, as with `/vod-file`.
+
+`/vod-meta/:id` adds for HLS shares `format`, `playable`, `media_seconds`,
+`ingest_x` (media seconds uploaded per wall second: an EWMA with a 30 s time
+constant, seeded from the second commit on with the contiguous media over the
+time since the init; null until then), `last_commit_age_s`, `paused_reason`,
+`ended`, `truncated`, `play_limited`, and `progress.parts` = committed
+segments. `duration_s` is the declared length while uploading and the media's
+after the end.
+
+Playlist (LF line ends; a resume run k gets a new `EXT-X-MAP` only when its
+init differs from run k-1's, and never a `DISCONTINUITY`: browser gate G3
+showed hls.js leaving a ~80 ms hole in the buffer at a tagged resume, and
+playing straight across an untagged one, new inits included):
+
+```
+#EXTM3U
+#EXT-X-VERSION:7
+#EXT-X-TARGETDURATION:6
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:EVENT
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-START:TIME-OFFSET=0,PRECISE=YES
+#EXT-X-MAP:URI="init-0.mp4"
+#EXTINF:2.000,
+0.m4s
+...
+#EXT-X-ENDLIST
+```
+
+It updates faster than half the target duration and starts within three
+target durations of a live edge, both against RFC 8216 and both on purpose:
+only hls.js plays it while it grows.
+
+### Cleanup
+
+Every delete path (discard, Stop sharing, the hourly purge, account deletion,
+the cron settle) claims the row first, deletes each run's keys
+`from_seq(k)..max_seq` by name (1000 per call, never a list), then in one batch
+deletes the rows and writes a prefix tombstone per run, `vods/<id>/<k>/` for
+keys `0..max_seq+8`, that the purge deletes once more after 10 minutes, once
+PUTs in flight have settled. An end (and a settle that ends) deletes each run's
+keys from the edge up and leaves a 10-minute tombstone for each dropped seq.
+A failed R2 delete keeps the claimed row (or the tombstone) counted in the
+storage budget and the hourly purge retries it, inside a budget of 40 R2 calls
+per run (a 2-hour game costs 4 per run, at most 8 runs).
+
+The cron (and the owner's next VOD init) settles a share that went quiet: idle
+for 30 minutes (15 for the owner's own init) and not paused, paused for 6
+hours, or past its upload window. A watchable one is ended at its edge as
+truncated; any other is discarded. The idle sweep never touches HLS shares.
+
+### Switches and secret
+
+- `VOD_HLS` (var, default `"0"`): `"1"` allows new HLS starts for every
+  allowlisted sharer, `"users:<id>,<id>"` for those accounts only. It gates new
+  starts only.
+- `VOD_PLAY_SECRET` (secret, at least 32 characters): signs play tokens. Unset,
+  no HLS starts and HLS playback is 503. Rotating it ends every token in
+  flight; pages mint a new one (one more counted play each).
+- `ops_flags` (D1): `vod_serving = '0'` stops every public VOD route (HLS and
+  MP4) and `vod_hls = '0'` stops new HLS starts, within 30 seconds (per-isolate
+  cache), with no deploy. No row: the var decides.
+
+### Kill-switch runbook
+
+```sh
+cd proxy
+# Stop all VOD playback (HLS and MP4) within 30 s:
+npx wrangler d1 execute revu-db --remote --command \
+  "INSERT INTO ops_flags (name, value) VALUES ('vod_serving', '0') ON CONFLICT (name) DO UPDATE SET value = excluded.value"
+# Stop new HLS shares only (desktops fall back to MP4):
+npx wrangler d1 execute revu-db --remote --command \
+  "INSERT INTO ops_flags (name, value) VALUES ('vod_hls', '0') ON CONFLICT (name) DO UPDATE SET value = excluded.value"
+# Back to what wrangler.toml says:
+npx wrangler d1 execute revu-db --remote --command "DELETE FROM ops_flags WHERE name IN ('vod_serving', 'vod_hls')"
+```
+
+### WAF rule (before turning HLS on)
+
+One rate-limiting rule on the clips.revu.lol zone: requests whose path starts
+with `/vod-hls/`, `/vod-play/` or `/vod-file/`, counted per IP, at most 200 per
+10 seconds, then block. A viewer makes about 2 requests per 10 seconds.
+Together with tokens, the play cap and the billing notifications ($10 and
+$25), it bounds the cost of a misbehaving client; Workers Paid has no hard cap.
+
+### Logs
+
+`[observability]` keeps 10% of what the code logs (structured JSON). Invocation
+logs are off because they record request URLs, and a media URL carries a play
+token; no token, cookie or raw IP is logged, and error logs replace the token
+in paths with `-`.
+
+### Migration 0007, deploy order and rollback
+
+`migrations/0007_vod_hls.sql` is additive: `clips.format` and
+`clips.hls_bytes`, the `vod_hls`, `vod_hls_runs`, `vod_hls_segments` and
+`ops_flags` tables, and `key_count` and `not_before` on `storage_tombstones`.
+Existing rows keep `format` NULL.
+
+```sh
+cd proxy
+npx wrangler secret put VOD_PLAY_SECRET           # at least 32 characters
+npx wrangler d1 migrations list revu-db --remote
+npx wrangler d1 migrations apply revu-db --remote  # 0007
+npm run deploy                                     # guarded; VOD_HLS stays "0"
+# Later, once the site's HLS player is live: VOD_HLS = "users:<owner id>" for a
+# canary day, then "1" (each a wrangler.toml change and a guarded deploy).
+```
+
+With `VOD_HLS = "0"` the visible changes are: `/vod-file` answers on
+clips.revu.lol only, `/vod-meta` carries `now`, and `/vod-shares/status`
+carries `hls` (`enabled: false`) and `shares[].format`.
+
+Rollback: set `VOD_HLS = "0"` (or the `vod_hls` flag) and new shares are MP4
+again, while HLS shares already uploading keep uploading and serving.
+**Never roll the Worker back below the HLS release while HLS rows exist**: older
+code deletes single keys (orphaning every segment) and 404s the watch pages.
+Turn HLS off first, let the HLS rows expire (3 days) or delete them, then roll
+back.
+
+Local dev: set `PUBLIC_BASE=http://localhost:8787`, `VOD_HLS=1` and a
+`VOD_PLAY_SECRET` in `.dev.vars`, apply the migrations with `--local`, and
+`npx wrangler dev`. `tests/hls-e2e.test.ts` runs real fMP4 media through these
+routes with ffmpeg as the HLS client when `HLS_MEDIA_DIR`, `FFMPEG` and
+`FFPROBE` are set.
 
 ## Web accounts (revu.lol)
 
@@ -499,7 +685,9 @@ Accepted risks (documented, not fixed):
 
 `POST /auth/web/account/delete` with the typed account email. R2 goes first
 (cascades never reach object storage): pending multipart uploads are aborted
-(at most 20), then every clip and VOD object is deleted in chunks of 1000. Then
+(at most 20), then every clip and VOD object is deleted in chunks of 1000 (HLS
+shares are claimed first and their segment keys deleted by name; each leaves a
+delayed prefix tombstone per run, see [Cleanup](#cleanup)). Then
 one D1 batch first copies every row whose R2 delete or abort failed (or whose
 upload was past the abort cap) into `storage_tombstones` with its upload id
 (still counted in the storage budget, retried by the hourly purge), then

@@ -19,7 +19,12 @@
  *   5. deletes the transcripts and VOD share meta, then the rows, BY ID in
  *      chunks small enough for D1's 100-bound-parameter limit.
  *
- * Both kinds (clips and full-game VOD shares) go through the same purge.
+ * Both kinds (clips and full-game VOD shares) go through the same purge. An
+ * HLS share (format 'hls', many segment objects) goes through removeHlsShare
+ * (hls-objects.ts) instead of steps 3 to 5, inside a per-run budget of R2
+ * calls; the rest stay claimed and expired for the next run. An HLS share
+ * still uploading is never selected here: the cron settles it first (it may
+ * be watchable, so it is ended at its edge rather than deleted).
  *
  * Deleting by the selected ids (not "WHERE expires_at <= now") is deliberate: the
  * old unbounded DELETE removed rows past the LIMIT whose R2 objects were never
@@ -29,8 +34,26 @@
 
 import { Env } from "./types";
 import { abortUpload } from "./upload-cleanup";
+import { deleteCalls, deleteKeys, keyStateOf, parseHlsRunPrefix, r2KeysFor, removeHlsShare, segmentKeys } from "./hls-objects";
+import { HLS_PURGE_R2_CALLS_PER_RUN } from "./share-limits";
 
 export const PURGE_BATCH_ROWS = 500;
+
+/** R2 calls one cron run may still spend on HLS keys; shared by settle, purge and tombstones. */
+export interface HlsBudget {
+  calls: number;
+}
+
+export function hlsRunBudget(): HlsBudget {
+  return { calls: HLS_PURGE_R2_CALLS_PER_RUN };
+}
+
+/** Take `calls` from the budget; false (nothing taken) when it doesn't hold them. */
+export function spend(budget: HlsBudget, calls: number): boolean {
+  if (calls > budget.calls) return false;
+  budget.calls -= calls;
+  return true;
+}
 /**
  * A row or tombstone whose abort keeps failing is dropped once it is this old:
  * the bucket's default rule aborts incomplete multipart uploads after 7 days,
@@ -46,6 +69,7 @@ interface ExpiredRow {
   r2_key: string;
   upload_id: string | null;
   created_at?: number;
+  format?: string | null;
 }
 
 /** False when the row's upload could not be aborted and is young enough to retry. */
@@ -58,29 +82,39 @@ function placeholders(count: number): string {
   return Array.from({ length: count }, (_, i) => `?${i + 1}`).join(", ");
 }
 
-export async function purgeExpiredClips(env: Env): Promise<number> {
+export async function purgeExpiredClips(env: Env, hls: HlsBudget = hlsRunBudget()): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
   let purged = 0;
 
   for (let batch = 0; batch < PURGE_MAX_BATCHES; batch++) {
     const res = await env.DB
-      .prepare(`SELECT id, r2_key, upload_id FROM clips WHERE expires_at <= ?1 LIMIT ${PURGE_BATCH_ROWS}`)
+      .prepare(`SELECT id, r2_key, upload_id FROM clips WHERE expires_at <= ?1 AND (format IS NULL OR status <> 'uploading') LIMIT ${PURGE_BATCH_ROWS}`)
       .bind(now)
       .all<ExpiredRow>();
     const selected = res.results ?? [];
     if (selected.length === 0) break;
 
-    const rows: ExpiredRow[] = [];
+    const claimedRows: ExpiredRow[] = [];
     for (let i = 0; i < selected.length; i += PURGE_ID_CHUNK) {
       const ids = selected.slice(i, i + PURGE_ID_CHUNK).map((r) => r.id);
       const claimed = await env.DB
         .prepare(
-          `UPDATE clips SET status = 'purging' WHERE id IN (${placeholders(ids.length)}) AND expires_at <= ?${ids.length + 1} RETURNING id, r2_key, upload_id, created_at`,
+          `UPDATE clips SET status = 'purging' WHERE id IN (${placeholders(ids.length)}) AND expires_at <= ?${ids.length + 1} RETURNING id, r2_key, upload_id, created_at, format`,
         )
         .bind(...ids, now)
         .all<ExpiredRow>();
-      rows.push(...(claimed.results ?? []));
+      claimedRows.push(...(claimed.results ?? []));
     }
+
+    // HLS shares: their own cleanup (segment keys, tombstone, rows), while the
+    // run's budget of R2 calls lasts. The others stay claimed and expired.
+    for (const row of claimedRows.filter((r) => r.format === "hls")) {
+      if (hls.calls <= 0) break;
+      const state = await keyStateOf(env, row.id);
+      if (!spend(hls, deleteCalls(r2KeysFor({ id: row.id, ...state }).length))) continue;
+      if (await removeHlsShare(env, row.id, now, state)) purged++;
+    }
+    const rows = claimedRows.filter((r) => r.format !== "hls");
 
     // Already completed, aborted or unknown to R2 counts as aborted; the key
     // delete below removes any object a completed upload left behind. A row
@@ -118,30 +152,57 @@ export async function purgeExpiredClips(env: Env): Promise<number> {
 
 export const TOMBSTONE_BATCH_ROWS = 500;
 
+interface TombstoneRow {
+  r2_key: string;
+  upload_id: string | null;
+  created_at: number;
+  key_count?: number | null;
+}
+
 /**
  * Retry the R2 deletes (and aborts) that an account delete, a discard or a
  * rollback could not finish. Tombstone rows stay counted in the storage budget
  * until their objects are really gone: on an R2 failure they are kept for the
  * next hourly run, and so is one whose upload abort really failed.
+ *
+ * A prefix tombstone (one run of an HLS share, vods/<id>/<k>/ with key_count
+ * set) deletes that run's segment keys 0..key_count-1 by name; it, and any
+ * tombstone with a not_before, waits until that time. HLS key deletes stay
+ * inside the cron run's budget of R2 calls; one that doesn't fit waits for the
+ * next run.
  */
-export async function purgeTombstones(env: Env): Promise<number> {
+export async function purgeTombstones(env: Env, hls: HlsBudget = hlsRunBudget()): Promise<number> {
   const now = Math.floor(Date.now() / 1000);
   const res = await env.DB
-    .prepare(`SELECT r2_key, upload_id, created_at FROM storage_tombstones LIMIT ${TOMBSTONE_BATCH_ROWS}`)
-    .all<{ r2_key: string; upload_id: string | null; created_at: number }>();
-  const rows = res.results ?? [];
-  if (rows.length === 0) return 0;
+    .prepare(`SELECT r2_key, upload_id, created_at, key_count FROM storage_tombstones WHERE not_before IS NULL OR not_before <= ?1 LIMIT ${TOMBSTONE_BATCH_ROWS}`)
+    .bind(now)
+    .all<TombstoneRow>();
+  const all = res.results ?? [];
+  if (all.length === 0) return 0;
 
-  const done: typeof rows = [];
+  const done: TombstoneRow[] = [];
+  for (const row of all.filter((r) => r.key_count !== null && r.key_count !== undefined)) {
+    const prefix = parseHlsRunPrefix(row.r2_key);
+    const count = Math.max(0, Number(row.key_count) || 0);
+    if (!prefix) {
+      done.push(row); // not a key this code ever writes: nothing to delete
+      continue;
+    }
+    if (!spend(hls, deleteCalls(count))) continue;
+    if (await deleteKeys(env, segmentKeys(prefix.id, prefix.run, 0, count))) done.push(row);
+  }
+
+  const rows = all.filter((r) => r.key_count === null || r.key_count === undefined);
   for (const row of rows) {
     if (!row.upload_id || (await abortedOrGivenUp(env, row.r2_key, row.upload_id, row.created_at, now))) done.push(row);
   }
 
   try {
-    await env.CLIPS.delete(rows.map((r) => r.r2_key));
+    if (rows.length > 0) await env.CLIPS.delete(rows.map((r) => r.r2_key));
   } catch (err) {
     console.error(JSON.stringify({ scope: "cron.tombstones.r2", error: (err as Error).message }));
-    return 0;
+    // Single-object tombstones stay for the next run; prefix ones already done can go.
+    done.splice(0, done.length, ...done.filter((r) => r.key_count !== null && r.key_count !== undefined));
   }
 
   for (let i = 0; i < done.length; i += PURGE_ID_CHUNK) {

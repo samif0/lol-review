@@ -38,7 +38,7 @@ describe("GET /vod-meta/:id", () => {
     expect(before.headers.get("Access-Control-Allow-Origin")).toBe("https://revu.lol");
     expect(await body(before)).toEqual({
       id: s.id, kind: "vod", content_type: "video/mp4", quality: "1080p", duration_s: 1800, size_bytes: 500,
-      created_at: row.created_at, expires_at: row.expires_at, serving: true, play_limited: false, meta: null,
+      created_at: row.created_at, expires_at: row.expires_at, serving: true, play_limited: false, meta: null, now: expect.any(Number),
     });
 
     await vodMarkers(s.env, OWNER, s.id, MARKERS_DOC);
@@ -98,7 +98,7 @@ describe("GET /vod-meta/:id while the share is still uploading", () => {
     expect(meta).toEqual({
       id: s.id, kind: "vod", status: "uploading", quality: "1080p60", duration_s: 1834, created_at: row.created_at,
       expires_at: row.created_at + VOD_TTL_SECONDS, serving: true, progress: { parts: 0, part_count: 3 }, stalled: false,
-      meta: null,
+      meta: null, now: expect.any(Number),
     });
     for (const key of ["user_id", "upload_id", "r2_key", "size_bytes", "part_size", "part_puts", "last_activity_at", "play_day",
       "play_count", "content_type", "title", "champion"]) {

@@ -29,6 +29,7 @@ import {
 import { handleDeleteClip, handleListMyClips, SLUG_REGEX } from "./clips";
 import { Env } from "./types";
 import { abortUpload } from "./upload-cleanup";
+import { deleteKeys, r2KeysFor } from "./hls-objects";
 import {
   gateWebRequest,
   hasWebCookie,
@@ -194,7 +195,8 @@ async function handleAccountDelete(request: Request, env: Env): Promise<Response
   // R2 first: cascades never reach object storage. The D1 rows go regardless;
   // an object whose delete failed is kept as a storage tombstone (counted in
   // the storage budget, retried by the hourly purge) instead of orphaned.
-  const objects = await listClipObjectsForUser(env.DB, user.id);
+  const all = await listClipObjectsForUser(env.DB, user.id);
+  const objects = all.filter((o) => o.format !== "hls");
   // An upload that is already completed, aborted or unknown counts as aborted.
   // One whose abort failed, or past the abort cap, keeps its parts counted as a
   // tombstone with its upload id, and the hourly purge aborts it.
@@ -213,8 +215,37 @@ async function handleAccountDelete(request: Request, env: Env): Promise<Response
       console.error(JSON.stringify({ scope: "web.account_delete.r2", user_id: user.id, error: (err as Error).message }));
     }
   }
+  const hlsFailedIds = all.some((o) => o.format === "hls") ? await deleteHlsSharesOf(env, user.id) : [];
 
-  await deleteAccountRows(env.DB, user.id, user.email, failedIds);
-  console.log(JSON.stringify({ scope: "web.account_delete", user_id: user.id, clips: objects.length, tombstones: failedIds.length }));
+  await deleteAccountRows(env.DB, user.id, user.email, failedIds, hlsFailedIds);
+  console.log(JSON.stringify({ scope: "web.account_delete", user_id: user.id, clips: all.length, tombstones: failedIds.length + hlsFailedIds.length }));
   return webJson({ ok: true }, 200, request, env, { setCookie: WEB_CLEAR_COOKIE });
+}
+
+/**
+ * The account's HLS shares, through the same steps as every HLS delete path:
+ * claim them all (no segment PUT can claim after this), then delete each
+ * share's keys 0..max_seq. Returns the ids whose keys could not all be
+ * deleted; deleteAccountRows keeps every byte of those counted in their prefix
+ * tombstones, and writes the delayed prefix tombstone for the others.
+ */
+async function deleteHlsSharesOf(env: Env, userId: number): Promise<string[]> {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB
+    .prepare("UPDATE clips SET status = 'purging', expires_at = ?2 WHERE user_id = ?1 AND format = 'hls'")
+    .bind(userId, now)
+    .run();
+  const [shares, runs] = await env.DB.batch([
+    env.DB.prepare("SELECT h.clip_id AS id, h.max_seq FROM vod_hls h JOIN clips c ON c.id = h.clip_id WHERE c.user_id = ?1 AND c.format = 'hls'").bind(userId),
+    env.DB
+      .prepare("SELECT r.clip_id AS id, r.k, r.from_seq FROM vod_hls_runs r JOIN clips c ON c.id = r.clip_id WHERE c.user_id = ?1 AND c.format = 'hls' ORDER BY r.clip_id, r.k")
+      .bind(userId),
+  ]);
+  const runRows = (runs as D1Result<{ id: string; k: number; from_seq: number }>).results ?? [];
+  const failed: string[] = [];
+  for (const row of (shares as D1Result<{ id: string; max_seq: number }>).results ?? []) {
+    const own = runRows.filter((r) => r.id === row.id).map((r) => ({ k: Number(r.k), from: Number(r.from_seq) }));
+    if (Number(row.max_seq) >= 0 && !(await deleteKeys(env, r2KeysFor({ id: row.id, max_seq: Number(row.max_seq), runs: own })))) failed.push(row.id);
+  }
+  return failed;
 }

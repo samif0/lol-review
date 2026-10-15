@@ -8,7 +8,11 @@
  * D1 behaviors modelled: numbered parameters (?1..?N, rewritten to named ones
  * because node:sqlite treats "?N" as named), undefined is not bindable, foreign
  * keys are enforced, at most 100 bound parameters, first() / all() / run(), and
- * batch() is one transaction.
+ * batch() is one transaction whose results carry the rows of every statement
+ * that returns rows (a SELECT, or a write with RETURNING), like D1. A BLOB
+ * comes back as an array of byte numbers, as D1 returns it (a typed array is
+ * bound as a BLOB, as D1 binds it). The proxy's own rule against recursive
+ * CTEs (untested on D1) is enforced too: such a statement throws.
  */
 
 import { createRequire } from "node:module";
@@ -58,7 +62,16 @@ function params(names: Set<number>, args: unknown[]): Record<string, unknown> {
   return out;
 }
 
-const plain = <T>(row: unknown): T => (row ? ({ ...(row as object) } as T) : (null as T));
+/** A row as D1 hands it over: a plain object, BLOBs as arrays of byte numbers. */
+const plain = <T>(row: unknown): T => {
+  if (!row) return null as T;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row as object)) out[k] = v instanceof Uint8Array ? Array.from(v) : v;
+  return out as T;
+};
+
+const IS_SELECT = (sql: string) => /^\s*SELECT\b/i.test(sql);
+const RETURNS_ROWS = (sql: string) => IS_SELECT(sql) || /\bRETURNING\b/i.test(sql);
 
 export function makeSqliteD1(): SqliteD1 {
   const { DatabaseSync } = require("node:sqlite");
@@ -89,6 +102,7 @@ export function makeSqliteD1(): SqliteD1 {
   }
 
   function prepare(sql: string) {
+    if (/\bWITH\s+RECURSIVE\b/i.test(sql)) throw new Error("sqlite D1: recursive CTEs are not used on D1 (plan 9)");
     const { text, names } = named(sql);
     let args: unknown[] = [];
     const stmt = () => raw.prepare(text);
@@ -97,7 +111,8 @@ export function makeSqliteD1(): SqliteD1 {
       bind(...a: unknown[]) {
         if (a.some((v) => v === undefined)) throw new TypeError("D1_TYPE_ERROR: undefined is not a bindable value");
         if (a.length > 100) throw new Error("D1: too many SQL variables");
-        args = a;
+        // D1 binds an ArrayBuffer or a typed array as a BLOB; node:sqlite wants a Uint8Array.
+        args = a.map((v) => (v instanceof ArrayBuffer ? new Uint8Array(v) : ArrayBuffer.isView(v) ? new Uint8Array(v.buffer, v.byteOffset, v.byteLength) : v));
         return api;
       },
       async first<T>(): Promise<T | null> {
@@ -124,6 +139,12 @@ export function makeSqliteD1(): SqliteD1 {
       _runSync() {
         sqlLog.push(sql);
         maybeFail(sql);
+        if (RETURNS_ROWS(sql)) {
+          const st = stmt();
+          const rows = st.all(params(names, args)) as unknown[];
+          const changes = IS_SELECT(sql) ? 0 : Number(raw.prepare("SELECT changes() AS n").get().n);
+          return { success: true, results: rows.map((r) => plain(r)), meta: { changes } };
+        }
         const r = stmt().run(params(names, args));
         return { success: true, results: [], meta: { changes: Number(r.changes) } };
       },
