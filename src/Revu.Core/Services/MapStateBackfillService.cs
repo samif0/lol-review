@@ -36,15 +36,19 @@ public sealed class MapStateBackfillService
     private readonly IConfigService _config;
     private readonly ILogger<MapStateBackfillService> _logger;
     private readonly IPatternEvidenceMaterializer? _materializer;
+    private readonly TimeProvider? _processingTime;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <param name="processingTime">Clock for the death-recap recovery's detector deadlines only
+    /// (the system clock unless a test passes its own); the Riot throttle always waits in real time.</param>
     public MapStateBackfillService(
         IGameRepository games,
         IGameEventsRepository events,
         IRiotMatchClient matchClient,
         IConfigService config,
         ILogger<MapStateBackfillService> logger,
-        IPatternEvidenceMaterializer? materializer = null)
+        IPatternEvidenceMaterializer? materializer = null,
+        TimeProvider? processingTime = null)
     {
         _games = games;
         _events = events;
@@ -52,6 +56,7 @@ public sealed class MapStateBackfillService
         _config = config;
         _logger = logger;
         _materializer = materializer;
+        _processingTime = processingTime;
     }
 
     /// <param name="budget">Soft stop: once cancelled, no new game starts and the rest are
@@ -145,7 +150,7 @@ public sealed class MapStateBackfillService
                 if (liveReport?.Subscriptions is { } subscriptions)
                 {
                     var recovery = await EventProcessing.DeathRecapRecovery.ProcessAsync(
-                        matchDoc, timelineDoc, puuid, subscriptions).ConfigureAwait(false);
+                        matchDoc, timelineDoc, puuid, subscriptions, _processingTime).ConfigureAwait(false);
                     await _events.SaveProcessingReportAsync(gameId, liveReport with { Recovery = recovery }).ConfigureAwait(false);
                     _logger.LogInformation("Event recovery for {GameId}: {Count} shadow candidates, {Coverage}",
                         gameId, recovery.Events.Count, string.Join("; ", recovery.Coverage.Select(c => $"{c.Status}: {c.Reason}")));

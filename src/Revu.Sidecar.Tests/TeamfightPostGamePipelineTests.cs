@@ -52,7 +52,8 @@ public sealed class TeamfightPostGamePipelineTests
         death["victimDamageReceived"] = System.Text.Json.Nodes.JsonNode.Parse("""[{"participantId":1,"name":"Ahri","type":"OTHER","magicDamage":40,"physicalDamage":0,"trueDamage":0}]""");
         var client = new StubMatchClient { Match = Parse(match.ToJsonString()), Timeline = Parse(timeline.ToJsonString()) };
         var config = new TestConfigService(new AppConfig { RiotRegion = "na1", RiotPuuid = SelfPuuid });
-        var service = new MapStateBackfillService(scope.Games, events, client, config, NullLogger<MapStateBackfillService>.Instance);
+        var service = new MapStateBackfillService(scope.Games, events, client, config, NullLogger<MapStateBackfillService>.Instance,
+            processingTime: new StoppedClock());
         for (int run = 0; run < 2; run++)
         {
             // The second run is the re-capture path: GameService clears map_state_v, which

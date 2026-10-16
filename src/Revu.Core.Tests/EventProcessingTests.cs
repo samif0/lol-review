@@ -9,7 +9,7 @@ public sealed class EventProcessingTests
 {
     private sealed record LowHealth(double Fraction) : IEventPayload;
     private sealed record HealthFact(double Fraction) : ISharedFact;
-    private sealed class Detector(string id = "health-check", bool fail = false, int delayMs = 0, bool shared = false) : IEventDetector
+    private sealed class Detector(string id = "health-check", bool fail = false, Action? work = null, bool shared = false) : IEventDetector
     {
         public int Calls;
         public DetectorDefinition Definition => new(id, 1,
@@ -19,7 +19,7 @@ public sealed class EventProcessingTests
         {
             Interlocked.Increment(ref Calls);
             if (fail) throw new InvalidOperationException();
-            if (delayMs > 0) Thread.Sleep(delayMs);
+            work?.Invoke();
             var hp = (PlayerHealth)observation.Payload;
             if (shared) Assert.Equal(.1, history.Fact<HealthFact>("health-fraction", 1).Fraction);
             if (hp.Current / hp.Maximum >= .2) return [];
@@ -28,7 +28,7 @@ public sealed class EventProcessingTests
         }
         public IEnumerable<EventCandidate> Complete(ObservationWindow history) => [];
     }
-    private sealed class SlowEnumerableDetector : IEventDetector
+    private sealed class SlowEnumerableDetector(ManualClock clock) : IEventDetector
     {
         private readonly Detector _inner = new();
         public readonly TaskCompletionSource Finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -39,19 +39,21 @@ public sealed class EventProcessingTests
             {
                 // Callback return alone is insufficient: deferred enumeration is
                 // detector work too, and can still produce candidates after timeout.
-                Thread.Sleep(200);
+                clock.Advance(TimeSpan.FromMilliseconds(200));
                 foreach (var candidate in _inner.Observe(observation, history)) yield return candidate;
             }
             finally { Finished.TrySetResult(); }
         }
         public IEnumerable<EventCandidate> Complete(ObservationWindow history) => [];
     }
+    // Every session runs on a clock only the test moves: a slow runner can never make a
+    // callback or finalization deadline pass. Tests that need a late detector move it.
     private static ProcessingSession Session(IEnumerable<IEventDetector> detectors,
         IEnumerable<ObjectiveSubscription>? subscriptions = null, bool shadow = false, int capacity = 256,
-        SharedFactRegistry? facts = null) =>
+        SharedFactRegistry? facts = null, ManualClock? clock = null) =>
         new(new PayloadRegistry().Observation<PlayerHealth>("hp", 1).Event<LowHealth>("LOW_HEALTH"),
             [new("test", 1, new Dictionary<string, TimeSpan> { ["hp"] = TimeSpan.FromSeconds(1) })], detectors,
-            subscriptions ?? [new(1, "LOW_HEALTH")], shadow, capacity, facts);
+            subscriptions ?? [new(1, "LOW_HEALTH")], shadow, capacity, facts, clock ?? new ManualClock());
     private static Observation Hp(int seconds = 1, int version = 1, bool complete = true) =>
         new($"hp:{seconds}", "test", 1, "hp", version, "self", TimeSpan.FromSeconds(seconds),
             DateTimeOffset.UtcNow, TimeSpan.Zero, complete, new PlayerHealth(10, 100));
@@ -183,11 +185,15 @@ public sealed class EventProcessingTests
     [Fact]
     public async Task SlowDetector_IsDisabledAndLateOutputCannotEscape()
     {
-        var session = Session([new Detector(delayMs: 200)]);
+        // The callback spends 200 ms of the session's clock against its 50 ms budget.
+        var clock = new ManualClock();
+        var session = Session([new Detector(work: () => clock.Advance(TimeSpan.FromMilliseconds(200)))], clock: clock);
         session.Publish(Hp());
         var report = await session.CompleteAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(report.Events);
-        Assert.Equal("disabled", Assert.Single(report.Coverage).Status);
+        var coverage = Assert.Single(report.Coverage);
+        Assert.Equal("disabled", coverage.Status);
+        Assert.Equal("Callback deadline exceeded", coverage.Reason);
         Assert.Same(report, await session.CompleteAsync());
         Assert.False(session.Publish(Hp(2)));
     }
@@ -195,8 +201,9 @@ public sealed class EventProcessingTests
     [Fact]
     public async Task SlowCandidateEnumeration_IsDisabledAndCannotChangeCompletedReport()
     {
-        var detector = new SlowEnumerableDetector();
-        var session = Session([detector]);
+        var clock = new ManualClock();
+        var detector = new SlowEnumerableDetector(clock);
+        var session = Session([detector], clock: clock);
         session.Publish(Hp());
         var report = await session.CompleteAsync(TimeSpan.FromSeconds(5));
         await detector.Finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -209,8 +216,12 @@ public sealed class EventProcessingTests
     [Fact]
     public async Task QueueOverflow_FailsClosed()
     {
-        var session = Session([new Detector(delayMs: 20)], capacity: 1);
-        for (var i = 0; i < 1000; i++) session.Publish(Hp(i));
+        // A callback blocks the worker until every observation has been offered, so the
+        // one-slot queue overflows however fast or slow the runner is.
+        using var release = new ManualResetEventSlim();
+        var session = Session([new Detector(work: release.Wait)], capacity: 1);
+        try { for (var i = 0; i < 1000; i++) session.Publish(Hp(i)); }
+        finally { release.Set(); }
         var report = await session.CompleteAsync();
         Assert.True(report.DroppedObservations > 0);
         Assert.Empty(report.Events);
