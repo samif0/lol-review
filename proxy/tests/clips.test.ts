@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
-import { MAX_ACTIVE_CLIPS_PER_USER, parseRange } from "../src/clips";
+import { MAX_ACTIVE_CLIPS_PER_USER, OG_IMAGE_VERSION, parseRange } from "../src/clips";
 import { CLIP_UPLOAD_PER_MINUTE_PER_USER, resetUserLimits } from "../src/user-limits";
 import { resetClipViews } from "../src/clip-views";
 import { clip, json, makeEnv, makeFakeDb, makeFakeR2, makeRequest, mp4Bytes, runScheduled, sha256Hex } from "./fakes";
@@ -559,6 +561,17 @@ describe("clip sharing", () => {
     expect(body).not.toMatch(/[–—]/);
     // Humans still get bounced to the watch page.
     expect(body).toContain("https://revu.lol/clip.html?id=Embed99");
+  });
+
+  it("names the current site/og-image.jpg in the preview image URL, so Discord fetches a new card", async () => {
+    // Discord caches a preview image by its URL, so the ?v= must change with the image.
+    const image = readFileSync(new URL("../../site/og-image.jpg", import.meta.url));
+    const version = createHash("sha256").update(image).digest("hex").slice(0, 12);
+    expect(OG_IMAGE_VERSION, "site/og-image.jpg changed: set OG_IMAGE_VERSION in src/clips.ts, then deploy the proxy").toBe(version);
+    const db = makeFakeDb([clip({ id: "Embed99" })]);
+    const body = await (await worker.fetch(makeRequest("https://proxy.example/Embed99"), env({ DB: db }))).text();
+    expect(body).toContain(`property="og:image" content="https://revu.lol/og-image.jpg?v=${version}"`);
+    expect(body).toContain(`name="twitter:image" content="https://revu.lol/og-image.jpg?v=${version}"`);
   });
 
   it("uses video/webm in og:video:type for a webm clip", async () => {

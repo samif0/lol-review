@@ -253,6 +253,16 @@ function escapeHtml(s: string): string {
 }
 
 /**
+ * The ?v= of the clip card's preview image: the first 12 hex digits of the
+ * SHA-256 of site/og-image.jpg, the same version the site deploy gives it
+ * (scripts/deploy-site.mjs). Discord caches a preview image by its URL and
+ * kept showing a card two redesigns old, so the URL changes with the image.
+ * A proxy test fails when the image changes: update this, then deploy the
+ * proxy after the site.
+ */
+export const OG_IMAGE_VERSION = "89971dd7215f";
+
+/**
  * Per-clip share page (server-rendered) so link unfurlers — Discord, Twitter,
  * Slack, etc. — get real Open Graph **video** tags and embed an inline player.
  * Crawlers don't run JS, so the static clip.html (which fills tags client-side)
@@ -274,6 +284,7 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
   const watchBase = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
   const videoUrl = `${publicBase}/clip-file/${id}`;
   const watchUrl = `${watchBase}/clip.html?id=${id}`;
+  const imageUrl = `${watchBase}/og-image.jpg?v=${OG_IMAGE_VERSION}`;
   const videoType = clip.content_type === "video/webm" ? "video/webm" : "video/mp4";
 
   const rawTitle = (clip.title || "").trim() || "League clip";
@@ -303,7 +314,7 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 <meta property="og:description" content="${desc}" />
 <meta property="og:type" content="video.other" />
 <meta property="og:url" content="${publicBase}/${id}" />
-<meta property="og:image" content="${watchBase}/og-image.jpg" />
+<meta property="og:image" content="${imageUrl}" />
 
 <meta property="og:video" content="${videoUrl}" />
 <meta property="og:video:secure_url" content="${videoUrl}" />
@@ -314,7 +325,7 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 <meta name="twitter:card" content="player" />
 <meta name="twitter:title" content="${title}" />
 <meta name="twitter:description" content="${desc}" />
-<meta name="twitter:image" content="${watchBase}/og-image.jpg" />
+<meta name="twitter:image" content="${imageUrl}" />
 <meta name="twitter:player" content="${watchUrl}" />
 <meta name="twitter:player:width" content="${w}" />
 <meta name="twitter:player:height" content="${h}" />

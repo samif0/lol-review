@@ -178,9 +178,35 @@ test('staged pages name the exact stylesheets and scripts they were staged with,
   assert.equal(await readFile(path.join(source, 'index.html'), 'utf8'), index, 'the source page is left as it was');
 });
 
-test('the staged production pages version every local stylesheet and script, and clip.html keeps its pinned inline script', async t => {
+test('staged pages name the exact preview image they were staged with, on revu.lol only', async t => {
+  const versions = new Map([['/og-image.jpg', 'cccccccccccc'], ['/vod.css', 'aaaaaaaaaaaa']]);
+  const page = ['<meta property="og:image" content="https://revu.lol/og-image.jpg" />',
+    '<meta name="twitter:image" content="https://revu.lol/og-image.jpg" />',
+    '<meta content="https://revu.lol/og-image.jpg" property="og:image" />',
+    '<meta property="og:image:width" content="1200" />', '<meta property="og:image" content="https://example.com/og-image.jpg" />',
+    '<meta property="og:image" content="https://revu.lol/missing.jpg" />', '<meta property="og:url" content="https://revu.lol/vod.css" />',
+    '<script>var tag = \'<meta property="og:image" content="https://revu.lol/og-image.jpg" />\';</script>'].join('\n');
+  assert.deepEqual(fingerprintHtml(page, versions).split('\n'), [
+    '<meta property="og:image" content="https://revu.lol/og-image.jpg?v=cccccccccccc" />',
+    '<meta name="twitter:image" content="https://revu.lol/og-image.jpg?v=cccccccccccc" />',
+    '<meta content="https://revu.lol/og-image.jpg?v=cccccccccccc" property="og:image" />',
+    '<meta property="og:image:width" content="1200" />', '<meta property="og:image" content="https://example.com/og-image.jpg" />',
+    '<meta property="og:image" content="https://revu.lol/missing.jpg" />', '<meta property="og:url" content="https://revu.lol/vod.css" />',
+    '<script>var tag = \'<meta property="og:image" content="https://revu.lol/og-image.jpg" />\';</script>']);
+
+  const root = await scratch(t), source = path.join(root, 'site'), destination = path.join(root, 'stage');
+  await file(source, '_headers');
+  await file(source, 'og-image.jpg', 'jpeg bytes');
+  await file(source, 'index.html', '<meta property="og:image" content="https://revu.lol/og-image.jpg" />\n');
+  await stageSite(source, destination);
+  assert.equal(await readFile(path.join(destination, 'index.html'), 'utf8'),
+    `<meta property="og:image" content="https://revu.lol/og-image.jpg?v=${contentVersion('jpeg bytes')}" />\n`);
+});
+
+test('the staged production pages version every local stylesheet, script and preview image, and clip.html keeps its pinned inline script', async t => {
   const root = await scratch(t), destination = path.join(root, 'stage');
   const published = await stageSite(siteRoot, destination);
+  let previews = 0;
   for (const page of published.filter(name => name.endsWith('.html'))) {
     const html = await readFile(path.join(destination, page), 'utf8');
     for (const tag of html.match(/<(?:link|script)\b[^>]*>/g) || []) {
@@ -189,7 +215,15 @@ test('the staged production pages version every local stylesheet and script, and
       assert.ok(local[3], `${page}: ${local[1]} has no version`);
       assert.equal(local[3], contentVersion(await readFile(path.join(destination, local[1].slice(1)))), `${page}: ${local[1]}`);
     }
+    for (const tag of html.match(/<meta\b[^>]*\s(?:property|name)="(?:og:image|twitter:image)"[^>]*>/g) || []) {
+      const image = /\scontent="https:\/\/revu\.lol(\/[^"?]+)(\?v=([0-9a-f]+))?"/.exec(tag);
+      assert.ok(image, `${page}: ${tag} names no revu.lol image`);
+      assert.ok(image[3], `${page}: ${image[1]} has no version`);
+      assert.equal(image[3], contentVersion(await readFile(path.join(destination, image[1].slice(1)))), `${page}: ${image[1]}`);
+      previews++;
+    }
   }
+  assert.ok(previews > 0, 'no page names a preview image');
   const staged = (await readFile(path.join(destination, 'clip.html'), 'utf8')).match(/<script>([\s\S]*?)<\/script>/)[1];
   const source = (await readFile(path.join(siteRoot, 'clip.html'), 'utf8')).match(/<script>([\s\S]*?)<\/script>/)[1];
   assert.equal(staged, source, 'the hashed inline script is byte for byte the same');
