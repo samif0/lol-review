@@ -137,7 +137,7 @@ const definitions = {
   // The shell reports the colors it shows; the host paints the window and remembers them
   // for the next launch's splash. The host validates {mode, background, text, pref?}.
   set_window_appearance: native({ payload: 'object' }),
-  pick_folder: native(),
+  pick_folder: native({ defaultPath: 'string?' }),
   save_export_file: native({"fileName":"string","markdown":"string"}),
   copy_text_to_clipboard: native({ text: 'string' }),
   get_microphone_access: native(),

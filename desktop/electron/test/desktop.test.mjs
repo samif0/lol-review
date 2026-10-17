@@ -58,8 +58,18 @@ test('native commands retain export cancellation and version behavior without in
     dialog: { showSaveDialog: async () => ({ canceled: true }), showOpenDialog: async () => ({ canceled: true }) } });
   assert.equal(await native('app_version'), '3.10.1');
   assert.equal(await native('pick_folder'), null);
+  assert.equal(await native('pick_folder', {}), null);
   assert.deepEqual(await native('save_export_file', { fileName: 'review.md', markdown: 'draft' }), { ok: true, saved: false });
   await assert.rejects(native('apply_update'), /isolated mode/);
+});
+
+test('the folder picker starts in the folder in use and ignores a relative start path', async () => {
+  const seen = [];
+  const native = nativeCommands({ dialog: { showOpenDialog: async (_w, options) => { seen.push(options); return { canceled: false, filePaths: ['E:\\Clips'] }; } } });
+  assert.equal(await native('pick_folder', { defaultPath: 'C:\\Users\\me\\AppData\\Local\\Revu\\clips' }), 'E:\\Clips');
+  assert.equal(seen[0].defaultPath, 'C:\\Users\\me\\AppData\\Local\\Revu\\clips');
+  await native('pick_folder', { defaultPath: 'relative\\clips' });
+  assert.equal(seen[1].defaultPath, undefined);
 });
 
 test('the export folder action opens only the fixed Documents\\Revu folder the sidecar saves into', async () => {
