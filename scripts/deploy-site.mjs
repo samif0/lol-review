@@ -64,16 +64,25 @@ async function listFiles(root, relative = '') {
 // themselves are checked on every load, so after a deploy a viewer could meet a new page with
 // the CSS or JS it replaced. Each staged page therefore asks for the exact files it was staged
 // with: href="/vod.css" becomes href="/vod.css?v=<12 hex of its SHA-256>". Only <link> and
-// <script> tags are touched, never inline script text (clip.html's is pinned by hash in
-// _headers), and only root-relative .css and .js files that are staged themselves.
+// <script> tags (and the preview image tags below) are touched, never inline script text
+// (clip.html's is pinned by hash in _headers), and only root-relative .css and .js files
+// that are staged themselves.
 const assetTag = /<(?:link|script)\b[^>]*>/gi;
 const assetAttribute = /(\s(?:href|src)=")(\/[A-Za-z0-9._/-]+\.(?:css|js))(")/;
 const inlineScript = /<script\b(?![^>]*\ssrc=)[^>]*>[\s\S]*?<\/script>/gi;
+// Link unfurlers cache a preview image by its URL far longer than any header asks: Discord
+// kept showing a card two redesigns old. So an og:image or twitter:image tag that names a
+// staged image on https://revu.lol gets a ?v= too. Shared clip cards, which the proxy
+// renders, name the same version (OG_IMAGE_VERSION in proxy/src/clips.ts).
+const previewTag = /<meta\b[^>]*\s(?:property|name)="(?:og:image|twitter:image)"[^>]*>/gi;
+const previewAttribute = /(\scontent="https:\/\/revu\.lol)(\/[A-Za-z0-9._/-]+\.(?:jpe?g|png|webp|gif))(")/;
 
 /** The tags of `html` that name a file in `versions` (path -> version), with ?v=<version> added. */
 export function fingerprintHtml(html, versions) {
-  const tags = text => text.replace(assetTag, tag => tag.replace(assetAttribute, (match, before, url, after) =>
-    (versions.has(url) ? `${before}${url}?v=${versions.get(url)}${after}` : match)));
+  const version = (match, before, url, after) =>
+    (versions.has(url) ? `${before}${url}?v=${versions.get(url)}${after}` : match);
+  const tags = text => text.replace(assetTag, tag => tag.replace(assetAttribute, version))
+    .replace(previewTag, tag => tag.replace(previewAttribute, version));
   // The text of an inline script is never touched, whatever it says.
   let out = '', last = 0;
   for (const block of html.matchAll(inlineScript)) {
@@ -108,7 +117,7 @@ export async function stageSite(source = siteRoot, destination = stageRoot) {
     await copyFile(from, to);
   }
   const versions = new Map();
-  for (const file of published.filter(name => /\.(?:css|js)$/.test(name))) {
+  for (const file of published.filter(name => /\.(?:css|js|jpe?g|png|webp|gif)$/.test(name))) {
     versions.set(`/${file}`, contentVersion(await readFile(path.join(destination, file))));
   }
   for (const page of published.filter(name => name.endsWith('.html'))) {

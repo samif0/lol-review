@@ -100,7 +100,9 @@ every page preloads `geist.woff2`. The CSP's `font-src 'self'` covers them.
 - `shot-*.webp` (1600x1000) and `og-image.jpg` (1200x630): Neutral dark
   screenshots of the desktop app's sample data, made by
   `scripts/capture-site-shots.mjs` (see Screenshots). `og-image.jpg` is also
-  the image on shared clip cards (`proxy/src/clips.ts`)
+  the image on shared clip cards (`proxy/src/clips.ts`). The deploy names it
+  as `og-image.jpg?v=<content hash>`, because Discord caches a preview image
+  by its URL
 
 ### CSS
 
@@ -240,7 +242,10 @@ its text stays readable at the size the landing shows it. Outside the desktop ho
 `desktop/ui/sample-*.json`, so no database or personal data is involved;
 the capture still stops before writing a shot if a Riot name, Riot ID or
 email address renders. The clock is fixed, so reruns are reproducible.
-Look at every image before committing it.
+Look at every image before committing it. A new `og-image.jpg` also needs
+`OG_IMAGE_VERSION` in `proxy/src/clips.ts` (a proxy test prints the value)
+and a proxy deploy after the site deploy, or shared clip cards keep the old
+image.
 
 ## Tests
 
