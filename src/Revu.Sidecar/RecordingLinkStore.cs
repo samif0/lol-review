@@ -62,6 +62,36 @@ public sealed class RecordingLinkStore(IDbConnectionFactory factory)
         transaction.Commit();
         return changed;
     }
+
+    /// <summary>Removes the VOD links to files inside <paramref name="directory"/> that no
+    /// longer exist (a storage-limit prune deleted them). Returns the unlinked games.</summary>
+    public async Task<IReadOnlyList<long>> UnlinkMissingUnderAsync(string directory)
+    {
+        var prefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+        using var conn = factory.CreateConnection();
+        using var transaction = conn.BeginTransaction();
+        using var command = conn.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT game_id, file_path FROM vod_files";
+        var gone = new List<(long GameId, string Path)>();
+        using (var reader = await command.ExecuteReaderAsync())
+            while (await reader.ReadAsync())
+            {
+                var path = reader.GetString(1);
+                if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && !File.Exists(path))
+                    gone.Add((reader.GetInt64(0), path));
+            }
+        command.CommandText = "DELETE FROM vod_files WHERE game_id = @game AND file_path = @path COLLATE NOCASE";
+        var game = command.Parameters.Add("@game", Microsoft.Data.Sqlite.SqliteType.Integer);
+        var file = command.Parameters.Add("@path", Microsoft.Data.Sqlite.SqliteType.Text);
+        foreach (var (gameId, path) in gone)
+        {
+            game.Value = gameId; file.Value = path;
+            await command.ExecuteNonQueryAsync();
+        }
+        transaction.Commit();
+        return gone.Select(g => g.GameId).Distinct().ToList();
+    }
 }
 
 public sealed class RecordingConflictException(string message) : Exception(message);

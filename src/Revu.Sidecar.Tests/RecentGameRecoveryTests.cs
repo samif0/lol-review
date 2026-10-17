@@ -13,37 +13,29 @@ public sealed class RecentGameRecoveryTests
     private static readonly DateTime Start = new(2026, 9, 11, 17, 25, 0, DateTimeKind.Local);
 
     [Fact]
-    public async Task RecoversTrustedRankedHistoryThenLinksVideoWithoutReimportingExistingDismissedOrCasualGames()
+    public async Task RecoversTrustedRankedHistoryWithoutReimportingExistingDismissedOrCasualGames()
     {
         using var f = await Fixture.CreateAsync();
         await f.Database.SeedGameAsync(1001, champion: "Lux");
         await f.Decisions.MarkDismissedAsync([1002]);
         f.Lcu.Matches = [Match(1001), Match(1002), Match(1003, queue: 450), Match(1004, duration: 120), Match(1005)];
-        var file = f.Video();
 
         var result = await f.Service.RecoverAsync();
 
         Assert.True(result.Ok, result.Message);
         Assert.Equal(1, result.Recovered);
-        Assert.Equal(1, result.Matched);
-        Assert.Equal(1, result.RecordingCount);
         Assert.Equal(1, f.Backups);
         Assert.Equal("Lux", (await f.Database.Games.GetAsync(1001))!.ChampionName);
         Assert.Null(await f.Database.Games.GetAsync(1002));
         Assert.Null(await f.Database.Games.GetAsync(1003));
         Assert.Null(await f.Database.Games.GetAsync(1004));
         Assert.Equal("Ahri", (await f.Database.Games.GetAsync(1005))!.ChampionName);
-        Assert.Equal(file, (await f.Database.Vod.GetVodAsync(1005))!.FilePath);
         Assert.Equal(5, (await f.Database.SessionLog.GetEntryAsync(1005))!.MentalRating);
-        Assert.Contains(f.Events, e => e.Type == "vodLinked" && e.Payload.GetProperty("gameId").GetInt64() == 1005);
         Assert.Equal(1005, Assert.Single(f.Events, e => e.Type == "gamesRecovered").Payload.GetProperty("gameIds")[0].GetInt64());
-        Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(file));
 
         var repeated = await f.Service.RecoverAsync();
         Assert.True(repeated.Ok);
         Assert.Equal(0, repeated.Recovered);
-        Assert.Equal(0, repeated.Matched);
-        Assert.Single(await f.Database.Vod.GetAllVodsAsync());
         Assert.Single(f.Events, e => e.Type == "gamesRecovered");
     }
 
@@ -160,7 +152,6 @@ public sealed class RecentGameRecoveryTests
         Assert.Equal(1, results.Sum(r => r.Recovered));
         Assert.Equal(1, f.Backups);
         Assert.Single(f.Events, e => e.Type == "gamesRecovered");
-        Assert.Contains("Connect an Ascent", results[0].Message);
     }
 
     [Fact]
@@ -213,8 +204,8 @@ public sealed class RecentGameRecoveryTests
     [Fact]
     public void ResultContractAndIsolatedHostPolicyStayNarrow()
     {
-        var value = JsonSerializer.SerializeToElement(new RecentGameRecoveryResult(true, "recovered", 2, 1, 3), SidecarJson.CreateOptions());
-        Assert.Equal(new[] { "ok", "message", "recovered", "matched", "recordingCount" }, value.EnumerateObject().Select(p => p.Name));
+        var value = JsonSerializer.SerializeToElement(new RecentGameRecoveryResult(true, "recovered", 2), SidecarJson.CreateOptions());
+        Assert.Equal(new[] { "ok", "message", "recovered" }, value.EnumerateObject().Select(p => p.Name));
         Assert.False(IsolatedHostPolicy.Allows("POST", "/api/settings/recover-games"));
     }
 
@@ -249,17 +240,13 @@ public sealed class RecentGameRecoveryTests
             var lifecycle = new GameLifecycleWorkflowService(gameService, Decisions, db.Objectives,
                 NullLogger<GameLifecycleWorkflowService>.Instance);
             var history = new MatchHistoryReconciliationService(Lcu, db.Games, Decisions, NullLogger<MatchHistoryReconciliationService>.Instance);
-            var registrations = new RecordingRegistrationService(Path.Combine(Root, "Native"),
-                new RecordingLinkStore(db.ConnectionFactory), Backup, NullLogger<RecordingRegistrationService>.Instance);
             // The sidecar saves through the game-flow coordinator (MissedGamesFlowTests covers
             // that path); here the lifecycle's own save stands in for it.
             Service = new(Lcu, history, async (candidate, ct) => SaveGame is { } save
                     ? await save(candidate, ct)
                     : (await lifecycle.ReconcileMissedGamesAsync(new([candidate], []), ct)).IngestedCount > 0
                         ? RecoveredGameSave.Saved : RecoveredGameSave.NotSaved,
-                db.Games, db.Config,
-                new VodService(db.Games, db.Vod, db.Config, NullLogger<VodService>.Instance), registrations, Work,
-                Backup, (type, payload) => Events.Add((type, JsonSerializer.SerializeToElement(payload))), NullLogger<RecentGameRecovery>.Instance);
+                db.Games, Work, Backup, (type, payload) => Events.Add((type, JsonSerializer.SerializeToElement(payload))), NullLogger<RecentGameRecovery>.Instance);
         }
 
         public static async Task<Fixture> CreateAsync()
@@ -270,16 +257,6 @@ public sealed class RecentGameRecoveryTests
         }
 
         private async Task Backup() { Backups++; if (BeforeBackup is not null) await BeforeBackup(); }
-        public string Video()
-        {
-            var folder = Path.Combine(Root, "Ascent");
-            Directory.CreateDirectory(folder);
-            Database.Config.Current.AscentFolder = folder;
-            var file = Path.Combine(folder, "09-11-2026-17-25.mp4");
-            File.WriteAllBytes(file, [1, 2, 3, 4]);
-            File.SetLastWriteTime(file, Start.AddMinutes(30));
-            return file;
-        }
         public void Dispose() => Database.Dispose();
     }
 

@@ -80,7 +80,7 @@ public sealed class ConfigSnapshotBuilder
             PrimaryRole: cfg.PrimaryRole ?? "",
             RiotSessionEmail: cfg.RiotSessionEmail ?? "",
             RiotAuthState: loggedIn ? "loggedIn" : "loggedOut",
-            AscentFolder: cfg.AscentFolder ?? "");
+            RecordingsMaxSizeGb: cfg.RecordingsMaxSizeGb);
     }
 }
 
@@ -118,5 +118,6 @@ public sealed record ConfigDto(
     string RiotSessionEmail,
     // "loggedIn" | "loggedOut" — drives which account sub-panel the page shows.
     string RiotAuthState,
-    string AscentFolder = "",
-    bool AutoMatchupNotesEnabled = false);
+    bool AutoMatchupNotesEnabled = false,
+    // Recordings folder size limit in GB; 0 = no limit.
+    int RecordingsMaxSizeGb = 0);

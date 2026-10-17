@@ -38,21 +38,18 @@ packages. Run `npm run recorder:setup` to build the native runtime. See
 [automatic recording](RECORDING.md) for setup and remaining live validation. Separate manual
 diagnostics remain in `../overwolf-probes/`.
 
-Ascent imports remain available alongside built-in recording. In
-**Settings → Recording → Ascent recordings**, choose Ascent's output
-folder, save it, and scan for existing videos. Keep Ascent recording your matches;
-Revu links finished recordings on startup and after games. Imports reference the
-original files, so keep them in that folder. Disconnecting the folder stops future
-imports and preserves already linked videos. Built-in recording shows **Beta**
-when the bundled provider is available and stays off until you enable it.
-The provider automatically detects NVIDIA NVENC, AMD AMF or Intel Quick Sync
-on its active recording graphics adapter and shows the selected encoder in Settings.
+Built-in recording shows **Beta** when the bundled provider is available and
+stays off until you enable it. The provider automatically detects NVIDIA NVENC,
+AMD AMF or Intel Quick Sync on its active recording graphics adapter and shows the
+selected encoder in Settings.
 
-If the scan finds recordings but the games are missing from Revu, keep the League
-client open and use **Recover missing matches** in Settings → Recording. This
-imports eligible unsaved ranked solo/duo games from the client's latest 10 matches,
-honors previous dismissals, and scans the connected Ascent folder again. Scanning
-alone only links recordings to saved games; it does not import match history.
+**Settings → Recording → Recording storage** caps the recordings folder. After a
+game ends, Revu deletes the oldest finished recordings until the folder fits; 0
+means no limit. A recording that is open, sharing or being sped up is skipped.
+
+If a game is missing from Revu, keep the League client open and use **Recover
+missing matches** in Settings → Recording. This imports eligible unsaved ranked
+solo/duo games from the client's latest 10 matches and honors previous dismissals.
 
 For a separate local build, run `npm run package:dir` and open
 `../../artifacts/desktop-package/win-unpacked/revu-desktop.exe`. Quit the installed

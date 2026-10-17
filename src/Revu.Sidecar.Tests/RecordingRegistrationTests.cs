@@ -133,55 +133,6 @@ public sealed class RecordingRegistrationTests
         Assert.True(RecordingTimeline.ReadTiming(request.FilePath, 2002)!.IsPartial);
     }
 
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    public async Task ExternalScanRespectsPersistedNativeReceiptEvenWhenNativeMediaIsTemporarilyUnavailable(bool mediaUnavailable, bool complete)
-    {
-        using var fixture = await Fixture.CreateAsync();
-        var request = fixture.CreateRecording(2002) with { Complete = complete };
-        Assert.Equal("pending-match", (await fixture.Service.RegisterAsync(request)).Status);
-        var start = new DateTime(2026, 9, 11, 17, 25, 0, DateTimeKind.Local);
-        await fixture.Database.SeedGameAsync(2002, timestamp: new DateTimeOffset(start).ToUnixTimeSeconds());
-        var external = Path.Combine(Path.GetDirectoryName(fixture.Root)!, "Ascent"); Directory.CreateDirectory(external);
-        var video = Path.Combine(external, "09-11-2026-17-25.mp4"); File.WriteAllBytes(video, new byte[32]);
-        File.SetLastWriteTime(video, start.AddMinutes(30));
-        fixture.Database.Config.Current.AscentFolder = external;
-        if (mediaUnavailable) File.WriteAllBytes(request.FilePath, []);
-        var scan = new VodService(fixture.Database.Games, fixture.Database.Vod, fixture.Database.Config, NullLogger<VodService>.Instance);
-        var result = await fixture.Service.RunExternalScanAsync(reserved => scan.ScanAsync(reservedGameIds: reserved));
-        Assert.Equal(0, result.Matched);
-        if (mediaUnavailable)
-        {
-            Assert.Null(await fixture.Database.Vod.GetVodAsync(2002));
-            Assert.Equal("pending-match", (await fixture.Service.GetAsync(request.SessionId))!.Status);
-            File.WriteAllBytes(request.FilePath, new byte[32]);
-            await fixture.Service.ReconcileAsync();
-        }
-        Assert.Equal(request.FilePath, (await fixture.Database.Vod.GetVodAsync(2002))!.FilePath);
-        Assert.True(File.Exists(video));
-    }
-
-    [Fact]
-    public async Task ExternalScanHoldsRegistrationBarrierUntilItsWritesFinish()
-    {
-        using var fixture = await Fixture.CreateAsync();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var external = fixture.Service.RunExternalScanAsync(async _ =>
-        {
-            entered.SetResult(); await release.Task; return new(true, 0, 0, "done");
-        });
-        await entered.Task;
-        var pending = fixture.Service.RegisterAsync(fixture.CreateRecording(1001));
-        Assert.False(pending.IsCompleted);
-        release.SetResult();
-        await external;
-        Assert.Equal("pending-match", (await pending).Status);
-    }
-
     [Fact]
     public async Task ExistingUserVodIsNeverOverwritten()
     {
@@ -385,6 +336,7 @@ public sealed class RecordingRegistrationTests
     [Theory]
     [InlineData("POST", "/api/recording/register")]
     [InlineData("POST", "/api/recording/relayout")]
+    [InlineData("POST", "/api/recording/prune")]
     [InlineData("GET", "/api/recording/session/01234567-89ab-cdef-0123-456789abcdef")]
     public void IsolatedHostDoesNotAcceptRecordingRegistrationOrInspectProductionReceipts(string method, string route) =>
         Assert.False(IsolatedHostPolicy.Allows(method, route));

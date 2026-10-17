@@ -19,17 +19,16 @@ import { toneFromHex } from './meaning-tone.mjs';
 // ── small DOM helpers ───────────────────────────────────────────────────────
 
 // Editable text/number/select inputs ↔ config field names (camelCase wire).
-const TEXT_FIELDS = ['ascentFolder', 'clipsFolder', 'backupFolder', 'riotId', 'region'];
+const TEXT_FIELDS = ['clipsFolder', 'backupFolder', 'riotId', 'region'];
 // Folder paths get special save handling (P-023): an EMPTY folder input means
 // "leave unchanged" (so a not-yet-rendered field on a fetch-race never blanks the
 // saved path).
-const FOLDER_FIELDS = new Set(['ascentFolder', 'clipsFolder', 'backupFolder']);
-const FOLDER_CLEAR_SENTINEL = ' __REVU_CLEAR__ ';
+const FOLDER_FIELDS = new Set(['clipsFolder', 'backupFolder']);
 // Riot identity text fields share the folder empty-overwrite hazard but with no
 // "clear" affordance: an empty input always means "leave unchanged" (omit the key),
 // never "blank the linked account". Guarded in collectPayload below.
 const IDENTITY_FIELDS = new Set(['riotId', 'region']);
-const NUM_FIELDS = ['clipsMaxSizeMb'];
+const NUM_FIELDS = ['clipsMaxSizeMb', 'recordingsMaxSizeGb'];
 // role=switch toggle buttons ↔ config bool field names.
 const TOGGLE_FIELDS = [
   'backupEnabled', 'tiltFixMode', 'requireReviewNotes',
@@ -37,15 +36,14 @@ const TOGGLE_FIELDS = [
   'autoClipObjectivesEnabled', 'autoMatchupNotesEnabled',
 ];
 // Browse buttons ↔ the text field they fill.
-const PICK_TARGETS = { pick_ascent: 'ascentFolder', pick_clips: 'clipsFolder', pick_backup: 'backupFolder' };
+const PICK_TARGETS = { pick_clips: 'clipsFolder', pick_backup: 'backupFolder' };
 
 let _data = null;
 let _baseline = {};
 let _savingGroup = null;
-let _ascentAvailable = null;
-let _ascentScanning = false;
-let _ascentRecovering = false;
-let _ascentScanResult = null;
+let _recoveryAvailable = null;
+let _recovering = false;
+let _recoveryResult = null;
 const _nativeBaseline = new Map();
 const CONFIG_FIELDS = [...TEXT_FIELDS, ...NUM_FIELDS, ...TOGGLE_FIELDS, 'windowResolution'];
 const configValues = () => Object.fromEntries(CONFIG_FIELDS.map(id => [id,
@@ -82,49 +80,27 @@ function updateDirtyGroups() {
     group.querySelector('[data-action="discard_config"]').disabled = !_data || _savingGroup === group || !dirty;
     if (changed && _savingGroup !== group) cardStatus(group, dirty ? 'Unsaved changes' : 'No unsaved changes');
   }
-  syncAscentControls();
+  syncRecoveryControls();
   syncCategoryDrafts();
 }
 
-// A configured folder is not proof that recordings exist. Only a completed scan
-// supplies a link count; browser previews never pretend to access local files.
-function syncAscentControls() {
-  const group = $('ascent-settings');
-  if (!group) return;
-  const ready = !!_data && _ascentAvailable === true;
-  const folder = String(_data?.ascentFolder || '').trim();
-  const dirty = group.dataset.dirty === 'true';
-  const busy = _savingGroup === group || _ascentScanning;
-  $('ascentFolder').disabled = !ready || busy;
-  $('ascent-browse').disabled = !ready || busy;
-  $('ascent-save').disabled = !ready || busy || !!_savingGroup || !dirty || !$('ascentFolder').value.trim();
-  $('ascent-save').textContent = folder ? 'Save folder' : 'Connect folder';
-  $('ascent-disconnect').disabled = !ready || busy || !!_savingGroup || !folder;
-  $('ascent-scan').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
-  $('ascent-recover').disabled = !ready || busy || !!_savingGroup || !folder || dirty;
-  group.querySelector('[data-action="discard_config"]').disabled = !ready || busy || !dirty;
-  let text, tone;
-  if (_ascentAvailable === null) text = 'Checking folder linking availability…';
-  else if (!_ascentAvailable) text = 'Connect Ascent in the Revu desktop app. Browser preview cannot access local recordings.';
-  else if (!_data) text = 'Loading your recordings folder…';
-  else if (_ascentScanning) text = _ascentRecovering
-    ? 'Recovering recent matches from League and linking recordings…'
-    : 'Scanning Ascent recordings and linking matches…';
-  else if (dirty) text = $('ascentFolder').value.trim()
-    ? 'Save this folder before scanning or linking recordings.'
-    : 'Enter a folder to connect, or use Disconnect to stop automatic linking.';
-  else if (_ascentScanResult?.folder === folder) {
-    text = _ascentScanResult.text; tone = _ascentScanResult.tone;
-  } else text = folder
-    ? 'Folder connected. Revu checks for matching recordings automatically. Scan now to check existing videos.'
-    : 'No folder connected. Choose the recordings folder configured in Ascent.';
-  setStatusEl($('ascent-status'), text, tone, false);
+// Recovery reads League's match history through the desktop app; browser
+// previews have no League client to read.
+function syncRecoveryControls() {
+  const button = $('recover-games');
+  if (!button) return;
+  button.disabled = _recoveryAvailable !== true || _recovering;
+  let text = '', tone;
+  if (_recoveryAvailable === false) text = 'Recover matches in the Revu desktop app. Browser preview cannot reach the League client.';
+  else if (_recovering) text = 'Recovering recent matches from League…';
+  else if (_recoveryResult) { text = _recoveryResult.text; tone = _recoveryResult.tone; }
+  setStatusEl($('recovery-status'), text, tone, false);
 }
 
-async function loadAscentAccess() {
-  try { _ascentAvailable = !!(await getInvoke()); }
-  catch { _ascentAvailable = false; }
-  syncAscentControls();
+async function loadRecoveryAccess() {
+  try { _recoveryAvailable = !!(await getInvoke()); }
+  catch { _recoveryAvailable = false; }
+  syncRecoveryControls();
 }
 
 // ── data fetch ──────────────────────────────────────────────────────────────
@@ -140,7 +116,7 @@ async function fetchStatus() {
     const res = await fetch('./sample-settings-status.json');
     if (res.ok) return res.json();
   } catch (_) { /* no sample present in preview — fine */ }
-  return { ffmpeg: null, clipUsage: null, backups: [] };
+  return { ffmpeg: null, clipUsage: null, recordingUsage: null, backups: [] };
 }
 
 // ── toggle helpers ──────────────────────────────────────────────────────────
@@ -249,6 +225,7 @@ function renderStatus(s) {
 
   applyStatusText($('ffmpeg-status'), s.ffmpeg, 'ffmpeg status unavailable.');
   applyStatusText($('clip-usage'), s.clipUsage, '');
+  applyStatusText($('recording-usage'), s.recordingUsage, '');
 
   // Backups list — each row is selectable; selecting one enables Restore.
   const list = $('backups-list');
@@ -334,8 +311,8 @@ function collectPayload(group) {
     const el = $(f);
     if (el && group.contains(el)) {
       const n = parseInt(el.value, 10);
-      // Mirror the WinUI clamp/reject: only send a valid in-range int.
-      if (Number.isFinite(n) && n >= 100 && n <= 50000) p[f] = n;
+      // Only send a valid in-range int (the field's own min/max).
+      if (Number.isFinite(n) && n >= Number(el.min) && n <= Number(el.max)) p[f] = n;
     }
   }
   for (const f of TOGGLE_FIELDS) {
@@ -410,8 +387,8 @@ function setStatusEl(el, text, tone, autoClear) {
 }
 // ── single delegated action handler ─────────────────────────────────────────
 const ACTIONS = new Set([
-  'save_config', 'discard_config', 'pick_ascent', 'pick_clips', 'pick_backup',
-  'disconnect_ascent', 'scan_vods', 'recover_missing_games',
+  'save_config', 'discard_config', 'pick_clips', 'pick_backup',
+  'recover_missing_games',
   'refresh_backups', 'export_data', 'open_export_folder', 'open_logs',
   'restore_backup', 'reset_all_data', 'check_update', 'install_update',
   'run_backfill',
@@ -440,9 +417,7 @@ document.addEventListener('click', async (ev) => {
 
   try {
     if (action === 'save_config') return await doSave(invoke, target);
-    if (action === 'disconnect_ascent') return await doSave(invoke, target, { disconnectAscent: true });
-    if (action === 'scan_vods') return await doScanAscent(invoke);
-    if (action === 'recover_missing_games') return await doScanAscent(invoke, true);
+    if (action === 'recover_missing_games') return await doRecover(invoke);
     if (action in PICK_TARGETS) return await doPick(invoke, action);
     if (action === 'run_backfill') return await doBackfill(invoke, target);
     if (action === 'refresh_backups') return await loadStatus();
@@ -592,15 +567,12 @@ async function doInstallUpdate(invoke, target) {
 
 // save_config = persist the editable surface; refetch after to reflect the
 // canonical (and server-normalized, e.g. lower-cased region) values + status.
-async function doSave(invoke, target, { disconnectAscent = false } = {}) {
+async function doSave(invoke, target) {
   const group = target.closest('[data-config-group]');
   if (!group || !_data || _savingGroup) return;
-  const isAscent = group.dataset.configGroup === 'ascent';
-  if (isAscent && (!_ascentAvailable || _ascentScanning || (!disconnectAscent && !$('ascentFolder').value.trim()))) return;
-  if (disconnectAscent && (!isAscent || !_data.ascentFolder)) return;
   for (const field of group.querySelectorAll('input,select')) if (!field.reportValidity()) return;
   const fields = groupFields(group);
-  const payload = disconnectAscent ? { ascentFolder: FOLDER_CLEAR_SENTINEL } : collectPayload(group);
+  const payload = collectPayload(group);
   _savingGroup = group;
   for (const field of group.querySelectorAll('input,select,button')) field.disabled = true;
   updateDirtyGroups(); cardStatus(group, 'Saving…');
@@ -622,14 +594,13 @@ async function doSave(invoke, target, { disconnectAscent = false } = {}) {
     }
     let canonical;
     try { canonical = await fetchConfig(); }
-    catch { canonical = { ..._data, ...payload, ...(disconnectAscent ? { ascentFolder: '' } : {}) }; }
-    if (isAscent) _ascentScanResult = null;
+    catch { canonical = { ..._data, ...payload }; }
     render(canonical, { savedFields: fields });
     // A new Riot ID shows in the sidebar's account row right away (shell-recent.mjs).
     if (group.dataset.configGroup === 'account') {
       try { window.top?.dispatchEvent(new CustomEvent('revu:account-changed')); } catch (_) { /* no shell */ }
     }
-    cardStatus(group, disconnectAscent ? 'Disconnected. Existing videos and match links are kept.' : 'Changes saved.', 'good');
+    cardStatus(group, 'Changes saved.', 'good');
     loadStatus();
   } catch (err) {
     cardStatus(group, errText(err) || 'Could not save. Your changes are still here.', 'bad');
@@ -641,33 +612,21 @@ async function doSave(invoke, target, { disconnectAscent = false } = {}) {
   }
 }
 
-async function doScanAscent(invoke, recover = false) {
-  const group = $('ascent-settings');
-  const folder = String(_data?.ascentFolder || '').trim();
-  if (!_ascentAvailable || _ascentScanning || _savingGroup || !folder || group?.dataset.dirty === 'true') return;
-  _ascentScanning = true;
-  _ascentRecovering = recover;
-  syncAscentControls();
+async function doRecover(invoke) {
+  if (_recoveryAvailable !== true || _recovering) return;
+  _recovering = true;
+  syncRecoveryControls();
   try {
-    const result = await invoke(recover ? 'recover_missing_games' : 'scan_vods');
-    if (result?.ok !== true) throw new Error(result?.message || (recover
-      ? 'Could not recover matches. Open the League client and try again.'
-      : 'Could not scan this folder. Check the path and try again.'));
-    const matched = Number.isSafeInteger(result.matched) && result.matched >= 0 ? result.matched : null;
-    const count = Number.isSafeInteger(result.recordingCount) && result.recordingCount >= 0 ? result.recordingCount : null;
-    const scanSummary = matched !== null && count !== null
-      ? `${matched} ${matched === 1 ? 'match linked' : 'matches linked'} · ${count} ${count === 1 ? 'recording found' : 'recordings found'}.`
-      : 'Recording scan completed.';
-    const recovered = Number.isSafeInteger(result.recovered) && result.recovered >= 0 ? result.recovered : null;
-    const summary = recover && recovered !== null
-      ? `${recovered} ${recovered === 1 ? 'match recovered' : 'matches recovered'}. ${scanSummary}` : scanSummary;
-    _ascentScanResult = { folder, text: String(result.message || '').trim() || summary, tone: 'good' };
+    const result = await invoke('recover_missing_games');
+    if (result?.ok !== true) throw new Error(result?.message || 'Could not recover matches. Open the League client and try again.');
+    const recovered = Number.isSafeInteger(result.recovered) && result.recovered >= 0 ? result.recovered : 0;
+    const summary = `${recovered} ${recovered === 1 ? 'match recovered' : 'matches recovered'}.`;
+    _recoveryResult = { text: String(result.message || '').trim() || summary, tone: 'good' };
   } catch (error) {
-    _ascentScanResult = { folder, text: errText(error), tone: 'bad' };
+    _recoveryResult = { text: errText(error), tone: 'bad' };
   } finally {
-    _ascentScanning = false;
-    _ascentRecovering = false;
-    syncAscentControls();
+    _recovering = false;
+    syncRecoveryControls();
   }
 }
 
@@ -828,7 +787,7 @@ function boot() {
       }
     }).observe($(id), { childList: true, characterData: true, subtree: true });
   }
-  loadConfig(); loadAppVersion(); loadAscentAccess();
+  loadConfig(); loadAppVersion(); loadRecoveryAccess();
   try { initializeAppearanceSettings(); } catch (err) { console.warn('[settings] appearance unavailable:', err); }
   try { initializeAudioSettings(); } catch (err) { console.warn('[settings] audio devices unavailable:', err); }
   // Speed up sits outside the save groups: each row acts at once, so it never marks the page unsaved.

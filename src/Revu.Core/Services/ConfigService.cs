@@ -68,7 +68,6 @@ public sealed class ConfigService : IConfigService
     // ── IConfigService convenience properties ───────────────────────
 
     public bool TiltFixEnabled => GetCached().TiltFixMode;
-    public string AscentFolder => GetCached().AscentFolder ?? "";
     public string ClipsFolder => GetValidatedClipsFolder();
     public int ClipsMaxSizeMb => GetCached().ClipsMaxSizeMb;
     public bool BackupEnabled => GetCached().BackupEnabled;

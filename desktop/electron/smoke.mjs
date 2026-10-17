@@ -117,20 +117,17 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
     return {gameTime:transport.currentTime,mediaTime:video.currentTime};
   })()`);
   assert.ok(Math.abs(timing.gameTime - 1) < 0.1); assert.ok(Math.abs(timing.mediaTime - 1.5) < 0.1);
-  // The restricted preview exposes the Ascent controls but still refuses scans:
-  // folder changes/imports are validated separately with a normal scratch host.
-  const ascent = await contents.executeJavaScript(`(async () => {
+  // The restricted preview shows the storage limit but still refuses recovery.
+  const recovery = await contents.executeJavaScript(`(async () => {
     const config=await window.revuDesktop.invoke('get_config');
-    let scanBlocked=false, recoveryBlocked=false;
-    try { await window.revuDesktop.invoke('scan_vods'); }
-    catch(error) { scanBlocked=String(error.message).includes('disabled in isolated host testing'); }
+    let recoveryBlocked=false;
     try { await window.revuDesktop.invoke('recover_missing_games'); }
     catch(error) { recoveryBlocked=String(error.message).includes('disabled in isolated host testing'); }
-    return {folderAvailable:typeof config.ascentFolder==='string',scanBlocked,recoveryBlocked};
+    return {storageLimit:Number.isSafeInteger(config.recordingsMaxSizeGb),noAscent:!('ascentFolder' in config),recoveryBlocked};
   })()`);
-  assert.equal(ascent.folderAvailable, true);
-  assert.equal(ascent.scanBlocked, true);
-  assert.equal(ascent.recoveryBlocked, true);
+  assert.equal(recovery.storageLimit, true);
+  assert.equal(recovery.noAscent, true);
+  assert.equal(recovery.recoveryBlocked, true);
   await contents.executeJavaScript(`document.querySelector('iframe').src='settings.html'`);
   let settingsFrame;
   const settingsDeadline = Date.now() + 10_000;
@@ -144,12 +141,11 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
     const deadline=Date.now()+10000;
     while(Date.now()<deadline) {
       const status=document.querySelector('#recording-status')?.textContent;
-      if(status?.includes('isolated preview') && document.querySelector('#ascentFolder')?.disabled===false)
+      if(status?.includes('isolated preview') && document.querySelector('#recordingsMaxSizeGb')?.disabled===false)
         return {status, presets:document.querySelector('#recordingPreset').options.length,
         startupDisabled:document.querySelector('#startWithWindows').disabled,
-        ascentFolderVisible:!!document.querySelector('#ascentFolder'),
-        ascentScanDisabledWithoutFolder:document.querySelector('[data-action="scan_vods"]')?.disabled===true,
-        ascentRecoveryDisabledWithoutFolder:document.querySelector('[data-action="recover_missing_games"]')?.disabled===true,
+        ascentRemoved:!document.querySelector('#ascentFolder') && !document.querySelector('[data-action="scan_vods"]'),
+        recoveryVisible:!!document.querySelector('[data-action="recover_missing_games"]'),
         builtInRecordingDisabled:['recordingEnabled','recordingPreset','open-recordings-folder','save-recording-settings']
           .every(id=>document.getElementById(id)?.disabled===true),
         nativeRecorderControls:!!document.querySelector('#recordingEnabled') && !!document.querySelector('#open-recordings-folder')};
@@ -158,9 +154,8 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
     throw new Error('Recording settings did not load through the host');
   })()`);
   assert.equal(recordingSettings.presets, 3); assert.equal(recordingSettings.startupDisabled, true);
-  assert.equal(recordingSettings.ascentFolderVisible, true);
-  assert.equal(recordingSettings.ascentScanDisabledWithoutFolder, true);
-  assert.equal(recordingSettings.ascentRecoveryDisabledWithoutFolder, true);
+  assert.equal(recordingSettings.ascentRemoved, true);
+  assert.equal(recordingSettings.recoveryVisible, true);
   assert.equal(recordingSettings.builtInRecordingDisabled, true);
   assert.equal(recordingSettings.nativeRecorderControls, true);
   await settingsFrame.executeJavaScript(`(async () => {
@@ -178,7 +173,7 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
   const ui = await checkDesktopUi(window, dataRoot, async () => (await media.replace([fixture]))[0][1]);
   assert.equal(packageEvents.length, 0, 'Gaming packages must remain disabled');
   return { passed: true, utc: new Date().toISOString(), versions: process.versions,
-    gamingPackages: packageEvents, boundary, iframe, dashboard, rendered, playback, timing, ascent, recordingSettings, ui,
+    gamingPackages: packageEvents, boundary, iframe, dashboard, rendered, playback, timing, recovery, recordingSettings, ui,
     sameReviewSeekAfterRefresh: true, duplicateSidecarRejected: true,
     limitations: ['No signed installer or upgrade acceptance', 'Synthetic H.264/AAC fixture, not League Recorder capture',
       'Scratch data only; external effects and live monitoring disabled', 'No real match, approval, latency, performance, installer or upgrade acceptance'] };

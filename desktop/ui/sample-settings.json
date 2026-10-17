@@ -1,7 +1,7 @@
 {
-  "ascentFolder": "",
   "clipsFolder": "C:\\Users\\you\\Videos\\Revu\\clips",
   "clipsMaxSizeMb": 2048,
+  "recordingsMaxSizeGb": 0,
   "backupEnabled": true,
   "backupFolder": "",
   "tiltFixMode": false,

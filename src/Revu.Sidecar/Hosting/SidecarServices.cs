@@ -81,6 +81,17 @@ public static class SidecarServices
             sp.GetRequiredService<WriteServices>().BackupGuard.EnsureBackedUpAsync,
             sp.GetRequiredService<ILogger<RecordingRegistrationService>>(),
             gameId => sp.GetRequiredService<SidecarEventHub>().Publish("vodLinked", new { gameId })));
+        services.AddSingleton(sp =>
+        {
+            var w = sp.GetRequiredService<WriteServices>();
+            var live = sp.GetRequiredService<LcuLiveState>();
+            return new RecordingStoragePruner(AppDataPaths.RecordingsDirectory, w.Config,
+                sp.GetRequiredService<RecordingRegistrationService>(), w.RecordingLinks,
+                () => sp.GetRequiredService<VodShareWorker>().SharingGameId,
+                // Disk-heavy deletes wait until no match is loading or playing.
+                () => live.IsGameInProgress || live.IsInChampSelect,
+                w.BackupGuard.EnsureBackedUpAsync, sp.GetRequiredService<ILogger<RecordingStoragePruner>>());
+        });
 
         // 3.14 narrated clips: background sharing, automatic transcripts, and the remote
         // clip cleanup queue. Singletons over the WRITE graph; started by SidecarStartup only
@@ -167,8 +178,8 @@ public static class SidecarServices
             var write = sp.GetRequiredService<WriteServices>();
             return new RecentGameRecovery(
                 sp.GetRequiredService<ILcuClient>(), sp.GetRequiredService<IMatchHistoryReconciliationService>(),
-                sp.GetRequiredService<SidecarGameFlowCoordinator>().SaveRecoveredGameAsync, write.Games, write.Config, write.VodScan,
-                sp.GetRequiredService<RecordingRegistrationService>(), sp.GetRequiredService<SidecarBackgroundWork>(),
+                sp.GetRequiredService<SidecarGameFlowCoordinator>().SaveRecoveredGameAsync, write.Games,
+                sp.GetRequiredService<SidecarBackgroundWork>(),
                 write.BackupGuard.EnsureBackedUpAsync,
                 (type, payload) => sp.GetRequiredService<SidecarEventHub>().Publish(type, payload),
                 sp.GetRequiredService<ILogger<RecentGameRecovery>>());

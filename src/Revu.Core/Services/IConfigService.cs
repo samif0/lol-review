@@ -47,7 +47,6 @@ public interface IConfigService
     // ── Convenience properties ──────────────────────────────────────
 
     bool TiltFixEnabled { get; }
-    string AscentFolder { get; }
     string ClipsFolder { get; }
     int ClipsMaxSizeMb { get; }
     bool BackupEnabled { get; }

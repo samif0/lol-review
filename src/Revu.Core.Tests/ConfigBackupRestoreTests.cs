@@ -90,7 +90,7 @@ public sealed class ConfigBackupRestoreTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LoadAsync_AscentFolderSurvivesConfigOrBackup_WhileRetiredReminderIsIgnored(bool restoreBackup)
+    public async Task LoadAsync_RetiredAscentKeysAreIgnored_AndTheirFolderIsLeftAlone(bool restoreBackup)
     {
         var root = Path.Combine(Path.GetTempPath(), "Revu.ConfigBackup.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -121,8 +121,6 @@ public sealed class ConfigBackupRestoreTests
 
             var service = new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), configPath);
             var loaded = await service.LoadAsync();
-            Assert.Equal(legacyFolder, loaded.AscentFolder);
-            Assert.Equal(legacyFolder, service.AscentFolder);
             Assert.Equal(clips, service.ClipsFolder);
             Assert.Equal(backups, service.BackupFolder);
             Assert.True(loaded.TiltFixMode);
@@ -130,15 +128,15 @@ public sealed class ConfigBackupRestoreTests
             Assert.Equal("euw1", loaded.RiotRegion);
             Assert.Equal("SUPPORT", loaded.PrimaryRole);
 
-            // Folder compatibility returns; removed reminder/derived flags do not.
+            // Ascent import was removed in 4.5: none of its keys survive a save, and the
+            // folder's own files are never touched.
             loaded.ClipsMaxSizeMb = 4096;
             await service.SaveAsync(loaded);
             using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(configPath));
-            Assert.Equal(legacyFolder, saved.RootElement.GetProperty("ascent_folder").GetString());
+            Assert.False(saved.RootElement.TryGetProperty("ascent_folder", out _));
             Assert.False(saved.RootElement.TryGetProperty("ascent_reminder_dismissed", out _));
             Assert.False(saved.RootElement.TryGetProperty("is_ascent_enabled", out _));
             var reloaded = await new ConfigService(NullLogger<ConfigService>.Instance, new MemorySecretStore(), configPath).LoadAsync();
-            Assert.Equal(legacyFolder, reloaded.AscentFolder);
             Assert.Equal(clips, reloaded.ClipsFolder);
             Assert.Equal(backups, reloaded.BackupFolder);
             Assert.Equal(4096, reloaded.ClipsMaxSizeMb);

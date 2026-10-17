@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 120);
+  assert.equal(Object.keys(COMMANDS).length, 119);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
@@ -287,10 +287,7 @@ test('command declarations keep immutable envelopes, required arguments and exce
   }
   assert.deepEqual(COMMANDS.auth_logout.args, {});
   assert.deepEqual(COMMANDS.run_backfill.args, {});
-  assert.deepEqual(COMMANDS.scan_vods.args, {});
-  assert.equal(COMMANDS.scan_vods.route, '/api/settings/scan-vods');
-  assert.equal(COMMANDS.scan_vods.method, 'POST');
-  assert.equal(COMMANDS.scan_vods.timeoutMs, 120_000);
+  assert.equal(COMMANDS.scan_vods, undefined, 'the Ascent folder scan was removed');
   assert.deepEqual(COMMANDS.recover_missing_games.args, {});
   assert.equal(COMMANDS.recover_missing_games.route, '/api/settings/recover-games');
   assert.equal(COMMANDS.recover_missing_games.method, 'POST');

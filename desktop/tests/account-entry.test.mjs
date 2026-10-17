@@ -78,7 +78,7 @@ test('a sign-in change is announced on the shell window, and is harmless without
 });
 
 test('the VOD player tells the shell after signing in to share a clip', async () => {
-  // vodplayer.js is too large to run here; Settings (settings-ascent.test.mjs), the
+  // vodplayer.js is too large to run here; Settings (settings-behavior.test.mjs), the
   // Account page (onboarding-account.test.mjs) and the shell row (shell-recent.test.mjs)
   // are tested by running them.
   const vod = await read('vodplayer.js');
@@ -99,7 +99,7 @@ test('every sign-in entry opens the Account page', async () => {
 
 test('every prompt to link a Riot ID opens the Riot ID field in Settings', async () => {
   // settings-navigation.mjs opens the category named by #settings-<category>, and
-  // settings.js puts the cursor in a blank Riot ID field (settings-ascent.test.mjs).
+  // settings.js puts the cursor in a blank Riot ID field (settings-behavior.test.mjs).
   assert.match(await read('settings.html'), /<section class="settings-section" id="settings-account" data-settings-section="account"[\s\S]*?id="riotId"/);
   assert.match(await read('dashboard.html'), /<a class="ui-link" href="settings\.html#settings-account">Link your Riot account<\/a>/);
   assert.match(await read('onboarding.html'),

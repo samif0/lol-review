@@ -96,20 +96,24 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
         finally { _gate.Release(); }
     }
 
-    /// <summary>Existing exact native receipts take priority over timestamp guesses.
-    /// Keep the gate through external inserts; an unreadable pending native file
-    /// still reserves its match until that receipt can be reconciled.</summary>
-    public async Task<VodScanResult> RunExternalScanAsync(
-        Func<IReadOnlySet<long>, Task<VodScanResult>> scan, CancellationToken cancellationToken = default)
+    /// <summary>Runs <paramref name="work"/> under the registration gate with each session's
+    /// receipt status, so a storage prune never races a link. The callback may delete a
+    /// receipt whose session folder it removed.</summary>
+    public async Task<T> WithReceiptsAsync<T>(Func<IReadOnlyDictionary<Guid, string>, Action<Guid>, Task<T>> work)
     {
-        await _gate.WaitAsync(cancellationToken);
+        await _gate.WaitAsync();
         try
         {
-            await ReconcilePendingAsync(null);
-            var reserved = ReadReceipts().Where(r => r.Recording.GameTimeAtVideoStart.HasValue && r.Status == "pending-match")
-                .Select(r => r.Recording.GameId).ToHashSet();
-            cancellationToken.ThrowIfCancellationRequested();
-            return await scan(reserved);
+            ValidateRoot();
+            var statuses = new Dictionary<Guid, string>();
+            foreach (var receipt in ReadReceipts()) statuses[receipt.Recording.SessionId] = receipt.Status;
+            return await work(statuses, id =>
+            {
+                var path = ReceiptPath(id);
+                try { RejectAliases(path); File.Delete(path); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                { logger.LogWarning(ex, "Receipt for deleted recording {SessionId} was kept", id); }
+            });
         }
         finally { _gate.Release(); }
     }

@@ -13,7 +13,7 @@ async function fixture(t, options = {}) {
   let time = Date.parse('2026-09-12T12:00:00Z');
   const context = { gameId: 501, isGameInProgress: true, gameTimeSeconds: 0.5, observedAt: new Date(time).toISOString(), lastEndedGameId: null,
     lastEndedGameTimeSeconds: 60.5, lastEndedObservedAt: new Date(time).toISOString(), lastEndedConfirmedAt: new Date(time).toISOString() };
-  const registrations = [], calls = [];
+  const registrations = [], calls = [], prunes = [];
   let callback, result;
   const driver = {
     async initialize() {}, async dispose() {},
@@ -29,6 +29,7 @@ async function fixture(t, options = {}) {
   };
   const backend = { async request(route, request) {
     if (route === '/api/recording/context') return { ...context };
+    if (route === '/api/recording/prune') { prunes.push(request); return { ok: true, deleted: 0 }; }
     assert.equal(route, '/api/recording/register'); registrations.push(request.body);
     return { ok: true, status: request.body.complete ? 'linked' : 'retained-partial' };
   } };
@@ -36,7 +37,7 @@ async function fixture(t, options = {}) {
     now: () => time, space: async () => 10 * 1024 ** 3, deadlines: { start: 100, stop: 100, callback: 100, validate: 100 }, ...options });
   await service.initialize();
   t.after(async () => { await service.shutdown(); await rm(directory, { recursive: true, force: true }); });
-  return { service, driver, context, registrations, calls, directory, advance: ms => { time += ms; }, callback: () => callback(result) };
+  return { service, driver, context, registrations, calls, prunes, directory, advance: ms => { time += ms; }, callback: () => callback(result) };
 }
 async function start(f) {
   await f.service.saveSettings({ enabled: true, preset: '720p30' });
@@ -102,7 +103,8 @@ test('unavailable Windows capture or game audio does not falsely blame the hardw
     await f.service.attachDriver(f.driver);
     assert.equal(f.service.getStatus().available, false);
     assert.equal(f.service.getStatus().state, 'unavailable');
-    assert.match(f.service.message, /League window capture or game audio.*Windows PC.*Folder import/);
+    assert.match(f.service.message, /League window capture or game audio.*Windows PC/);
+    assert.doesNotMatch(f.service.message, /folder import/i);
     assert.doesNotMatch(f.service.message, /hardware encoder|graphics driver/);
     assert.deepEqual(f.calls, []);
   }
@@ -152,6 +154,35 @@ test('native game launch starts once; confirmed match end validates and attaches
   assert.equal(f.service.state, 'saved'); assert.equal(f.registrations.length, 1);
   assert.equal(f.registrations[0].gameId, 501); assert.equal(f.registrations[0].complete, true);
   f.callback(); await settle(f.service); assert.equal(f.registrations.length, 1);
+});
+
+test('the recordings size limit is applied once after the match ends and the game closes, never during a game', async t => {
+  const f = await fixture(t); await start(f);
+  f.context.lastEndedGameId = 501; f.context.isGameInProgress = false;
+  await f.service.tick(); await settle(f.service);
+  assert.equal(f.service.state, 'saved');
+  assert.deepEqual(f.prunes, [], 'League is still open, so nothing is deleted yet');
+  f.service.onGame({ pid: 100, running: false }); await settle(f.service);
+  await f.service.tick(); await settle(f.service);
+  assert.equal(f.prunes.length, 1);
+  assert.equal(f.prunes[0].method, 'POST');
+  await f.service.tick(); await settle(f.service);
+  assert.equal(f.prunes.length, 1, 'one prune per finished match');
+});
+
+test('a failed prune never disturbs recording and waits for the next match end', async t => {
+  const f = await fixture(t); await start(f);
+  const request = f.service.backend.request;
+  f.service.backend.request = async (route, body) => {
+    if (route === '/api/recording/prune') { f.prunes.push(body); throw new Error('sidecar busy'); }
+    return request(route, body);
+  };
+  f.context.lastEndedGameId = 501; f.context.isGameInProgress = false;
+  f.service.onGame({ pid: 100, running: false }); await settle(f.service);
+  await f.service.tick(); await settle(f.service);
+  await f.service.tick(); await settle(f.service);
+  assert.equal(f.prunes.length, 1);
+  assert.equal(f.service.state, 'saved');
 });
 
 test('test capture intent is durable and validated footage saves without match registration or a game clock', async t => {

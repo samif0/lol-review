@@ -10,7 +10,7 @@ namespace Revu.Sidecar.Tests;
 /// <summary>
 /// H5: clip cleanup deletes old clips, so /api/config/save refuses a clips folder that is,
 /// contains or sits inside a recordings folder, and refuses it as a whole (no field of
-/// that save lands). A newly chosen Ascent, clips or backup folder must also be on this PC.
+/// that save lands). A newly chosen clips or backup folder must also be on this PC.
 /// The mapping runs through the real ConfigService.UpdateAsync.
 /// </summary>
 public sealed class ConfigSaveClipsFolderTests : IDisposable
@@ -37,19 +37,6 @@ public sealed class ConfigSaveClipsFolderTests : IDisposable
         return rejected;
     }
 
-    [WindowsTheory]
-    [InlineData(@"D:\Videos\Ascent", @"D:\Videos\Ascent", true)]
-    [InlineData(@"D:\Videos\Ascent\Clips", @"D:\Videos\Ascent", true)]
-    [InlineData(@"D:\Videos", @"D:\Videos\Ascent", true)]
-    [InlineData(@"D:\Videos\Clips", @"D:\Videos\Ascent", false)]
-    [InlineData("", @"D:\Videos\Ascent", false)]
-    public void ClipsFolder_MayNotOverlapTheAscentFolder(string clips, string ascent, bool conflict)
-    {
-        var error = SidecarEndpoints.ClipsFolderConflict(new AppConfig { ClipsFolder = clips, AscentFolder = ascent });
-        Assert.Equal(conflict, error is not null);
-        if (error is not null) Assert.DoesNotContain("\u2014", error);
-    }
-
     [Fact]
     public void ClipsFolder_MayNotOverlapRevusRecordingsFolder()
     {
@@ -62,9 +49,9 @@ public sealed class ConfigSaveClipsFolderTests : IDisposable
     public async Task AnOverlappingSave_IsRejectedWhole_AndASeparateFolderSaves()
     {
         var service = Service();
-        Assert.Null(await SaveAsync(service, new { ascentFolder = @"D:\Videos\Ascent", clipsMaxSizeMb = 4096 }));
+        Assert.Null(await SaveAsync(service, new { clipsMaxSizeMb = 4096 }));
 
-        var error = await SaveAsync(service, new { clipsFolder = @"D:\Videos\Ascent", tiltFixMode = true });
+        var error = await SaveAsync(service, new { clipsFolder = Path.Combine(AppDataPaths.RecordingsDirectory, "clips"), tiltFixMode = true });
 
         Assert.NotNull(error);
         var unchanged = await Service().LoadAsync();
@@ -75,10 +62,25 @@ public sealed class ConfigSaveClipsFolderTests : IDisposable
         Assert.Equal(@"D:\Videos\Clips", (await Service().LoadAsync()).ClipsFolder);
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(-5, 0)]
+    [InlineData(3, 10)]
+    [InlineData(250, 250)]
+    [InlineData(9000, 2000)]
+    public async Task RecordingsLimit_IsZeroOrHeldBetween10And2000Gb(int sent, int saved)
+    {
+        var service = Service();
+        Assert.Null(await SaveAsync(service, new { recordingsMaxSizeGb = sent }));
+        Assert.Equal(saved, (await Service().LoadAsync()).RecordingsMaxSizeGb);
+        Assert.Null(await SaveAsync(service, new { tiltFixMode = true }));
+        Assert.Equal(saved, (await Service().LoadAsync()).RecordingsMaxSizeGb);
+    }
+
     [WindowsFact]
     public async Task AnExistingOverlap_DoesNotBlockUnrelatedSaves()
     {
-        await File.WriteAllTextAsync(ConfigPath, """{ "ascent_folder": "D:\\Videos", "clips_folder": "D:\\Videos" }""");
+        await File.WriteAllTextAsync(ConfigPath, JsonSerializer.Serialize(new { clips_folder = AppDataPaths.RecordingsDirectory }));
         var service = Service();
 
         Assert.Null(await SaveAsync(service, new { tiltFixMode = true }));
@@ -89,7 +91,7 @@ public sealed class ConfigSaveClipsFolderTests : IDisposable
     public async Task ANewNetworkFolder_IsRejectedWhole_ButOneSavedEarlierDoesNotBlockSaves()
     {
         var service = Service();
-        foreach (var field in new[] { "ascentFolder", "clipsFolder", "backupFolder" })
+        foreach (var field in new[] { "clipsFolder", "backupFolder" })
         {
             var error = await SaveAsync(service, new Dictionary<string, object>
             {

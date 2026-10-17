@@ -61,20 +61,20 @@ public sealed class ConfigSaveContractTests
     // ── (A) P-020 / P-023 empty-string-overwrite guards ───────────────────────
 
     [Fact]
-    public async Task AscentFolderSaveSurvivesBlankAndPartialSavesAndDisconnectOnlyClearsFolder()
+    public async Task ClipsFolderSaveSurvivesBlankAndPartialSavesAndTheSentinelOnlyClearsFolder()
     {
         using var scope = new TempConfigScope();
         var service = CreateService(scope.ConfigPath, new FakeProtectedSecretStore());
-        await ApplySaveConfig(service, ascentFolder: @"C:\Ascent", clipsFolder: @"C:\Clips", riotId: "test#player");
-        await ApplySaveConfig(service, ascentFolder: " ", clipsMaxSizeMb: 4096);
-        Assert.Equal(@"C:\Ascent", (await service.LoadAsync()).AscentFolder);
+        await ApplySaveConfig(service, clipsFolder: @"C:\Clips", backupFolder: @"C:\Backups", riotId: "test#player");
+        await ApplySaveConfig(service, clipsFolder: " ", clipsMaxSizeMb: 4096);
+        Assert.Equal(@"C:\Clips", (await service.LoadAsync()).ClipsFolder);
         var snapshot = await new ConfigSnapshotBuilder(service, NullLogger<ConfigSnapshotBuilder>.Instance).BuildAsync();
-        Assert.Equal(@"C:\Ascent", snapshot.AscentFolder);
-        await ApplySaveConfig(service, ascentFolder: ConfigSaveGuards.FolderClearSentinel);
-        var disconnected = await service.LoadAsync();
-        Assert.Equal("", disconnected.AscentFolder);
-        Assert.Equal(@"C:\Clips", disconnected.ClipsFolder);
-        Assert.Equal("test#player", disconnected.RiotId);
+        Assert.Equal(@"C:\Clips", snapshot.ClipsFolder);
+        await ApplySaveConfig(service, clipsFolder: ConfigSaveGuards.FolderClearSentinel);
+        var cleared = await service.LoadAsync();
+        Assert.Equal("", cleared.ClipsFolder);
+        Assert.Equal(@"C:\Backups", cleared.BackupFolder);
+        Assert.Equal("test#player", cleared.RiotId);
     }
 
     [Fact]
@@ -391,13 +391,11 @@ public sealed class ConfigSaveContractTests
         bool? firstReviewTutorialDismissed = null,
         long? firstReviewTutorialObjectiveId = null,
         long? firstReviewTutorialGameId = null,
-        string? windowResolution = null,
-        string? ascentFolder = null)
+        string? windowResolution = null)
     {
         var cfg = await service.LoadAsync();
 
         // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
-        if (ConfigSaveGuards.TryResolveFolderWrite(ascentFolder, out var ascent)) cfg.AscentFolder = ascent;
         if (ConfigSaveGuards.TryResolveFolderWrite(clipsFolder, out var clips)) cfg.ClipsFolder = clips;
         if (ConfigSaveGuards.TryResolveFolderWrite(backupFolder, out var backup)) cfg.BackupFolder = backup;
 

@@ -10,10 +10,10 @@ const hardwareEncoders = new Set(['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs
 const encoderId = value => hardwareEncoders.has(value) ? value : null;
 const encoderUnavailableMessage = code => {
   if (['hardware-encoder-unavailable', 'hardware-encoder-failed'].includes(code))
-    return 'No supported hardware encoder is available. Revu supports NVIDIA NVENC, AMD AMF and Intel Quick Sync. Check your graphics driver; folder import is still available.';
+    return 'No supported hardware encoder is available. Revu supports NVIDIA NVENC, AMD AMF and Intel Quick Sync. Check your graphics driver.';
   if (['capture-unavailable', 'wgc-unavailable'].includes(code))
-    return 'League window capture or game audio is unavailable on this Windows PC. Folder import is still available.';
-  return 'Built-in recording is unavailable on this PC. Your preference is saved; folder import is still available.';
+    return 'League window capture or game audio is unavailable on this Windows PC.';
+  return 'Built-in recording is unavailable on this PC. Your preference is saved.';
 };
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 export function recordingSettings(value) {
@@ -42,13 +42,13 @@ export class RecordingService {
     now = () => Date.now(), space = async directory => { const fs = await statfs(directory); return fs.bavail * fs.bsize; },
     deadlines = {} }) {
     Object.assign(this, { root, profile, backend, onChange, isolated, now, space, recordingTest: recordingTest === true });
-    this.deadlines = { start: 35_000, stop: 8_000, callback: 8_000, validate: 45_000, registration: 5000, ...deadlines };
+    this.deadlines = { start: 35_000, stop: 8_000, callback: 8_000, validate: 45_000, registration: 5000, prune: 60_000, ...deadlines };
     this.settings = { ...defaults }; this.state = 'disabled'; this.message = 'Automatic recording is off.';
     this.driver = null; this.available = false; this.current = null; this.pending = new Map();
     this.game = null; this.context = null; this.serial = Promise.resolve(); this.closing = false;
     this.blocked = false; this.suppressedPid = null; this.timer = null; this.tickPending = false;
     this.startRevision = 0; this.requestedEnabled = false; this.shutdownOperation = null;
-    this.windowRetryPid = null;
+    this.windowRetryPid = null; this.pruneDue = false;
     this.encoderCapabilities = null; this.lastEncoder = null; this.unavailableCode = null;
   }
   getStatus() {
@@ -189,7 +189,7 @@ export class RecordingService {
   schedule() {
     const candidate = this.settings.enabled && this.requestedEnabled && this.driver && this.available && !this.blocked
       && this.game && this.game.pid !== this.suppressedPid;
-    const needed = !this.closing && !this.isolated && (candidate || this.current || this.pending.size);
+    const needed = !this.closing && !this.isolated && (candidate || this.current || this.pending.size || this.pruneDue);
     if (needed && !this.timer) { this.timer = setInterval(() => { void this.tick(); }, 1000); this.timer.unref(); }
     if (!needed && this.timer) { clearInterval(this.timer); this.timer = null; }
   }
@@ -215,10 +215,21 @@ export class RecordingService {
       }
       for (const session of [...this.pending.values()].filter(value => !value.nextRetryAt || value.nextRetryAt <= this.now()).slice(0, 5))
         await this.reconcile(session);
+      if (this.pruneDue && !this.current && !this.game && !this.closing) await this.prune();
       if (!this.closing && !this.current && this.settings.enabled && this.requestedEnabled && this.available && !this.blocked && this.game && this.game.pid !== this.suppressedPid && this.pending.size < 100)
         await this.startCurrent(this.game);
       this.schedule();
     }).catch(() => {}).finally(() => { this.tickPending = false; });
+  }
+  // A finished match frees the recordings folder size limit's turn. The sidecar deletes
+  // the oldest finished recordings only while no game is loading or running.
+  markPruneDue() { this.pruneDue = true; this.schedule(); }
+  async prune() {
+    this.pruneDue = false;
+    try {
+      await bounded(this.backend.request('/api/recording/prune', { method: 'POST', body: {}, timeoutMs: this.deadlines.prune }),
+        this.deadlines.prune + 5000);
+    } catch { /* The next match end tries again; recording never depends on it. */ }
   }
   async persist(session) {
     const { abort, completion, finish, startOperation, stoppedResult, ...metadata } = session;
@@ -378,6 +389,7 @@ export class RecordingService {
     finally { validation.abort(); }
     if (!await this.preserve(session)) session.state = 'partial';
     if (session.state === 'awaiting-match') this.pending.set(session.sessionId, session);
+    else this.markPruneDue();
     this.current = null; this.suppressedPid = session.pid;
     if (session.testCapture === true) {
       this.publish(session.state, session.state === 'saved'
@@ -410,7 +422,7 @@ export class RecordingService {
       if (!ended && !session.reason && !this.closing && this.now() - Date.parse(session.stoppedAt) < 180_000) return;
       if (!validId(session.gameId)) {
         session.state = 'partial'; session.reason ||= 'match-identity-unavailable';
-        await this.preserve(session); this.pending.delete(session.sessionId);
+        await this.preserve(session); this.pending.delete(session.sessionId); this.markPruneDue();
         if (!this.current) this.publish('partial', 'Video saved, but its match could not be identified. The file is in your recordings folder.');
         return;
       }
@@ -451,7 +463,7 @@ export class RecordingService {
       if (!result?.ok) throw new Error('registration-failed');
       session.registrationStatus = result.status;
       session.state = session.complete ? 'saved' : 'partial';
-      await this.persist(session); this.pending.delete(session.sessionId);
+      await this.persist(session); this.pending.delete(session.sessionId); this.markPruneDue();
       if (!this.current) this.publish(session.state, session.complete
         ? (result.status === 'retained-existing' ? 'Recording saved. The match keeps its existing video.' : 'Recording saved for this match.')
         : result.status === 'linked-partial' ? 'A partial recording was attached to this match.'

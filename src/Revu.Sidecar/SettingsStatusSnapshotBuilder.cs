@@ -63,11 +63,13 @@ public sealed class SettingsStatusSnapshotBuilder
 
         var ffmpeg = await ProbeFfmpegAsync();
         var clipUsage = ComputeClipUsage(EffectiveClipsFolder(cfg), cfg.ClipsMaxSizeMb, ct);
+        var recordingUsage = ComputeRecordingUsage(Revu.Core.Data.AppDataPaths.RecordingsDirectory, cfg.RecordingsMaxSizeGb, ct);
         var backups = await LoadBackupsAsync();
 
         return new SettingsStatusDto(
             Ffmpeg: ffmpeg,
             ClipUsage: clipUsage,
+            RecordingUsage: recordingUsage,
             Backups: backups);
     }
 
@@ -131,6 +133,22 @@ public sealed class SettingsStatusSnapshotBuilder
         }
     }
 
+    // ── Recording usage — the same session folders the storage limit counts ──
+    private static ClipUsageDto ComputeRecordingUsage(string folder, int maxSizeGb, CancellationToken ct)
+    {
+        try
+        {
+            var gb = RecordingStoragePruner.MeasureFolderBytes(folder, ct) / (1024.0 * 1024.0 * 1024.0);
+            if (maxSizeGb <= 0) return new ClipUsageDto($"Using {gb:F1} GB. No limit set.", "#8A80A8");
+            var pct = gb / maxSizeGb * 100;
+            // Over the limit is expected between games: it is trimmed after the next one ends.
+            var color = pct < 80 ? "#7EC9A0" : pct < 100 ? "#C9956A" : "#D38C90";
+            return new ClipUsageDto($"Using {gb:F1} GB / {maxSizeGb} GB ({pct:F0}%)", color);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { return new ClipUsageDto("Error reading recordings folder", "#D38C90"); }
+    }
+
     // ── Backups — IBackupService.ListBackupsAsync() verbatim ──────────────────
     private async Task<IReadOnlyList<BackupDto>> LoadBackupsAsync()
     {
@@ -163,7 +181,8 @@ public sealed class SettingsStatusSnapshotBuilder
 public sealed record SettingsStatusDto(
     FfmpegStatusDto Ffmpeg,
     ClipUsageDto ClipUsage,
-    IReadOnlyList<BackupDto> Backups);
+    IReadOnlyList<BackupDto> Backups,
+    ClipUsageDto? RecordingUsage = null);
 
 public sealed record FfmpegStatusDto(bool Available, string Text, string ColorHex);
 
