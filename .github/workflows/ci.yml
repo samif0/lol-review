@@ -25,7 +25,47 @@ permissions:
   contents: read
 
 jobs:
-  dotnet-tests:
+  # Pull requests skip the Windows jobs their files cannot affect
+  # (scripts/ci-changes.mjs; a site- or proxy-only PR finishes in about a
+  # minute). Pushes to main always run everything. A skipped job reports
+  # success to branch protection, so the gated jobs below run whenever this job
+  # fails rather than being skipped with it.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      dotnet: ${{ steps.classify.outputs.dotnet }}
+      desktop: ${{ steps.classify.outputs.desktop }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # A pull_request checkout is the merge commit, whose first parent is the
+      # base branch tip, so HEAD^1..HEAD is exactly what merging would change.
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          else
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
+          cat "$RUNNER_TEMP/changed.txt"
+          node scripts/ci-changes.mjs < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
+
+  # Core and Sidecar run on separate runners; dotnet-tests below keeps the one
+  # check name branch protection requires.
+  dotnet-core:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.dotnet == 'true') }}
     runs-on: windows-2025
     steps:
       - name: Checkout
@@ -48,10 +88,53 @@ jobs:
       - name: Core tests
         run: dotnet test src/Revu.Core.Tests/Revu.Core.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
 
+  dotnet-sidecar:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.dotnet == 'true') }}
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Configure canonical temporary directory
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+
+      - name: Setup .NET (global.json)
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
       - name: Sidecar tests
         run: dotnet test src/Revu.Sidecar.Tests/Revu.Sidecar.Tests.csproj -c Release -p:Platform=x64 --logger "console;verbosity=normal"
 
+  dotnet-tests:
+    needs: [changes, dotnet-core, dotnet-sidecar]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both .NET suites to pass or be skipped
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CORE: ${{ needs.dotnet-core.result }}
+          SIDECAR: ${{ needs.dotnet-sidecar.result }}
+        run: |
+          echo "changes: $CHANGES, core: $CORE, sidecar: $SIDECAR"
+          for result in "$CORE" "$SIDECAR"; do
+            case "$result" in
+              success|skipped) ;;
+              *) exit 1 ;;
+            esac
+          done
+          # A skip is only acceptable when the classifier itself succeeded.
+          if [ "$CHANGES" != "success" ] && { [ "$CORE" = "skipped" ] || [ "$SIDECAR" = "skipped" ]; }; then
+            exit 1
+          fi
+
   desktop-build:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.desktop == 'true') }}
     runs-on: windows-2025
     steps:
       - name: Checkout

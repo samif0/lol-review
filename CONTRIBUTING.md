@@ -63,6 +63,14 @@ the ruleset:
 - Leave Actions out. `tag-release.yml` then fails, and release tags are pushed
   only from a machine whose own credentials can create them.
 
+Run with no inputs, `tag-release.yml` tags the tip of `main` with the next
+patch version (or the minor/major bump you pick) and dispatches `release.yml`
+on that tag, so one run cuts and builds the release.
+
+CI skips the Windows jobs a pull request's files cannot affect
+(`scripts/ci-changes.mjs`); pushes to `main` and release builds always run
+everything.
+
 The proxy and site are deployed by hand: `npm run deploy` in `proxy/` and
 `node scripts/deploy-site.mjs` from the repository root both run
 `scripts/guard-deploy.mjs` first, which refuses unless the tree is clean,

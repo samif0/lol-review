@@ -10,23 +10,32 @@ name: Create release tag
 # list; without that bypass this helper cannot tag, and release tags must be
 # pushed from a machine whose own credentials can create them (CONTRIBUTING.md).
 #
-# NOTE: a tag created here does NOT itself trigger release.yml — GitHub never
-# chains workflow runs off the Actions token. After this succeeds, dispatch
-# "Build & Release (Overwolf Electron)" on the new tag (the tag ref is what the Azure
-# code-signing federated credential trusts).
+# A tag pushed with GITHUB_TOKEN never triggers release.yml's tag push, so after
+# tagging this dispatches "Build & Release (Overwolf Electron)" on the new tag
+# (workflow_dispatch is the one event GITHUB_TOKEN may start; the tag ref is
+# what the Azure code-signing federated credential trusts).
+#
+# Leave tag empty to bump the highest stable v* tag (scripts/next-version.mjs),
+# and sha empty to release the current tip of main.
 
 on:
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Version bump when tag is empty"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
       tag:
-        description: "Release tag to create (e.g. v3.4.0, or v3.5.0-beta.1 for a prerelease)"
-        required: true
+        description: "Explicit release tag (e.g. v3.4.0, or v3.5.0-beta.1 for a prerelease); overrides bump"
+        required: false
       sha:
-        description: "Commit SHA on main the tag points at"
-        required: true
+        description: "Commit SHA on main the tag points at (default: the tip of main)"
+        required: false
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag:
@@ -38,10 +47,16 @@ jobs:
           fetch-depth: 0
 
       - name: Create and push tag
+        id: tag
         env:
+          BUMP: ${{ inputs.bump }}
           TAG: ${{ inputs.tag }}
           SHA: ${{ inputs.sha }}
         run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if [ -z "$SHA" ]; then SHA="$(git rev-parse refs/remotes/origin/main)"; fi
+          if [ -z "$TAG" ]; then TAG="$(git tag -l 'v*' | node scripts/next-version.mjs "$BUMP")" || exit 1; fi
+          echo "Tagging $TAG at $SHA"
           # Same version rule as release.yml's guard job.
           if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "refusing non-release tag name: $TAG"; exit 1
@@ -49,7 +64,6 @@ jobs:
           if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-fA-F]{7,40}$'; then
             echo "refusing: sha must be a hexadecimal commit SHA"; exit 1
           fi
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           commit="$(git rev-parse --verify "$SHA^{commit}")" || { echo "refusing: $SHA is not a commit"; exit 1; }
           if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/main; then
             echo "refusing: $commit is not on origin/main. Merge it first, then tag the merged commit."
@@ -60,3 +74,12 @@ jobs:
           # Clean up a leftover helper BRANCH with the same name, if any
           # (an earlier workaround pushed refs/heads/v3.4.0).
           git push origin ":refs/heads/$TAG" || true
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Start the release build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Dispatched release.yml on $TAG: https://github.com/$GITHUB_REPOSITORY/actions/workflows/release.yml"
