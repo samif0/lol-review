@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import * as accountPage from '../ui/account-page.mjs';
 
 // onboarding.js runs here against a small DOM and a fake desktop bridge, the way
-// settings-ascent.test.mjs runs settings.js: the Account page (?signin=1) and first
+// settings-behavior.test.mjs runs settings.js: the Account page (?signin=1) and first
 // launch, signing in and out, and what the shell's account row is told.
 const source = (await readFile(new URL('../ui/onboarding.js', import.meta.url), 'utf8'))
   .replace(/^import .*?;\r?\n/gm, '');

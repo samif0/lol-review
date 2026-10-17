@@ -97,7 +97,6 @@ public sealed class WriteServices : IDisposable
         services.AddSingleton<IClipRetentionGuard, ClipRetentionGuard>();
         services.AddSingleton<INarrationMixer, NarrationMixer>();
         services.AddSingleton<INarrationTranscriptChunker, NarrationTranscriptChunker>();
-        services.AddSingleton<IVodService, VodService>();
         services.AddSingleton<RecordingLinkStore>();
         // Review-page write slices (Batch 2): per-death cause classification,
         // per-objective custom-prompt answers. (Evidence triage reuses the
@@ -295,8 +294,6 @@ public sealed class WriteServices : IDisposable
     // v3.5: pattern-evidence materializer (game-end hook, death classify/clear,
     // review-save signals, startup window backfill).
     public IPatternEvidenceMaterializer PatternMaterializer => _provider.GetRequiredService<IPatternEvidenceMaterializer>();
-
-    public IVodService VodScan => _provider.GetRequiredService<IVodService>();
 
     public SessionBackupGuard BackupGuard => _provider.GetRequiredService<SessionBackupGuard>();
 

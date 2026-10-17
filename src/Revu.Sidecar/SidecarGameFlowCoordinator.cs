@@ -303,14 +303,6 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
                 // a manual Settings backfill. Tracked background work.
                 _backgroundWork.TryRun("post-game map state", () => TryMapStateWithRetryAsync(gameId));
 
-                _backgroundWork.TryRun("post-game Ascent scan", () =>
-                    AscentRecordingScan.RunWithRetryAsync(_write.VodScan, _write.Config, _write.Vod,
-                        _backgroundWork, async () =>
-                        {
-                            await _write.BackupGuard.EnsureBackedUpAsync();
-                        }, linkedId => _eventHub.Publish("vodLinked", new { gameId = linkedId }), _logger, gameId,
-                        registrations: _recordingRegistrations));
-
                 // v3.10: heal the matchup (enemy laner + role→champion map) from
                 // Match-V5 when the LCU end-of-game payload left it blank, so the
                 // Review page and the Matchups journal show "you vs them" without

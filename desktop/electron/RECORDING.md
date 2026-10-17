@@ -22,11 +22,11 @@ Native `startedAt` derives from an encoded video packet's OBS composition clock 
 
 Completion requires verified start timing and coverage of fresh exact-match end-clock evidence. Late starts, reconnect segments and interrupted coverage remain partial. The sidecar links a validated partial only when its timing is known and the match has no VOD, exposes `isPartial`, and retains unknown-clock media without attaching it. Existing VOD links are never overwritten. Session IDs make registration retries idempotent; match rows arriving after the video are reconciled by the sidecar.
 
-## External imports and diagnostics
+## Storage limit and diagnostics
 
 To test actual game capture in Practice Tool, use `npm run start:recording-test` from `desktop`. It opens the local packaged app with a new scratch profile and `--recording-test`; production data cannot be selected for this mode. Enable **Record my test game** in Settings → Recording, then start Practice Tool in Borderless mode. This explicit diagnostic launch accepts an active League test game without the ranked-only queue gate. It does not rely on an undocumented Practice Tool queue number. End the game and open the recordings folder to play the validated test MP4. Test sessions carry a durable marker and are never submitted for match attachment, including after restart.
 
-Ascent folder import remains available. Connecting and scanning its folder links existing videos; disconnecting keeps links and files. Do not move recordings already linked by absolute path. Do not uninstall Ascent on the assumption that a successful helper probe or generated-media test proves live League recording works.
+The recordings folder has an optional size limit (`recordings_max_size_gb` in config.json, 0 = no limit). After a match ends the host asks the sidecar to prune: with no game in progress, it deletes the oldest finished session folders until the folder fits. It never deletes the newest session, a session still recording or awaiting its match, a game whose VOD is sharing, or any session whose files another process has open (playback, clip extraction, speed-up). A deleted session's VOD link is removed; clips, bookmarks and notes stay.
 
 The explicit credentialed Overwolf Recorder development launcher remains a separate diagnostic provider. It is not required by the bundled libobs path. Isolated/smoke launches never probe, discover or start native recording and do not use production data.
 
@@ -34,4 +34,4 @@ The explicit credentialed Overwolf Recorder development launcher remains a separ
 
 Desktop tests cover protocol bounds, hardware-only selection and capability consistency, exact queue/phase gating, process closure, crashes, silent helpers, cancellation and unavailable UI states. Native policy tests cover all three GPU vendors, incompatible or unknown adapters, missing hardware encoders, and vendor-specific recording settings. Core/sidecar suites cover queue/session identity, receipts, timed partial linking and keeping existing VODs. Native generated-media diagnostics exercise the detected hardware encoder and the fragmented-then-finalized MP4 without capturing user windows or audio. Policy tests and a successful NVIDIA run do not establish live AMD or Intel recording acceptance.
 
-Still required before recommending Ascent removal: live WGC performance/cursor comparisons, full-match League-only audio and A/V synchronization checks, alt-tab/minimize/reconnect coverage, forced host exit, full-game soaks, and testing additional GPU/driver configurations. Synthetic media and startup checks do not establish those properties.
+Still required before calling built-in recording stable: live WGC performance/cursor comparisons, full-match League-only audio and A/V synchronization checks, alt-tab/minimize/reconnect coverage, forced host exit, full-game soaks, and testing additional GPU/driver configurations. Synthetic media and startup checks do not establish those properties.

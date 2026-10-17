@@ -37,10 +37,10 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
     [WindowsFact]
     public async Task LockedConfig_LoadThrows_AndAnUpdateNeverWritesDefaults()
     {
-        await WriteConfigAsync(new AppConfig { AscentFolder = @"C:\Ascent", TiltFixMode = true, ClipsMaxSizeMb = 4096 });
+        await WriteConfigAsync(new AppConfig { RiotId = "kept#euw", TiltFixMode = true, ClipsMaxSizeMb = 4096 });
         var original = await File.ReadAllTextAsync(ConfigPath);
         var service = Service();
-        Assert.Equal(@"C:\Ascent", (await service.LoadAsync()).AscentFolder);
+        Assert.Equal("kept#euw", (await service.LoadAsync()).RiotId);
 
         using (new FileStream(ConfigPath, FileMode.Open, FileAccess.Read, FileShare.None))
         {
@@ -50,7 +50,7 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
             Assert.False(mutated, "a change must never be applied to a config that failed to load");
             // The last good values stay cached for readers.
             Assert.True(service.TiltFixEnabled);
-            Assert.Equal(@"C:\Ascent", service.AscentFolder);
+            Assert.Equal(4096, service.ClipsMaxSizeMb);
         }
 
         Assert.Equal(original, await File.ReadAllTextAsync(ConfigPath));
@@ -71,16 +71,16 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
     {
         await File.WriteAllTextAsync(ConfigPath, "{ \"tilt_fix_mode\": tr");
         await File.WriteAllTextAsync(ConfigPath + ".bak",
-            JsonSerializer.Serialize(new AppConfig { AscentFolder = @"C:\Ascent", TiltFixMode = true }, JsonOptions));
+            JsonSerializer.Serialize(new AppConfig { RiotId = "kept#euw", TiltFixMode = true }, JsonOptions));
 
         var loaded = await Service().LoadAsync();
 
-        Assert.Equal(@"C:\Ascent", loaded.AscentFolder);
+        Assert.Equal("kept#euw", loaded.RiotId);
         Assert.True(loaded.TiltFixMode);
         var corrupt = Assert.Single(Directory.GetFiles(_root, "config.json.corrupt-*"));
         Assert.Equal("{ \"tilt_fix_mode\": tr", await File.ReadAllTextAsync(corrupt));
         // The good copy is back in place, so the next load reads it directly.
-        Assert.Equal(@"C:\Ascent", (await Service().LoadAsync()).AscentFolder);
+        Assert.Equal("kept#euw", (await Service().LoadAsync()).RiotId);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class ConfigServiceLoadFailureTests : IDisposable
 
         var loaded = await Service().LoadAsync();
 
-        Assert.Equal("", loaded.AscentFolder);
+        Assert.Equal("", loaded.RiotId);
         Assert.Single(Directory.GetFiles(_root, "config.json.corrupt-*"));
     }
 

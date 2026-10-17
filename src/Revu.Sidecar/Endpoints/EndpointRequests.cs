@@ -166,8 +166,8 @@ internal sealed record SaveConfigBody(
     // Main-window size: "default" | "maximized" | "WxH" (validated by
     // ConfigSaveGuards.TryResolveWindowResolution); null/blank = unchanged.
     string? WindowResolution = null,
-    string? AscentFolder = null,
-    bool? AutoMatchupNotesEnabled = null);
+    bool? AutoMatchupNotesEnabled = null,
+    int? RecordingsMaxSizeGb = null);
 
 // POST /api/review/draft/save body — same shape as SaveReviewBody minus the
 // championName/win/requireReviewNotes fields a finalized save needs (a draft

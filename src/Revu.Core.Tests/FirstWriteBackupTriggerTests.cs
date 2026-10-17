@@ -8,8 +8,8 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// The session backup is taken right before the first real write, not on every launch:
-/// an Ascent scan that links nothing and a corrections sweep whose orphan still has no
-/// twin take no backup, and when they do write, the backup sees the state before it.
+/// a corrections sweep whose orphan still has no twin takes no backup, and when it does
+/// write, the backup sees the state before it.
 /// </summary>
 public sealed class FirstWriteBackupTriggerTests
 {
@@ -118,47 +118,5 @@ public sealed class FirstWriteBackupTriggerTests
         Assert.Equal(812, seenAtBackup);
         Assert.True(writeLockFreeAtBackup, "the backup must not run inside the sweep's write transaction");
         Assert.Equal(815, CommittedScalar(scope, $"SELECT game_time_s FROM game_events WHERE game_id = {gameId}"));
-    }
-
-    [Fact]
-    public async Task AscentScan_BacksUpOnlyRightBeforeItLinksARecording()
-    {
-        using var scope = new TestDatabaseScope();
-        await scope.InitializeAsync();
-        var root = Path.Combine(Path.GetTempPath(), "Revu.Core.Tests", "ascent-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        try
-        {
-            var game = TestGameStatsFactory.Create(1001);
-            game.Timestamp = new DateTimeOffset(Start).ToUnixTimeSeconds();
-            game.GameDuration = 1800;
-            await scope.Games.SaveAsync(game);
-            var service = new VodService(scope.Games, scope.Vod,
-                new TestConfigService(new AppConfig { AscentFolder = root }), NullLogger<VodService>.Instance);
-            var backups = 0;
-            Task Backup() { backups++; return Task.CompletedTask; }
-
-            // Nothing to link: no backup.
-            Assert.Equal(0, (await service.ScanAsync(CancellationToken.None, null, Backup)).Matched);
-            Assert.Equal(0, backups);
-
-            var file = Path.Combine(root, "09-11-2026-17-25.mp4");
-            File.WriteAllBytes(file, [1, 2, 3, 4]);
-            File.SetLastWriteTime(file, Start.AddMinutes(30));
-            var linkedAtBackup = true;
-            var result = await service.ScanAsync(CancellationToken.None, null, async () =>
-            {
-                await Backup();
-                linkedAtBackup = await scope.Vod.GetVodAsync(1001) is not null;
-            });
-
-            Assert.Equal(1, result.Matched);
-            Assert.Equal(1, backups);
-            Assert.False(linkedAtBackup, "the backup must come before the link");
-        }
-        finally
-        {
-            try { Directory.Delete(root, recursive: true); } catch { }
-        }
     }
 }

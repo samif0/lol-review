@@ -44,11 +44,7 @@ test('only trusted main-frame IPC, command allowlist, and query encoding', () =>
   assert.match(request.route, /enemy=A%26B/);
   assert.throws(() => commandRequest('fetch', { url: 'http://localhost' }));
   assert.throws(() => commandRequest('get_vod', { gameId: '1' }));
-  const scan = commandRequest('scan_vods');
-  assert.equal(scan.route, '/api/settings/scan-vods');
-  assert.equal(scan.method, 'POST');
-  assert.deepEqual(scan.body, {});
-  assert.throws(() => commandRequest('scan_vods', { folder: 'C:\\unconfigured' }));
+  assert.throws(() => commandRequest('scan_vods'));
   const recovery = commandRequest('recover_missing_games');
   assert.equal(recovery.route, '/api/settings/recover-games');
   assert.equal(recovery.method, 'POST');

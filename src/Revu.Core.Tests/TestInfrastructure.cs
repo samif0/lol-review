@@ -142,7 +142,6 @@ internal sealed class TestConfigService : IConfigService
     public string GithubToken => Current.GithubToken;
 
     public bool TiltFixEnabled => Current.TiltFixMode;
-    public string AscentFolder => Current.AscentFolder;
 
     public string ClipsFolder => Current.ClipsFolder;
 

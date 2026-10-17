@@ -34,6 +34,12 @@ public static partial class SidecarEndpoints
                 return result is null ? Results.NotFound(new { ok = false, error = "Unknown recording session." })
                     : Results.Json(result, jsonOptions);
             }));
+
+        // Host-only: called after a match's recording settles. Deletes the oldest finished
+        // recordings until the folder fits the user's limit (no-op without one or mid-game).
+        app.MapPost("/api/recording/prune", (RecordingStoragePruner pruner, SidecarBackgroundWork work) =>
+            RunRecordingWork(work, "recording storage prune",
+                async () => Results.Json(await pruner.PruneAsync(work.Stopping), jsonOptions)));
     }
 
     // Accepted work drains during shutdown even if the host HTTP request disconnects.

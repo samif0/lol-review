@@ -46,9 +46,9 @@ function node(id = '', tag = 'DIV', action = '') {
   };
 }
 
-async function fixture({ native = true, ascentFolder = '', handler, hash } = {}) {
+async function fixture({ native = true, recordingsMaxSizeGb = 0, handler, hash } = {}) {
   const ids = new Map(), groups = [], listeners = new Map(), requests = [], categoryClicks = [], shellEvents = [];
-  const sections = { ascent: 'recording', clips: 'playback', account: 'account', review: 'playback' };
+  const sections = { recordingStorage: 'recording', clips: 'playback', account: 'account', review: 'playback' };
   const add = (id, tag, action) => { const element = node(id, tag, action); ids.set(id, element); return element; };
   const group = (name, fieldNames) => {
     const element = add(`${name}-settings`);
@@ -60,16 +60,17 @@ async function fixture({ native = true, ascentFolder = '', handler, hash } = {})
     element.children.forEach(child => { child.group = element; }); groups.push(element);
     return element;
   };
-  const ascent = group('ascent', ['ascentFolder']);
+  const recordingStorage = group('recordingStorage', ['recordingsMaxSizeGb']);
   const clips = group('clips', ['clipsFolder', 'clipsMaxSizeMb']);
   const account = group('account', ['riotId', 'region']);
   const review = group('review', ['autoMatchupNotesEnabled']);
   ids.get('autoMatchupNotesEnabled').setAttribute('role', 'switch');
-  for (const [id, action] of [['ascent-browse', 'pick_ascent'], ['ascent-disconnect', 'disconnect_ascent'], ['ascent-scan', 'scan_vods'], ['ascent-recover', 'recover_missing_games']]) {
-    const button = add(id, 'BUTTON', action); button.group = ascent; ascent.children.push(button);
-  }
-  add('ascent-status');
-  const config = { ascentFolder, clipsFolder: 'D:\\Clips', clipsMaxSizeMb: 2048, riotId: 'player#NA1', region: 'na1' };
+  // Number fields carry their own range, like settings.html.
+  Object.assign(ids.get('clipsMaxSizeMb'), { min: '100', max: '50000' });
+  Object.assign(ids.get('recordingsMaxSizeGb'), { min: '0', max: '2000' });
+  add('recover-games', 'BUTTON', 'recover_missing_games');
+  add('recovery-status');
+  const config = { recordingsMaxSizeGb, clipsFolder: 'D:\\Clips', clipsMaxSizeMb: 2048, riotId: 'player#NA1', region: 'na1' };
   let failRead = false, reads = 0;
   const invoke = async (command, args) => {
     requests.push({ command, args: args === undefined ? undefined : plain(args) });
@@ -106,14 +107,14 @@ async function fixture({ native = true, ascentFolder = '', handler, hash } = {})
     console: { error() {}, warn() {}, info() {} },
     ...(hash === undefined ? {} : { location: { hash } }),
   });
-  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadAscentAccess, collectPayload, settingsDirty, saveDirtySettings, loadConfig };`, context);
+  vm.runInContext(`${source}\nglobalThis.hooks = { render, loadRecoveryAccess, collectPayload, settingsDirty, saveDirtySettings, loadConfig };`, context);
   context.hooks.render(plain(config));
-  await context.hooks.loadAscentAccess();
+  await context.hooks.loadRecoveryAccess();
   const emit = async (type, target) => {
     for (const listener of listeners.get(type) || []) await listener({ target, preventDefault() {} });
   };
   return {
-    ids, groups: { ascent, clips, account, review }, config, requests, categoryClicks, shellEvents,
+    ids, groups: { recordingStorage, clips, account, review }, config, requests, categoryClicks, shellEvents,
     $: id => ids.get(id),
     click: id => emit('click', ids.get(id)),
     edit: async (id, value) => { ids.get(id).value = value; await emit('input', ids.get(id)); },
@@ -223,130 +224,55 @@ test('a prompt to link a Riot ID (#settings-account) puts the cursor in the blan
   assert.equal(elsewhere.$('riotId').focused, undefined, 'another category never takes the cursor');
 });
 
-test('browser preview disables folder access, scanning and connection writes without implying local availability', async () => {
-  const f = await fixture({ native: false, ascentFolder: 'D:\\Ascent' });
-  for (const id of ['ascentFolder', 'ascent-browse', 'ascent-save', 'ascent-disconnect', 'ascent-scan', 'ascent-recover']) assert.equal(f.$(id).disabled, true, id);
-  assert.match(f.$('ascent-status').textContent, /Browser preview cannot access local recordings/);
-  await f.click('ascent-scan'); await f.click('ascent-recover'); await f.click('ascent-disconnect');
+test('browser preview cannot recover matches and says why', async () => {
+  const f = await fixture({ native: false });
+  assert.equal(f.$('recover-games').disabled, true);
+  assert.match(f.$('recovery-status').textContent, /Browser preview cannot reach the League client/);
+  await f.click('recover-games');
   assert.deepEqual(f.requests, []);
 });
 
-test('recovery uses saved configuration, prevents overlapping scans and explains disconnected League', async () => {
+test('recovery runs once at a time and explains disconnected League', async () => {
   const recovery = deferred();
   let response = recovery.promise;
-  const f = await fixture({ ascentFolder: 'D:\\Ascent', handler: command => command === 'recover_missing_games' ? response : undefined });
-  await f.edit('ascentFolder', 'E:\\Unsaved');
-  await f.click('ascent-recover');
-  assert.deepEqual(f.requests, []);
-  await f.click('ascent-discard');
-  const pending = f.click('ascent-recover');
+  const f = await fixture({ handler: command => command === 'recover_missing_games' ? response : undefined });
+  assert.equal(f.$('recover-games').disabled, false);
+  const pending = f.click('recover-games');
   await new Promise(resolve => setImmediate(resolve));
-  for (const id of ['ascentFolder', 'ascent-browse', 'ascent-disconnect', 'ascent-scan', 'ascent-recover']) assert.equal(f.$(id).disabled, true, id);
-  assert.match(f.$('ascent-status').textContent, /Recovering recent matches from League/);
-  await f.click('ascent-recover'); await f.click('ascent-scan');
+  assert.equal(f.$('recover-games').disabled, true);
+  assert.match(f.$('recovery-status').textContent, /Recovering recent matches from League/);
+  await f.click('recover-games');
   assert.deepEqual(f.requests, [{ command: 'recover_missing_games', args: undefined }]);
-  recovery.resolve({ ok: true, recovered: 2, matched: 2, recordingCount: 65, message: 'Recovered 2 matches. Linked 2 recordings to matches.' });
+  recovery.resolve({ ok: true, recovered: 2, message: 'Recovered 2 ranked games.' });
   await pending;
-  assert.equal(f.$('ascent-status').textContent, 'Recovered 2 matches. Linked 2 recordings to matches.');
-  assert.equal(f.$('ascent-recover').disabled, false);
-  response = { ok: false, recovered: 0, matched: 0, recordingCount: 0, message: 'Open League of Legends, sign in, and wait for Revu to connect, then try again.' };
-  await f.click('ascent-recover');
-  assert.match(f.$('ascent-status').textContent, /Open League of Legends/);
-  assert.equal(f.$('ascent-status').classList.contains('bad'), true);
-  assert.equal(f.$('ascent-scan').disabled, false);
+  assert.equal(f.$('recovery-status').textContent, 'Recovered 2 ranked games.');
+  assert.equal(f.$('recover-games').disabled, false);
+  response = { ok: true, recovered: 1 };
+  await f.click('recover-games');
+  assert.equal(f.$('recovery-status').textContent, '1 match recovered.');
+  response = { ok: false, recovered: 0, message: 'Open League of Legends, sign in, and wait for Revu to connect, then try again.' };
+  await f.click('recover-games');
+  assert.match(f.$('recovery-status').textContent, /Open League of Legends/);
+  assert.equal(f.$('recovery-status').classList.contains('bad'), true);
 });
 
-test('picker cancellation is inert; connecting saves only its folder and preserves other category drafts', async () => {
-  let picked = null;
-  const saved = deferred();
-  let blockSave = true;
-  const f = await fixture({ handler: async command => {
-    if (command === 'pick_folder') return picked;
-    if (command === 'save_config' && blockSave) { await saved.promise; blockSave = false; }
-  } });
-  await f.click('ascent-browse');
-  assert.equal(f.groups.ascent.dataset.dirty, 'false');
-  picked = ' E:\\Ascent recordings ';
-  await f.click('ascent-browse');
-  assert.equal(f.$('ascentFolder').value, picked);
-  assert.equal(f.$('ascent-save').disabled, false);
-  assert.equal(f.$('ascent-scan').disabled, true);
-  const pending = f.click('ascent-save');
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.$('ascentFolder').disabled, true);
-  await f.edit('clipsFolder', '  unfinished clip path  ');
-  await f.edit('clipsMaxSizeMb', '');
-  saved.resolve(); await pending;
-  assert.deepEqual(f.requests.find(request => request.command === 'save_config').args, { payload: { ascentFolder: 'E:\\Ascent recordings' } });
-  assert.equal(f.$('clipsFolder').value, '  unfinished clip path  ');
-  assert.equal(f.$('clipsMaxSizeMb').value, '');
-  assert.equal(f.groups.clips.dataset.dirty, 'true');
-  assert.equal(f.$('ascentFolder').value, 'E:\\Ascent recordings');
-  assert.equal(f.$('ascent-save').textContent, 'Save folder');
-  assert.equal(f.$('ascent-scan').disabled, false);
+test('the recordings size limit saves on its own card, 0 means no limit, and an out-of-range value is not sent', async () => {
+  const f = await fixture({ recordingsMaxSizeGb: 0 });
+  assert.equal(f.$('recordingsMaxSizeGb').value, '0');
+  await f.edit('clipsFolder', 'unfinished clip draft');
+  await f.edit('recordingsMaxSizeGb', '150');
+  assert.equal(f.groups.recordingStorage.dataset.dirty, 'true');
+  await f.click('recordingStorage-save');
+  assert.deepEqual(f.requests.find(request => request.command === 'save_config').args, { payload: { recordingsMaxSizeGb: 150 } });
+  assert.equal(f.config.recordingsMaxSizeGb, 150);
+  assert.equal(f.$('clipsFolder').value, 'unfinished clip draft', 'other cards keep their drafts');
 
-  await f.edit('ascentFolder', ' raw path in hidden recording category ');
-  await f.edit('region', 'euw1'); await f.click('account-save');
-  assert.equal(f.$('ascentFolder').value, ' raw path in hidden recording category ');
-  assert.equal(f.groups.ascent.dataset.dirty, 'true');
-  await f.click('ascent-discard');
-  assert.equal(f.$('ascentFolder').value, 'E:\\Ascent recordings');
-});
-
-test('empty input cannot clear a connection; explicit disconnect sends the sentinel and safely handles a failed refetch', async () => {
-  const f = await fixture({ ascentFolder: 'D:\\Ascent' });
-  await f.edit('ascentFolder', '  ');
-  assert.deepEqual(f.payload(f.groups.ascent), {});
-  assert.equal(f.$('ascent-save').disabled, true);
-  await f.click('ascent-save');
-  assert.equal(f.requests.length, 0);
-  await f.edit('clipsFolder', 'keep this draft');
-  f.failRead();
-  await f.click('ascent-disconnect');
-  assert.deepEqual(f.requests.find(request => request.command === 'save_config').args,
-    { payload: { ascentFolder: ' __REVU_CLEAR__ ' } });
-  assert.equal(f.$('ascentFolder').value, '');
-  assert.equal(f.$('clipsFolder').value, 'keep this draft');
-  assert.equal(f.$('ascent-scan').disabled, true);
-  assert.equal(f.$('ascent-disconnect').disabled, true);
-  assert.match(f.$('ascent-save-status').textContent, /Existing videos and match links are kept/);
-});
-
-test('scan uses only the saved folder, serializes actions and reports actual counts and safe error text', async () => {
-  const scan = deferred();
-  let response = scan.promise;
-  const f = await fixture({ ascentFolder: 'D:\\Ascent', handler: command => command === 'scan_vods' ? response : undefined });
-  await f.edit('ascentFolder', 'E:\\Unsaved'); await f.click('ascent-scan');
-  assert.equal(f.requests.length, 0);
-  await f.click('ascent-discard');
-  const pending = f.click('ascent-scan');
-  await new Promise(resolve => setImmediate(resolve));
-  for (const id of ['ascentFolder', 'ascent-browse', 'ascent-disconnect', 'ascent-scan']) assert.equal(f.$(id).disabled, true, id);
-  await f.click('ascent-scan'); await f.click('ascent-disconnect');
-  assert.deepEqual(f.requests, [{ command: 'scan_vods', args: undefined }]);
-  scan.resolve({ ok: true, matched: 1, recordingCount: 3, message: 'Already linked videos were preserved.' });
-  await pending;
-  assert.equal(f.$('ascent-status').textContent, 'Already linked videos were preserved.');
-  assert.equal(f.$('ascent-scan').disabled, false);
-  response = { ok: true, matched: 1, recordingCount: 3 };
-  await f.click('ascent-scan');
-  assert.match(f.$('ascent-status').textContent, /1 match linked · 3 recordings found/);
-  response = { ok: false, message: '<img src=x onerror=alert(1)> cannot be read' };
-  await f.click('ascent-scan');
-  assert.equal(f.$('ascent-status').textContent, '<img src=x onerror=alert(1)> cannot be read');
-  assert.equal(f.$('ascent-status').children.length, 0);
-  assert.equal(f.$('ascent-status').classList.contains('bad'), true);
-  assert.equal(f.$('ascentFolder').value, 'D:\\Ascent');
-});
-
-test('failed connection saves keep the draft and allow retry without touching the existing folder', async () => {
-  const f = await fixture({ ascentFolder: 'D:\\Ascent', handler: command => command === 'save_config' ? { ok: false, message: 'Folder cannot be accessed.' } : undefined });
-  await f.edit('ascentFolder', 'E:\\New folder'); await f.click('ascent-save');
-  assert.equal(f.config.ascentFolder, 'D:\\Ascent');
-  assert.equal(f.$('ascentFolder').value, 'E:\\New folder');
-  assert.equal(f.$('ascent-save').disabled, false);
-  assert.equal(f.$('ascent-scan').disabled, true);
-  assert.equal(f.$('ascent-save-status').textContent, 'Folder cannot be accessed.');
+  await f.edit('recordingsMaxSizeGb', '5000');
+  assert.deepEqual(f.payload(f.groups.recordingStorage), {}, 'above the field max is never sent');
+  await f.edit('recordingsMaxSizeGb', '0');
+  assert.deepEqual(f.payload(f.groups.recordingStorage), { recordingsMaxSizeGb: 0 });
+  await f.edit('clipsMaxSizeMb', '50');
+  assert.deepEqual(f.payload(f.groups.clips), { clipsFolder: 'unfinished clip draft' }, 'the clips limit keeps its own 100 MB floor');
 });
 
 test('a failed Settings read reports at once instead of retrying for ten seconds', async () => {
@@ -367,11 +293,13 @@ test('a rejected save shows the sidecar sentence without the Electron IPC prefix
   assert.equal(f.$('clipsFolder').value, 'E:\\Clips');
 });
 
-test('Ascent is discoverable as external recording in the Recording category', async () => {
+test('the Recording category finds the storage limit and match recovery, and Ascent is gone', async () => {
   const html = await readFile(new URL('../ui/settings.html', import.meta.url), 'utf8');
-  const search = html.match(/id="ascent-settings"[^>]*data-search="([^"]+)"/)[1];
-  const categories = [{ id: 'recording', title: 'Recording', cards: [{ id: 'ascent-settings', text: search }] }];
-  for (const query of ['Ascent', 'external recorder', 'link recordings', 'scan folder']) {
-    assert.deepEqual(findSettings(categories, query)[0].cards, ['ascent-settings']);
+  assert.doesNotMatch(html, /ascent/i);
+  const card = id => ({ id, text: html.match(new RegExp(`id="${id}"[^>]*data-search="([^"]+)"`))[1] });
+  const categories = [{ id: 'recording', title: 'Recording', cards: [card('recording-storage-settings'), card('recovery-settings')] }];
+  for (const query of ['size limit', 'delete oldest', 'disk space']) {
+    assert.deepEqual(findSettings(categories, query)[0].cards, ['recording-storage-settings'], query);
   }
+  assert.deepEqual(findSettings(categories, 'missing matches')[0].cards, ['recovery-settings']);
 });

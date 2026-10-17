@@ -198,17 +198,6 @@ public static class SidecarStartup
             backgroundWork.TryRun("startup recording registration", () =>
                 app.Services.GetRequiredService<RecordingRegistrationService>().ReconcileAsync());
 
-            backgroundWork.TryRun("startup Ascent scan", () =>
-            {
-                var write = app.Services.GetRequiredService<WriteServices>();
-                return AscentRecordingScan.RunWithRetryAsync(write.VodScan, write.Config, write.Vod,
-                    backgroundWork, async () =>
-                    {
-                        await write.BackupGuard.EnsureBackedUpAsync();
-                    }, gameId => app.Services.GetRequiredService<SidecarEventHub>().Publish("vodLinked", new { gameId }),
-                    programLogger, registrations: app.Services.GetRequiredService<RecordingRegistrationService>());
-            });
-
             // 3.14.1: a matchup lookup (startup heal, post-game pass, backlog drain, Settings
             // backfill) can flip a remake verdict from the same Match-V5 document. Announce
             // it like the remake check does, so open pages refresh and a lock it caused clears.

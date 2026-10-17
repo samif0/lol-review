@@ -14,10 +14,16 @@ public class AppConfig
     public string GithubToken { get; set; } = "";
     public Dictionary<string, string> Keybinds { get; set; } = new();
     public bool TiltFixMode { get; set; }
-    /// <summary>Optional Ascent recording folder. Empty disables discovery; existing VOD links remain.</summary>
-    public string AscentFolder { get; set; } = "";
+    // (AscentFolder removed with the Ascent import in 4.5: a stale ascent_folder key in
+    // config.json is ignored by the deserializer; existing VOD links stay.)
     public string ClipsFolder { get; set; } = "";
     public int ClipsMaxSizeMb { get; set; } = 2048;
+    /// <summary>
+    /// Size limit for Revu's recordings folder in GB. 0 = no limit. After a game ends the
+    /// sidecar deletes the oldest finished recordings until the folder fits
+    /// (<c>RecordingStoragePruner</c>). Saved as 0 or 10..2000.
+    /// </summary>
+    public int RecordingsMaxSizeGb { get; set; }
     public bool BackupEnabled { get; set; }
     public string BackupFolder { get; set; } = "";
     public bool RequireReviewNotes { get; set; }

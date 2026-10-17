@@ -159,6 +159,9 @@ public sealed partial class VodShareWorker
     /// <summary>Enable starts (idempotent). NarrationStartup calls this after clearing ShareTemp.</summary>
     public void Start() => Interlocked.Exchange(ref _started, 1);
 
+    /// <summary>The game whose VOD is sharing now, if any. Its recording must not be deleted.</summary>
+    public long? SharingGameId { get { lock (_gate) return _running?.GameId; } }
+
     // ── Status ───────────────────────────────────────────────────────────────
 
     public async Task<VodShareStatusDto> GetStatusAsync(long gameId, CancellationToken ct)

@@ -91,7 +91,7 @@ body.settings-page .settings-text-button:hover:not(:disabled),body.settings-page
 .settings-page .set-status.bad,.settings-page [data-save-status].bad{color:var(--text);font-weight:600}
 .settings-page .settings-status-box{background:transparent;border:0;padding:0;border-radius:0}
 .settings-page #recording-status{color:var(--muted);line-height:1.65}
-/* Built-in recording is not released: one Coming soon line under Ascent. */
+/* Built-in recording: the Beta badge and status line lead the Recording section. */
 body.settings-page #recording-settings{padding:16px 0 18px}
 .settings-page #recording-settings .settings-title-row{flex-wrap:nowrap}
 .settings-page #recording-settings .settings-card-description{margin:0}

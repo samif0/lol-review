@@ -26,39 +26,6 @@ public static partial class SidecarEndpoints
         app.MapGet("/api/settings/status", async (SettingsStatusSnapshotBuilder b, CancellationToken ct) =>
             Results.Json(await b.BuildAsync(ct), jsonOptions));
 
-        // Explicitly configured external folder only. Accepted work is tracked so
-        // shutdown cancels enumeration/delays and drains any in-flight SQL insert.
-        app.MapPost("/api/settings/scan-vods", async (WriteServices w, SidecarBackgroundWork work,
-            RecordingRegistrationService registrations, SidecarEventHub events, ILogger<Program> log) =>
-        {
-            var completion = new TaskCompletionSource<VodScanResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!work.TryRun("manual Ascent scan", async () =>
-            {
-                try
-                {
-                    var cfg = await w.Config.LoadAsync();
-                    if (string.IsNullOrWhiteSpace(cfg.AscentFolder))
-                    {
-                        completion.TrySetResult(new(false, 0, 0, "Choose an Ascent recording folder first."));
-                        return;
-                    }
-                    await w.BackupGuard.EnsureBackedUpAsync();
-                    var result = await registrations.RunExternalScanAsync(
-                        reserved => w.VodScan.ScanAsync(work.Stopping, reserved), work.Stopping);
-                    foreach (var gameId in result.LinkedGameIds) events.Publish("vodLinked", new { gameId });
-                    completion.TrySetResult(result);
-                }
-                catch (OperationCanceledException) when (work.Stopping.IsCancellationRequested)
-                { completion.TrySetResult(new(false, 0, 0, "Revu is closing; scan stopped. Existing VOD links are preserved.")); }
-                catch (Exception ex)
-                {
-                    log.LogWarning(ex, "Ascent recording scan failed");
-                    completion.TrySetResult(new(false, 0, 0, "Couldn't scan or link recordings. Check the folder is accessible and try again."));
-                }
-            })) return Results.Json(new VodScanResult(false, 0, 0, "Revu is closing; scan was not started."), jsonOptions, statusCode: 503);
-            return Results.Json(await completion.Task, jsonOptions);
-        });
-
         // GET /api/update/check — ask the GitHub release feed whether a newer version
         // exists (Velopack UpdateManager). Read-only; never throws. The host polls this on
         // launch (banner) and Settings (manual check). Returns the UpdateCheckResult shape.
@@ -173,17 +140,18 @@ public static partial class SidecarEndpoints
     internal static string? ApplyConfigSave(SaveConfigBody body, Revu.Core.Models.AppConfig cfg)
     {
             // Folder fields: null/empty = unchanged; sentinel = explicit clear; else set.
-            var ascentSet = ConfigSaveGuards.TryResolveFolderWrite(body.AscentFolder, out var ascent);
-            if (ascentSet && IsNewNonLocalFolder(ascent, cfg.AscentFolder)) return NonLocalFolderError("Ascent recordings");
-            if (ascentSet) cfg.AscentFolder = ascent;
             var clipsSet = ConfigSaveGuards.TryResolveFolderWrite(body.ClipsFolder, out var clips);
             if (clipsSet && IsNewNonLocalFolder(clips, cfg.ClipsFolder)) return NonLocalFolderError("clips");
             if (clipsSet) cfg.ClipsFolder = clips;
-            if ((ascentSet || clipsSet) && ClipsFolderConflict(cfg) is { } conflict) return conflict;
+            if (clipsSet && ClipsFolderConflict(cfg) is { } conflict) return conflict;
             // Server-side clamp mirroring the Settings page (100–50000 MB). This value
             // feeds EnforceFolderSizeLimitAsync — an unclamped 0 (or negative) would
             // make the next clip extraction delete EVERY clip in the folder.
             if (body.ClipsMaxSizeMb is not null) cfg.ClipsMaxSizeMb = Math.Clamp(body.ClipsMaxSizeMb.Value, 100, 50_000);
+            // 0 = no limit; any other value is held to 10..2000 GB so a typo can't make the
+            // next post-game prune delete almost every recording.
+            if (body.RecordingsMaxSizeGb is not null)
+                cfg.RecordingsMaxSizeGb = body.RecordingsMaxSizeGb.Value <= 0 ? 0 : Math.Clamp(body.RecordingsMaxSizeGb.Value, 10, 2000);
             if (body.BackupEnabled is not null) cfg.BackupEnabled = body.BackupEnabled.Value;
             if (ConfigSaveGuards.TryResolveFolderWrite(body.BackupFolder, out var backup))
             {
@@ -234,13 +202,11 @@ public static partial class SidecarEndpoints
         $"Choose a folder on this PC for your {purpose}. Network share paths aren't supported.";
 
     // H5: clip cleanup deletes old clips from the clips folder, so that folder must never
-    // be, contain, or sit inside a folder of game recordings (the Ascent folder or Revu's
-    // own recordings folder). A blank clips folder means the default one.
+    // be, contain, or sit inside Revu's recordings folder. A blank clips folder means the
+    // default one.
     internal static string? ClipsFolderConflict(Revu.Core.Models.AppConfig cfg)
     {
         var clips = string.IsNullOrWhiteSpace(cfg.ClipsFolder) ? AppDataPaths.ClipsDirectory : cfg.ClipsFolder;
-        if (!string.IsNullOrWhiteSpace(cfg.AscentFolder) && LocalPathPolicy.FoldersOverlap(clips, cfg.AscentFolder))
-            return "Your clips folder can't be the same as, inside, or contain your Ascent recordings folder. Choose a separate folder for clips.";
         if (LocalPathPolicy.FoldersOverlap(clips, AppDataPaths.RecordingsDirectory))
             return "Your clips folder can't be the same as, inside, or contain Revu's recordings folder. Choose a separate folder for clips.";
         return null;

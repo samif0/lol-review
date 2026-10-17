@@ -18,9 +18,10 @@ test('settings copy only promises what the app does', () => {
 });
 
 test('the bundled recorder exposes beta controls only after host availability is known', () => {
-  const ascent = html.indexOf('id="ascent-settings"'), recorder = html.indexOf('id="recording-settings"');
-  assert.ok(ascent > 0 && recorder > ascent, 'existing folder import remains available');
-  const card = html.slice(html.lastIndexOf('<div', recorder), html.indexOf('<p class="settings-inline-note"', recorder));
+  const recorder = html.indexOf('id="recording-settings"'), storage = html.indexOf('id="recording-storage-settings"');
+  assert.ok(recorder > 0 && storage > recorder, 'the storage limit follows the recorder');
+  assert.doesNotMatch(html, /ascent/i, 'Ascent import is gone');
+  const card = html.slice(html.lastIndexOf('<div', recorder), html.lastIndexOf('<div', storage));
   const controls = card.indexOf('<div class="settings-recording-controls" id="recording-controls" hidden>');
   assert.ok(controls > 0, 'recorder controls stay hidden until host availability is known');
   for (const id of ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']) {
@@ -28,7 +29,6 @@ test('the bundled recorder exposes beta controls only after host availability is
   }
   assert.equal(visibleText(card.slice(0, controls)).trim(),
     'Beta Checking built-in recording availability…');
-  assert.doesNotMatch(visibleText(html.slice(ascent, recorder)), /built-in recording/i);
   assert.match(card, /id="recording-encoder"/);
   assert.doesNotMatch(visibleText(card), /requires an NVIDIA GPU/);
   assert.doesNotMatch(card, /<select[^>]+id="[^"]*encoder/i);
