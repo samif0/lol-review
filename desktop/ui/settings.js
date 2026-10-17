@@ -39,6 +39,9 @@ const TOGGLE_FIELDS = [
 const PICK_TARGETS = { pick_clips: 'clipsFolder', pick_backup: 'backupFolder' };
 
 let _data = null;
+// The folder clips are saved to right now (the chosen one, or Revu's default when
+// none is set), as the sidecar reports it.
+let _effectiveClipsFolder = '';
 let _baseline = {};
 let _savingGroup = null;
 let _recoveryAvailable = null;
@@ -225,6 +228,9 @@ function renderStatus(s) {
 
   applyStatusText($('ffmpeg-status'), s.ffmpeg, 'ffmpeg status unavailable.');
   applyStatusText($('clip-usage'), s.clipUsage, '');
+  _effectiveClipsFolder = typeof s.clipsFolder === 'string' ? s.clipsFolder : '';
+  const location = $('clips-location');
+  if (location) location.textContent = _effectiveClipsFolder ? `Clips are saved to ${_effectiveClipsFolder}` : '';
   applyStatusText($('recording-usage'), s.recordingUsage, '');
 
   // Backups list — each row is selectable; selecting one enables Restore.
@@ -634,7 +640,10 @@ async function doRecover(invoke) {
 // persisted until Save (mirrors the WinUI Browse commands).
 async function doPick(invoke, action) {
   const fieldId = PICK_TARGETS[action];
-  const picked = await invoke('pick_folder');
+  // Open the picker on the folder in use, not wherever Windows last browsed.
+  const current = String($(fieldId)?.value || '').trim()
+    || (fieldId === 'clipsFolder' ? _effectiveClipsFolder : '');
+  const picked = await invoke('pick_folder', current ? { defaultPath: current } : {});
   if (picked) {
     const el = $(fieldId);
     if (el) el.value = String(picked);

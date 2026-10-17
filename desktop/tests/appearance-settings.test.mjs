@@ -93,7 +93,7 @@ test('settings.js boots the card beside Audio devices and maps legacy status hex
   const source = settingsJs.replace(/^import .*?;\n/gm, '');
   const node = id => ({ id, textContent: '', style: { color: '#7EC9A0' }, dataset: {}, hidden: false, children: [],
     classList: { add() {}, remove() {}, toggle() {} } });
-  const ids = new Map(['ffmpeg-status', 'clip-usage'].map(id => [id, node(id)]));
+  const ids = new Map(['ffmpeg-status', 'clip-usage', 'clips-location'].map(id => [id, node(id)]));
   const context = vm.createContext({
     document: { readyState: 'loading', addEventListener() {}, querySelectorAll: () => [], querySelector: () => null },
     window: {}, $: id => ids.get(id) || null, show() {}, clearEl() {}, toneFromHex: hex => `tone-of-${hex}`,
@@ -105,8 +105,9 @@ test('settings.js boots the card beside Audio devices and maps legacy status hex
   assert.equal(ids.get('ffmpeg-status').dataset.tone, 'tone-of-#7EC9A0');
   assert.equal(ids.get('ffmpeg-status').style.color, '', 'no inline hex beats the theme');
   ids.get('clip-usage').dataset.tone = 'ok';
-  context.hooks.renderStatus({ clipUsage: { text: 'Using 640 MB' } });
+  context.hooks.renderStatus({ clipUsage: { text: 'Using 640 MB' }, clipsFolder: 'C:\\Revu\\clips' });
   assert.equal(ids.get('clip-usage').dataset.tone, undefined, 'a status without a color drops its old tone');
+  assert.equal(ids.get('clips-location').textContent, 'Clips are saved to C:\\Revu\\clips', 'the folder in use is shown');
 });
 
 // ── behavior over the real prepaint ──────────────────────────────────────────

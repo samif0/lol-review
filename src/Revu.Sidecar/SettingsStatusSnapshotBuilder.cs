@@ -62,7 +62,8 @@ public sealed class SettingsStatusSnapshotBuilder
         }
 
         var ffmpeg = await ProbeFfmpegAsync();
-        var clipUsage = ComputeClipUsage(EffectiveClipsFolder(cfg), cfg.ClipsMaxSizeMb, ct);
+        var clipsFolder = EffectiveClipsFolder(cfg);
+        var clipUsage = ComputeClipUsage(clipsFolder, cfg.ClipsMaxSizeMb, ct);
         var recordingUsage = ComputeRecordingUsage(Revu.Core.Data.AppDataPaths.RecordingsDirectory, cfg.RecordingsMaxSizeGb, ct);
         var backups = await LoadBackupsAsync();
 
@@ -70,7 +71,8 @@ public sealed class SettingsStatusSnapshotBuilder
             Ffmpeg: ffmpeg,
             ClipUsage: clipUsage,
             RecordingUsage: recordingUsage,
-            Backups: backups);
+            Backups: backups,
+            ClipsFolder: clipsFolder);
     }
 
     // ── ffmpeg — IClipService.FindFfmpegAsync() verbatim ─────────────────────
@@ -182,7 +184,8 @@ public sealed record SettingsStatusDto(
     FfmpegStatusDto Ffmpeg,
     ClipUsageDto ClipUsage,
     IReadOnlyList<BackupDto> Backups,
-    ClipUsageDto? RecordingUsage = null);
+    ClipUsageDto? RecordingUsage = null,
+    string? ClipsFolder = null);
 
 public sealed record FfmpegStatusDto(bool Available, string Text, string ColorHex);
 

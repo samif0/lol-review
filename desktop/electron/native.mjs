@@ -23,7 +23,10 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPr
     switch (command) {
       case 'app_version': return app.getVersion();
       case 'pick_folder': {
-        const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] });
+        // defaultPath only chooses where the picker starts; the user still picks.
+        const start = typeof args?.defaultPath === 'string' && args.defaultPath.length <= 1024
+          && path.win32.isAbsolute(args.defaultPath) ? args.defaultPath : undefined;
+        const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'], ...(start ? { defaultPath: start } : {}) });
         return result.canceled ? null : result.filePaths[0];
       }
       case 'save_export_file': {
