@@ -215,6 +215,39 @@ public sealed class HardStopEnforcerTests
         Assert.Equal(0, h.Lcu.CancelCalls);
     }
 
+    [Theory]
+    [InlineData(450)] // ARAM
+    [InlineData(430)] // Normal Blind
+    [InlineData(400)] // Normal Draft
+    [InlineData(-1)]  // LCU could not name the queue
+    public async Task TrippedRule_NonRankedQueue_Proceeds(int queueId)
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        h.Lcu.QueueId = queueId;
+
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        Assert.Equal(0, h.Lcu.CancelCalls);
+        Assert.Equal(0, h.Lcu.DeclineCalls);
+        Assert.Null(h.Live.HardStop);
+    }
+
+    [Fact]
+    public async Task TrippedRule_RankedFlex_CancelsQueue()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        h.Lcu.QueueId = 440;
+
+        Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
+        Assert.Equal(1, h.Lcu.CancelCalls);
+    }
+
     // ── 3.14.1: remakes never count toward the lock ──────────────────────────
 
     private static async Task SeedTodayAsync(Harness h, params (long Id, bool Remake)[] games)
@@ -297,6 +330,7 @@ public sealed class HardStopEnforcerTests
         public bool Accept { get; set; } = true;
         public int CancelCalls { get; private set; }
         public int DeclineCalls { get; private set; }
+        public int QueueId { get; set; } = 420;
 
         public void Configure(LcuCredentials credentials) { }
         public Task<bool> IsConnectedAsync(CancellationToken ct = default) => Task.FromResult(true);
@@ -305,7 +339,7 @@ public sealed class HardStopEnforcerTests
         public Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) { CancelCalls++; return Task.FromResult(Accept); }
         public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) { DeclineCalls++; return Task.FromResult(Accept); }
-        public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(420);
+        public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(QueueId);
         public Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default) => Task.FromResult(new List<JsonElement>());
         public Task<JsonElement?> GetMatchDetailsAsync(long gameId, CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default) => Task.FromResult<string?>(null);

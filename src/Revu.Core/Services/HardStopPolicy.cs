@@ -56,6 +56,10 @@ public static class HardStopPolicy
     public static bool CanEnforce(string? ruleType) =>
         ruleType is "loss_streak" or "max_games" or "no_play_after" or "no_play_day";
 
+    /// <summary>Ranked Solo/Duo and Ranked Flex. The hard stop holds only these:
+    /// ARAM, normals and every other casual queue always proceed.</summary>
+    public static bool IsRankedQueue(int queueId) => queueId is 420 or 440;
+
     /// <summary>
     /// The first tripped rule that is active, flagged enforce, enforceable by type
     /// and not overridden today — or null when the queue may proceed.

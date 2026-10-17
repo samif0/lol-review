@@ -25,7 +25,8 @@ namespace Revu.Sidecar;
 /// Scope and safety: acts only on the user's own client through the LCU Revu
 /// already talks to; reads no game data; never dodges a champ select (that
 /// costs LP — once the player is past the ready check the stop is over for
-/// this game). Every decision comes from <see cref="HardStopPolicy"/> (pure)
+/// this game), and never touches a queue that is not ranked (ARAM, normals
+/// and other casual modes always proceed). Every decision comes from <see cref="HardStopPolicy"/> (pure)
 /// over the same live check the Rules page runs. An override written through
 /// <see cref="OverrideAsync"/> silences the rule for the rest of the local day.
 /// Best-effort throughout: any failure logs and lets the queue proceed.
@@ -92,6 +93,16 @@ public sealed class HardStopEnforcer
         {
             var decision = await DecideAsync(ct).ConfigureAwait(false);
             if (decision is null) return null;
+
+            // Rules are for ranked. ARAM and normals always proceed, and so does a
+            // queue the LCU cannot name (-1): the next tick asks again.
+            var queueId = await _lcu.GetLobbyQueueIdAsync(ct).ConfigureAwait(false);
+            if (!HardStopPolicy.IsRankedQueue(queueId))
+            {
+                _logger.LogInformation("Hard stop: rule {RuleId} holds but queue {QueueId} is not ranked; letting it proceed",
+                    decision.Rule.Id, queueId);
+                return null;
+            }
 
             var action = phase == GamePhase.ReadyCheck
                 ? HardStopActions.DeclinedReadyCheck
