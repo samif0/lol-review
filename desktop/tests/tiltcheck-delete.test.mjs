@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-// P-042: the real Tilt check renderer and its Delete write, on a minimal DOM. The
-// production template's markup is checked separately below.
+// P-042: the real Tilt check renderer and its Delete write, on a minimal DOM, and how a
+// plan saved in champ select reads in the recent list. The production template's markup
+// is checked separately below.
 const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
 const source = (await read('tiltcheck.js')).replace(/^import .*?;\r?\n/gm, '');
 const html = await read('tiltcheck.html');
@@ -36,11 +37,11 @@ const calm = entry(11, 'anxious', { intensityBefore: 6, intensityAfter: 3, inten
   ifThenPlan: CALM_PLAN, hasPlan: true, createdAtText: 'Oct 18, 21:05' });
 const pregame = entry(10, 'pregame_plan', { intensityBefore: 0, intensityAfter: null, intensityReduction: null,
   reframeResponse: '', ifThenPlan: PREGAME_PLAN, hasPlan: true, createdAtText: 'Oct 17, 19:30' });
+// The sidecar leaves plan rows out of the top emotions.
 const BEFORE = snapshot([stray, calm, pregame], { total: 2, avgBefore: 8, avgAfter: 2.5, avgReduction: 5.5,
-  topEmotions: [{ emotion: 'frustrated', count: 1 }, { emotion: 'anxious', count: 1 }, { emotion: 'pregame_plan', count: 1 }] },
-STRAY_PLAN);
+  topEmotions: [{ emotion: 'frustrated', count: 1 }, { emotion: 'anxious', count: 1 }] }, STRAY_PLAN);
 const AFTER = snapshot([calm, pregame], { total: 1, avgBefore: 6, avgAfter: 3, avgReduction: 3,
-  topEmotions: [{ emotion: 'anxious', count: 1 }, { emotion: 'pregame_plan', count: 1 }] }, CALM_PLAN);
+  topEmotions: [{ emotion: 'anxious', count: 1 }] }, CALM_PLAN);
 const EMPTY = snapshot([], {});
 
 function fixture({ snapshots, invoke, confirm = () => true }) {
@@ -74,7 +75,8 @@ function fixture({ snapshots, invoke, confirm = () => true }) {
     querySelector: selector => (selector === '#statusline b' ? status : null),
   };
   const PARTS = {
-    'tpl-recent': ['.tc-row-emo', '.tc-row-when', '.tc-row-plan', '.tc-row-text', '.tc-row-before', '.tc-row-arr', '.tc-row-after', '.tc-row-drop'],
+    'tpl-recent': ['.tc-row-edge', '.tc-row-emo', '.tc-row-when', '.tc-row-plan', '.tc-row-text', '.tc-row-before', '.tc-row-arr',
+      '.tc-row-after', '.tc-row-drop'],
     'tpl-stat': ['.k', '.v', '.s'],
     'tpl-emotion': ['.tc-emo-name', '.tc-emo-n'],
   };
@@ -87,7 +89,8 @@ function fixture({ snapshots, invoke, confirm = () => true }) {
       const node = element();
       for (const selector of PARTS[name] || []) { const part = element(); node.parts.set(selector, part); node.appendChild(part); }
       if (name === 'tpl-recent') {
-        // The template's Delete button (markup pinned by the last test).
+        // The template's loss-tone edge and its Delete button (markup pinned by the last test).
+        node.parts.get('.tc-row-edge').dataset.tone = 'loss';
         const del = element(); del.dataset.action = 'delete_entry';
         node.parts.set('.tc-row-del', del); node.appendChild(del);
       }
@@ -208,8 +211,46 @@ test('a delete that lands while a reload is in flight still gets a reload of its
   assert.deepEqual(f.ids(), ['10']);
 });
 
+test('a plan saved in champ select reads as a plan: a plain label, its text and no intensity duo', async () => {
+  const unrated = entry(9, 'tense', { intensityBefore: 7, intensityAfter: null, intensityReduction: null,
+    createdAtText: 'Oct 16, 18:00' });
+  const f = fixture({ snapshots: () => snapshot([...BEFORE.recent, unrated], BEFORE.stats, STRAY_PLAN),
+    invoke: async () => ({ ok: true }) });
+  await f.load();
+  const [reset, , plan, noAfter] = f.rows();
+  const part = (row, selector) => row.querySelector(selector);
+  const duoHidden = row => ['.tc-row-before', '.tc-row-arr', '.tc-row-after', '.tc-row-drop'].map(s => part(row, s).hidden);
+
+  assert.equal(part(plan, '.tc-row-emo').textContent, 'Plan from champ select');
+  assert.equal(part(plan, '.tc-row-when').textContent, 'Oct 17, 19:30');
+  assert.equal(part(plan, '.tc-row-text').textContent, PREGAME_PLAN);
+  assert.ok(part(plan, '.tc-row-text').classList.contains('own-words'), 'the plan is in the player\'s own words');
+  assert.equal(part(plan, '.tc-row-plan').hidden, true, 'the label already says plan');
+  assert.equal(part(plan, '.tc-row-edge').dataset.tone, 'neutral', 'a plan names no tilt emotion');
+  assert.deepEqual(duoHidden(plan), [true, true, true, true]);
+  assert.equal(part(plan, '.tc-row-before').textContent, '', 'the stored 0 is not a rating');
+
+  // A reset keeps its emotion, Plan tag, loss edge and duo; one without an after rating keeps its before.
+  assert.equal(part(reset, '.tc-row-emo').textContent, 'Frustrated');
+  assert.equal(part(reset, '.tc-row-plan').hidden, false);
+  assert.equal(part(reset, '.tc-row-edge').dataset.tone, 'loss');
+  assert.ok(!part(reset, '.tc-row-text').classList.contains('own-words'));
+  assert.deepEqual(duoHidden(reset), [false, false, false, false]);
+  assert.deepEqual(['.tc-row-before', '.tc-row-after', '.tc-row-drop'].map(s => part(reset, s).textContent), ['10', '2', '−8']);
+  assert.equal(part(noAfter, '.tc-row-emo').textContent, 'Tense');
+  assert.equal(part(noAfter, '.tc-row-edge').dataset.tone, 'loss');
+  assert.equal(part(noAfter, '.tc-row-before').textContent, '7');
+  assert.deepEqual(duoHidden(noAfter), [false, true, true, true]);
+
+  // The plan row still deletes, with the plan's own confirm text.
+  await f.click(f.del(plan));
+  assert.deepEqual(f.asked, ['Delete this plan? It stops showing before games. This cannot be undone.']);
+  assert.deepEqual(f.writes, [{ command: 'delete_tiltcheck', args: { payload: { id: 10 } } }]);
+});
+
 test('the row template holds one quiet kit Delete button with a label and a decorative icon', () => {
   const row = html.match(/<template id="tpl-recent">([\s\S]*?)<\/template>/)[1];
+  assert.match(row, /<span class="tc-row-edge" data-tone="loss" aria-hidden="true"><\/span>/);
   const buttons = [...row.matchAll(/<button[^>]*>/g)].map(match => match[0]);
   assert.equal(buttons.length, 1);
   for (const attribute of ['class="ui-iconbtn tc-row-del"', 'type="button"', 'data-action="delete_entry"',

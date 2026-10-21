@@ -214,7 +214,7 @@ public static partial class SidecarEndpoints
                 return Results.BadRequest(new { error = "plan required" });
             await w.BackupGuard.EnsureBackedUpAsync();
             await w.TiltChecks.SaveAsync(
-                emotion: "pregame_plan",
+                emotion: TiltCheckRepository.PregamePlanEmotion,
                 intensityBefore: 0,
                 ifThenPlan: plan);
             log.LogInformation("Pre-queue if-then plan saved");

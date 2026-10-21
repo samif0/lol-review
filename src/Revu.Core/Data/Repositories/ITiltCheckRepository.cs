@@ -44,6 +44,9 @@ public interface ITiltCheckRepository
     /// </summary>
     Task<string?> GetLatestPlanAsync(int maxAgeDays = 14);
 
-    /// <summary>Get aggregate tilt check stats.</summary>
+    /// <summary>
+    /// Get aggregate tilt check stats. The averages cover resets with an after rating; the
+    /// top emotions cover every reset but leave out pre-queue plan rows, which name no emotion.
+    /// </summary>
     Task<TiltCheckStats> GetStatsAsync();
 }

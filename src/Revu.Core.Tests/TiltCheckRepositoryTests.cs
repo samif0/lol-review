@@ -35,7 +35,7 @@ public sealed class TiltCheckRepositoryTests
         Assert.Equal(6.0, stats.AvgBefore);
         Assert.Equal(3.0, stats.AvgAfter);
         Assert.Equal(3.0, stats.AvgReduction);
-        Assert.Equal(new[] { "anxious", "pregame_plan" }, stats.TopEmotions.Select(e => e.Emotion).Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { new EmotionCount("anxious", 1) }, stats.TopEmotions);
         Assert.Equal(CalmPlan, await repo.GetLatestPlanAsync());
 
         // A pre-queue plan row is deleted the same way.
@@ -49,6 +49,38 @@ public sealed class TiltCheckRepositoryTests
         var empty = await repo.GetStatsAsync();
         Assert.Equal(0, empty.Total);
         Assert.Empty(empty.TopEmotions);
+    }
+
+    [Fact]
+    public async Task TopEmotions_LeaveOutPreQueuePlanRows_WhichStayListed()
+    {
+        using var scope = new TestDatabaseScope();
+        await scope.InitializeAsync();
+        var repo = new TiltCheckRepository(scope.ConnectionFactory);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        // Three plans saved in champ select (the row POST /api/pregame/ifthen writes) outnumber
+        // every reset, and a reset without an after rating still names its emotion.
+        var plans = new List<long>();
+        for (var i = 0; i < 3; i++)
+            plans.Add(await SaveAtAsync(scope, repo, now - (10 + i) * 3600, "pregame_plan", 0, null, PregamePlan));
+        var rated = await SaveAtAsync(scope, repo, now - 2 * 3600, "frustrated", 8, 4, CalmPlan);
+        var unrated = await SaveAtAsync(scope, repo, now - 3600, "tense", 6, null, "");
+
+        var stats = await repo.GetStatsAsync();
+
+        Assert.Equal(new[] { new EmotionCount("frustrated", 1), new EmotionCount("tense", 1) },
+            stats.TopEmotions.OrderBy(e => e.Emotion, StringComparer.Ordinal));
+        Assert.Equal(1, stats.Total);
+        Assert.Equal(8.0, stats.AvgBefore);
+        Assert.Equal(4.0, stats.AvgAfter);
+        Assert.Equal(4.0, stats.AvgReduction);
+        // The plan rows stay in the recent list, so they can still be read and deleted.
+        Assert.Equal(new[] { unrated, rated }.Concat(plans).ToArray(), Ids(await repo.GetRecentAsync()));
+
+        // Only plan rows: the top emotions are empty, not "pregame_plan".
+        foreach (var id in new[] { rated, unrated }) Assert.True(await repo.DeleteAsync(id));
+        Assert.Empty((await repo.GetStatsAsync()).TopEmotions);
+        Assert.Equal(PregamePlan, await repo.GetLatestPlanAsync());
     }
 
     [Fact]
