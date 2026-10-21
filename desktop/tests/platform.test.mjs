@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 119);
+  assert.equal(Object.keys(COMMANDS).length, 120);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {
@@ -330,6 +330,10 @@ test('command declarations keep immutable envelopes, required arguments and exce
     assert.deepEqual(COMMANDS[name].args, { payload: 'object' }, name);
   }
   assert.equal(COMMANDS.delete_clip_narration.route, '/api/clip/narration/delete');
+  // Deleting a Tilt check entry sends one { id } payload; the sidecar validates the id.
+  assert.equal(COMMANDS.delete_tiltcheck.method, 'POST');
+  assert.equal(COMMANDS.delete_tiltcheck.route, '/api/tiltcheck/delete');
+  assert.deepEqual(COMMANDS.delete_tiltcheck.args, { payload: 'object' });
   assert.equal(COMMANDS.transcribe_clip_narration.route, '/api/clip/narration/transcribe');
   for (const name of ['get_microphone_access', 'open_microphone_settings']) {
     assert.equal(COMMANDS[name].method, 'NATIVE', name);

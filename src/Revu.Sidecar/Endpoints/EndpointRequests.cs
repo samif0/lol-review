@@ -137,6 +137,8 @@ internal sealed record UpdateObjectiveBody(
 internal sealed record ResetBody(
     string Emotion, int IntensityBefore, int? IntensityAfter,
     string? ReframeThought, string? ReframeResponse, string? IfThenPlan);
+// POST /api/tiltcheck/delete: one tilt_checks row (a reset or a pre-queue plan).
+internal sealed record TiltCheckIdBody(long Id);
 
 // POST /api/config/save body. EVERY field is nullable: null = "leave unchanged"
 // (read-modify-write only mutates the fields the frontend actually sends, so a
