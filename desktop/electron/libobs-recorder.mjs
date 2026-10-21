@@ -9,6 +9,15 @@ const execute = promisify(execFile);
 const hardware = new Set(['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs_qsv11_v2']);
 const transientStartup = new Set(['source-window-not-ready', 'recording-cancelled', 'game-process-unavailable',
   'game-process-invalid', 'recording-context-unavailable']);
+// Capture that never became active before a recording started costs only that match:
+// League minimized or still settling while the sources started. Repeated on this many
+// matches in a row, it is a lasting fault and turns recording off.
+const CAPTURE_START_MISS_LIMIT = 3;
+// Hardware answers and protocol violations are deterministic. A probe that timed
+// out, could not launch or exited early can succeed on a later attempt.
+const definitiveProbe = new Set(['hardware-encoder-unavailable', 'capture-unavailable', 'wgc-unavailable',
+  'recorder-protocol-invalid', 'recording-tools-unavailable', 'recorder-options-invalid', 'recorder-disposed', 'ENOENT']);
+export const retryableProbeFailure = code => !definitiveProbe.has(code);
 const validPid = value => Number.isSafeInteger(value) && value > 0;
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 // Revu always records game first: the helper's CPU and GPU priority stay below League's.
@@ -64,7 +73,9 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
   pollMs = 2000, deadlines = {}, log = () => {} } = {}) {
   if (![helperPath, ffmpegPath, ffprobePath].every(value => typeof value === 'string' && path.isAbsolute(value)))
     throw recorderError('recording-tools-unavailable');
-  const limits = { probe: 25_000, query: 10_000, start: 30_000, stop: 6000, heartbeat: 7000, ...deadlines };
+  // The helper drains for at most 6 s after a stop request; `stop` bounds the wait
+  // for its final result with margin. After a result, process exit is teardown only.
+  const limits = { probe: 25_000, query: 10_000, start: 30_000, stop: 8000, teardown: 3000, heartbeat: 7000, ...deadlines };
   if (!finite(pollMs) || pollMs < 1 || Object.values(limits).some(value => !finite(value) || value < 1 || value > 120_000))
     throw recorderError('recorder-options-invalid');
   const cwd = path.dirname(helperPath);
@@ -73,7 +84,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
   const knownContext = context => typeof context?.phase === 'string'
     && (testMode ? validPid(context.gameId) : Number.isInteger(context.queueId));
   const lifetime = new AbortController(), contexts = new WeakMap();
-  let initialized = false, disposed = false, polling = false, timer, session, identified, capabilities;
+  let initialized = false, disposed = false, polling = false, timer, session, identified, capabilities, captureMisses = 0;
   const copyCapabilities = () => capabilities ? { ...capabilities, encoders: [...capabilities.encoders] } : null;
   const notify = (callback, value) => {
     try { void Promise.resolve(callback(value)).catch(() => {}); } catch { /* The host owns consumer errors. */ }
@@ -123,6 +134,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
     owned.child.stdin?.end();
     const valid = raw?.hasError === false && raw.filePath === owned.filePath
       && finite(raw.duration) && raw.duration > 0 && raw.splitCount === 0;
+    owned.cleanStop = valid;
     const result = { ...raw, ...(raw?.stats ? { stats: frameStats(raw.stats) } : {}), hasError: !valid, filePath: owned.filePath,
       duration: finite(raw?.duration) ? raw.duration : 0, splitCount: 0,
       ...(owned.startedAtVerified ? { startTimeEpoch: owned.startTimeEpoch } : { startTimeEpoch: undefined }),
@@ -144,8 +156,16 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (!owned.completed && owned.child.stdin?.writable)
         owned.child.stdin.write(`${JSON.stringify({ command: 'stop' })}\n`);
       try {
-        await deadline(owned.closed.promise, limits.stop, 'recorder-stop-failed');
+        // The final stopped/error line confirms the stop; process exit is not required for it.
+        await deadline(owned.stopped.promise, limits.stop, 'recorder-stop-failed');
       } catch (error) { terminate(owned); notify(onUnavailable, 'recorder-stop-failed'); throw error; }
+      try { await deadline(owned.closed.promise, limits.teardown, 'recorder-teardown-slow'); }
+      catch {
+        // A slow exit after the final result is teardown, not a recording fault.
+        owned.teardownKilled = true; log('Recorder teardown was slow; ending the helper after its final result.\n');
+        terminate(owned);
+        await deadline(owned.closed.promise, limits.teardown, 'recorder-teardown-slow').catch(() => {});
+      }
     })();
     return owned.stopOperation;
   };
@@ -174,7 +194,13 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (!knownContext(context))
         throw recorderError('recording-context-unavailable');
       if (!supportedContext(context)) throw recorderError('recording-queue-unsupported');
-      const value = await query(['--discover']);
+      let value;
+      // A slow, failed or truncated inspection run says nothing about this game; it can be retried.
+      try { value = await query(['--discover']); }
+      catch (error) {
+        if (error?.code === 'recording-aborted') throw error;
+        throw recorderError('game-process-inspection-unavailable');
+      }
       if (value?.type !== 'games' || !Array.isArray(value.games)) throw recorderError('recorder-protocol-invalid');
       if (value.games.length > 1) throw recorderError('game-process-ambiguous');
       const game = value.games.find(value => value.pid === pid);
@@ -204,7 +230,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
         '--priority', GAME_FIRST],
         { cwd, windowsHide: true, detached: false, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       const owned = session = { child, root, filePath, pid, signal, onStopped,
-        started: deferred(), stopped: deferred(), closed: deferred(), lastHeartbeat: Date.now(), completed: false, exited: false };
+        started: deferred(), stopped: deferred(), closed: deferred(), lastHeartbeat: performance.now(), completed: false, exited: false };
       let buffer = '', stderrBytes = 0;
       owned.abort = () => { void stopOwned(owned).catch(() => {}); };
       signal?.addEventListener('abort', owned.abort, { once: true });
@@ -228,7 +254,7 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
           if (!line) continue;
           let value;
           try { value = JSON.parse(line); } catch { protocolFailure(); return; }
-          if (value?.type === 'heartbeat') owned.lastHeartbeat = Date.now();
+          if (value?.type === 'heartbeat') owned.lastHeartbeat = performance.now();
           else if (value?.type === 'started' && !owned.startedReceived) {
             if (value.encoder !== capabilities.selectedEncoder || ![value.width, value.height, value.fps].every(number => Number.isInteger(number) && number > 0)
                 || value.fps !== RECORDING_PRESETS[preset].fps || value.priority !== GAME_FIRST
@@ -240,11 +266,11 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
             owned.startedAtVerified = value.startedAtVerified === true && Number.isFinite(epoch)
               && epoch <= Date.now() + 2000 && epoch >= Date.now() - limits.start - 5000;
             owned.startTimeEpoch = owned.startedAtVerified ? epoch : undefined;
-            owned.startedReceived = true; owned.lastHeartbeat = Date.now(); owned.started.resolve(value);
+            owned.startedReceived = true; owned.lastHeartbeat = performance.now(); captureMisses = 0; owned.started.resolve(value);
             // Heartbeat means the helper event loop is alive, not that a
             // minimized window must keep yielding fresh captured frames.
             owned.watchdog = setInterval(() => {
-              if (!owned.completed && Date.now() - owned.lastHeartbeat > limits.heartbeat) {
+              if (!owned.completed && performance.now() - owned.lastHeartbeat > limits.heartbeat) {
                 terminate(owned); notify(onUnavailable, 'recorder-heartbeat-lost');
               }
             }, Math.min(1000, limits.heartbeat)); owned.watchdog.unref();
@@ -260,7 +286,14 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       child.on('close', code => {
         owned.exited = true; owned.closed.resolve();
         if (!owned.completed) { finish(owned, { hasError: true, duration: 0 }); notify(onUnavailable, 'recorder-process-exited'); }
-        else if (code !== 0 && (owned.startedReceived || !transientStartup.has(owned.errorCode)))
+        // After a clean stopped result, or once Revu ended a slow exit, a non-zero
+        // code reflects teardown only. Failed starts and crashes still disable recording.
+        else if (code !== 0 && (owned.cleanStop || (owned.teardownKilled && owned.startedReceived)))
+          log(`Recorder teardown ended with exit code ${code} after its final result.\n`);
+        else if (code !== 0 && !owned.startedReceived && owned.errorCode === 'capture-unavailable') {
+          if (++captureMisses >= CAPTURE_START_MISS_LIMIT) notify(onUnavailable, 'capture-unavailable');
+          else log(`League capture did not become active before recording started (${captureMisses} in a row); this match is skipped.\n`);
+        } else if (code !== 0 && (owned.startedReceived || !transientStartup.has(owned.errorCode)))
           notify(onUnavailable, 'recorder-process-exited');
         if (session === owned) session = undefined;
       });

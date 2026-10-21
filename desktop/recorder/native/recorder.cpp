@@ -880,7 +880,12 @@ void record(const std::filesystem::path &runtime, DWORD pid, const std::filesyst
   const auto captureDeadline = GetTickCount64() + 12000;
   while (!selfTest && (!sourceHooked(recording.video, game) || !sourceHooked(recording.audio, game) || !obs_source_get_width(recording.video) || !obs_source_get_height(recording.video))) {
     if (input.shouldStop()) throw Failure("recording-cancelled", "Recording was cancelled before media capture started");
-    if (GetTickCount64() >= captureDeadline) throw Failure("capture-unavailable", "League window or application audio capture did not become active");
+    if (GetTickCount64() >= captureDeadline) {
+      // Alt-tab in exclusive Full Screen minimizes League, and a minimized window yields no
+      // frames. That is not a capture fault: report it as not ready so the host retries.
+      if (IsIconic(game.window)) throw Failure("source-window-not-ready", "The League game window was minimized while capture started");
+      throw Failure("capture-unavailable", "League window or application audio capture did not become active");
+    }
     Sleep(50);
   }
   configureOutput(recording, file, quality, hardware.front());

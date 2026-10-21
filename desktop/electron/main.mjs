@@ -11,7 +11,7 @@ import { createCommandGate, createQuitHandler, shutdownOwnedApp } from './shutdo
 import { RecordingService } from './recording-service.mjs';
 import { createRecordingOptimizer } from './recording-optimizer.mjs';
 import { createOverwolfRecorder } from './recorder-adapter.mjs';
-import { createLibobsRecorder } from './libobs-recorder.mjs';
+import { createLibobsRecorder, retryableProbeFailure } from './libobs-recorder.mjs';
 import { createBackgroundController } from './background.mjs';
 import { createAppearanceController, readWindowAppearance, windowPalette } from './appearance.mjs';
 import { saveNarration } from './narration.mjs';
@@ -41,6 +41,8 @@ const rendererRecovery = createRendererRecovery();
 const closingNotice = createClosingNotice(dialog);
 // Ordinary writes time out within 30 s, so this bound only stops waiting on long jobs.
 const QUIT_DRAIN_MS = 35_000;
+// One more recorder check after a probe that timed out or could not launch.
+const PROBE_RETRY_MS = 15_000;
 // Controls inside a drag region stay clickable; the title bar buttons never drag.
 const DRAG_CSS = '[data-window-drag]{-webkit-app-region:drag}[data-window-drag] :is(a,button,input,select,textarea,[role="button"]),'
   + '.appbar-controls,.appbar-controls *{-webkit-app-region:no-drag}';
@@ -94,6 +96,7 @@ async function attachRecorder() {
   if (overwolfRecorder && !recorderReady) return;
   recorderAttached = true;
   try {
+    recording.expectDriver();
     if (!overwolfRecorder) await recording.prepareProvider('libobs');
     const callbacks = {
       shouldDiscover: () => recording.settings.enabled || !!recording.current,
@@ -101,22 +104,29 @@ async function attachRecorder() {
       onDetectionIssue: code => hostLog.warn(`Recording detection: ${code}`),
     };
     const directory = configuration.recorderDirectory;
-    const driver = overwolfRecorder
+    const createDriver = () => overwolfRecorder
       ? createOverwolfRecorder({ ...callbacks, recorder: app.overwolf.packages.recorder })
       : createLibobsRecorder({ ...callbacks, helperPath: path.join(directory, 'revu-recorder.exe'),
         recordingTest: configuration.recordingTest,
         ffmpegPath: path.join(directory, 'revu-media-ffmpeg.exe'), ffprobePath: path.join(directory, 'revu-media-ffprobe.exe'),
         onUnavailable: code => {
           hostLog.warn(`Built-in recording stopped after a helper failure: ${code}`);
-          recording.unavailable(code);
           // Persist opt-out so restarting Revu during the same game cannot
           // automatically repeat a fault. Enabling again is a deliberate act.
-          if (!quitting) void recording.saveSettings({ ...recording.settings, enabled: false })
+          if (quitting) recording.unavailable(code);
+          else void recording.turnOffAfterFault(code)
             .catch(error => hostLog.error('Recording failure opt-out could not be saved', error));
         },
         getContext: () => backend.request('/api/recording/context', { timeoutMs: 2500 }),
         log: line => hostLog.info(`Recorder: ${line.trim()}`) });
-    await recording.attachDriver(driver);
+    await recording.attachDriver(createDriver());
+    // A slow or failed probe at login can succeed later; hardware answers are final.
+    if (!recording.available && !overwolfRecorder && retryableProbeFailure(recording.unavailableCode) && !quitting) {
+      hostLog.warn(`The recorder check did not finish (${recording.unavailableCode}); checking once more shortly.`);
+      recording.expectDriver();
+      await new Promise(resolve => setTimeout(resolve, PROBE_RETRY_MS));
+      if (!quitting) await recording.attachDriver(createDriver());
+    }
     if (!recording.available) hostLog.warn('The bundled recorder is unavailable; recording remains off.');
   } catch { recording.unavailable(); }
 }
@@ -317,7 +327,8 @@ async function start() {
     try { await recording.initialize(); recordingPrepared = true; }
     catch { recording.publish('failed', 'The recordings folder is unavailable. Your other Revu features are still available.'); }
     await optimizer.init(); // Abandoned speed-up copies, and a capture whose index never reached the disk.
-    await attachRecorder();
+    // The hardware probe runs in the background; Settings follows its status.
+    void attachRecorder();
   } else recording.publish('unavailable', 'Recording is unavailable in this isolated preview.');
   // Revu's network policy belongs to its own session; it must not intercept
   // runtime-owned consent or package-manager windows in the default session.

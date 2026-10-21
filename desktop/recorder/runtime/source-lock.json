@@ -31,7 +31,9 @@
     "sha256": "f40e4c7e7b4025d18be17a8225f8be2f26b349715399cd36c2de573fe976dfd7",
     "archive": "libvpx.source.zip",
     "name": "libvpx",
-    "revision": "${PSScriptRoot}/checksums/v1.14.1.zip.sha256",
+    "version": "1.14.1",
+    "revision": "v1.14.1",
+    "recipe": "deps.ffmpeg/30-libvpx.ps1",
     "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.14.1.zip"
   },
   {
@@ -75,21 +77,27 @@
     "sha256": "f644fef154f7a80e7258c8baec5c510f594d720835855cddce322b924934ba36",
     "archive": "libtheora.source.zip",
     "name": "libtheora",
-    "revision": "${PSScriptRoot}/checksums/libtheora-1.1.1.zip.sha256",
+    "version": "1.1.1",
+    "revision": "libtheora-1.1.1",
+    "recipe": "deps.ffmpeg/50-libtheora.ps1",
     "url": "https://ftp.osuosl.org/pub/xiph/releases/theora/libtheora-1.1.1.zip"
   },
   {
     "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
     "archive": "lame.source.tar.gz",
     "name": "lame",
-    "revision": "${PSScriptRoot}/checksums/lame-3.100.tar.gz.win.sha256",
+    "version": "3.100",
+    "revision": "lame-3.100",
+    "recipe": "deps.ffmpeg/60-lame.ps1",
     "url": "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz"
   },
   {
     "sha256": "2686f75533bd53ec917dab6129186b124b4d105eadaa6a84e83719ac3b5ae6bd",
     "archive": "srt.source.zip",
     "name": "srt",
-    "revision": "${PSScriptRoot}/checksums/v1.5.2.zip.sha256",
+    "version": "1.5.2",
+    "revision": "v1.5.2",
+    "recipe": "deps.ffmpeg/60-srt.ps1",
     "url": "https://github.com/Haivision/srt/archive/refs/tags/v1.5.2.zip"
   },
   {

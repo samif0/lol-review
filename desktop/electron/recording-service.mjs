@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, readdir, realpath, lstat, statfs, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, realpath, lstat, statfs } from 'node:fs/promises';
 import path from 'node:path';
+import { registrationFor, registrationRejected } from './recording-registration.mjs';
+import { RECORDING_DEFAULTS as defaults, atomicJson, bounded, readRecordingFault, recordingFault, recordingSettings,
+  writeRecordingFault } from './recording-store.mjs';
 
-const presets = new Set(['720p30', '1080p30', '1080p60']);
-const defaults = Object.freeze({ enabled: false, preset: '720p30' });
+export { recordingSettings };
 const unfinished = new Set(['starting', 'recording', 'stopping', 'finalizing']);
 const validId = value => Number.isSafeInteger(value) && value > 0;
 const hardwareEncoders = new Set(['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs_qsv11_v2']);
@@ -16,25 +18,6 @@ const encoderUnavailableMessage = code => {
   return 'Built-in recording is unavailable on this PC. Your preference is saved.';
 };
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-export function recordingSettings(value) {
-  if (!value || Object.keys(value).some(key => !['enabled', 'preset'].includes(key))
-      || typeof value.enabled !== 'boolean' || !presets.has(value.preset)) throw new Error('Invalid recording settings');
-  return { enabled: value.enabled, preset: value.preset };
-}
-
-export async function atomicJson(file, value) {
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(value, null, 2), { flag: 'wx', flush: true });
-    await rename(temporary, file);
-  } catch (error) { await unlink(temporary).catch(() => {}); throw error; }
-}
-async function bounded(operation, milliseconds, code = 'recording-timeout') {
-  let timer;
-  try { return await Promise.race([operation, new Promise((_, reject) => {
-    timer = setTimeout(() => reject(Object.assign(new Error(code), { code })), milliseconds);
-  })]); } finally { clearTimeout(timer); }
-}
 
 /** Only session metadata crosses into the sidecar; video remains in native Recorder. */
 export class RecordingService {
@@ -42,7 +25,8 @@ export class RecordingService {
     now = () => Date.now(), space = async directory => { const fs = await statfs(directory); return fs.bavail * fs.bsize; },
     deadlines = {} }) {
     Object.assign(this, { root, profile, backend, onChange, isolated, now, space, recordingTest: recordingTest === true });
-    this.deadlines = { start: 35_000, stop: 8_000, callback: 8_000, validate: 45_000, registration: 5000, prune: 60_000, ...deadlines };
+    // stop exceeds the libobs budget: final result (8 s) plus teardown and a bounded kill (2 x 3 s).
+    this.deadlines = { start: 35_000, stop: 16_000, callback: 8_000, validate: 45_000, registration: 5000, prune: 60_000, ...deadlines };
     this.settings = { ...defaults }; this.state = 'disabled'; this.message = 'Automatic recording is off.';
     this.driver = null; this.available = false; this.current = null; this.pending = new Map();
     this.game = null; this.context = null; this.serial = Promise.resolve(); this.closing = false;
@@ -50,6 +34,7 @@ export class RecordingService {
     this.startRevision = 0; this.requestedEnabled = false; this.shutdownOperation = null;
     this.windowRetryPid = null; this.pruneDue = false;
     this.encoderCapabilities = null; this.lastEncoder = null; this.unavailableCode = null;
+    this.checking = false; this.faulted = false; this.fault = null; this.inspectionRetry = null;
   }
   getStatus() {
     const activeEncoder = ['recording', 'stopping'].includes(this.current?.state)
@@ -71,6 +56,7 @@ export class RecordingService {
     if (path.resolve(this.root).toLowerCase() !== (await realpath(this.root)).toLowerCase()) throw new Error('Recording folder aliases are not supported');
     try { this.settings = recordingSettings(JSON.parse(await readFile(path.join(this.profile, 'recording-settings.json'), 'utf8'))); }
     catch (error) { if (error.code !== 'ENOENT') this.publish('failed', 'Recording settings could not be read. Automatic recording is off.'); }
+    if (!this.settings.enabled) this.fault = await readRecordingFault(this.profile);
     this.requestedEnabled = this.settings.enabled;
     // A new host does not adopt a prior process's native capture or assume its
     // raw output passed validation. Keep interrupted output for manual recovery.
@@ -101,13 +87,17 @@ export class RecordingService {
   }
   idleStatus() {
     if (this.isolated) this.publish('unavailable', 'Recording is unavailable in this isolated preview.');
+    else if (this.checking) this.publish('checking', 'Revu checks your graphics hardware each time it starts.');
+    else if (!this.available && this.faulted)
+      this.publish('unavailable', 'Recording was turned off after an error. Restart Revu, then turn it back on here.');
     else if (!this.available && this.unavailableCode) this.publish('unavailable', encoderUnavailableMessage(this.unavailableCode));
-    else if (!this.settings.enabled) this.publish('disabled', 'Automatic recording is off.');
+    else if (!this.settings.enabled) this.publish('disabled', this.fault
+      ? 'Recording was turned off after an error in an earlier session. You can turn it back on below.' : 'Automatic recording is off.');
     else if (this.blocked) this.publish('partial', 'Recording cannot restart safely yet. Existing files have been kept; restart Revu before recording again.');
     else if (!this.available) this.publish('unavailable', encoderUnavailableMessage(this.unavailableCode));
     else this.publish('idle', 'Ready to record your next League match.');
   }
-  async saveSettings(value) {
+  async saveSettings(value, { fault = null } = {}) {
     const settings = recordingSettings(value);
     if (this.isolated && settings.enabled) throw new Error('Recording is disabled in isolated previews');
     if (this.closing) throw new Error('Revu is closing');
@@ -121,6 +111,8 @@ export class RecordingService {
       try {
         await atomicJson(path.join(this.profile, 'recording-settings.json'), settings);
         this.settings = settings;
+        // A deliberate save replaces an automatic opt-out reason; a fault save records it.
+        await writeRecordingFault(this.profile, fault); this.fault = fault;
       } finally {
         // Opting out still stops capture when the settings disk cannot be written.
         if (!settings.enabled) {
@@ -148,8 +140,14 @@ export class RecordingService {
     await this.saveSettings({ ...this.settings, enabled: false });
     await atomicJson(file, { schema: 1, provider });
   }
+  /** The host is about to check its bundled recorder; say so instead of a stale answer. */
+  expectDriver() {
+    if (this.isolated || this.closing || this.driver) return;
+    this.checking = true;
+    if (!['partial', 'failed'].includes(this.state)) this.idleStatus();
+  }
   async attachDriver(driver) {
-    if (this.isolated || this.closing || this.driver) { await driver.dispose?.(); return; }
+    if (this.isolated || this.closing || this.driver) { this.checking = false; await driver.dispose?.(); return; }
     this.driver = driver;
     try {
       const capabilities = await bounded(driver.initialize(), 30_000);
@@ -162,17 +160,27 @@ export class RecordingService {
     }
     catch (error) { this.available = false; this.encoderCapabilities = null; this.unavailableCode = error.code ?? 'recorder-unavailable';
       await driver.dispose?.(); this.driver = null; }
+    this.checking = false;
     if (!['partial', 'failed'].includes(this.state)) this.idleStatus();
     this.schedule();
   }
   unavailable(code = 'recorder-unavailable') {
-    this.available = false; this.startRevision++;
+    this.available = false; this.startRevision++; this.checking = false;
     this.unavailableCode = code;
-    if (this.current) {
-      this.current.reason = 'recorder-unavailable';
+    // A final native result that already arrived keeps its own outcome.
+    const live = session => session && session.stoppedResult === undefined && session.state !== 'finalizing';
+    if (live(this.current)) {
+      this.current.reason ||= 'recorder-unavailable';
       if (this.current.state === 'starting') this.current.abort.abort();
     }
-    void this.enqueue(async () => { if (this.current) await this.stopCurrent('recorder-unavailable'); else this.idleStatus(); }).catch(() => {});
+    void this.enqueue(async () => { if (live(this.current)) await this.stopCurrent('recorder-unavailable'); else if (!this.current) this.idleStatus(); }).catch(() => {});
+  }
+  /** Recording turned itself off after a native fault; the reason survives restart until the user saves again. */
+  async turnOffAfterFault(code) {
+    const fault = recordingFault(code, new Date(this.now()).toISOString());
+    this.faulted = true; this.fault = fault;
+    this.unavailable(code);
+    return this.saveSettings({ ...this.settings, enabled: false }, { fault });
   }
   onGame(game) {
     if (!validId(game?.pid)) return;
@@ -285,13 +293,20 @@ export class RecordingService {
     if (driver.prepareStart) {
       try { await bounded(driver.prepareStart({ pid: game.pid }), 12_000, 'recording-context-unavailable'); }
       catch (error) {
+        // A failed process inspection is retried for 30 s from its first failure;
+        // only deterministic answers such as an ambiguous game suppress the match.
+        const inspection = error.code === 'game-process-inspection-unavailable';
+        if (inspection && this.inspectionRetry?.pid !== game.pid) this.inspectionRetry = { pid: game.pid, since: this.now() };
         if (error.code === 'source-window-not-ready') {
           this.windowRetryPid = game.pid; this.publish('starting', 'Waiting for the League game window…');
+        } else if (inspection && this.now() - this.inspectionRetry.since < 30_000) {
+          this.publish('starting', 'Preparing to record this match…');
         } else if (!['recording-context-unavailable', 'recording-queue-unsupported'].includes(error.code)) {
           this.suppressedPid = game.pid; this.publish('failed', 'Recording could not prepare for this match.');
         }
         return;
       }
+      this.inspectionRetry = null;
       if (!canStart()) return;
     }
     try { if (await bounded(this.space(this.root), 3000) < 2 * 1024 ** 3) {
@@ -360,12 +375,17 @@ export class RecordingService {
     session.state = 'stopping';
     await this.preserve(session); this.publish('stopping', 'Finishing your recording…');
     const before = this.now();
-    let result;
+    let result, confirmed = false;
     try {
       await bounded(this.driver.stop(), this.deadlines.stop);
       result = await bounded(session.completion, this.deadlines.callback);
-      session.finalizationMilliseconds = this.now() - before;
+      session.finalizationMilliseconds = this.now() - before; confirmed = true;
     } catch {
+      // A final native result that already arrived stays authoritative: only the
+      // process exit was slow, so the recording is checked and attached normally.
+      if (session.stoppedResult !== undefined) { result = session.stoppedResult; confirmed = true; }
+    }
+    if (!confirmed) {
       this.blocked = true; session.state = 'partial'; session.reason = 'stop-unconfirmed';
       await this.preserve(session); this.current = null; this.suppressedPid = session.pid;
       this.publish('partial', 'Recording did not finish cleanly. Files have been kept; restart Revu before recording again.');
@@ -426,29 +446,7 @@ export class RecordingService {
         if (!this.current) this.publish('partial', 'Video saved, but its match could not be identified. The file is in your recordings folder.');
         return;
       }
-      const anchor = session.gameClockAnchor;
-      const gameTimeAtVideoStart = anchor && session.startedAtVerified === true
-        ? anchor.gameTimeSeconds + (Date.parse(session.startedAt) - Date.parse(anchor.observedAt)) / 1000 : null;
-      session.gameTimeAtVideoStart = Number.isFinite(gameTimeAtVideoStart)
-        && gameTimeAtVideoStart >= -600 && gameTimeAtVideoStart <= 7200 ? gameTimeAtVideoStart : null;
-      const endClock = this.context?.lastEndedGameTimeSeconds;
-      const endObserved = Date.parse(this.context?.lastEndedObservedAt);
-      const endConfirmed = Date.parse(this.context?.lastEndedConfirmedAt);
-      const freshEndClock = Number.isFinite(endClock) && endClock > 0
-        && Number.isFinite(endObserved) && Number.isFinite(endConfirmed)
-        && endConfirmed >= endObserved && endConfirmed - endObserved <= 10_000;
-      const coversEnd = ended && freshEndClock && session.gameTimeAtVideoStart !== null
-        && Number.isFinite(session.durationSeconds)
-        && session.gameTimeAtVideoStart + session.durationSeconds >= endClock - 2;
-      session.matchEndEvidence = ended ? { gameTimeSeconds: endClock ?? null,
-        observedAt: this.context.lastEndedObservedAt ?? null,
-        confirmedAt: this.context.lastEndedConfirmedAt ?? null, coversEnd: !!coversEnd } : null;
-      session.complete = !!coversEnd && !session.reason && session.gameTimeAtVideoStart <= 2;
-      if (!session.complete) session.reason ||= !ended ? 'match-end-unverified'
-        : !coversEnd ? 'match-end-coverage-unverified' : 'late-or-unverified-start';
-      session.registration = { sessionId: session.sessionId, gameId: session.gameId, filePath: session.filePath,
-        fileSize: session.fileSize, durationSeconds: session.durationSeconds, startedAt: session.startedAt,
-        complete: session.complete, gameTimeAtVideoStart: session.gameTimeAtVideoStart };
+      Object.assign(session, registrationFor(session, this.context));
     }
     // Once attempted, completion, timing and identity come only from the frozen
     // durable request, including after a lost response or a subsequent match.
@@ -468,7 +466,16 @@ export class RecordingService {
         ? (result.status === 'retained-existing' ? 'Recording saved. The match keeps its existing video.' : 'Recording saved for this match.')
         : result.status === 'linked-partial' ? 'A partial recording was attached to this match.'
           : 'An incomplete recording was kept in your recordings folder.');
-    } catch {
+    } catch (error) {
+      if (await registrationRejected(error, session)) {
+        // A permanent answer ends retries; the files stay for the user to manage.
+        session.state = 'partial'; session.complete = false; session.reason = 'registration-rejected';
+        session.registrationStatus = 'rejected'; session.registrationError = error.status;
+        this.pending.delete(session.sessionId); this.markPruneDue();
+        await this.persist(session).catch(() => {});
+        if (!this.current) this.publish('partial', 'The recording could not be attached to its match. Any files that remain are in your recordings folder.');
+        return;
+      }
       session.retryAttempts = Math.min((session.retryAttempts || 0) + 1, 10);
       session.nextRetryAt = this.now() + Math.min(60_000, 1000 * 2 ** session.retryAttempts);
       if (!this.current) this.publish('partial', 'Video saved. Match attachment is pending; Revu will retry.');

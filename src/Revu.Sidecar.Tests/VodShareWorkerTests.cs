@@ -46,6 +46,12 @@ public sealed partial class VodShareWorkerTests
         }
     }
 
+    /// <summary>
+    /// Until the job retires. Its last event (done, error or cancelled) goes out before it deletes its temp files and
+    /// retires, so a test checks ShareTemp after this, not right after the event.
+    /// </summary>
+    private static Task WaitRetiredAsync(VodShareHarness h) => WaitUntilAsync(() => h.Worker.SharingGameId is null);
+
     // ── Pre-checks ───────────────────────────────────────────────────────────
 
     [Fact]
@@ -214,6 +220,7 @@ public sealed partial class VodShareWorkerTests
             Assert.StartsWith(Path.Combine(h.TempDir, $"game-{GameId}-"), upload.File);
             Assert.Equal(new VodUploadRequest("1080p", 2256), upload.Request);
             Assert.Equal(h.Recording, h.Encoder.Encodes.Single().Source);
+            await WaitRetiredAsync(h);
             Assert.Empty(Directory.EnumerateFiles(h.TempDir));
             // The upload ran with the encode: it reserved the estimate plus 3% and the copy was padded to it.
             var started = Assert.Single(h.Client.WhileWriting);
@@ -454,6 +461,7 @@ public sealed partial class VodShareWorkerTests
             var error = await WaitPhaseAsync(tap, "error");
             Assert.Equal("too_large", error.GetProperty("errorCode").GetString());
             Assert.Empty(h.Client.Uploads);
+            await WaitRetiredAsync(h);
             Assert.Empty(Directory.EnumerateFiles(h.TempDir));
         }
     }
@@ -497,6 +505,7 @@ public sealed partial class VodShareWorkerTests
             var error = await WaitPhaseAsync(tap, "error");
             Assert.Equal((code, needsLogin), (error.GetProperty("errorCode").GetString(), error.GetProperty("needsLogin").GetBoolean()));
             Assert.Equal(1_760_403_600, error.GetProperty("retryAt").GetInt64());
+            await WaitRetiredAsync(h);
             Assert.Empty(Directory.EnumerateFiles(h.TempDir));
         }
     }

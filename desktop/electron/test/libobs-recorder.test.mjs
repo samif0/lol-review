@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { createLibobsRecorder, rankedRecordingContext, recordingTestContext } from '../libobs-recorder.mjs';
+import { createLibobsRecorder, rankedRecordingContext, recordingTestContext, retryableProbeFailure } from '../libobs-recorder.mjs';
 
 const context = { queueId: 420, phase: 'InProgress' };
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -305,4 +305,67 @@ test('a started vendor that differs from the detected selection is rejected even
   await assert.rejects(f.start('h264_texture_amf'), { code: 'recorder-protocol-invalid' });
   assert.equal(f.child().killed, true);
   assert.ok(f.failures.includes('recorder-protocol-invalid'));
+});
+
+const cleanStop = f => ({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0 });
+
+test('capture that never became active at startup skips that match; three matches in a row turn recording off', async t => {
+  const f = await fixture(t);
+  const miss = async () => {
+    const previous = f.child();
+    const pending = f.driver.start({ pid: 123, outputDirectory: f.directory });
+    while (!f.child() || f.child() === previous) await wait(1);
+    f.child().send({ type: 'error', code: 'capture-unavailable' });
+    f.child().close(1);
+    await assert.rejects(pending, { code: 'capture-unavailable' });
+  };
+  await miss(); await miss();
+  assert.deepEqual(f.failures, [], 'League minimized or still settling costs only that match');
+  await f.start();
+  f.child().send(cleanStop(f)); f.child().close();
+  await miss(); await miss();
+  assert.deepEqual(f.failures, [], 'a recording that started clears the count');
+  await miss();
+  assert.deepEqual(f.failures, ['capture-unavailable']);
+});
+
+test('a slow exit after a clean stopped result is teardown: the helper is ended and recording stays on', async t => {
+  const f = await fixture(t, { deadlines: { start: 200, stop: 100, teardown: 20, heartbeat: 100 } });
+  await f.start();
+  const child = f.child();
+  const stopping = f.driver.stop();
+  child.send(cleanStop(f));
+  await stopping;
+  assert.equal(child.killed, true);
+  assert.equal(f.stopped.length, 1); assert.equal(f.stopped[0].hasError, false);
+  assert.deepEqual(f.failures, []);
+});
+
+test('a non-zero exit right after a clean stopped result is logged, not treated as a fault', async t => {
+  const lines = [];
+  const f = await fixture(t, { log: line => lines.push(line) });
+  await f.start();
+  const stopping = f.driver.stop();
+  f.child().send(cleanStop(f)); f.child().close(124);
+  await stopping;
+  assert.equal(f.stopped[0].hasError, false);
+  assert.deepEqual(f.failures, []);
+  assert.ok(lines.some(line => /exit code 124/.test(line)));
+});
+
+test('a stop the helper never confirms is still a fault', async t => {
+  // A long heartbeat budget, so the stop deadline is what ends the helper.
+  const f = await fixture(t, { deadlines: { start: 200, stop: 50, heartbeat: 5000 } });
+  await f.start();
+  await assert.rejects(f.driver.stop(), { code: 'recorder-stop-failed' });
+  assert.equal(f.child().killed, true);
+  assert.equal(f.stopped[0].hasError, true);
+  assert.ok(f.failures.includes('recorder-stop-failed'));
+});
+
+test('a probe that timed out or could not launch is retried; hardware and protocol answers are final', () => {
+  for (const code of ['recording-timeout', 'recorder-unavailable', 'ETIMEDOUT', 'EPERM', undefined])
+    assert.equal(retryableProbeFailure(code), true, String(code));
+  for (const code of ['hardware-encoder-unavailable', 'capture-unavailable', 'wgc-unavailable', 'recorder-protocol-invalid', 'ENOENT'])
+    assert.equal(retryableProbeFailure(code), false, code);
 });

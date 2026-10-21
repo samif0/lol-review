@@ -802,7 +802,14 @@ function boot() {
   // Speed up sits outside the save groups: each row acts at once, so it never marks the page unsaved.
   initializeRecordingSpeedUp({ getInvoke, onAvailability: () => navigation?.refresh() })
     .catch(err => console.warn('[settings] speed up unavailable:', err));
-  initializeRecordingSettings().then(() => {
+  // A recorder check that finishes after this page opened fills in the saved values;
+  // they become the clean baseline, never an unsaved edit.
+  initializeRecordingSettings({ onSettingsRendered: () => {
+    const group = $('recording-settings');
+    if (group?.dataset.dirty === 'true') return;
+    _nativeBaseline.set(group.id, nativeValues(group));
+    $('save-recording-settings').disabled = true;
+  } }).then(() => {
     for (const group of document.querySelectorAll('[data-native-group]')) {
       _nativeBaseline.set(group.id, nativeValues(group));
       $(group.dataset.nativeGroup === 'recording' ? 'save-recording-settings' : 'save-background-settings').disabled = true;
