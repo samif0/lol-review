@@ -190,6 +190,15 @@ public static partial class SidecarEndpoints
         app.MapGet("/api/tiltcheck", async (TiltCheckSnapshotBuilder b, CancellationToken ct) =>
             Results.Json(await b.BuildAsync(ct), jsonOptions));
 
+        // POST /api/tiltcheck/delete  { id } — HARD delete (DELETE FROM tilt_checks) of one
+        // row from the Tilt check page's recent list: a reset, or a pre-queue plan row
+        // (emotion="pregame_plan") that the list shows too. The recent list, the stats and
+        // the latest plan (here and on the pregame intent card) are all read from the rows
+        // that remain. The page confirms before calling; the first-write safety backup is
+        // the net here.
+        app.MapPost("/api/tiltcheck/delete", (TiltCheckIdBody body, WriteServices w, ILogger<Program> log) =>
+            DeleteTiltCheckAsync(body, w.TiltChecks, w.BackupGuard.EnsureBackedUpAsync, jsonOptions, log));
+
         // POST /api/pregame/ifthen  { plan } — R-002: author/confirm an if-then plan in the
         // PRE-CUE window (champ-select), so the plan PRE-DATES the trigger (Gollwitzer &
         // Sheeran / Schweiger Gallo 2009 — delegate the initiation decision to the planning
@@ -211,5 +220,20 @@ public static partial class SidecarEndpoints
             log.LogInformation("Pre-queue if-then plan saved");
             return Results.Json(new { ok = true }, jsonOptions);
         });
+    }
+
+    /// <summary>
+    /// POST /api/tiltcheck/delete. A missing or non-positive id is a 400 before the backup
+    /// or the database. An id with no row answers ok, like the rule, matchup, bookmark,
+    /// objective, review and game deletes, so a repeated click or a stale list is harmless.
+    /// </summary>
+    internal static async Task<IResult> DeleteTiltCheckAsync(TiltCheckIdBody body, ITiltCheckRepository tiltChecks,
+        Func<Task> ensureBackedUp, JsonSerializerOptions jsonOptions, ILogger log)
+    {
+        if (body is null || body.Id <= 0) return Results.BadRequest(new { error = "id required" });
+        await ensureBackedUp();
+        var deleted = await tiltChecks.DeleteAsync(body.Id);
+        log.LogInformation("Tilt check {Id} delete: {Outcome}", body.Id, deleted ? "removed" : "no such row");
+        return Results.Json(new { ok = true }, jsonOptions);
     }
 }

@@ -29,6 +29,12 @@ public interface ITiltCheckRepository
         long? gameId = null,
         string ifThenPlan = "");
 
+    /// <summary>
+    /// Hard-delete one row (a reset, or a pre-queue plan row). Returns false when no
+    /// row has that id. Stats and the latest plan are read from the rows that remain.
+    /// </summary>
+    Task<bool> DeleteAsync(long id);
+
     /// <summary>Get recent tilt checks, newest first.</summary>
     Task<IReadOnlyList<Dictionary<string, object?>>> GetRecentAsync(int limit = 20);
 

@@ -211,6 +211,27 @@ public sealed class SidecarEndpointContractTests
     }
 
     [Fact]
+    public async Task TiltCheckDelete_IsAllowedOnTheIsolatedHost_AndRejectsAMissingIdBeforeTheDatabase()
+    {
+        // P-042: deleting a Tilt check entry is a database-only write (allowed when isolated);
+        // a body without an id is a 400 and never opens revu.db.
+        using var scratch = new ScratchHost();
+        await using var app = BuildApp(scratch);
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+            using var content = new StringContent("""{"id":0}""", System.Text.Encoding.UTF8, "application/json");
+            using var response = await client.PostAsync("/api/tiltcheck/delete", content);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.False(File.Exists(Path.Combine(scratch.Root, "LoLReviewData", "revu.db")));
+        }
+        finally { await app.StopAsync(); }
+    }
+
+    [Fact]
     public async Task PatternNudge_ResolvesOnTheIsolatedHost_AndNeverNudgesWithoutADatabase()
     {
         // The shell asks on every navigation: the read is token-gated, answers camelCase
@@ -373,6 +394,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/settings/restore
         POST /api/stint/end
         POST /api/stint/start
+        POST /api/tiltcheck/delete
         POST /api/update/download
         """;
 }

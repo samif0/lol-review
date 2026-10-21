@@ -92,7 +92,9 @@ public static class IsolatedHostPolicy
         "/api/bookmark/add", "/api/bookmark/note", "/api/bookmark/delete", "/api/bookmark/objective", "/api/bookmark/tag", "/api/bookmark/quality",
         "/api/evidence/polarity", "/api/evidence/objective", "/api/evidence/prompt", "/api/evidence/status",
         "/api/event/correct", "/api/correction/revert", "/api/death/classify", "/api/death/clear",
-        "/api/prompt/answer/save", "/api/focus-adherence"
+        "/api/prompt/answer/save", "/api/focus-adherence",
+        // One tilt_checks row; no file, account or client effect.
+        "/api/tiltcheck/delete"
     };
 
     internal static readonly HashSet<string> ReadRoutes = new(StringComparer.OrdinalIgnoreCase)

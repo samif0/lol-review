@@ -15,6 +15,9 @@ import { getInvoke } from './platform/index.mjs';
 //   • The reset RITUAL is a WRITE: it collects {emotion, intensityBefore,
 //     intensityAfter?, reframeThought?, reframeResponse?, ifThenPlan?} and
 //     invoke('run_reset', {…}) → reloads the page so the new entry appears.
+//   • Delete on a recent row is the other WRITE: it confirms, then
+//     invoke('delete_tiltcheck', {payload:{id}}) and reloads, so the stats, the
+//     recent list and the latest plan are read again from the rows that remain.
 
 // ── small DOM helpers ───────────────────────────────────────────────────────
 
@@ -199,6 +202,15 @@ function buildRecentRow(r) {
   when.textContent = r.createdAtText || '';
   show(planTag, !!r.hasPlan);
 
+  // Delete carries the row's id; its label names the entry for screen readers.
+  const del = el.querySelector('.tc-row-del');
+  if (del) {
+    del.dataset.entryId = String(r.id ?? '');
+    del.setAttribute('aria-label', r.createdAtText
+      ? `Delete the ${entryNoun(r)} from ${r.createdAtText}`
+      : `Delete this ${entryNoun(r)}`);
+  }
+
   // The body line favors the reframe response, then the if-then plan, then the
   // thought, then the focus intention — whatever the user actually wrote.
   text.textContent = r.reframeResponse || r.ifThenPlan || r.reframeThought
@@ -264,19 +276,67 @@ function render(d) {
 }
 
 // ── load orchestration ──────────────────────────────────────────────────────
-let _loading = false;
-async function loadTiltcheck() {
-  if (_loading) return;
-  _loading = true;
+// Concurrent callers are COALESCED, never dropped: a write (a saved reset, a
+// deleted entry) that lands while a fetch is already in flight is promised one
+// follow-up fetch that starts after its own write, so the page never keeps
+// showing a row that is gone.
+let _loadPromise = null;   // the fetch in flight
+let _loadFollowUp = null;  // the ONE queued re-fetch shared by everyone who arrives mid-flight
+function loadTiltcheck() {
+  if (_loadPromise) {
+    if (!_loadFollowUp) {
+      _loadFollowUp = _loadPromise.then(() => { _loadFollowUp = null; return loadTiltcheck(); });
+    }
+    return _loadFollowUp;
+  }
+  _loadPromise = runLoad().finally(() => { _loadPromise = null; });
+  return _loadPromise;
+}
+async function runLoad() {
   try {
-    const data = await fetchTiltcheck();
-    render(data);
+    render(await fetchTiltcheck());
   } catch (err) {
     renderError(err);
     console.error('[tiltcheck] load failed:', err);
-  } finally {
-    _loading = false;
   }
+}
+
+// ── delete one entry (WRITE) ────────────────────────────────────────────────
+// A pre-queue plan (POST /api/pregame/ifthen) is stored as a row with this
+// emotion and is listed with the resets, so it is deleted the same way.
+const PREGAME_PLAN = 'pregame_plan';
+function entryNoun(r) { return r && r.emotion === PREGAME_PLAN ? 'plan' : 'reset'; }
+
+function deleteMessage(r) {
+  if (entryNoun(r) === 'plan') return 'Delete this plan? It stops showing before games. This cannot be undone.';
+  return r && r.hasPlan
+    ? 'Delete this reset? It comes out of your stats, and its plan stops showing before games. This cannot be undone.'
+    : 'Delete this reset? It comes out of your stats. This cannot be undone.';
+}
+
+// Confirms first, then deletes and reloads: the stats strip, the recent list and
+// the latest plan all come back from the rows that remain.
+async function deleteEntry(btn) {
+  const id = Number(btn.dataset.entryId);
+  if (!Number.isSafeInteger(id) || id <= 0) return;
+  const recent = _data && Array.isArray(_data.recent) ? _data.recent : [];
+  if (!window.confirm(deleteMessage(recent.find((r) => r.id === id)))) return;
+
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info('[tiltcheck] (preview) delete_tiltcheck: no Electron backend.', { id });
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await invoke('delete_tiltcheck', { payload: { id } });
+  } catch (err) {
+    renderError(err);
+    console.error('[tiltcheck] action "delete_tiltcheck" failed:', err);
+    btn.disabled = false;
+    return;
+  }
+  await loadTiltcheck();
 }
 
 // ── the reset ritual (WRITE) — 5-step wizard ─────────────────────────────────
@@ -597,11 +657,12 @@ function openRitual() {
 }
 
 // ── single delegated action handler ─────────────────────────────────────────
-// The global handler owns ONLY open_ritual (RUN A RESET). Every in-wizard button
-// (step_next / skip_breathing / start_over / confirm_reset / save_set_intent) is
-// handled by the ritual-scoped listener inside openRitual() — those need closure
-// over the wizard's step/selection state, so they're not routed here.
-const ACTIONS = new Set(['open_ritual']);
+// The global handler owns open_ritual (RUN A RESET) and delete_entry (a recent
+// row's Delete). Every in-wizard button (step_next / skip_breathing / start_over /
+// confirm_reset / save_set_intent) is handled by the ritual-scoped listener
+// inside openRitual() — those need closure over the wizard's step/selection
+// state, so they're not routed here.
+const ACTIONS = new Set(['open_ritual', 'delete_entry']);
 
 document.addEventListener('click', (ev) => {
   const target = ev.target.closest('[data-action]');
@@ -610,6 +671,7 @@ document.addEventListener('click', (ev) => {
   if (!ACTIONS.has(action)) return;
   ev.preventDefault();
   if (action === 'open_ritual') openRitual();
+  else if (action === 'delete_entry') deleteEntry(target);
 });
 
 // ── boot ────────────────────────────────────────────────────────────────────

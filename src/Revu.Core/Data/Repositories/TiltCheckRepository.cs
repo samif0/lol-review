@@ -54,6 +54,15 @@ public sealed class TiltCheckRepository : ITiltCheckRepository
         return (long)(await idCmd.ExecuteScalarAsync())!;
     }
 
+    public async Task<bool> DeleteAsync(long id)
+    {
+        using var conn = _factory.CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM tilt_checks WHERE id = @id";
+        cmd.Parameters.AddWithValue("@id", id);
+        return await cmd.ExecuteNonQueryAsync() > 0;
+    }
+
     public async Task<IReadOnlyList<Dictionary<string, object?>>> GetRecentAsync(int limit = 20)
     {
         using var conn = _factory.CreateConnection();

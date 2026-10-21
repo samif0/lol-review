@@ -47,6 +47,14 @@ body .tc-row .tc-row-drop{display:inline-flex;align-items:center;height:22px;pad
   background:var(--selected);color:var(--t2);font-size:12px;font-variant-numeric:tabular-nums;line-height:1}
 body .tc-row .tc-row-drop.good{background:color-mix(in srgb,var(--ok) 14%,transparent);color:color-mix(in srgb,var(--ok) 80%,var(--t1))}
 body .tc-row .tc-row-drop.bad{background:color-mix(in srgb,var(--loss) 14%,transparent);color:color-mix(in srgb,var(--loss) 80%,var(--t1))}
+/* Delete: quiet until the row is pointed at or focused, always in the tab order, and in the
+   danger tone only under the pointer. A screen that cannot point always shows it. */
+body .tc-row .tc-row-del{width:30px;height:30px;margin-left:4px;color:var(--t3);opacity:0}
+body .tc-row .tc-row-del svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+body .tc-row:is(:hover,:focus-within) .tc-row-del{opacity:1}
+body .tc-row .tc-row-del:hover:not(:disabled){background:var(--danger-soft);color:var(--danger)}
+body .tc-row .tc-row-del:disabled{opacity:.4}
+@media(hover:none){body .tc-row .tc-row-del{opacity:1}}
 
 /* The ritual opens inside the reset card, divided by a line instead of a second card. */
 body .tc-primary .tc-ritual{margin-top:20px;padding:22px 0 0;background:transparent!important;border:0!important;
@@ -98,4 +106,5 @@ body .tc-empty .tc-empty-p{font-size:14px;color:var(--t3)}
 
 @media(prefers-reduced-motion:no-preference){
   body .tc-menu .tc-menuopt,body .tc-chips .tc-chip{transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+  body .tc-row .tc-row-del{transition:opacity .15s ease,background-color .15s ease,color .15s ease}
 }
