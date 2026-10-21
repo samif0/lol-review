@@ -85,7 +85,8 @@
     </span>
   </template>
 
-  <!-- One recent-reset row — emotion + before→after duo + reframe response. -->
+  <!-- One recent-reset row — emotion + before→after duo + reframe response, then a
+       quiet Delete that confirms before it removes the entry. -->
   <template id="tpl-recent">
     <div class="card tc-row">
       <span class="tc-row-edge" data-tone="loss" aria-hidden="true"></span>
@@ -102,6 +103,7 @@
         <span class="tc-row-arr" aria-hidden="true">→</span>
         <span class="tc-row-after"></span>
         <span class="tc-row-drop"></span>
+        <button class="ui-iconbtn tc-row-del" type="button" data-action="delete_entry" title="Delete" aria-label="Delete this entry"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg></button>
       </div>
     </div>
   </template>

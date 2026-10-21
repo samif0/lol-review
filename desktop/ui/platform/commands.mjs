@@ -48,6 +48,7 @@ const definitions = {
   complete_objective: post("/api/objective/complete"),
   delete_objective: post("/api/objective/delete"),
   run_reset: post("/api/reset"),
+  delete_tiltcheck: post("/api/tiltcheck/delete"),
   save_config: post("/api/config/save"),
   delete_game: post("/api/game/delete"),
   set_game_hidden: post("/api/game/hide"),
