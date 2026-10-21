@@ -7,6 +7,12 @@ namespace Revu.Core.Data.Repositories;
 /// <summary>Stores and queries tilt check exercise results.</summary>
 public sealed class TiltCheckRepository : ITiltCheckRepository
 {
+    /// <summary>
+    /// The emotion a pre-queue if-then plan is stored under (POST /api/pregame/ifthen, with
+    /// intensity_before 0 and no intensity_after). Existing rows carry this value, so it never changes.
+    /// </summary>
+    public const string PregamePlanEmotion = "pregame_plan";
+
     private readonly IDbConnectionFactory _factory;
 
     public TiltCheckRepository(IDbConnectionFactory factory) => _factory = factory;
@@ -129,16 +135,19 @@ public sealed class TiltCheckRepository : ITiltCheckRepository
             }
         }
 
-        // Top emotions
+        // Top emotions. A pre-queue plan row names no emotion, so it is left out here
+        // (its NULL intensity_after already keeps it out of the averages above).
         var emotions = new List<EmotionCount>();
         using (var cmd2 = conn.CreateCommand())
         {
             cmd2.CommandText = """
                 SELECT emotion, COUNT(*) as cnt
                 FROM tilt_checks
+                WHERE emotion <> @pregamePlan
                 GROUP BY emotion
                 ORDER BY cnt DESC
                 """;
+            cmd2.Parameters.AddWithValue("@pregamePlan", PregamePlanEmotion);
 
             using var reader2 = await cmd2.ExecuteReaderAsync();
             while (await reader2.ReadAsync())

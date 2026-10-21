@@ -10,7 +10,8 @@ import { getInvoke } from './platform/index.mjs';
 //     plain browser.
 //   • Every server string is written via textContent (never innerHTML) so the
 //     surface stays XSS-free. The sidecar's emotion *Hex is not painted: emotions
-//     read in the theme's loss tone (data-tone="loss" in the templates).
+//     read in the theme's loss tone (data-tone="loss" in the templates), and a
+//     plan row, which names no emotion, reads neutral.
 //   • ONE delegated [data-action] click handler.
 //   • The reset RITUAL is a WRITE: it collects {emotion, intensityBefore,
 //     intensityAfter?, reframeThought?, reframeResponse?, ifThenPlan?} and
@@ -171,6 +172,13 @@ function renderPlan(d) {
 }
 
 // ── render: recent reset log ────────────────────────────────────────────────
+// A pre-queue plan saved in champ select (POST /api/pregame/ifthen) is stored as a
+// row with this emotion and is listed with the resets. Its row reads as a plan:
+// a plain label, the plan text and no intensity duo. It is deleted the same way.
+const PREGAME_PLAN = 'pregame_plan';
+const PLAN_LABEL = 'Plan from champ select';
+function entryNoun(r) { return r && r.emotion === PREGAME_PLAN ? 'plan' : 'reset'; }
+
 function renderRecent(d) {
   const items = Array.isArray(d.recent) ? d.recent : [];
   const host = $('tc-recent');
@@ -189,6 +197,7 @@ function renderRecent(d) {
 
 function buildRecentRow(r) {
   const el = tpl('tpl-recent');
+  const edge = el.querySelector('.tc-row-edge');
   const emo = el.querySelector('.tc-row-emo');
   const when = el.querySelector('.tc-row-when');
   const planTag = el.querySelector('.tc-row-plan');
@@ -197,10 +206,12 @@ function buildRecentRow(r) {
   const arr = el.querySelector('.tc-row-arr');
   const after = el.querySelector('.tc-row-after');
   const drop = el.querySelector('.tc-row-drop');
+  const isPlan = entryNoun(r) === 'plan';
 
-  emo.textContent = cap(r.emotion || '');
+  emo.textContent = isPlan ? PLAN_LABEL : cap(r.emotion || '');
   when.textContent = r.createdAtText || '';
-  show(planTag, !!r.hasPlan);
+  // A plan row's label already says plan, so only a reset shows the Plan tag.
+  show(planTag, !!r.hasPlan && !isPlan);
 
   // Delete carries the row's id; its label names the entry for screen readers.
   const del = el.querySelector('.tc-row-del');
@@ -209,6 +220,17 @@ function buildRecentRow(r) {
     del.setAttribute('aria-label', r.createdAtText
       ? `Delete the ${entryNoun(r)} from ${r.createdAtText}`
       : `Delete this ${entryNoun(r)}`);
+  }
+
+  // A plan names no emotion and rates no intensity (its stored 0 is not a rating):
+  // the edge reads neutral, the body is the plan in the player's own words, and the
+  // before → after duo is skipped.
+  if (isPlan) {
+    if (edge) edge.dataset.tone = 'neutral';
+    text.textContent = r.ifThenPlan || '';
+    text.classList.add('own-words');
+    for (const part of [before, arr, after, drop]) show(part, false);
+    return el;
   }
 
   // The body line favors the reframe response, then the if-then plan, then the
@@ -302,11 +324,6 @@ async function runLoad() {
 }
 
 // ── delete one entry (WRITE) ────────────────────────────────────────────────
-// A pre-queue plan (POST /api/pregame/ifthen) is stored as a row with this
-// emotion and is listed with the resets, so it is deleted the same way.
-const PREGAME_PLAN = 'pregame_plan';
-function entryNoun(r) { return r && r.emotion === PREGAME_PLAN ? 'plan' : 'reset'; }
-
 function deleteMessage(r) {
   if (entryNoun(r) === 'plan') return 'Delete this plan? It stops showing before games. This cannot be undone.';
   return r && r.hasPlan
