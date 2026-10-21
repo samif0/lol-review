@@ -14,8 +14,10 @@ public sealed record RecordingRelayout(Guid SessionId, long FileSize);
 /// <summary>
 /// Durable per-session receipts under the owned recording root. The receipt is written
 /// before linking; replay after a crash heals a missing game row without guessing a match.
-/// Anchored partial recordings can become an empty match's video; automatic
-/// recordings never replace an existing video. Unknown timing stays unlinked.
+/// Anchored partial recordings can become an empty match's video. When a reconnect
+/// leaves several segments, the one showing most of the match wins, and it may replace
+/// only a partial Revu linked itself; user and imported videos are never replaced.
+/// Unknown timing stays unlinked.
 /// </summary>
 public sealed class RecordingRegistrationService(string root, RecordingLinkStore links,
     Func<Task> ensureBackup, ILogger<RecordingRegistrationService> logger, Action<long>? onLinked = null)
@@ -121,9 +123,14 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
     private async Task ReconcilePendingAsync(long? gameId)
     {
         ValidateRoot();
-        foreach (var receipt in ReadReceipts())
+        // Widest coverage first, so a reconnect's longer segment becomes the match video
+        // whatever order the receipts are listed in; ties keep a stable order.
+        var pending = ReadReceipts()
+            .Where(r => r.Status == "pending-match" && (!gameId.HasValue || r.Recording.GameId == gameId))
+            .OrderBy(r => r.Recording.GameId).ThenByDescending(r => Coverage(r.Recording))
+            .ThenByDescending(r => r.Recording.Complete).ThenBy(r => r.Recording.SessionId).ToList();
+        foreach (var receipt in pending)
             {
-                if (receipt.Status != "pending-match" || (gameId.HasValue && receipt.Recording.GameId != gameId)) continue;
                 try
                 {
                     var request = ValidateMetadata(receipt.Recording);
@@ -139,14 +146,32 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
     {
         if (!receipt.Recording.GameTimeAtVideoStart.HasValue || receipt.Status != "pending-match") return receipt;
         await ensureBackup();
-        var status = await links.LinkAsync(receipt.Recording, () => SaveTimingAsync(receipt.Recording));
+        // Only Revu's own partial link for this match may give way, and only to a
+        // recording that shows strictly more of it. Complete, user and imported links stay.
+        var narrower = ReadReceipts().Where(r => r.Status == "linked-partial"
+            && r.Recording.GameId == receipt.Recording.GameId && r.Recording.SessionId != receipt.Recording.SessionId
+            && Coverage(r.Recording) < Coverage(receipt.Recording)).ToList();
+        Receipt? replaced = null;
+        var status = await links.LinkAsync(receipt.Recording, () => SaveTimingAsync(receipt.Recording), existing =>
+            (replaced = narrower.FirstOrDefault(r => r.Recording.FilePath.Equals(existing, StringComparison.OrdinalIgnoreCase))) is not null);
         if (status == "linked" && !receipt.Recording.Complete) status = "linked-partial";
         if (status == receipt.Status) return receipt;
         var updated = receipt with { Status = status };
         await SaveReceiptAsync(updated);
+        if (replaced is not null && status is "linked" or "linked-partial")
+        {
+            // The earlier segment's file and timing stay on disk; it is no longer the match video.
+            await SaveReceiptAsync(replaced with { Status = "superseded" });
+            logger.LogInformation("Recording {SessionId} replaced the shorter partial {Previous} for match {GameId}",
+                receipt.Recording.SessionId, replaced.Recording.SessionId, receipt.Recording.GameId);
+        }
         if (status is "linked" or "linked-partial") onLinked?.Invoke(receipt.Recording.GameId);
         return updated;
     }
+
+    /// <summary>Seconds of the match a recording can show: video from game time zero onward.</summary>
+    private static double Coverage(RecordingRegistration recording) => recording.GameTimeAtVideoStart is double offset
+        ? Math.Max(0, recording.DurationSeconds + Math.Min(0, offset)) : 0;
 
     private RecordingRegistration ValidateMetadata(RecordingRegistration request)
     {

@@ -11,7 +11,7 @@ import { encoderBinaryPins, encoderDependencyProvenance, isRecorderFile, obsPin,
   recorderModules, recorderSourceLock, requiredRecorderFiles, verifyEncoderBinaryPins, verifyEncoderSourceProvenance,
   verifyRecorderRuntime } from '../../recorder/runtime/libobs.mjs';
 import { writeSourceZip } from '../../recorder/scripts/source-zip.mjs';
-import { downloadPinned, locateRecorderCrt } from '../../recorder/scripts/setup.mjs';
+import { downloadPinned, locateRecorderCrt, promoteRecorderOutput, systemTool, withScratchDirectory } from '../../recorder/scripts/setup.mjs';
 import { recorderCrtBinaries } from '../../recorder/runtime/libobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -306,9 +306,39 @@ test('source subsets preserve exact bytes and produce reproducible ZIPs readable
     const archive = path.join(root, 'first.zip'), repeated = path.join(root, 'second.zip');
     await writeSourceZip(first, archive); await writeSourceZip(second, repeated);
     assert.deepEqual(await readFile(archive), await readFile(repeated));
-    assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'include/example.h'], { encoding: 'utf8', windowsHide: true }), '/* header */\n');
-    assert.equal(execFileSync('tar.exe', ['-xOf', archive, 'LICENSE.txt'], { encoding: 'utf8', windowsHide: true }), 'Original license\n');
+    // Windows tar from System32: Git Bash puts GNU tar first on PATH, and it cannot read these archives.
+    const tar = systemTool('tar.exe');
+    assert.equal(execFileSync(tar, ['-xOf', archive, 'include/example.h'], { encoding: 'utf8', windowsHide: true }), '/* header */\n');
+    assert.equal(execFileSync(tar, ['-xOf', archive, 'LICENSE.txt'], { encoding: 'utf8', windowsHide: true }), 'Original license\n');
   });
+
+test('setup tools come from System32, never PATH or the working directory', () => {
+  assert.equal(systemTool('tar.exe', { systemRoot: 'C:\\Windows' }), path.join('C:\\Windows', 'System32', 'tar.exe'));
+  for (const systemRoot of ['', 'Windows']) assert.throws(() => systemTool('tar.exe', { systemRoot }), /SystemRoot/);
+});
+
+test('every source-lock entry names a literal revision, never an unexpanded build-script path', () => {
+  for (const item of recorderSourceLock) for (const [key, value] of Object.entries(item))
+    if (typeof value === 'string') assert.doesNotMatch(value, /\$\{|PSScriptRoot/, `${item.name}.${key}`);
+});
+
+test('recorder setup removes its scratch folders and leaves no previous runtime copy behind', async t => {
+  const root = await scratch(t);
+  let seen;
+  assert.equal(await withScratchDirectory(root, '.recorder-test-', async directory => { seen = directory; await file(directory, 'a.txt'); return 1; }), 1);
+  await assert.rejects(lstat(seen), { code: 'ENOENT' });
+  await assert.rejects(withScratchDirectory(root, '.recorder-test-', async directory => { seen = directory; throw new Error('build failed'); }),
+    /build failed/);
+  await assert.rejects(lstat(seen), { code: 'ENOENT' }, 'a failed step still removes its scratch folder');
+  const destination = path.join(root, 'desktop-recorder');
+  await file(destination, 'old.txt', 'old');
+  await file(path.join(root, '.recorder-new'), 'new.txt', 'new');
+  assert.equal(await promoteRecorderOutput(path.join(root, '.recorder-new'), destination), destination);
+  assert.equal(await readFile(path.join(destination, 'new.txt'), 'utf8'), 'new');
+  assert.deepEqual(await readdir(root), ['desktop-recorder'], 'the previous output is removed after a successful swap');
+  await assert.rejects(promoteRecorderOutput(path.join(root, '.recorder-missing'), destination));
+  assert.equal(await readFile(path.join(destination, 'new.txt'), 'utf8'), 'new', 'a failed swap restores the current output');
+});
 
 test('pinned source downloads verify incoming bytes and stale caches without changing the expected checksum', async t => {
   const root = await scratch(t), archive = path.join(root, 'source.tar.gz');

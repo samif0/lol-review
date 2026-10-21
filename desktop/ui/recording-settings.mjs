@@ -1,9 +1,10 @@
-import { getInvoke } from './platform/index.mjs';
+import { getInvoke, getListen } from './platform/index.mjs';
 
-const UNAVAILABLE_MESSAGE = 'Built-in recording is unavailable here. You can still connect an external recordings folder above.';
+const UNAVAILABLE_MESSAGE = 'Built-in recording is unavailable here.';
 const ENCODERS = Object.freeze({ obs_nvenc_h264_tex: 'NVIDIA NVENC', h264_texture_amf: 'AMD AMF', obs_qsv11_v2: 'Intel Quick Sync' });
 
-const STATES = Object.freeze({ disabled: 'Recording off', unavailable: 'Recording unavailable', idle: 'Ready for your next match',
+const STATES = Object.freeze({ disabled: 'Recording off', unavailable: 'Recording unavailable', checking: 'Checking recording support',
+  idle: 'Ready for your next match',
   starting: 'Starting recording', recording: 'Recording your match', stopping: 'Stopping recording', finalizing: 'Saving your match',
   saved: 'Recording saved', partial: 'Partial recording saved', failed: 'Recording failed' });
 
@@ -33,6 +34,7 @@ export function createRecordingSettingsModel({ invoke, renderStatus, renderRecor
       } else renderStatus({ message: 'Recording settings could not be loaded. Reopen Settings to try again.' });
       if (results[1].status === 'fulfilled') renderBackground(results[1].value);
       else renderBackground(null);
+      return results[0].status === 'fulfilled';
     },
     async refresh() {
       const current = generation;
@@ -56,15 +58,17 @@ export function createRecordingSettingsModel({ invoke, renderStatus, renderRecor
   };
 }
 
-export async function initializeRecordingSettings({ document = globalThis.document, scope = globalThis.window } = {}) {
+// onSettingsRendered: saved values replaced the controls, so their unsaved-edit baseline moves too.
+export async function initializeRecordingSettings({ document = globalThis.document, scope = globalThis.window,
+  onSettingsRendered = () => {} } = {}) {
   const el = id => document.getElementById(id);
   if (!el('recording-settings')) return;
   let available = false;
   if (el('recording-controls')) el('recording-controls').hidden = true;
-  let disposed = false, polling = false, savingRecording = false, model = null, timer = null, onVisibility = null;
+  let disposed = false, polling = false, savingRecording = false, model = null, timer = null, onVisibility = null, unlisten = null;
   let backgroundValue = null;
   scope.addEventListener('pagehide', () => {
-    disposed = true; model?.dispose();
+    disposed = true; model?.dispose(); unlisten?.();
     if (timer !== null) scope.clearInterval(timer);
     if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
   }, { once: true });
@@ -92,12 +96,21 @@ export async function initializeRecordingSettings({ document = globalThis.docume
     text('background-settings-status', 'Background settings are available in the Revu desktop app.');
     return;
   }
+  const renderRecording = value => {
+    if (!available || !value) return;
+    setToggle('recordingEnabled', value.enabled);
+    el('recordingPreset').value = value.preset;
+    ['recordingEnabled', 'recordingPreset', 'save-recording-settings'].forEach(id => { el(id).disabled = false; });
+    el('open-recordings-folder').disabled = false;
+    onSettingsRendered();
+  };
   model = createRecordingSettingsModel({ invoke,
     renderStatus: value => {
+      const wasAvailable = available;
       available = value?.available === true;
       if (el('recording-controls')) el('recording-controls').hidden = !available;
       if (el('recording-coming-soon')) el('recording-coming-soon').textContent = available
-        ? value?.recordingTest ? 'Recording test' : 'Beta' : 'Unavailable';
+        ? value?.recordingTest ? 'Recording test' : 'Beta' : value?.state === 'checking' ? 'Beta' : 'Unavailable';
       if (el('recordingEnabled-label')) el('recordingEnabled-label').textContent = value?.recordingTest
         ? 'Record my test game' : 'Record my ranked Solo/Duo matches';
       if (el('recording-scope-help')) el('recording-scope-help').textContent = value?.recordingTest
@@ -107,16 +120,11 @@ export async function initializeRecordingSettings({ document = globalThis.docume
       if (!available) lockRecording();
       else ['recordingEnabled', 'recordingPreset', 'save-recording-settings', 'open-recordings-folder']
         .forEach(id => { el(id).disabled = false; });
+      // Controls were locked while unavailable, so a late answer shows the saved values.
+      if (available && !wasAvailable) renderRecording(value?.settings);
       text('recording-status', value?.message ? recordingStatusText(value) : UNAVAILABLE_MESSAGE);
     },
-    renderRecording: value => {
-      if (!available) return;
-      if (!value) return;
-      setToggle('recordingEnabled', value.enabled);
-      el('recordingPreset').value = value.preset;
-      ['recordingEnabled', 'recordingPreset', 'save-recording-settings'].forEach(id => { el(id).disabled = false; });
-      el('open-recordings-folder').disabled = false;
-    },
+    renderRecording,
     renderBackground: value => {
       if (!value) { text('background-settings-status', 'Background settings could not be loaded. Reopen Settings to try again.'); return; }
       backgroundValue = value;
@@ -160,8 +168,9 @@ export async function initializeRecordingSettings({ document = globalThis.docume
     try { await invoke('open_recordings_folder'); }
     catch (error) { text('recording-settings-status', error?.message || 'The recordings folder could not be opened.'); }
   });
-  await model.load();
-  if (disposed || !available) return;
+  const loaded = await model.load();
+  if (disposed || !loaded) return;
+  // Keep following the host even while unavailable: its hardware check can finish after this page opens.
   const poll = async () => {
     if (disposed || document.hidden || polling || savingRecording) return;
     polling = true;
@@ -172,4 +181,11 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   timer = scope.setInterval(poll, 2000);
   onVisibility = poll;
   document.addEventListener('visibilitychange', onVisibility);
+  try {
+    const listen = await getListen();
+    const stop = listen ? await listen('lcu-event', event => {
+      if (event?.payload?.type === 'recordingStatus') void poll();
+    }) : null;
+    if (disposed) stop?.(); else unlisten = stop;
+  } catch { /* Polling still follows status changes. */ }
 }

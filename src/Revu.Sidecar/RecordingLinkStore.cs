@@ -2,10 +2,12 @@ using Revu.Core.Data;
 
 namespace Revu.Sidecar;
 
-/// <summary>Write-graph-only insert. Automatic recording never replaces a user's VOD.</summary>
+/// <summary>Write-graph-only link. Automatic recording never replaces a user's or an
+/// imported VOD; the caller may only let one of Revu's own partial links give way.</summary>
 public sealed class RecordingLinkStore(IDbConnectionFactory factory)
 {
-    public async Task<string> LinkAsync(RecordingRegistration request, Func<Task>? beforeLink = null)
+    public async Task<string> LinkAsync(RecordingRegistration request, Func<Task>? beforeLink = null,
+        Func<string, bool>? canReplace = null)
     {
         using var conn = factory.CreateConnection();
         using var transaction = conn.BeginTransaction();
@@ -13,6 +15,9 @@ public sealed class RecordingLinkStore(IDbConnectionFactory factory)
         command.Transaction = transaction;
         command.Parameters.AddWithValue("@game", request.GameId);
         command.Parameters.AddWithValue("@path", request.FilePath);
+        command.Parameters.AddWithValue("@size", request.FileSize);
+        command.Parameters.AddWithValue("@duration", (long)Math.Floor(request.DurationSeconds));
+        command.Parameters.AddWithValue("@matched", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         command.CommandText = "SELECT COUNT(*) FROM games WHERE game_id = @game";
         if (Convert.ToInt64(await command.ExecuteScalarAsync()) == 0) return "pending-match";
 
@@ -25,8 +30,21 @@ public sealed class RecordingLinkStore(IDbConnectionFactory factory)
         var existing = await command.ExecuteScalarAsync();
         if (existing is string path)
         {
-            if (!path.Equals(request.FilePath, StringComparison.OrdinalIgnoreCase)) return "retained-existing";
+            if (path.Equals(request.FilePath, StringComparison.OrdinalIgnoreCase))
+            {
+                if (beforeLink is not null) await beforeLink();
+                return "linked";
+            }
+            if (canReplace?.Invoke(path) != true) return "retained-existing";
             if (beforeLink is not null) await beforeLink();
+            // Only the exact partial the caller approved gives way; anything else keeps its video.
+            command.CommandText = """
+                UPDATE vod_files SET file_path = @path, file_size = @size, duration_s = @duration, matched_at = @matched
+                WHERE game_id = @game AND file_path = @existing COLLATE NOCASE
+                """;
+            command.Parameters.AddWithValue("@existing", path);
+            if (await command.ExecuteNonQueryAsync() != 1) return "retained-existing";
+            transaction.Commit();
             return "linked";
         }
 
@@ -38,9 +56,6 @@ public sealed class RecordingLinkStore(IDbConnectionFactory factory)
             INSERT INTO vod_files (game_id, file_path, file_size, duration_s, matched_at)
             VALUES (@game, @path, @size, @duration, @matched)
             """;
-        command.Parameters.AddWithValue("@size", request.FileSize);
-        command.Parameters.AddWithValue("@duration", (long)Math.Floor(request.DurationSeconds));
-        command.Parameters.AddWithValue("@matched", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         await command.ExecuteNonQueryAsync();
         transaction.Commit();
         return "linked";

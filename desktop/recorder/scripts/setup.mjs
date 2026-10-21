@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,39 @@ const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const sourceLockPath = fileURLToPath(new URL('../runtime/source-lock.json', import.meta.url));
 const sourceLock = JSON.parse(await readFile(sourceLockPath, 'utf8'));
 const obsRelease = `https://github.com/obsproject/obs-studio/releases/download/${obsPin.version}`;
+const HELPER_SOURCE_README = 'Revu recorder helper source\n\nExtract this archive as desktop/recorder in a Revu source checkout.\nRequires Windows x64, Node 22.12 or newer, Visual Studio C++ x64 tools, Windows SDK and CMake.\nRun: node desktop/recorder/scripts/setup.mjs\nThe setup obtains checksum-pinned upstream archives, creates an import library from obs.dll, builds the helper in Release and stages the runtime.\nThe upstream OBS and OBS-deps build source archives, recipes, patches and corresponding dependency source are supplied beside this ZIP.\nThe AMF subset contains the unmodified interface headers copied by the upstream dependency recipe.\n';
+
+/** Windows tools come from System32, never PATH or the working directory: Git Bash
+ * puts GNU tar first, and it cannot read these archives. */
+export function systemTool(relative, { systemRoot = process.env.SystemRoot } = {}) {
+  if (!systemRoot || !path.isAbsolute(systemRoot)) throw new Error('Windows SystemRoot is required for recorder setup tools.');
+  return path.join(systemRoot, 'System32', relative);
+}
+const tar = () => systemTool('tar.exe');
+
+/** Run with a new temporary directory under parent that is removed afterwards, whether or not it succeeds. */
+export async function withScratchDirectory(parent, prefix, operation) {
+  const directory = await mkdtemp(path.join(parent, prefix));
+  try { return await operation(directory); }
+  finally { await rm(directory, { recursive: true, force: true, maxRetries: 3 }); }
+}
+
+/** Swap a verified staged runtime into place. The previous output is restored if the
+ * swap fails and removed once it succeeds; nothing else under the output root is touched. */
+export async function promoteRecorderOutput(staged, destination, { warn = console.warn } = {}) {
+  let previous;
+  try {
+    if (!(await lstat(destination)).isDirectory() || await realpath(destination) !== destination)
+      throw new Error('Existing recorder output must be a real directory.');
+    previous = path.join(path.dirname(destination), `desktop-recorder-previous-${path.basename(staged)}`);
+    await rename(destination, previous);
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  try { await rename(staged, destination); }
+  catch (error) { if (previous) await rename(previous, destination); throw error; }
+  if (previous) await rm(previous, { recursive: true, force: true, maxRetries: 3 })
+    .catch(error => warn(`The previous recorder output could not be removed: ${previous} (${error.message})`));
+  return destination;
+}
 
 function run(executable, args, { cwd, capture = false, env = process.env } = {}) {
   return new Promise((resolve, reject) => {
@@ -44,9 +77,7 @@ export async function downloadPinned(url, destination, expectedSha256, { transpo
   const temporary = `${destination}.download`;
   if (transport === 'windows-curl') {
     // Disable user curl configuration; this changes transport, never the URL or integrity check.
-    const windowsRoot = process.env.SystemRoot;
-    if (!windowsRoot || !path.isAbsolute(windowsRoot)) throw new Error('Windows SystemRoot is required for the recorder source downloader.');
-    await run(path.join(windowsRoot, 'System32/curl.exe'), ['--disable', '--fail', '--location', '--silent', '--show-error',
+    await run(systemTool('curl.exe'), ['--disable', '--fail', '--location', '--silent', '--show-error',
       '--proto', '=https', '--proto-redir', '=https', '--connect-timeout', '30', '--max-time', '300',
       '--output', temporary, '--url', url], { capture: true });
   } else {
@@ -157,7 +188,74 @@ async function assertExtractionTree(directory) {
 async function extractZip(archive, directory) {
   await mkdir(directory, { recursive: true });
   await assertExtractionTree(directory);
-  await run('tar.exe', ['-xf', archive, '-C', directory]);
+  await run(tar(), ['-xf', archive, '-C', directory]);
+}
+
+/** Fill a fresh staging directory: runtime, licenses, sources, helper build and manifest. */
+async function stageRecorder({ root, staged, binary, dependencies, dependencyRoot, outputRoot, sourceArchive, depsSource,
+  tools, build }) {
+  for (const name of obsRuntimeBinaries) await copyRegular(path.join(binary, 'bin/64bit', name), path.join(staged, name));
+  for (const name of recorderCrtBinaries) await copyRegular(path.join(tools.crt, name), path.join(staged, name));
+  for (const name of ['ffmpeg', 'ffprobe']) await copyRegular(path.join(dependencies, 'bin', `${name}.exe`), path.join(staged, `revu-media-${name}.exe`));
+  for (const name of recorderModules) {
+    await copyRegular(path.join(binary, `obs-plugins/64bit/${name}.dll`), path.join(staged, `obs-plugins/64bit/${name}.dll`));
+    await copyRegular(path.join(binary, `data/obs-plugins/${name}/locale/en-US.ini`), path.join(staged, `data/obs-plugins/${name}/locale/en-US.ini`));
+  }
+  for (const entry of await readdir(path.join(binary, 'data/libobs'))) {
+    if (/^[a-z0-9_]+\.effect$/.test(entry)) await copyRegular(path.join(binary, 'data/libobs', entry), path.join(staged, 'data/libobs', entry));
+  }
+  for (const name of [...new Set(sourceLock.map(item => item.licenseDirectory ?? item.name))])
+    await copyTree(path.join(dependencies, 'licenses', name), path.join(staged, 'licenses/dependencies', name));
+  await copyRegular(path.join(binary, 'data/obs-studio/license/gplv2.txt'), path.join(staged, 'licenses/OBS-GPL-2.0.txt'));
+  await copyRegular(sourceArchive, path.join(staged, `sources/${obsPin.sourceArchive}`));
+  await copyRegular(depsSource, path.join(staged, 'sources/obs-deps-sources.tar.gz'));
+  for (const item of sourceLock) {
+    const archive = await downloadPinned(item.url, path.join(dependencyRoot, 'corresponding-source', item.archive), item.sha256,
+      { transport: item.transport });
+    if (item.bundleArchive) {
+      const bundled = path.join(staged, 'sources', item.bundleArchive);
+      await withScratchDirectory(outputRoot, '.recorder-source-subset-', async subset => {
+        await run(tar(), ['-xzf', archive, '-C', subset, ...item.bundlePaths]);
+        await writeSourceZip(subset, bundled);
+      });
+      if (createHash('sha256').update(await readFile(bundled)).digest('hex') !== item.bundleSha256)
+        throw new Error(`Recorder source subset checksum mismatch: ${item.bundleArchive}`);
+    } else await copyRegular(archive, path.join(staged, 'sources', item.archive));
+  }
+  const ffmpegSource = sourceLock.find(item => item.name === 'FFmpeg');
+  const ffmpegSourceArchive = path.join(staged, 'sources', ffmpegSource.archive);
+  const ffmpegFiles = await run(tar(), ['-tf', ffmpegSourceArchive], { capture: true });
+  const gpl3Path = ffmpegFiles.split(/\r?\n/).find(relative => relative.endsWith('/COPYING.GPLv3'));
+  if (!gpl3Path) throw new Error('Matching FFmpeg source is missing its GPLv3 license.');
+  await writeFile(path.join(staged, 'licenses/FFmpeg-GPL-3.0.txt'), await run(tar(), ['-xOf', ffmpegSourceArchive, gpl3Path], { capture: true }));
+  const { repository, sourceDir, library, include } = build;
+  const buildDirectory = path.join(outputRoot, 'desktop-recorder-build-release');
+  await run(tools.cmake, ['-S', path.join(root, 'recorder/native'), '-B', buildDirectory, '-A', 'x64', '-T', 'host=x64',
+    '-DCMAKE_TRY_COMPILE_CONFIGURATION=Release', '-DBUILD_TESTING=ON', `-DOBS_SOURCE_DIR=${sourceDir}`, `-DOBS_LIBRARY=${library}`,
+    `-DOBS_CONFIG_DIR=${include}`, `-DOBS_RUNTIME_DIR=${staged}`], { cwd: repository });
+  await run(tools.cmake, ['--build', buildDirectory, '--config', 'Release'], { cwd: repository });
+  await run(tools.ctest, ['--test-dir', buildDirectory, '-C', 'Release', '--output-on-failure', '--no-tests=error'], { cwd: repository });
+  // Preserve the actual helper sources/build scripts in every bundle; no personal files or binary dependencies.
+  await withScratchDirectory(outputRoot, '.recorder-source-', async helperSource => {
+    for (const relative of recorderHelperSourceFiles)
+      await copyRegular(path.join(root, 'recorder', relative), path.join(helperSource, relative));
+    await copyRegular(path.join(root, 'recorder/THIRD-PARTY-NOTICES.txt'), path.join(helperSource, 'THIRD-PARTY-NOTICES.txt'));
+    await copyRegular(path.join(staged, 'licenses/OBS-GPL-2.0.txt'), path.join(helperSource, 'COPYING.GPLv2'));
+    await copyRegular(path.join(staged, 'licenses/FFmpeg-GPL-3.0.txt'), path.join(helperSource, 'COPYING.GPLv3'));
+    await writeFile(path.join(helperSource, 'README.txt'), HELPER_SOURCE_README);
+    await run(systemTool('WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command',
+      'Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory($env:REVU_RECORDER_SOURCE, $env:REVU_RECORDER_SOURCE_ZIP)'],
+    { env: { ...process.env, REVU_RECORDER_SOURCE: helperSource, REVU_RECORDER_SOURCE_ZIP: path.join(staged, 'sources/revu-recorder-source.zip') } });
+  });
+  await copyRegular(path.join(root, 'recorder/THIRD-PARTY-NOTICES.txt'), path.join(staged, 'THIRD-PARTY-NOTICES.txt'));
+  const ffmpegVersion = await run(path.join(staged, 'revu-media-ffmpeg.exe'), ['-version'], { capture: true, cwd: staged });
+  await writeFile(path.join(staged, 'sources/BUILD-INFO.json'), JSON.stringify({ obs: obsPin,
+    sourceDependencies: sourceLock, encoderDependencies: encoderDependencyProvenance, compiler: tools.toolVersion, ffmpegVersion,
+    helperBuild: 'node desktop/recorder/scripts/setup.mjs; Windows x64 Visual Studio C++ tools and Windows SDK',
+    upstreamDependencyBuild: 'sources/obs-deps-sources.tar.gz: Build-Dependencies.ps1, deps.ffmpeg recipes and patches',
+  }, null, 2));
+  await writeFile(path.join(staged, 'runtime-manifest.json'), JSON.stringify(await recorderManifest(staged, { sources: sourceLock }), null, 2));
+  await verifyRecorderRuntime(staged);
 }
 
 export async function setupRecorder({ root = desktopRoot } = {}) {
@@ -183,7 +281,7 @@ export async function setupRecorder({ root = desktopRoot } = {}) {
   await mkdir(source, { recursive: true });
   await assertExtractionTree(source);
   // Only headers are extracted for compilation. The complete upstream archive ships unchanged as source.
-  await run('tar.exe', ['-xzf', sourceArchive, '-C', source, `obs-studio-${obsPin.version}-sources/libobs`]);
+  await run(tar(), ['-xzf', sourceArchive, '-C', source, `obs-studio-${obsPin.version}-sources/libobs`]);
   const exports = await run(path.join(tools.toolRoot, 'dumpbin.exe'), ['/exports', path.join(binary, 'bin/64bit/obs.dll')], { capture: true });
   const symbols = [...exports.matchAll(/^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+([A-Za-z_][A-Za-z0-9_?@$]*)/gm)].map(match => match[1]);
   if (symbols.length < 500 || !symbols.includes('obs_startup')) throw new Error('Pinned obs.dll export table is invalid.');
@@ -193,74 +291,16 @@ export async function setupRecorder({ root = desktopRoot } = {}) {
   const include = path.join(dependencyRoot, 'include'); await mkdir(include, { recursive: true });
   await writeFile(path.join(include, 'obsconfig.h'), '#pragma once\n#define OBS_DATA_PATH "data"\n#define OBS_PLUGIN_PATH "obs-plugins/64bit"\n#define OBS_PLUGIN_DESTINATION "obs-plugins/64bit"\n#define OBS_RELEASE_CANDIDATE 0\n#define OBS_BETA 0\n');
   const staged = await mkdtemp(path.join(outputRoot, '.recorder-'));
-  for (const name of obsRuntimeBinaries) await copyRegular(path.join(binary, 'bin/64bit', name), path.join(staged, name));
-  for (const name of recorderCrtBinaries) await copyRegular(path.join(tools.crt, name), path.join(staged, name));
-  for (const name of ['ffmpeg', 'ffprobe']) await copyRegular(path.join(dependencies, 'bin', `${name}.exe`), path.join(staged, `revu-media-${name}.exe`));
-  for (const name of recorderModules) {
-    await copyRegular(path.join(binary, `obs-plugins/64bit/${name}.dll`), path.join(staged, `obs-plugins/64bit/${name}.dll`));
-    await copyRegular(path.join(binary, `data/obs-plugins/${name}/locale/en-US.ini`), path.join(staged, `data/obs-plugins/${name}/locale/en-US.ini`));
-  }
-  for (const entry of await readdir(path.join(binary, 'data/libobs'))) {
-    if (/^[a-z0-9_]+\.effect$/.test(entry)) await copyRegular(path.join(binary, 'data/libobs', entry), path.join(staged, 'data/libobs', entry));
-  }
-  for (const name of [...new Set(sourceLock.map(item => item.licenseDirectory ?? item.name))])
-    await copyTree(path.join(dependencies, 'licenses', name), path.join(staged, 'licenses/dependencies', name));
-  await copyRegular(path.join(binary, 'data/obs-studio/license/gplv2.txt'), path.join(staged, 'licenses/OBS-GPL-2.0.txt'));
-  await copyRegular(sourceArchive, path.join(staged, `sources/${obsPin.sourceArchive}`));
-  await copyRegular(depsSource, path.join(staged, 'sources/obs-deps-sources.tar.gz'));
-  for (const item of sourceLock) {
-    const archive = await downloadPinned(item.url, path.join(dependencyRoot, 'corresponding-source', item.archive), item.sha256,
-      { transport: item.transport });
-    if (item.bundleArchive) {
-      const subset = await mkdtemp(path.join(outputRoot, '.recorder-source-subset-'));
-      await run('tar.exe', ['-xzf', archive, '-C', subset, ...item.bundlePaths]);
-      const bundled = path.join(staged, 'sources', item.bundleArchive);
-      await writeSourceZip(subset, bundled);
-      if (createHash('sha256').update(await readFile(bundled)).digest('hex') !== item.bundleSha256)
-        throw new Error(`Recorder source subset checksum mismatch: ${item.bundleArchive}`);
-    } else await copyRegular(archive, path.join(staged, 'sources', item.archive));
-  }
-  const ffmpegSource = sourceLock.find(item => item.name === 'FFmpeg');
-  const ffmpegSourceArchive = path.join(staged, 'sources', ffmpegSource.archive);
-  const ffmpegFiles = await run('tar.exe', ['-tf', ffmpegSourceArchive], { capture: true });
-  const gpl3Path = ffmpegFiles.split(/\r?\n/).find(relative => relative.endsWith('/COPYING.GPLv3'));
-  if (!gpl3Path) throw new Error('Matching FFmpeg source is missing its GPLv3 license.');
-  await writeFile(path.join(staged, 'licenses/FFmpeg-GPL-3.0.txt'), await run('tar.exe', ['-xOf', ffmpegSourceArchive, gpl3Path], { capture: true }));
-  const build = path.join(outputRoot, 'desktop-recorder-build-release');
-  await run(tools.cmake, ['-S', path.join(root, 'recorder/native'), '-B', build, '-A', 'x64', '-T', 'host=x64',
-    '-DCMAKE_TRY_COMPILE_CONFIGURATION=Release', '-DBUILD_TESTING=ON', `-DOBS_SOURCE_DIR=${sourceDir}`, `-DOBS_LIBRARY=${library}`,
-    `-DOBS_CONFIG_DIR=${include}`, `-DOBS_RUNTIME_DIR=${staged}`], { cwd: repository });
-  await run(tools.cmake, ['--build', build, '--config', 'Release'], { cwd: repository });
-  await run(tools.ctest, ['--test-dir', build, '-C', 'Release', '--output-on-failure', '--no-tests=error'], { cwd: repository });
-  // Preserve the actual helper sources/build scripts in every bundle; no personal files or binary dependencies.
-  const helperSource = await mkdtemp(path.join(outputRoot, '.recorder-source-'));
-  for (const relative of recorderHelperSourceFiles)
-    await copyRegular(path.join(root, 'recorder', relative), path.join(helperSource, relative));
-  await copyRegular(path.join(root, 'recorder/THIRD-PARTY-NOTICES.txt'), path.join(helperSource, 'THIRD-PARTY-NOTICES.txt'));
-  await copyRegular(path.join(staged, 'licenses/OBS-GPL-2.0.txt'), path.join(helperSource, 'COPYING.GPLv2'));
-  await copyRegular(path.join(staged, 'licenses/FFmpeg-GPL-3.0.txt'), path.join(helperSource, 'COPYING.GPLv3'));
-  await writeFile(path.join(helperSource, 'README.txt'), 'Revu recorder helper source\n\nExtract this archive as desktop/recorder in a Revu source checkout.\nRequires Windows x64, Node 22.12 or newer, Visual Studio C++ x64 tools, Windows SDK and CMake.\nRun: node desktop/recorder/scripts/setup.mjs\nThe setup obtains checksum-pinned upstream archives, creates an import library from obs.dll, builds the helper in Release and stages the runtime.\nThe upstream OBS and OBS-deps build source archives, recipes, patches and corresponding dependency source are supplied beside this ZIP.\nThe AMF subset contains the unmodified interface headers copied by the upstream dependency recipe.\n');
-  await copyRegular(path.join(root, 'recorder/THIRD-PARTY-NOTICES.txt'), path.join(staged, 'THIRD-PARTY-NOTICES.txt'));
-  await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    'Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory($env:REVU_RECORDER_SOURCE, $env:REVU_RECORDER_SOURCE_ZIP)'],
-  { env: { ...process.env, REVU_RECORDER_SOURCE: helperSource, REVU_RECORDER_SOURCE_ZIP: path.join(staged, 'sources/revu-recorder-source.zip') } });
-  const ffmpegVersion = await run(path.join(staged, 'revu-media-ffmpeg.exe'), ['-version'], { capture: true, cwd: staged });
-  await writeFile(path.join(staged, 'sources/BUILD-INFO.json'), JSON.stringify({ obs: obsPin,
-    sourceDependencies: sourceLock, encoderDependencies: encoderDependencyProvenance, compiler: tools.toolVersion, ffmpegVersion,
-    helperBuild: 'node desktop/recorder/scripts/setup.mjs; Windows x64 Visual Studio C++ tools and Windows SDK',
-    upstreamDependencyBuild: 'sources/obs-deps-sources.tar.gz: Build-Dependencies.ps1, deps.ffmpeg recipes and patches',
-  }, null, 2));
-  await writeFile(path.join(staged, 'runtime-manifest.json'), JSON.stringify(await recorderManifest(staged, { sources: sourceLock }), null, 2));
-  await verifyRecorderRuntime(staged);
-  let previous;
+  let promoted = false;
   try {
-    if (!(await lstat(destination)).isDirectory() || await realpath(destination) !== destination)
-      throw new Error('Existing recorder output must be a real directory.');
-    previous = path.join(outputRoot, `desktop-recorder-previous-${path.basename(staged)}`);
-    await rename(destination, previous);
-  } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  try { await rename(staged, destination); }
-  catch (error) { if (previous) await rename(previous, destination); throw error; }
+    await stageRecorder({ root, staged, binary, dependencies, dependencyRoot, outputRoot, sourceArchive, depsSource,
+      tools, build: { repository, sourceDir, library, include } });
+    await promoteRecorderOutput(staged, destination);
+    promoted = true;
+  } finally {
+    // A failed or interrupted setup never leaves a half-staged runtime behind.
+    if (!promoted) await rm(staged, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+  }
   console.log(`Bundled recorder OBS ${obsPin.version}: ${destination}`);
   return destination;
 }
