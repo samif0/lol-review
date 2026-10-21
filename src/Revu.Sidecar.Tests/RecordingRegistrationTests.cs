@@ -134,6 +134,70 @@ public sealed class RecordingRegistrationTests
     }
 
     [Fact]
+    public async Task ReconnectSegmentsPendingTogetherLinkTheOneShowingMostOfTheMatch()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        // The earlier segment's receipt is listed first; coverage, not listing order, decides.
+        var early = fixture.CreateRecording(3003, Guid.Parse("00000000-0000-4000-8000-000000000001"))
+            with { Complete = false, GameTimeAtVideoStart = -40, DurationSeconds = 760 };
+        var later = fixture.CreateRecording(3003, Guid.Parse("ffffffff-ffff-4fff-bfff-ffffffffffff"))
+            with { Complete = false, GameTimeAtVideoStart = 750, DurationSeconds = 1350 };
+        Assert.Equal("pending-match", (await fixture.Service.RegisterAsync(early)).Status);
+        Assert.Equal("pending-match", (await fixture.Service.RegisterAsync(later)).Status);
+        await fixture.Database.SeedGameAsync(3003);
+        await fixture.NewService().ReconcileAsync(3003);
+        Assert.Equal(later.FilePath, (await fixture.Database.Vod.GetVodAsync(3003))!.FilePath);
+        Assert.Equal("linked-partial", (await fixture.Service.GetAsync(later.SessionId))!.Status);
+        Assert.Equal("retained-existing", (await fixture.Service.GetAsync(early.SessionId))!.Status);
+        Assert.True(File.Exists(early.FilePath));
+        Assert.False(File.Exists(early.FilePath + RecordingTimeline.Suffix));
+    }
+
+    [Fact]
+    public async Task LaterWiderReconnectSegmentReplacesOnlyRevusOwnShorterPartial()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await fixture.Database.SeedGameAsync(3003);
+        var linked = new List<long>();
+        var service = new RecordingRegistrationService(fixture.Root, new(fixture.Database.ConnectionFactory),
+            () => Task.CompletedTask, NullLogger<RecordingRegistrationService>.Instance, linked.Add);
+        var early = fixture.CreateRecording(3003) with { Complete = false, GameTimeAtVideoStart = -40, DurationSeconds = 760 };
+        var later = fixture.CreateRecording(3003) with { Complete = false, GameTimeAtVideoStart = 750, DurationSeconds = 1350 };
+        var shorter = fixture.CreateRecording(3003) with { Complete = false, GameTimeAtVideoStart = 900, DurationSeconds = 600 };
+        Assert.Equal("linked-partial", (await service.RegisterAsync(early)).Status);
+        Assert.Equal("linked-partial", (await service.RegisterAsync(later)).Status);
+        var vod = (await fixture.Database.Vod.GetVodAsync(3003))!;
+        Assert.Equal(later.FilePath, vod.FilePath);
+        Assert.Equal(1350, vod.DurationSeconds);
+        Assert.Equal("superseded", (await service.GetAsync(early.SessionId))!.Status);
+        Assert.Equal(750, RecordingTimeline.ReadTiming(later.FilePath, 3003)!.GameTimeAtVideoStart);
+        Assert.True(File.Exists(early.FilePath) && File.Exists(early.FilePath + RecordingTimeline.Suffix));
+        Assert.Equal(new long[] { 3003, 3003 }, linked);
+        // Exact retries stay idempotent and a narrower segment never takes the match back.
+        Assert.Equal("superseded", (await service.RegisterAsync(early)).Status);
+        Assert.Equal("retained-existing", (await service.RegisterAsync(shorter)).Status);
+        Assert.Equal(later.FilePath, (await fixture.Database.Vod.GetVodAsync(3003))!.FilePath);
+    }
+
+    [Fact]
+    public async Task WiderSegmentNeverReplacesACompleteOrUserLinkedVideo()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        await fixture.Database.SeedGameAsync(1001);
+        await fixture.Database.SeedGameAsync(1002);
+        var complete = fixture.CreateRecording(1001) with { DurationSeconds = 600 };
+        Assert.Equal("linked", (await fixture.Service.RegisterAsync(complete)).Status);
+        var wider = fixture.CreateRecording(1001) with { Complete = false, GameTimeAtVideoStart = 0, DurationSeconds = 1800 };
+        Assert.Equal("retained-existing", (await fixture.Service.RegisterAsync(wider)).Status);
+        Assert.Equal(complete.FilePath, (await fixture.Database.Vod.GetVodAsync(1001))!.FilePath);
+
+        await fixture.Database.Vod.LinkVodAsync(1002, "existing-user-video.mp4");
+        var user = fixture.CreateRecording(1002) with { Complete = false, GameTimeAtVideoStart = 0, DurationSeconds = 1800 };
+        Assert.Equal("retained-existing", (await fixture.Service.RegisterAsync(user)).Status);
+        Assert.Equal("existing-user-video.mp4", (await fixture.Database.Vod.GetVodAsync(1002))!.FilePath);
+    }
+
+    [Fact]
     public async Task ExistingUserVodIsNeverOverwritten()
     {
         using var fixture = await Fixture.CreateAsync();
@@ -360,9 +424,9 @@ public sealed class RecordingRegistrationTests
         }
         public RecordingRegistrationService NewService(Func<Task>? backup = null) => new(Root, new(Database.ConnectionFactory),
             backup ?? (() => Task.CompletedTask), NullLogger<RecordingRegistrationService>.Instance);
-        public RecordingRegistration CreateRecording(long gameId)
+        public RecordingRegistration CreateRecording(long gameId, Guid? sessionId = null)
         {
-            var id = Guid.NewGuid();
+            var id = sessionId ?? Guid.NewGuid();
             var path = Path.Combine(Root, id + ".mp4");
             File.WriteAllBytes(path, new byte[32]);
             // Bytes are deliberately synthetic: this suite validates persistence and file

@@ -4,7 +4,7 @@ import { lstat, open, readFile, readdir, realpath, rename, stat, statfs, unlink 
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { mp4Summary, restoreFragmentedLayout } from './recorder-media.mjs';
-import { atomicJson } from './recording-service.mjs';
+import { atomicJson } from './recording-store.mjs';
 import { commandRequest } from './routing.mjs';
 
 // "Speed up": a linked built-in recording saved as a fragmented MP4 is rewritten losslessly

@@ -102,6 +102,22 @@ test('provider unavailable keeps its explanation and prevents enabling recording
   assert.equal(f.calls.some(call => call.command === 'save_recording_settings'), false);
 });
 
+test('a recorder check that finishes after Settings opened enables the controls with the saved values', async () => {
+  const saved = { enabled: true, preset: '1080p60' };
+  let current = { state: 'checking', available: false, message: 'Revu checks your graphics hardware each time it starts.', settings: saved };
+  const f = await uiFixture(async command => command === 'get_recording_status' ? current : { closeToTray: false, startWithWindows: false });
+  assert.equal(f.$('recordingEnabled').disabled, true);
+  assert.equal(f.$('recording-coming-soon').textContent, 'Beta');
+  assert.match(f.$('recording-status').textContent, /Checking recording support/);
+  assert.equal(f.intervals.length, 1, 'Settings keeps following the host while its check runs');
+  current = { state: 'idle', available: true, message: 'Ready to record your next League match.', settings: saved };
+  await f.intervals[0]();
+  assert.equal(f.$('recordingEnabled').disabled, false);
+  assert.equal(f.$('recordingEnabled').getAttribute('aria-checked'), 'true');
+  assert.equal(f.$('recordingPreset').value, '1080p60');
+  assert.match(f.$('recording-status').textContent, /Ready to record/);
+});
+
 test('detected hardware encoder is shown automatically without a manual vendor choice', async () => {
   for (const [selectedEncoder, label] of [
     ['obs_nvenc_h264_tex', 'NVIDIA NVENC'], ['h264_texture_amf', 'AMD AMF'], ['obs_qsv11_v2', 'Intel Quick Sync'],
