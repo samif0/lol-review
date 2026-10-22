@@ -25,6 +25,8 @@ import { polarityTone, resultOf } from './meaning-tone.mjs';
 //                            set_evidence_status   (SHARED with the VOD player)
 //   • prompt answer boxes  → save_prompt_answer (on blur; empty deletes)
 //   • focus adherence      → set_focus_adherence (Yes/Partly/No, immediate)
+//   • Unskip (header)      → set_review_skipped (the Match library's route; re-reads
+//                            the header only, the form and its draft stay)
 // The objective practiced toggles + execution notes + concept-tag selection ride
 // the batched save_review payload (collected in gatherForm).
 
@@ -360,6 +362,11 @@ function renderHeader(subject) {
 
   // "Already reviewed" marker replaces nothing — it's an inline note beside VOD.
   show($('rv-reviewed'), !!h.hasReview);
+  // Skipped takes the same place (a skip only counts without a saved review), with
+  // Unskip beside it. A header render shows the current state, so an earlier Unskip
+  // message goes.
+  show($('rv-skipped'), h.isSkipped === true && !h.hasReview);
+  showCommit('', null, 'rv-skip-status');
   // v3.11: how many timeline corrections apply to this game (0 hides the note).
   const fixes = Number(h.timelineFixes) || 0;
   const fixesN = $('rv-fixes-n');
@@ -1523,6 +1530,44 @@ if (remakeBox) {
   });
 }
 
+// ── Unskip ───────────────────────────────────────────────────────────────────
+// A skipped game (Skip review here, or Skip in the Match library) no longer waits for
+// review. Unskip writes the library's set_review_skipped, which keeps the review draft,
+// so only the header is re-read and the mounted form stays as it is.
+async function unskipReview(button) {
+  const gameId = Number(_subject && _subject.gameId) || 0;
+  if (!(gameId > 0) || button.disabled) return;
+  showCommit('', null, 'rv-skip-status');
+  button.disabled = true;
+  try {
+    const invoke = await getInvoke();
+    if (!invoke) { console.info('[review] (preview) set_review_skipped: no Electron backend.'); return; }
+    const result = await invoke('set_review_skipped', { payload: { gameIds: [gameId], skipped: false } });
+    if (result?.ok === false) throw new Error(result.error || 'The change could not be saved.');
+  } catch (err) {
+    const raw = (err && err.message) ? err.message : String(err || '');
+    showCommit(raw || 'The change could not be saved.', 'err', 'rv-skip-status');
+    console.error('[review] set_review_skipped failed:', err);
+    return;
+  } finally {
+    button.disabled = false;
+  }
+  announceGamesChanged();
+  try {
+    await refreshReviewHeader(gameId);
+  } catch (err) {
+    // The unskip is saved and only the re-read failed, so the shown header drops the note.
+    console.error('[review] header refresh after unskip failed:', err);
+    if (Number(_subject?.gameId) === gameId) {
+      _subject.header = { ..._subject.header, isSkipped: false };
+      renderHeader(_subject);
+    }
+  }
+  if (Number(_subject?.gameId) === gameId && _subject.header?.isSkipped !== true) {
+    showCommit('Waiting for review again.', null, 'rv-skip-status');
+  }
+}
+
 // A remake verdict changed elsewhere (startup check, Match-V5): header only.
 window.addEventListener('revu:remake-updated', async (ev) => {
   const gid = Number(ev && ev.detail && ev.detail.gameId);
@@ -1754,7 +1799,8 @@ function announceGamesChanged() {
 
 // save_review = gather the editable form and COMMIT (no un-review), then refetch.
 // skip_review = mark the game reviewed without notes, then refetch.
-const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed', 'prepare_matchup_note', 'retry_matchup_note', 'retry_draft']);
+// unskip_review = the header's Unskip: the game waits for review again (header only).
+const ACTIONS = new Set(['review_vod', 'view_moment', 'save_review', 'skip_review', 'unskip_review', 'delete_review', 'copy_review', 'export_review', 'next_unreviewed', 'prepare_matchup_note', 'retry_matchup_note', 'retry_draft']);
 
 document.addEventListener('click', async (ev) => {
   // An evidence card jump must NOT fire when the click landed on its inner triage
@@ -1768,6 +1814,7 @@ document.addEventListener('click', async (ev) => {
   ev.preventDefault();
 
   if (action === 'prepare_matchup_note') { await prepareMatchupNote(target); return; }
+  if (action === 'unskip_review') { await unskipReview(target); return; }
   if (action === 'retry_matchup_note') { await saveMatchupNote(_matchupState); return; }
   if (action === 'retry_draft') {
     await retryDraft();

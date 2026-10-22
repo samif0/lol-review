@@ -182,7 +182,7 @@ function fixture(t, invoke = null, { realNavigation = false, invokeError = null,
     readSnapshot: snapshot || (async () => ({ subject: null })),
     objectiveMetaText: () => '', objectivePhaseLabel: value => value, requestAnimationFrame: () => 0,
     polarityTone, resultOf,
-    setTimeout, clearTimeout, URLSearchParams, CustomEvent: class {},
+    setTimeout, clearTimeout, URLSearchParams, CustomEvent: class { constructor(type) { this.type = type; } },
     console: { info() {}, warn() {}, error() {} },
   });
   vm.runInContext(`${source}\n globalThis.hooks = { captureReviewState, restoreReviewState, savePromptAnswer, renderDeaths,
@@ -272,6 +272,89 @@ test('ticking Remake refreshes the shown game header even when the page has no ?
 
   assert.deepEqual(requested.at(-1), { gameId: 42 });
   assert.equal(f.$('rv-res').textContent, 'Remake');
+});
+
+// The header's Skipped note and its Unskip (set_review_skipped, the Match library's route).
+const skippedHeader = (isSkipped, extra = {}) => ({ gameId: 42, header: { championName: 'Ahri', win: true, isSkipped, ...extra } });
+function unskipFixture(t, invoke, snapshot) {
+  const f = fixture(t, invoke, { snapshot });
+  f.announced = [];
+  f.scope.top = { dispatchEvent: event => { f.announced.push(event.type); return true; } };
+  f.unskip = f.$('rv-unskipbtn');
+  f.unskip.dataset.action = 'unskip_review';   // review.html's data-action
+  const subject = { ...skippedHeader(true), form: {} };
+  f.hooks.setSubject(subject);
+  f.hooks.renderHeader(subject);
+  return f;
+}
+
+test('the header reads Skipped where Review saved sits, only while the game has no saved review', async t => {
+  const f = fixture(t);
+  f.hooks.renderHeader(skippedHeader(true));
+  assert.equal(f.$('rv-skipped').hidden, false);
+  assert.equal(f.$('rv-reviewed').hidden, true);
+  f.hooks.renderHeader(skippedHeader(true, { hasReview: true }));
+  assert.equal(f.$('rv-skipped').hidden, true, 'a saved review always reads as reviewed');
+  assert.equal(f.$('rv-reviewed').hidden, false);
+  f.hooks.renderHeader({ gameId: 42, header: { championName: 'Ahri', win: true } });
+  assert.equal(f.$('rv-skipped').hidden, true, 'a header without the flag shows no note');
+
+  const html = await readFile(new URL('../ui/review.html', import.meta.url), 'utf8');
+  const kda = html.match(/<div class="rv-hero-kda">([\s\S]*?)\n {8}<\/div>/)[1];
+  assert.match(kda, /<span class="rv-reviewed" id="rv-reviewed" hidden>Review saved<\/span>[\s\S]*<span class="rv-skipped" id="rv-skipped" hidden>/);
+  assert.match(kda, /<button type="button" class="ui-link rv-unskipbtn" id="rv-unskipbtn" data-action="unskip_review"[^>]*>Unskip<\/button>/);
+  assert.match(kda, /<p class="rv-skip-status" id="rv-skip-status" role="status" hidden><\/p>/);
+});
+
+test('Unskip writes set_review_skipped for this game, re-reads only the header and tells the shell', async t => {
+  const requested = [];
+  const f = unskipFixture(t, async () => ({ ok: true, skipped: false, gameIds: [42] }), async (_command, _sample, args) => {
+    requested.push(plain(args));
+    return { subject: { gameId: 42, header: { championName: 'Ahri', win: true, isSkipped: false } } };
+  });
+  assert.equal(f.$('rv-skipped').hidden, false);
+  f.fields[1].value = 'Typed before unskipping';
+
+  await f.emit('click', f.unskip);
+
+  assert.deepEqual(f.calls, [['set_review_skipped', { payload: { gameIds: [42], skipped: false } }]],
+    'no draft, save or skip write rides along');
+  assert.deepEqual(requested, [{ gameId: 42 }], 'the header is re-read for this game');
+  assert.deepEqual(f.announced, ['revu:games-changed'], 'the sidebar count and dots refresh');
+  assert.equal(f.$('rv-skipped').hidden, true);
+  assert.equal(f.$('rv-skip-status').textContent, 'Waiting for review again.');
+  assert.equal(f.$('rv-skip-status').hidden, false);
+  assert.equal(f.fields[1].value, 'Typed before unskipping', 'the mounted form is not rebuilt');
+  assert.equal(f.nav.invalidations, 0);
+  assert.equal(f.unskip.disabled, false);
+
+  f.hooks.renderHeader(skippedHeader(true));
+  assert.equal(f.$('rv-skip-status').hidden, true, 'a later header render drops the message');
+});
+
+test('a failed Unskip keeps the note and shows the reason beside it; a failed re-read still drops the note', async t => {
+  let fail = true;
+  const requested = [];
+  const f = unskipFixture(t, async () => {
+    if (fail) throw new Error('Revu could not reach its local service.');
+    return { ok: true, skipped: false, gameIds: [42] };
+  }, async (_command, _sample, args) => { requested.push(plain(args)); throw new Error('read failed'); });
+
+  await f.emit('click', f.unskip);
+  assert.equal(f.$('rv-skipped').hidden, false, 'still skipped');
+  assert.equal(f.$('rv-skip-status').textContent, 'Revu could not reach its local service.');
+  assert.equal(f.$('rv-skip-status').classList.contains('err'), true);
+  assert.deepEqual(f.announced, []);
+  assert.deepEqual(requested, []);
+  assert.equal(f.unskip.disabled, false, 'Unskip can be tried again');
+
+  fail = false;
+  await f.emit('click', f.unskip);
+  assert.deepEqual(requested, [{ gameId: 42 }]);
+  assert.equal(f.$('rv-skipped').hidden, true, 'the write landed, so the note goes without the re-read');
+  assert.equal(f.$('rv-skip-status').textContent, 'Waiting for review again.');
+  assert.equal(f.$('rv-skip-status').classList.contains('err'), false);
+  assert.deepEqual(f.announced, ['revu:games-changed']);
 });
 
 test('matchup note appears for a linked card or opted-in preparation, without creating on render', t => {

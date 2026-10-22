@@ -136,7 +136,10 @@ public sealed record ReviewHeaderDto(
     // Win keeps the stored result; the review save reads it from the stored game. RemakeSource is
     // the verdict's source (eog | lcu | matchv5 | user, '' when none) for the toggle.
     bool IsRemake = false,
-    string RemakeSource = "");
+    string RemakeSource = "",
+    // The player skipped this review (session_log.is_skipped), so the game no longer waits
+    // for review. Only without a saved review, like the Match library row's IsSkipped.
+    bool IsSkipped = false);
 
 /// <summary>
 /// One cell of the review stat strip. <see cref="Value"/> is the big number,
