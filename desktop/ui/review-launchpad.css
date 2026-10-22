@@ -39,6 +39,13 @@ html.framed body.review-launchpad-page .shell{padding:24px 32px 48px}
 .review-launchpad-page .rv-kdar{font:400 12px/1.5 var(--f-body);margin-top:3px;color:var(--t3);font-variant-numeric:tabular-nums}
 .review-launchpad-page .rv-reviewed{display:inline-block;margin-top:9px;font:400 12px/1.5 var(--f-body);color:var(--t3)}
 .review-launchpad-page .rv-reviewed[hidden]{display:none}
+/* Skipped takes the same quiet place (a skip only counts without a saved review); Unskip
+   beside it is a .ui-link at the note's size. */
+.review-launchpad-page .rv-skipped{display:inline-flex;align-items:baseline;gap:10px;margin-top:9px;font:400 12px/1.5 var(--f-body);color:var(--t3)}
+.review-launchpad-page .rv-skipped[hidden]{display:none}
+.review-launchpad-page .rv-unskipbtn{font-size:12px}
+.review-launchpad-page .rv-skip-status{max-width:30ch;margin:4px 0 0;font:400 12px/1.5 var(--f-body);color:var(--t3);text-wrap:balance}
+.review-launchpad-page .rv-skip-status.err{color:var(--error)}
 
 .review-launchpad-page #rv-body{display:flex;flex-direction:column;align-items:stretch;gap:30px;margin-top:28px}
 .review-launchpad-page #rv-body[hidden]{display:none}

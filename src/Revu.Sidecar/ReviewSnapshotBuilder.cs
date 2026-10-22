@@ -122,10 +122,16 @@ public sealed class ReviewSnapshotBuilder
             return new ReviewDto(GeneratedAt: generatedAt, Subject: null, SubjectSourceText: "");
         }
 
+        // ONE session_log row read feeds the header's skip state and the form's mental
+        // rating + focus adherence.
+        var sessionEntry = await ResolveSessionEntryAsync(game.GameId);
         var header = BuildHeader(game) with
         {
             TimelineFixes = await CountTimelineFixesAsync(game.GameId),
             RemakeSource = await RemakeSourceAsync(game.GameId),
+            // Skipped and still without a review: a saved review always reads as reviewed
+            // (the Match library row's rule, GamesSnapshotBuilder.IsSkipped).
+            IsSkipped = sessionEntry is { IsSkipped: true } && !HasPersistedReview(game),
         };
         var stats = BuildStatStrip(game);
         // P-027 / P-013: load THIS game's evidence rows ONCE so the prompt-grouped
@@ -139,7 +145,7 @@ public sealed class ReviewSnapshotBuilder
         // selection AND the objective practiced/note state below.
         var draft = await ResolveDraftAsync(game.GameId);
         var objectives = await BuildObjectivesAsync(game.GameId, promptClips, draft);
-        var form = await BuildFormAsync(game, draft);
+        var form = BuildForm(game, sessionEntry, draft);
         var deaths = await BuildDeathsAsync(game.GameId);
         var evidence = BuildEvidence(evidenceRows);
         var matchupHistory = await BuildMatchupHistoryAsync(game);
@@ -751,12 +757,12 @@ public sealed class ReviewSnapshotBuilder
     // from the game's session_log row.
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<ReviewFormDto> BuildFormAsync(GameStats game, Revu.Core.Models.ReviewDraft? draft)
+    private static ReviewFormDto BuildForm(
+        GameStats game, Revu.Core.Models.SessionLogEntry? entry, Revu.Core.Models.ReviewDraft? draft)
     {
-        // ONE session_log row read feeds both fields. Mental rating used to go
-        // through GetAllMentalRatingsAsync — a full-table scan to look up the
-        // single game this page shows.
-        var entry = await ResolveSessionEntryAsync(game.GameId);
+        // The session_log row BuildAsync read once (it also feeds the header's skip
+        // state). Mental rating used to go through GetAllMentalRatingsAsync — a
+        // full-table scan to look up the single game this page shows.
         var mentalRating = entry is { IsSkipped: false } && entry.MentalRating > 0 ? entry.MentalRating : 0;
         var focusAdherence = entry?.FocusAdherence;
 
@@ -837,10 +843,11 @@ public sealed class ReviewSnapshotBuilder
         }
     }
 
-    // The saved session_log row for this game: mental rating (0 when unset or
-    // skip-reviewed) + focus-adherence (2/1/0/null) so the form preselects and
-    // survives a re-render. Best-effort: any failure (e.g. a pre-v5 DB without
-    // a column) degrades to null (unset), never throws.
+    // The saved session_log row for this game: the skip flag (the header's Skipped
+    // note), mental rating (0 when unset or skip-reviewed) + focus-adherence
+    // (2/1/0/null) so the form preselects and survives a re-render. Best-effort:
+    // any failure (e.g. a pre-v5 DB without a column) degrades to null (unset,
+    // not skipped), never throws.
     private async Task<Revu.Core.Models.SessionLogEntry?> ResolveSessionEntryAsync(long gameId)
     {
         try

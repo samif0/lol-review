@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
+using Revu.Core.Services;
 using Revu.Sidecar;
 using Xunit;
 
@@ -14,7 +15,8 @@ namespace Revu.Sidecar.Tests;
 /// handler over the write-capable factory and read back through the read-only one, as the
 /// sidecar does (no HTTP host, house style). A skipped game reads Skipped (never Reviewed),
 /// leaves To review, Home's Ready to review and the Review page's Next game, and is counted
-/// as skipped in the library strip; Unskip makes it wait for review again.
+/// as skipped in the library strip; Unskip makes it wait for review again. The Review page's
+/// header reads Skipped the same way, and its Unskip uses this route.
 /// </summary>
 public sealed class LibrarySkipTests
 {
@@ -86,6 +88,10 @@ public sealed class LibrarySkipTests
         Assert.False(row.IsSkipped);
         Assert.Equal("Reviewed", row.ReviewStateText);
         Assert.Equal(new GamesTotalsDto(Games: 1, Wins: 1, Reviewed: 1, Skipped: 0), history.Totals);
+        // The Review page's header follows the same rule.
+        var header = (await ReviewBuilder(scope).BuildAsync(8501)).Subject!.Header;
+        Assert.True(header.HasReview);
+        Assert.False(header.IsSkipped);
     }
 
     [Fact]
@@ -102,11 +108,7 @@ public sealed class LibrarySkipTests
             scope.SessionLog, scope.Objectives, scope.Vod, scope.Evidence, scope.DeathClassifications,
             new RulesRepository(scope.ConnectionFactory), scope.Games, scope.CoachingStints, scope.Config,
             NullLogger<DashboardSnapshotBuilder>.Instance);
-        var review = new ReviewSnapshotBuilder(
-            scope.Games, scope.Games, scope.Objectives, scope.Prompts, scope.SessionLog,
-            scope.Evidence, new GameEventsRepository(scope.ConnectionFactory),
-            scope.DeathClassifications, scope.MatchupNotes, scope.ConceptTags, scope.Vod,
-            scope.Config, scope.ReviewDrafts, NullLogger<ReviewSnapshotBuilder>.Instance);
+        var review = ReviewBuilder(scope);
         Assert.Equal(3, (await home.BuildAsync()).Unreviewed.Count);
 
         await scope.SessionLog.SetSkippedAsync(new long[] { 8603, 8602 }, skipped: true);
@@ -121,6 +123,47 @@ public sealed class LibrarySkipTests
 
         await scope.SessionLog.SetSkippedAsync(new long[] { 8603 }, skipped: false);
         Assert.Equal(2, (await home.BuildAsync()).Unreviewed.Count);
+    }
+
+    [Fact]
+    public async Task TheReviewPageHeader_ReadsSkipped_UntilAnUnskipOrASavedReview()
+    {
+        using var scope = new SidecarWriteScope();
+        await scope.InitializeAsync();
+        await scope.SeedGameAsync(gameId: 8801, timestamp: Today(1));
+        await scope.SeedGameAsync(gameId: 8802, timestamp: Today(2));
+        var (write, _) = Graphs(scope);
+        var review = ReviewBuilder(scope);
+        Assert.False((await review.BuildAsync(8801)).Subject!.Header.IsSkipped);
+
+        // The Match library's Skip and the Review page's own Skip review read the same.
+        await SidecarEndpoints.SetReviewSkippedAsync(new ReviewSkippedBody([8801]), write,
+            () => Task.CompletedTask, SidecarJson.CreateOptions(), NullLogger.Instance);
+        await scope.SessionLog.MarkSkippedAsync(8802);
+
+        var snapshot = await review.BuildAsync(8801);
+        Assert.True(snapshot.Subject!.Header.IsSkipped);
+        Assert.False(snapshot.Subject.Header.HasReview);
+        Assert.Equal(0, snapshot.Subject.Form.MentalRating);   // the skip's default rating is no answer
+        Assert.True(JsonSerializer.SerializeToElement(snapshot, SidecarJson.CreateOptions())
+            .GetProperty("subject").GetProperty("header").GetProperty("isSkipped").GetBoolean());
+        Assert.True((await review.BuildAsync(8802)).Subject!.Header.IsSkipped);
+
+        // The page's Unskip goes through the same route: the game waits for review again.
+        await SidecarEndpoints.SetReviewSkippedAsync(new ReviewSkippedBody([8801], Skipped: false), write,
+            () => Task.CompletedTask, SidecarJson.CreateOptions(), NullLogger.Instance);
+        Assert.False((await review.BuildAsync(8801)).Subject!.Header.IsSkipped);
+
+        // Saving a review clears the skip, so the header reads Review saved, never Skipped.
+        var saved = await scope.ReviewWorkflow.SaveAsync(new SaveReviewRequest(8802, "Ahri", true, false,
+            new ReviewSnapshot(MentalRating: 6, WentWell: "", Mistakes: "", FocusNext: "", ReviewNotes: "Ward before the push.",
+                ImprovementNote: null, Attribution: "", MentalHandled: null, SpottedProblems: "", OutsideControl: null,
+                WithinControl: null, PersonalContribution: null, EnemyLaner: null, MatchupNote: null,
+                SelectedTagIds: [], ObjectivePractices: [])));
+        Assert.True(saved.Success);
+        var header = (await review.BuildAsync(8802)).Subject!.Header;
+        Assert.True(header.HasReview);
+        Assert.False(header.IsSkipped);
     }
 
     [Theory]
@@ -167,6 +210,12 @@ public sealed class LibrarySkipTests
 
     private static GamesSnapshotBuilder Builder(SidecarWriteScope scope, GameRepository games) =>
         new(games, scope.Vod, scope.Objectives, scope.Config, NullLogger<GamesSnapshotBuilder>.Instance);
+
+    private static ReviewSnapshotBuilder ReviewBuilder(SidecarWriteScope scope) => new(
+        scope.Games, scope.Games, scope.Objectives, scope.Prompts, scope.SessionLog,
+        scope.Evidence, new GameEventsRepository(scope.ConnectionFactory),
+        scope.DeathClassifications, scope.MatchupNotes, scope.ConceptTags, scope.Vod,
+        scope.Config, scope.ReviewDrafts, NullLogger<ReviewSnapshotBuilder>.Instance);
 
     private static (int Status, JsonElement Body) Read(IResult result)
     {

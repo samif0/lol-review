@@ -48,6 +48,12 @@
           <div class="rv-kda" id="rv-kda"></div>
           <div class="rv-kdar" id="rv-kdar"></div>
           <span class="rv-reviewed" id="rv-reviewed" hidden>Review saved</span>
+          <!-- A skipped game no longer waits for review; Unskip makes it wait again. -->
+          <span class="rv-skipped" id="rv-skipped" hidden>
+            <span title="You skipped this review, so it no longer waits for review. You can still review it.">Skipped</span>
+            <button type="button" class="ui-link rv-unskipbtn" id="rv-unskipbtn" data-action="unskip_review" title="Count it as waiting for review again">Unskip</button>
+          </span>
+          <p class="rv-skip-status" id="rv-skip-status" role="status" hidden></p>
         </div>
       </div>
     </header>
