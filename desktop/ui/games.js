@@ -1025,6 +1025,11 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
+// Shift+click on a checkbox selects a run of games, never the text between them.
+document.addEventListener('mousedown', (ev) => {
+  if (ev.shiftKey && ev.target?.closest?.('.lib-pick')) ev.preventDefault();
+});
+
 // Search filters as you type; nothing is sent to the sidecar.
 document.addEventListener('input', (ev) => {
   if (ev.target?.id !== 'lib-search') return;

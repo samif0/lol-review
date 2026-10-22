@@ -114,6 +114,8 @@ html.framed body.games-page .shell{padding-top:36px}
 .games-page .games-bulk .ui-btn{flex:none}
 .games-page .games-bulk-clear{color:var(--t3)}
 .games-page .games-bulk-clear svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+/* While the bar is open, the end of the list (and Load more) can scroll clear of it. */
+.games-page .lib:has(> .games-dock > .games-bulk:not([hidden])){padding-bottom:96px}
 
 /* Narrow frames: the matchup keeps the width; the checkbox, status, Skip and Remove move under it. */
 @media(max-width:680px){
