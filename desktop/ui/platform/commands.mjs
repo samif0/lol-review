@@ -40,6 +40,7 @@ const definitions = {
   get_stint: get("/api/stint"),
   save_review: post("/api/review/save"),
   skip_review: post("/api/review/skip"),
+  set_review_skipped: post("/api/review/skipped"),
   set_game_remake: post("/api/review/remake"),
   delete_review: post("/api/review/delete"),
   create_objective: post("/api/objective/create"),

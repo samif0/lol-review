@@ -88,7 +88,7 @@ public static class IsolatedHostPolicy
     {
         "/api/host/shutdown",
         "/api/objective/create", "/api/objective/update", "/api/objective/delete", "/api/objective/priority", "/api/objective/complete",
-        "/api/review/save", "/api/review/skip", "/api/review/delete", "/api/review/draft/save", "/api/review/remake", "/api/game/hide",
+        "/api/review/save", "/api/review/skip", "/api/review/skipped", "/api/review/delete", "/api/review/draft/save", "/api/review/remake", "/api/game/hide",
         "/api/bookmark/add", "/api/bookmark/note", "/api/bookmark/delete", "/api/bookmark/objective", "/api/bookmark/tag", "/api/bookmark/quality",
         "/api/evidence/polarity", "/api/evidence/objective", "/api/evidence/prompt", "/api/evidence/status",
         "/api/event/correct", "/api/correction/revert", "/api/death/classify", "/api/death/clear",

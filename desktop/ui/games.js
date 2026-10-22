@@ -1,6 +1,7 @@
 import { $, show, clear, tpl } from './dom.mjs';
 import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
+import { SKIPPED_TITLE, batches, createPicks, skipFailedToast, skipState, skipToast } from './games-skip.mjs';
 
 // Revu desktop: Match library page renderer.
 // Renders the JSON returned by the Electron command `get_games`
@@ -19,6 +20,8 @@ import { getInvoke } from './platform/index.mjs';
 // refetches from the backend; History additionally supports "Load more" paging
 // (?page=N). Search filters the loaded rows by champion or enemy, in the page.
 // Rows are grouped by day. Recording-link notifications update rows in place.
+// A game waiting for review can be skipped (and a skipped one unskipped) from its row,
+// or several at once from a selection; each change offers Undo.
 
 // ── module state ────────────────────────────────────────────────────────────
 // _data    : the last loaded snapshot (server-owned per view).
@@ -38,6 +41,8 @@ let _vodListRefreshing = false;
 // Game ids in the last loaded To review list (the pill's count), or null while unknown.
 let _queueIds = null;
 let _now = () => new Date();
+// Games selected for Skip or Unskip (games-skip.mjs); only shown rows that can change.
+const _picks = createPicks();
 
 // ── data fetch ──────────────────────────────────────────────────────────────
 // Prefer the REAL backend (Electron invoke → sidecar → your DB); fall back to the
@@ -103,12 +108,14 @@ function renderStrip(d) {
   const games = Math.max(0, Number(totals.games) || 0);
   const wins = Math.max(0, Number(totals.wins) || 0);
   const reviewed = Math.max(0, Number(totals.reviewed) || 0);
+  const skipped = Math.max(0, Number(totals.skipped) || 0);
   const parts = [];
   if (SUMMARY_SCOPE[_view]) parts.push({ v: '', k: SUMMARY_SCOPE[_view] });
   parts.push({ v: String(games), k: games === 1 ? 'game' : 'games' });
   if (games) parts.push({ v: `${Math.round((wins / games) * 100)}%`, k: 'won' });
-  // Every game waiting for review is unreviewed by definition.
+  // Every game waiting for review is unreviewed by definition, and none is skipped.
   if (_view !== 'queue') parts.push({ v: String(reviewed), k: 'reviewed' });
+  if (_view !== 'queue' && skipped) parts.push({ v: String(skipped), k: 'skipped' });
 
   for (const part of parts) {
     const el = tpl('tpl-stat');
@@ -246,7 +253,27 @@ function buildRow(g) {
       remove.setAttribute('aria-label', `Remove ${name.textContent} from history`);
     }
   }
+
+  // A game waiting for review offers Skip, a skipped one Unskip; either can be selected.
+  const state = rowSkipState(g);
+  el.classList.toggle('is-pickable', !!state);
+  const skip = el.querySelector('.lib-skip');
+  if (skip) {
+    show(skip, !!state);
+    skip.dataset.gameId = String(g.gameId ?? '');
+    skip.dataset.action = state === 'skipped' ? 'unskip_game' : 'skip_game';
+    skip.textContent = state === 'skipped' ? 'Unskip' : 'Skip';
+    skip.title = state === 'skipped' ? 'Count it as waiting for review again' : 'Skip review: it stops waiting for review';
+    skip.setAttribute('aria-label', state === 'skipped' ? `Unskip ${name.textContent}` : `Skip review for ${name.textContent}`);
+  }
+  const pick = el.querySelector('.lib-pick');
+  if (pick) {
+    show(pick, !!state);
+    pick.dataset.gameId = String(g.gameId ?? '');
+    pick.setAttribute('aria-label', `Select ${name.textContent}`);
+  }
   updateRowRecording(el, g);
+  syncPick(el);
   return el;
 }
 
@@ -255,7 +282,8 @@ function updateRowRecording(el, g) {
   const cue = el.querySelector('.lib-go');
   const statuses = gameStatuses(g);
   clear(cell);
-  const tag = statuses.find((s) => s.kind === 'remake') || statuses.find((s) => s.kind === 'review' && s.text === 'To review');
+  const tag = statuses.find((s) => s.kind === 'remake') || statuses.find((s) => s.kind === 'skipped')
+    || statuses.find((s) => s.kind === 'review' && s.text === 'To review');
   if (tag) {
     const t = tpl('tpl-tag');
     t.textContent = tag.text;
@@ -369,6 +397,12 @@ function adjustTotals(game, sign) {
   totals.games = Math.max(0, totals.games + sign);
   if (game.win === true) totals.wins = Math.max(0, totals.wins + sign);
   if (reviewedState(game) === true) totals.reviewed = Math.max(0, totals.reviewed + sign);
+  else if (game.isSkipped === true) adjustSkipped(sign);
+}
+
+function adjustSkipped(sign) {
+  const totals = _data?.totals;
+  if (totals) totals.skipped = Math.max(0, (Number(totals.skipped) || 0) + sign);
 }
 
 function renderRows() {
@@ -457,6 +491,12 @@ async function hideGame(button) {
   focusAfterRemoval(shownAt);
 }
 
+// Undo the latest change the toast reports: a removal, or a skip or an unskip.
+async function undoLast() {
+  if (_undo?.kind === 'skip') await undoSkip();
+  else await undoHide();
+}
+
 async function undoHide() {
   const undo = _undo;
   if (!undo) return;
@@ -495,11 +535,201 @@ async function restoreGame(button) {
   }
   const [game] = _rows.splice(index, 1);
   // A restored game may rejoin To review; the count waits for the next queue load.
-  if (reviewedState(game) !== true && !isRemake(game)) _queueIds = null;
+  if (reviewedState(game) !== true && !isRemake(game) && game.isSkipped !== true) _queueIds = null;
   adjustTotals(game, -1);
   showToast(`${matchName(game)} is back in your history.`);
   renderRows();
   focusAfterRemoval(shownAt);
+}
+
+// ── Skip and Unskip, for one row or the selection, with Undo ────────────────
+// set_review_skipped changes the review state only: a skipped game stops waiting for
+// review (To review, its count, the shell's sidebar and Home), keeps its notes, recording
+// and drafts, and can still be reviewed. In To review a skipped row leaves the list; in
+// the other views it stays and reads Skipped. Rows, summary and count update in place.
+let _skipping = false;
+let _queueRefresh = 0;
+
+// Writes in parts of SKIP_BATCH. Returns the ids changed and the error that stopped it,
+// or null in a browser preview (no sidecar).
+async function setSkipped(gameIds, skipped) {
+  const invoke = await getInvoke();
+  if (!invoke) { console.info(`[games] (preview) set_review_skipped ${gameIds.join(',')} ${skipped}`); return null; }
+  const applied = [];
+  let error = null;
+  for (const part of batches(gameIds)) {
+    try {
+      const reply = await invoke('set_review_skipped', { payload: { gameIds: part.map(Number), skipped } });
+      applied.push(...(Array.isArray(reply?.gameIds) ? reply.gameIds : part).map(String));
+    } catch (err) {
+      error = err;
+      break;
+    }
+  }
+  if (applied.length) announceGamesChanged();
+  return { applied, error };
+}
+
+// The loaded rows among `ids` now read `skipped`. Returns what Undo needs: each game as
+// it was, where it sat in _rows and whether it was waiting in To review.
+function applySkipped(ids, skipped) {
+  const wanted = new Set(ids.map(String));
+  const changed = [];
+  const kept = [];
+  _rows.forEach((g, index) => {
+    const id = String(g.gameId);
+    if (!wanted.has(id) || (g.isSkipped === true) === skipped) { kept.push(g); return; }
+    changed.push({ game: g, index, inQueue: !!_queueIds?.has(id) });
+    if (skipped) _queueIds?.delete(id);
+    if (skipped && _view === 'queue') { adjustTotals(g, -1); return; }
+    if (!isRemake(g)) adjustSkipped(skipped ? 1 : -1);
+    kept.push({ ...g, isSkipped: skipped, reviewStateText: skipped ? 'Skipped' : 'Unreviewed' });
+  });
+  _rows = kept;
+  return changed;
+}
+
+// An unskipped game waits for review again, in To review when it is recent enough (the
+// sidecar's 14 days): read the queue once more, for its count only.
+async function refreshQueueCount() {
+  const ticket = ++_queueRefresh, version = _loadVersion;
+  try {
+    const data = await fetchGames('queue', 0);
+    if (ticket !== _queueRefresh || version !== _loadVersion || _view === 'queue') return;
+    if (!data || data.errorText || !Array.isArray(data.items)) return;
+    _queueIds = new Set(data.items.map((g) => String(g.gameId)));
+    renderSeg();
+  } catch (err) {
+    console.error('[games] To review count refresh failed:', err);
+  }
+}
+
+// Skip (or unskip) these games: one row's button, or the selection's (bulk).
+async function changeSkipped(games, skipped, { bulk = false } = {}) {
+  const ids = games.map((g) => String(g.gameId));
+  if (!ids.length || _loading || _skipping) return false;
+  const shownAt = rowElements().findIndex((row) => ids.includes(row.dataset.gameId));
+  _skipping = true;
+  let result;
+  try { result = await setSkipped(ids, skipped); } finally { _skipping = false; }
+  if (!result) return false;
+  const { applied, error } = result;
+  const changed = applySkipped(applied, skipped);
+  const undo = changed.length ? { kind: 'skip', skipped, changed, view: _view } : null;
+  if (error) {
+    showToast(skipFailedToast(ids.length - applied.length, ids.length, skipped, errText(error)), undo);
+    console.error(`[games] ${skipped ? 'skip' : 'unskip'} failed:`, error);
+  } else {
+    if (bulk) _picks.clear();
+    if (undo) showToast(skipToast(changed.map((c) => matchName(c.game)), skipped), undo);
+  }
+  if (!skipped && changed.length) void refreshQueueCount();
+  renderRows();
+  // Keep keyboard focus in the list: where a skipped row left To review, else on the row
+  // (its own Skip button became Unskip).
+  if (skipped && _view === 'queue') { if (changed.length) focusAfterRemoval(shownAt); return changed.length > 0; }
+  const row = rowElements().find((el) => el.dataset.gameId === ids[0]);
+  (bulk ? row : row?.querySelector('.lib-skip'))?.focus?.({ preventScroll: true });
+  return changed.length > 0;
+}
+
+async function skipRow(button, skipped) {
+  const game = _rows.find((g) => String(g.gameId) === button.dataset.gameId);
+  if (!game || button.disabled || rowSkipState(game) !== (skipped ? 'pending' : 'skipped')) return;
+  button.disabled = true;
+  if (!await changeSkipped([game], skipped)) button.disabled = false;
+}
+
+// Skip applies to the selected games waiting for review, Unskip to the selected skipped ones.
+async function skipPicked(skipped) {
+  const games = _rows.filter((g) => _picks.has(g.gameId) && rowSkipState(g) === (skipped ? 'pending' : 'skipped'));
+  if (games.length) await changeSkipped(games, skipped, { bulk: true });
+}
+
+async function undoSkip() {
+  const undo = _undo;
+  if (!undo) return;
+  const ids = undo.changed.map((c) => String(c.game.gameId));
+  $('games-undo-btn').disabled = true;
+  const result = await setSkipped(ids, !undo.skipped);
+  if (!result) { $('games-undo-btn').disabled = false; return; }
+  if (result.error) {
+    console.error('[games] undo skip failed:', result.error);
+    const text = `Couldn't undo that. ${errText(result.error)}`;
+    // Nothing changed: Undo stays offered. A partial undo reloads the view to show the truth.
+    if (!result.applied.length) { showToast(text, undo); return; }
+    showToast(text);
+    if (!_loading) void loadView(_view);
+    return;
+  }
+  dismissUndo();
+  for (const { game, inQueue } of undo.changed) {
+    if (undo.skipped && inQueue) _queueIds?.add(String(game.gameId));
+    if (!undo.skipped) _queueIds?.delete(String(game.gameId));
+  }
+  if (undo.view !== _view) { renderSeg(); if (!_loading) void loadView(_view); return; }
+  if (undo.skipped && _view === 'queue') {
+    // Skipped rows left To review: put each back where it was.
+    for (const { game, index } of [...undo.changed].sort((a, b) => a.index - b.index)) {
+      if (_rows.some((g) => String(g.gameId) === String(game.gameId))) continue;
+      _rows.splice(Math.min(index, _rows.length), 0, game);
+      adjustTotals(game, 1);
+    }
+  } else {
+    const before = new Map(undo.changed.map((c) => [String(c.game.gameId), c.game]));
+    _rows = _rows.map((g) => {
+      const was = before.get(String(g.gameId));
+      if (!was || (g.isSkipped === true) === (was.isSkipped === true)) return g;
+      if (!isRemake(g)) adjustSkipped(undo.skipped ? -1 : 1);
+      return { ...g, isSkipped: was.isSkipped, reviewStateText: was.reviewStateText };
+    });
+  }
+  renderRows();
+}
+
+// ── Selection: skip or unskip several games at once ─────────────────────────
+// A row that can be skipped or unskipped can be selected: its checkbox, Shift for the run
+// from the last one, or x on a focused row; Select all takes every such row shown. The
+// selection keeps only rows still shown (a search narrows it) and clears with the view.
+function pickableRows() {
+  return rowElements().filter((row) => row.classList.contains('is-pickable'));
+}
+
+function syncPick(row) {
+  const on = row.classList.contains('is-pickable') && _picks.has(row.dataset.gameId);
+  row.classList.toggle('is-picked', on);
+  row.querySelector('.lib-pick')?.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+
+// The checkboxes and the selection bar, from _picks.
+function renderPicks() {
+  const rows = pickableRows();
+  _picks.keepOnly(rows.map((row) => row.dataset.gameId));
+  for (const row of rows) syncPick(row);
+  const picked = _rows.filter((g) => _picks.has(g.gameId));
+  $('games-list')?.classList.toggle('is-picking', picked.length > 0);
+  show($('games-bulk'), picked.length > 0);
+  if (!picked.length) return;
+  $('games-bulk-n').textContent = `${picked.length} selected`;
+  show($('games-bulk-skip'), picked.some((g) => rowSkipState(g) === 'pending'));
+  show($('games-bulk-unskip'), picked.some((g) => rowSkipState(g) === 'skipped'));
+  show($('games-bulk-all'), rows.length > picked.length);
+}
+
+function togglePick(gameId, extend) {
+  if (!gameId) return;
+  _picks.toggle(gameId, { extend, order: pickableRows().map((row) => row.dataset.gameId) });
+  renderPicks();
+}
+
+function pickAll() {
+  _picks.addAll(pickableRows().map((row) => row.dataset.gameId));
+  renderPicks();
+}
+
+function clearPicks() {
+  _picks.clear();
+  renderPicks();
 }
 
 function knownBoolean(value, label, yes, no) {
@@ -512,11 +742,17 @@ function reviewedState(g) {
   return knownBoolean(g.hasReview, g.reviewStateText, ['reviewed'], ['unreviewed', 'to review']);
 }
 
+// The row's Skip state (games-skip.mjs); a removed game counts toward nothing to skip.
+function rowSkipState(g) {
+  return _view === 'removed' ? null : skipState(g, reviewedState(g));
+}
+
 function gameStatuses(g) {
   const states = [];
   if (isRemake(g)) states.push({ kind: 'remake', text: 'Remake', title: REMAKE_TITLE });
   const reviewed = reviewedState(g);
-  if (reviewed !== null) states.push({ kind: 'review', text: reviewed ? 'Reviewed' : 'To review' });
+  if (reviewed !== true && g.isSkipped === true) states.push({ kind: 'skipped', text: 'Skipped', title: SKIPPED_TITLE });
+  else if (reviewed !== null) states.push({ kind: 'review', text: reviewed ? 'Reviewed' : 'To review' });
   const recorded = knownBoolean(g.hasVod, g.vodStateText,
     ['vod linked', 'vod linked - no notes', 'recording', 'recording with notes'], ['no vod', 'no recording']);
   if (recorded === true) {
@@ -575,6 +811,7 @@ function renderList(d) {
     for (const g of rows) host.appendChild(buildRow(g));
     shown += rows.length;
   }
+  renderPicks();
 
   // Every loaded History row was removed but later pages still hold games:
   // offer Load more, never "No games recorded yet".
@@ -650,6 +887,7 @@ async function loadView(view) {
   _loading = true;
   ++_loadVersion;
   const prevView = _view;
+  if (view !== prevView && _picks.size) clearPicks();
   _view = view;
   _page = 0;
   _shiftedRows = 0;
@@ -711,11 +949,16 @@ async function loadMore() {
 // view         = a filter pill (server-side view switch, page reset).
 // open_review  = clicking a whole game row (→ review page); watch_vod (→ VOD).
 // load_more    = History pagination (append next page).
-// hide_game    = Remove from history on a row; undo_hide = its Undo.
+// hide_game    = Remove from history on a row.
 // restore_game = Restore on a row in the Removed view.
+// skip_game / unskip_game = Skip or Unskip on a row.
+// pick_game    = a row's checkbox (Shift extends); pick_all / pick_none = Select all / Clear.
+// skip_picked / unskip_picked = Skip or Unskip the selection.
+// undo         = the toast's Undo (a removal, a skip or an unskip).
 // clear_search = empty the search field.
-const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo_hide',
-  'restore_game', 'clear_search']);
+const ACTIONS = new Set(['view', 'open_review', 'watch_vod', 'load_more', 'manual_entry', 'hide_game', 'undo',
+  'restore_game', 'skip_game', 'unskip_game', 'pick_game', 'pick_all', 'pick_none', 'skip_picked', 'unskip_picked',
+  'clear_search']);
 
 // The field's own clear button shows while it holds text.
 function syncSearchClear() {
@@ -766,8 +1009,13 @@ document.addEventListener('click', async (ev) => {
   }
 
   if (action === 'hide_game') { await hideGame(target); return; }
-  if (action === 'undo_hide') { await undoHide(); return; }
+  if (action === 'undo') { await undoLast(); return; }
   if (action === 'restore_game') { await restoreGame(target); return; }
+  if (action === 'skip_game' || action === 'unskip_game') { await skipRow(target, action === 'skip_game'); return; }
+  if (action === 'pick_game') { togglePick(target.dataset.gameId, ev.shiftKey === true); return; }
+  if (action === 'pick_all') { pickAll(); return; }
+  if (action === 'pick_none') { clearPicks(); return; }
+  if (action === 'skip_picked' || action === 'unskip_picked') { await skipPicked(action === 'skip_picked'); return; }
   if (action === 'clear_search') { clearSearch(); return; }
 
   // Add a game: log a game by hand.
@@ -775,6 +1023,11 @@ document.addEventListener('click', async (ev) => {
     window.location.href = 'manualentry.html';
     return;
   }
+});
+
+// Shift+click on a checkbox selects a run of games, never the text between them.
+document.addEventListener('mousedown', (ev) => {
+  if (ev.shiftKey && ev.target?.closest?.('.lib-pick')) ev.preventDefault();
 });
 
 // Search filters as you type; nothing is sent to the sidecar.
@@ -785,15 +1038,29 @@ document.addEventListener('input', (ev) => {
 });
 
 document.addEventListener('keydown', (ev) => {
-  // Escape empties a non-empty search field.
+  // Escape empties a non-empty search field, or else clears the selection.
   if (ev.key === 'Escape' && ev.target?.id === 'lib-search' && ev.target.value) {
     ev.preventDefault();
     clearSearch();
     return;
   }
+  if (ev.key === 'Escape' && _picks.size) {
+    ev.preventDefault();
+    clearPicks();
+    return;
+  }
+  // x selects (or clears) the focused row, as in a mail list; Shift extends the run.
+  if ((ev.key === 'x' || ev.key === 'X') && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    const row = ev.target?.closest?.('[data-action][role="button"]');
+    if (row?.classList?.contains('is-pickable')) {
+      ev.preventDefault();
+      togglePick(row.dataset.gameId, ev.shiftKey === true);
+    }
+    return;
+  }
   // Keyboard activation for the role="button" game rows (Enter / Space).
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
-  // A real button inside a row (Remove from history, Restore) handles its own keys.
+  // A real button inside a row (checkbox, Skip, Remove from history, Restore) handles its own keys.
   if (ev.target.tagName === 'BUTTON') return;
   const target = ev.target.closest('[data-action][role="button"]');
   if (!target) return;

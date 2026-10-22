@@ -18,6 +18,8 @@ internal sealed record RestoreBackupBody(string BackupFilePath);
 internal sealed record GameIdBody(long GameId);
 // POST /api/game/hide (Match library "Remove from history" and its Undo).
 internal sealed record GameHiddenBody(long GameId, bool Hidden = true);
+// POST /api/review/skipped (Match library Skip, bulk Skip, Unskip and their Undo).
+internal sealed record ReviewSkippedBody(List<long>? GameIds, bool Skipped = true);
 // 3.14.1: POST /api/review/remake (the player's own remake verdict; sticky).
 internal sealed record RemakeToggleBody(long GameId, bool IsRemake);
 internal sealed record FromGameMatchupBody(long GameId);

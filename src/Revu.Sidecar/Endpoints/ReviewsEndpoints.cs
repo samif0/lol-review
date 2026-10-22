@@ -75,6 +75,11 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
+        // POST /api/review/skipped  { gameIds, skipped }: the Match library's Skip, its
+        // bulk Skip and Unskip, and their Undo (see SetReviewSkippedAsync).
+        app.MapPost("/api/review/skipped", (ReviewSkippedBody body, WriteServices w, ILogger<Program> log) =>
+            SetReviewSkippedAsync(body, w.SessionLog, w.BackupGuard.EnsureBackedUpAsync, jsonOptions, log));
+
         // POST /api/review/remake  { gameId, isRemake } — 3.14.1: the player's own verdict.
         // A remake stays saved and reviewable but never counts (rules, stats, review
         // queue). Source 'user' outranks every automatic source, so both directions are
@@ -198,6 +203,30 @@ public static partial class SidecarEndpoints
             log.LogInformation("Focus adherence for game {GameId} = {Value}", body.GameId, body.Value);
             return Results.Json(new { ok = true }, jsonOptions);
         });
+    }
+
+    // One request covers a Match library selection; the page sends larger ones in parts.
+    internal const int MaxSkippedGameIds = 500;
+
+    /// <summary>
+    /// POST /api/review/skipped. A skipped game leaves the review queue and every count of
+    /// games waiting for review without being reviewed; unskipping makes it wait again.
+    /// Review drafts are kept (the Review page's own skip discards them), so an Undo loses
+    /// nothing. Missing, empty, oversized or non-positive ids are a 400 before the backup or
+    /// the database. Answers the ids of the games that exist, all of which now read
+    /// <c>skipped</c>; an unknown id is left out, like the other library writes' no-ops.
+    /// </summary>
+    internal static async Task<IResult> SetReviewSkippedAsync(ReviewSkippedBody body, ISessionLogRepository sessionLog,
+        Func<Task> ensureBackedUp, JsonSerializerOptions jsonOptions, ILogger log)
+    {
+        var gameIds = body?.GameIds;
+        if (body is null || gameIds is null || gameIds.Count == 0 || gameIds.Count > MaxSkippedGameIds || gameIds.Any(id => id <= 0))
+            return Results.BadRequest(new { error = $"gameIds required (1 to {MaxSkippedGameIds} positive ids)" });
+        await ensureBackedUp();
+        var applied = await sessionLog.SetSkippedAsync(gameIds, body.Skipped);
+        log.LogInformation("Review {Change} for {Count} of {Asked} game(s)",
+            body.Skipped ? "skipped" : "unskipped", applied.Count, gameIds.Count);
+        return Results.Json(new { ok = true, skipped = body.Skipped, gameIds = applied }, jsonOptions);
     }
 
     /// <summary>

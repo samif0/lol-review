@@ -292,14 +292,68 @@ public sealed class SessionLogRepository : ISessionLogRepository
 
     public async Task MarkSkippedAsync(long gameId)
     {
-        using var conn = _factory.CreateConnection();
-        await conn.OpenAsync();
+        await SetSkippedAsync(new[] { gameId }, skipped: true);
+    }
 
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE session_log SET is_skipped = 1 WHERE game_id = @gameId";
-        cmd.Parameters.AddWithValue("@gameId", gameId);
+    public async Task<IReadOnlyList<long>> SetSkippedAsync(
+        IReadOnlyCollection<long> gameIds,
+        bool skipped,
+        DbWriteSession? session = null)
+    {
+        // One write lock for the whole batch: the insert below checks for the row
+        // first, like LogGameAsync, and an Undo must apply to every game or none.
+        using var lease = DbWriteSession.Lease(_factory, session, transactional: true);
+        var conn = lease.Connection;
 
-        await cmd.ExecuteNonQueryAsync();
+        var applied = new List<long>();
+        foreach (var gameId in gameIds.Where(id => id > 0).Distinct())
+        {
+            string championName;
+            bool win;
+            using (var gameCmd = conn.CreateCommand())
+            {
+                gameCmd.CommandText = "SELECT champion_name, win FROM games WHERE game_id = @gameId";
+                gameCmd.Parameters.AddWithValue("@gameId", gameId);
+                await using var reader = await gameCmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync()) continue;
+                championName = reader.IsDBNull(0) ? "" : reader.GetString(0);
+                win = !reader.IsDBNull(1) && reader.GetInt32(1) != 0;
+            }
+
+            int updated;
+            using (var updateCmd = conn.CreateCommand())
+            {
+                updateCmd.CommandText = "UPDATE session_log SET is_skipped = @skipped WHERE game_id = @gameId";
+                updateCmd.Parameters.AddWithValue("@skipped", skipped ? 1 : 0);
+                updateCmd.Parameters.AddWithValue("@gameId", gameId);
+                updated = await updateCmd.ExecuteNonQueryAsync();
+            }
+
+            // No session row: without one the skip would not hold (the queue reads it
+            // from session_log). Write the row game end writes (its default mental
+            // rating, no rule break), marked skipped. Unskipping a game without a row
+            // has nothing to clear.
+            if (updated == 0 && skipped)
+            {
+                var (sessionDate, sessionTimestamp) = await ResolveGameSessionDateAsync(conn, gameId);
+                using var insertCmd = conn.CreateCommand();
+                insertCmd.CommandText = @"
+                    INSERT INTO session_log
+                    (date, game_id, champion_name, win, mental_rating, improvement_note, rule_broken, timestamp, is_skipped)
+                    VALUES (@date, @game_id, @champion_name, @win, 5, '', 0, @timestamp, 1)";
+                insertCmd.Parameters.AddWithValue("@date", sessionDate);
+                insertCmd.Parameters.AddWithValue("@game_id", gameId);
+                insertCmd.Parameters.AddWithValue("@champion_name", championName);
+                insertCmd.Parameters.AddWithValue("@win", win ? 1 : 0);
+                insertCmd.Parameters.AddWithValue("@timestamp", sessionTimestamp);
+                await insertCmd.ExecuteNonQueryAsync();
+            }
+
+            applied.Add(gameId);
+        }
+
+        lease.Complete();
+        return applied;
     }
 
     public async Task ClearSkippedAsync(long gameId, DbWriteSession? session = null)

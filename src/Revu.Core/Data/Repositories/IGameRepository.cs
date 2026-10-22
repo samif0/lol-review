@@ -152,9 +152,13 @@ public interface IGameHistoryQuery
     /// </summary>
     Task<int> GetReviewedCountAsync();
 
-    /// <summary>Games, wins and reviewed games across the whole visible library,
-    /// remakes excluded (the Match library stat strip).</summary>
+    /// <summary>Games, wins, reviewed and skipped games across the whole visible
+    /// library, remakes excluded (the Match library stat strip).</summary>
     Task<GameLibraryTotals> GetLibraryTotalsAsync();
+
+    /// <summary>The games among <paramref name="gameIds"/> whose review was skipped
+    /// (session_log.is_skipped), for the Match library rows.</summary>
+    Task<IReadOnlySet<long>> GetSkippedGameIdsAsync(IReadOnlyCollection<long> gameIds);
 
     /// <summary>Ranked and manual games removed from history (hidden), newest
     /// first, for the Match library's Removed view.</summary>
