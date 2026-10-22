@@ -37,39 +37,56 @@ html.framed body.games-page .shell{padding-top:36px}
 .games-page .lib-error .vline{font-size:14px;font-weight:500}
 
 /* Day headings and rows. A row bleeds 10px into the gutter so its text lines up
-   with the headings. Columns: result, champion, matchup, KDA, status, remove, action. */
+   with the headings. Columns: result, champion (or its checkbox), matchup, KDA, status,
+   Skip, Remove, action. Named areas keep every column in place when a control is hidden. */
 .games-page .lib-list{margin-top:8px}
 .games-page .lib-day{margin:22px 0 6px;font:500 12px/1.3 var(--f-body);color:var(--t3)}
-.games-page .lib-row{display:grid;grid-template-columns:18px 30px minmax(0,1fr) 92px 128px 30px 64px;align-items:center;gap:0 14px;
+.games-page .lib-row{display:grid;grid-template-columns:18px 30px minmax(0,1fr) 92px 128px 60px 30px 64px;
+  grid-template-areas:"wl pk m kda st sk rm go";align-items:center;gap:0 14px;
   min-height:58px;margin:0 -10px;padding:8px 10px;border-radius:var(--r-md);color:var(--t2);cursor:pointer}
 .games-page .lib-row:is(:hover,:focus-visible,:focus-within){background:var(--lit-fill);box-shadow:var(--lit-shadow)!important}
 .games-page .lib-row:focus-visible{outline-offset:-2px}
-.games-page .lib-row .grow-wl{display:block;width:auto;height:auto;margin:0;border:0;border-radius:0;background:none;
+.games-page .lib-row.is-picked{background:var(--selected)}
+.games-page .lib-row .grow-wl{grid-area:wl;display:block;width:auto;height:auto;margin:0;border:0;border-radius:0;background:none;
   font:600 13px/1 var(--f-num);font-variant-numeric:tabular-nums}
-.games-page .lib-champ{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--selected);
+.games-page .lib-champ{grid-area:pk;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--selected);
   color:var(--t2);font:600 12px/1 var(--f-body)}
-.games-page .lib-m{display:flex;flex-direction:column;gap:2px;min-width:0}
+/* Select: on a game that can be skipped or unskipped, the champion's initials give way to a
+   checkbox on hover or focus, and on every such row while a selection is open. */
+.games-page .lib-pick{grid-area:pk;width:30px;height:30px;border-radius:50%;opacity:0}
+.games-page .lib-pick i{display:grid;place-items:center;width:18px;height:18px;border:1.5px solid var(--line-strong);border-radius:5px}
+.games-page .lib-pick svg{width:12px;height:12px;fill:none;stroke:var(--accent-ink);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;opacity:0}
+.games-page .lib-pick:hover i{border-color:var(--t3)}
+.games-page .lib-pick[aria-checked="true"] i{border-color:var(--accent);background:var(--accent)}
+.games-page .lib-pick[aria-checked="true"] svg{opacity:1}
+.games-page :is(.lib-row.is-pickable:is(:hover,:focus-within),.lib-list.is-picking .lib-row.is-pickable) .lib-pick{opacity:1}
+.games-page :is(.lib-row.is-pickable:is(:hover,:focus-within),.lib-list.is-picking .lib-row.is-pickable) .lib-champ{visibility:hidden}
+.games-page .lib-m{grid-area:m;display:flex;flex-direction:column;gap:2px;min-width:0}
 .games-page .lib-name{font:500 14px/1.35 var(--f-body);color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .games-page .lib-meta{font-size:13px;line-height:1.4;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.games-page .lib-kda{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0;text-align:right}
+.games-page .lib-kda{grid-area:kda;display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0;text-align:right}
 .games-page .lib-kda-n{font:500 13px/1.35 var(--f-num);font-variant-numeric:tabular-nums;color:var(--t2);white-space:nowrap}
 .games-page .lib-kda-r{font-size:12px;line-height:1.4;color:var(--t3);white-space:nowrap}
 /* Status: fixed slots, so the tag, the recording mark and the objective mark line up from row to row. */
-.games-page .lib-st{display:grid;grid-template-columns:minmax(0,1fr) 15px 15px;justify-items:end;align-items:center;column-gap:8px;min-width:0;color:var(--t3)}
+.games-page .lib-st{grid-area:st;display:grid;grid-template-columns:minmax(0,1fr) 15px 15px;justify-items:end;align-items:center;column-gap:8px;min-width:0;color:var(--t3)}
 .games-page .lib-st>.lib-tag{grid-column:1}
 .games-page .lib-st>[data-status="recording"]{grid-column:2}
 .games-page .lib-st>[data-status="objective"]{grid-column:3}
 .games-page .lib-mark svg{display:block;width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.games-page .lib-go{font:500 13px/1 var(--f-body);color:var(--t3);text-align:right;white-space:nowrap}
+.games-page .lib-go{grid-area:go;font:500 13px/1 var(--f-body);color:var(--t3);text-align:right;white-space:nowrap}
 .games-page .lib-row:is(:hover,:focus-visible) .lib-go{color:var(--t1)}
-/* Remove from history: quiet until the row is pointed at or focused, always in the tab order. */
-.games-page .lib-remove{width:30px;height:30px;color:var(--t3);opacity:0}
+/* Skip (or Unskip) and Remove from history: quiet until the row is pointed at or focused,
+   always in the tab order. */
+.games-page .lib-skip{grid-area:sk;justify-self:end;height:30px;padding:0 8px;font-size:13px;color:var(--t3);opacity:0}
+.games-page .lib-skip:hover:not(:disabled){color:var(--t1)}
+.games-page .lib-remove{grid-area:rm;width:30px;height:30px;color:var(--t3);opacity:0}
 .games-page .lib-remove svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
-.games-page .lib-row:is(:hover,:focus-within) .lib-remove{opacity:1}
-.games-page .lib-remove:disabled{opacity:.4}
-/* Removed view: Restore is the row's second action, always visible. */
-.games-page .lib-list[data-view="removed"] .lib-row{grid-template-columns:18px 30px minmax(0,1fr) 92px 128px 84px 64px}
-.games-page .lib-remove.is-restore{width:auto;height:30px;padding:0 12px;font-size:13px;opacity:1}
+.games-page .lib-row:is(:hover,:focus-within) :is(.lib-skip,.lib-remove){opacity:1}
+.games-page :is(.lib-skip,.lib-remove):disabled{opacity:.4}
+/* Removed view: Restore is the row's second action, always visible, in the Skip and Remove columns. */
+.games-page .lib-list[data-view="removed"] .lib-row{grid-template-areas:"wl pk m kda st rm rm go"}
+.games-page .lib-list[data-view="removed"] :is(.lib-skip,.lib-pick){display:none}
+.games-page .lib-remove.is-restore{justify-self:end;width:auto;height:30px;padding:0 12px;font-size:13px;opacity:1}
 
 /* Journal: the player's takeaway, in their own voice, under the matchup. */
 .games-page .lib-take{grid-column:3 / -1;margin:2px 0 4px;font-size:15px;line-height:1.4;
@@ -84,28 +101,34 @@ html.framed body.games-page .shell{padding-top:36px}
 .games-page .lib-count{font-size:13px;line-height:1.5;color:var(--t3)}
 .games-page .lib-foot .loadwrap{display:inline-flex;margin:0}
 
-/* Undo toast */
-.games-page .games-undo{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:20;display:flex;align-items:center;gap:16px;
-  width:max-content;max-width:calc(100vw - 32px);padding:10px 10px 10px 18px;border:var(--raised-border);border-radius:var(--r-md);
-  background:var(--raised);color:var(--t1);font:400 14px/1.5 var(--f-body);box-shadow:var(--pop-shadow)!important}
+/* Bottom dock: the selection bar while games are selected, above the toast that reports a
+   change (with Undo while it can be undone). Both are raised surfaces, centered. */
+.games-page .games-dock{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;
+  align-items:center;gap:8px;width:max-content;max-width:calc(100vw - 32px);pointer-events:none}
+.games-page :is(.games-bulk,.games-undo){display:flex;align-items:center;max-width:100%;border:var(--raised-border);border-radius:var(--r-md);
+  background:var(--raised);color:var(--t1);font:400 14px/1.5 var(--f-body);box-shadow:var(--pop-shadow)!important;pointer-events:auto}
+.games-page .games-undo{gap:16px;padding:10px 10px 10px 18px}
 .games-page .games-undo-btn{flex:none}
+.games-page .games-bulk{gap:6px;padding:8px 8px 8px 18px}
+.games-page .games-bulk-n{margin-right:10px;font:500 14px/1.5 var(--f-body);font-variant-numeric:tabular-nums;white-space:nowrap}
+.games-page .games-bulk .ui-btn{flex:none}
+.games-page .games-bulk-clear{color:var(--t3)}
+.games-page .games-bulk-clear svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
 
-/* Narrow frames: the matchup keeps the width; the status and Remove move under it. */
+/* Narrow frames: the matchup keeps the width; the checkbox, status, Skip and Remove move under it. */
 @media(max-width:680px){
-  .games-page .lib-row,
-  .games-page .lib-list[data-view="removed"] .lib-row{grid-template-columns:18px minmax(0,1fr) auto;
-    grid-template-areas:"wl m kda" ". st rm" ". tk tk";row-gap:2px}
-  .games-page .lib-row .grow-wl{grid-area:wl}
-  .games-page .lib-m{grid-area:m}
-  .games-page .lib-kda{grid-area:kda}
-  .games-page .lib-remove{grid-area:rm;justify-self:end}
-  .games-page .lib-st{grid-area:st;justify-items:start;grid-template-columns:auto 15px 15px}
-  .games-page .lib-take{grid-area:tk}
+  .games-page .lib-row{grid-template-columns:24px minmax(0,1fr) auto auto;
+    grid-template-areas:"wl m m kda" "pk st sk rm";row-gap:2px}
+  .games-page .lib-list[data-view="removed"] .lib-row{grid-template-areas:"wl m m kda" ". st rm rm"}
+  .games-page .lib-pick{justify-self:start;width:24px;height:24px}
+  .games-page .lib-st{justify-items:start;grid-template-columns:auto 15px 15px}
+  .games-page .lib-remove{justify-self:end}
+  .games-page .lib-take{grid-column:2 / -1}
   .games-page :is(.lib-champ,.lib-go){display:none}
   .games-page .lib-summary{margin-left:0;flex-basis:100%}
 }
 
 @media(prefers-reduced-motion:no-preference){
   .games-page .lib-row{transition:background-color .15s ease,box-shadow .25s ease}
-  .games-page .lib-remove{transition:opacity .15s ease,background-color .15s ease,color .15s ease}
+  .games-page :is(.lib-pick,.lib-skip,.lib-remove){transition:opacity .15s ease,background-color .15s ease,color .15s ease}
 }

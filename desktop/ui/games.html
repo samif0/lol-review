@@ -68,12 +68,23 @@
       <span class="loadwrap" id="loadwrap" hidden><button class="ui-btn ui-btn-quiet" id="loadmore" type="button" data-action="load_more">Load more</button></span>
     </div>
 
-    <!-- Remove from history is a soft hide: the game and its notes stay saved, Undo
-         brings it back, and the Removed view restores it later. The same toast
-         reports a removal or restore that failed (without Undo). -->
-    <div class="games-undo" id="games-undo" role="status" aria-live="polite" hidden>
-      <span id="games-undo-text"></span>
-      <button class="ui-btn ui-btn-quiet games-undo-btn" id="games-undo-btn" type="button" data-action="undo_hide">Undo</button>
+    <div class="games-dock">
+      <!-- While games are selected: how many, and what can be done to them. Skip applies to
+           the selected games waiting for review, Unskip to the selected skipped ones. -->
+      <div class="games-bulk" id="games-bulk" role="group" aria-label="Selected games" hidden>
+        <span class="games-bulk-n" id="games-bulk-n" role="status" aria-live="polite"></span>
+        <button class="ui-btn ui-btn-ghost" id="games-bulk-all" type="button" data-action="pick_all">Select all</button>
+        <button class="ui-btn ui-btn-quiet" id="games-bulk-unskip" type="button" data-action="unskip_picked" hidden>Unskip</button>
+        <button class="ui-btn ui-btn-primary" id="games-bulk-skip" type="button" data-action="skip_picked" hidden>Skip</button>
+        <button class="ui-iconbtn games-bulk-clear" id="games-bulk-clear" type="button" data-action="pick_none" aria-label="Clear selection" title="Clear selection"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
+      </div>
+      <!-- Remove from history is a soft hide: the game and its notes stay saved, Undo
+           brings it back, and the Removed view restores it later. Skip and Unskip are
+           undone the same way. The same toast reports a change that failed (without Undo). -->
+      <div class="games-undo" id="games-undo" role="status" aria-live="polite" hidden>
+        <span id="games-undo-text"></span>
+        <button class="ui-btn ui-btn-quiet games-undo-btn" id="games-undo-btn" type="button" data-action="undo">Undo</button>
+      </div>
     </div>
   </div>
 
@@ -87,15 +98,19 @@
   </template>
 
   <!-- One match, one primary action: the whole row opens it. Result, matchup, KDA,
-       status, Remove and the action keep fixed columns; Remove shows on hover or focus. In
-       Journal, the takeaway from this game's review sits under the matchup. -->
+       status, Skip, Remove and the action keep fixed columns; Skip and Remove show on
+       hover or focus. A game that can be skipped (or unskipped) can also be selected: its
+       checkbox takes the champion's place on hover, focus or while a selection is open.
+       In Journal, the takeaway from this game's review sits under the matchup. -->
   <template id="tpl-gamerow">
     <div class="lib-row" data-action="open_review" tabindex="0" role="button">
       <span class="grow-wl"></span>
       <span class="lib-champ" aria-hidden="true"></span>
+      <button class="ui-iconbtn lib-pick" type="button" data-action="pick_game" role="checkbox" aria-checked="false" hidden><i aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6.5 12.5 3.5 3.5 7.5-8"/></svg></i></button>
       <span class="lib-m"><b class="lib-name"></b><span class="lib-meta"></span></span>
       <span class="lib-kda"><span class="lib-kda-n"></span><span class="lib-kda-r"></span></span>
       <span class="lib-st"></span>
+      <button class="ui-btn ui-btn-ghost lib-skip" type="button" data-action="skip_game" hidden>Skip</button>
       <button class="ui-iconbtn lib-remove" type="button" data-action="hide_game" title="Remove from history" aria-label="Remove from history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button>
       <span class="lib-go">Review</span>
       <p class="lib-take own-words" data-theme-only="journal" hidden></p>

@@ -66,7 +66,8 @@ export function recentRows(snapshot, limit = RECENT_LIMIT) {
     const href = matchHref(item);
     if (!href) continue;
     const result = resultOf(item);
-    const pending = result !== 'remake' && item.hasReview !== true;
+    // A skipped match left the review queue without a review: no dot.
+    const pending = result !== 'remake' && item.hasReview !== true && item.isSkipped !== true;
     const label = matchLabel(item);
     const resultWord = result === 'win' ? 'Win' : result === 'loss' ? 'Loss' : 'Remake';
     const when = text(item.datePlayed);
@@ -91,7 +92,8 @@ export function pendingCount(snapshot) {
     return Number.isSafeInteger(total) && total >= 0 ? total : null;
   }
   if (!Array.isArray(snapshot.items)) return null;
-  return snapshot.items.filter(item => item && item.hasReview !== true && resultOf(item) !== 'remake').length;
+  return snapshot.items.filter(item => item && item.hasReview !== true && item.isSkipped !== true
+    && resultOf(item) !== 'remake').length;
 }
 
 /** The game name of a Riot ID ("bye#NA1" is "bye"), or '' when there is none. */

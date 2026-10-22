@@ -132,6 +132,8 @@ public sealed class GamesSnapshotBuilder
         var effectivePage = resolvedView == GamesView.History ? safePage : 0;
         GamesTotalsDto? totals = null;
         string? errorText = null;
+        IReadOnlySet<long> skipped = NoGames;
+        var singleShot = false;   // the whole view is loaded, so its rows are its numbers
 
         try
         {
@@ -140,19 +142,19 @@ public sealed class GamesSnapshotBuilder
                 case GamesView.Queue:
                     games = await _gameHistory.GetUnreviewedGamesAsync(days: QueueDays);
                     totalCount = games.Count;
-                    totals = TotalsOf(games);
+                    singleShot = true;
                     break;
 
                 case GamesView.Today:
                     games = await _gameHistory.GetTodaysGamesAsync();
                     totalCount = games.Count;
-                    totals = TotalsOf(games);
+                    singleShot = true;
                     break;
 
                 case GamesView.Vod:
                     games = await LoadVodGamesAsync();
                     totalCount = games.Count;
-                    totals = TotalsOf(games);
+                    singleShot = true;
                     break;
 
                 case GamesView.Removed:
@@ -173,9 +175,12 @@ public sealed class GamesSnapshotBuilder
                     hasMore = offset + games.Count < totalCount;
                     // The strip describes all of history, never just the pages loaded.
                     var library = await _gameHistory.GetLibraryTotalsAsync();
-                    totals = new GamesTotalsDto(library.Games, library.Wins, library.Reviewed);
+                    totals = new GamesTotalsDto(library.Games, library.Wins, library.Reviewed, library.Skipped);
                     break;
             }
+
+            skipped = await SkippedAmongAsync(games);
+            if (singleShot) totals = TotalsOf(games, skipped);
         }
         catch (Exception ex)
         {
@@ -186,7 +191,7 @@ public sealed class GamesSnapshotBuilder
         }
 
         // ── Map to display rows ─────────────────────────────────────────────
-        var items = games.Select(MapGameDisplay).ToList();
+        var items = games.Select(game => MapGameDisplay(game, IsSkipped(game, skipped))).ToList();
 
         // ── Enrich rows with VOD availability + objective state (ALL views) ─
         await EnrichRowsAsync(items);
@@ -216,12 +221,35 @@ public sealed class GamesSnapshotBuilder
         "Revu couldn't read your games from its local database. Try again, or restart Revu.";
 
     /// <summary>Strip numbers for a single-shot view whose whole list is loaded:
-    /// remakes are listed but never counted; reviewed matches the row labels.</summary>
-    private static GamesTotalsDto TotalsOf(IEnumerable<GameStats> games)
+    /// remakes are listed but never counted; reviewed and skipped match the row labels.</summary>
+    private static GamesTotalsDto TotalsOf(IEnumerable<GameStats> games, IReadOnlySet<long> skipped)
     {
         var counted = games.Where(g => !g.IsRemake).ToList();
-        return new GamesTotalsDto(counted.Count, counted.Count(g => g.Win), counted.Count(HasPersistedReview));
+        return new GamesTotalsDto(counted.Count, counted.Count(g => g.Win), counted.Count(HasPersistedReview),
+            counted.Count(g => IsSkipped(g, skipped)));
     }
+
+    private static readonly IReadOnlySet<long> NoGames = new HashSet<long>();
+
+    /// <summary>The loaded games whose review the player skipped. A failed read degrades
+    /// to none (the rows read as unreviewed), like the rest of the row enrichment.</summary>
+    private async Task<IReadOnlySet<long>> SkippedAmongAsync(IReadOnlyCollection<GameStats> games)
+    {
+        if (games.Count == 0) return NoGames;
+        try
+        {
+            return await _gameHistory.GetSkippedGameIdsAsync(games.Select(g => g.GameId).ToArray());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Games: skipped-review read failed");
+            return NoGames;
+        }
+    }
+
+    /// <summary>Skipped and still without a review: a saved review always reads as reviewed.</summary>
+    private static bool IsSkipped(GameStats game, IReadOnlySet<long> skipped) =>
+        skipped.Contains(game.GameId) && !HasPersistedReview(game);
 
     /// <summary>
     /// VOD view source: scan the most recent <see cref="VodScanLimit"/> games and
@@ -340,7 +368,7 @@ public sealed class GamesSnapshotBuilder
                     ObjectivePracticed = practiced,
                     HasObjectiveEvidence = hasObjectiveEvidence,
                     ObjectiveStateText = objectiveStateText,
-                    ReviewStateText = row.HasReview ? "Reviewed" : "Unreviewed",
+                    ReviewStateText = ReviewStateText(row.HasReview, row.IsSkipped),
                     // Distinguish an annotated recording from one that sits on
                     // disk but was never annotated (0 bookmarks).
                     VodStateText = hasVod
@@ -363,7 +391,10 @@ public sealed class GamesSnapshotBuilder
     // Game-row mapping (mirror GamesViewModel.MapGameDisplay / DashboardSnapshotBuilder)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private GamesRowDto MapGameDisplay(GameStats game)
+    private static string ReviewStateText(bool hasReview, bool isSkipped) =>
+        hasReview ? "Reviewed" : isSkipped ? "Skipped" : "Unreviewed";
+
+    private GamesRowDto MapGameDisplay(GameStats game, bool isSkipped)
     {
         var duration = game.GameDuration > 0
             ? $"{game.GameDuration / 60}:{game.GameDuration % 60:D2}"
@@ -417,13 +448,14 @@ public sealed class GamesSnapshotBuilder
             ObjectivePracticed: false,
             HasObjectiveEvidence: false,
             ObjectiveStateText: "No objective tag",
-            ReviewStateText: HasPersistedReview(game) ? "Reviewed" : "Unreviewed",
+            ReviewStateText: ReviewStateText(HasPersistedReview(game), isSkipped),
             VodStateText: "No VOD",
             PrimaryAction: HasPersistedReview(game) ? "Open" : "Review",
             // Stable token the desktop shell maps to navigation. Row-body click =
             // always open the Review page (mirrors GamesViewModel.OpenReview).
             Action: "open_review",
-            IsRemake: game.IsRemake);
+            IsRemake: game.IsRemake,
+            IsSkipped: isSkipped);
     }
 
     /// <summary>Mirror of GameDisplayItem.MetaLine: "GAMEMODE  ·  DATE  ·  DURATION".</summary>

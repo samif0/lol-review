@@ -384,6 +384,7 @@ public sealed class SidecarEndpointContractTests
         POST /api/review/remake
         POST /api/review/save
         POST /api/review/skip
+        POST /api/review/skipped
         POST /api/rule/create
         POST /api/rule/delete
         POST /api/rule/enforce

@@ -75,6 +75,21 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
 
+        // POST /api/review/skipped  { gameIds, skipped } — the Match library's Skip, its
+        // bulk Skip and Unskip, and their Undo. A skipped game leaves the review queue and
+        // every unreviewed count without a review. Drafts are kept (unlike the Review
+        // page's skip), so Undo loses nothing. Answers the ids that exist and changed.
+        app.MapPost("/api/review/skipped", async (ReviewSkippedBody body, WriteServices w, ILogger<Program> log) =>
+        {
+            var gameIds = body?.GameIds;
+            if (gameIds is null || gameIds.Count == 0 || gameIds.Count > MaxSkippedGameIds || gameIds.Any(id => id <= 0))
+                return Results.BadRequest(new { error = $"gameIds required (1 to {MaxSkippedGameIds} positive ids)" });
+            await w.BackupGuard.EnsureBackedUpAsync();
+            var applied = await w.SessionLog.SetSkippedAsync(gameIds, body!.Skipped);
+            log.LogInformation("Review {Change} for {Count} game(s)", body.Skipped ? "skipped" : "unskipped", applied.Count);
+            return Results.Json(new { ok = true, skipped = body.Skipped, gameIds = applied }, jsonOptions);
+        });
+
         // POST /api/review/remake  { gameId, isRemake } — 3.14.1: the player's own verdict.
         // A remake stays saved and reviewable but never counts (rules, stats, review
         // queue). Source 'user' outranks every automatic source, so both directions are
@@ -199,6 +214,9 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = true }, jsonOptions);
         });
     }
+
+    // One request covers a Match library selection; the page sends larger ones in parts.
+    internal const int MaxSkippedGameIds = 500;
 
     /// <summary>
     /// POST /api/review/save minus the HTTP plumbing: body to <see cref="Revu.Core.Services.SaveReviewRequest"/>

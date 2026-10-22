@@ -261,7 +261,7 @@ test('events, native window methods, links and recorder operations remain narrow
 });
 
 test('command declarations keep immutable envelopes, required arguments and exceptional deadlines', () => {
-  assert.equal(Object.keys(COMMANDS).length, 120);
+  assert.equal(Object.keys(COMMANDS).length, 121);
   for (const name of ['review_vod', 'open_review', 'take_next_step']) assert.equal(COMMANDS[name], undefined, name);
   assert.ok(Object.isFrozen(COMMANDS));
   for (const [name, definition] of Object.entries(COMMANDS)) {

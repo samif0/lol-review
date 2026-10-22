@@ -45,8 +45,9 @@ public sealed record GamesDto(
     // "no games" empty state (Items is then empty or partial).
     string? ErrorText = null);
 
-/// <summary>Counted games, wins and reviewed games for one Match library view.</summary>
-public sealed record GamesTotalsDto(int Games, int Wins, int Reviewed);
+/// <summary>Counted games, wins, reviewed and skipped games for one Match library view.
+/// A skipped game left the review queue without a review, so it is never also reviewed.</summary>
+public sealed record GamesTotalsDto(int Games, int Wins, int Reviewed, int Skipped = 0);
 
 /// <summary>
 /// One history game row. Mirrors the dashboard's GameDisplayItemDto (same
@@ -94,7 +95,7 @@ public sealed record GamesRowDto(
     bool HasObjectiveEvidence,
     // "Evidence tagged" / "VOD evidence pending" / "Objective practiced" / "No objective tag".
     string ObjectiveStateText,
-    // "Reviewed" / "Unreviewed".
+    // "Reviewed" / "Skipped" / "Unreviewed".
     string ReviewStateText,
     // "VOD linked" / "VOD linked - no notes" / "No VOD".
     string VodStateText,
@@ -104,4 +105,7 @@ public sealed record GamesRowDto(
     string Action,
     // 3.14.1: a remake (League early surrender). WinLossText reads "Remake"; the row is
     // still reviewable but never counted (rules, stats, review queue).
-    bool IsRemake = false);
+    bool IsRemake = false,
+    // The player skipped this game's review: it left the review queue without a
+    // review (HasReview stays false) and can be unskipped or still reviewed.
+    bool IsSkipped = false);

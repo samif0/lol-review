@@ -32,7 +32,7 @@ test('recent rows open the recording when the row does, the review otherwise, an
     const item = sample.items[i];
     assert.equal(r.href, `${item.action === 'watch_vod' ? 'vodplayer' : 'review'}.html?gameId=${item.gameId}`);
     assert.equal(r.result, item.win ? 'win' : 'loss');
-    assert.equal(r.pending, item.hasReview !== true);
+    assert.equal(r.pending, item.hasReview !== true && item.isSkipped !== true);
   });
   assert.equal(matchHref(row({ action: 'watch_vod' })), 'vodplayer.html?gameId=42');
   assert.equal(matchHref(row()), 'review.html?gameId=42');
@@ -62,6 +62,16 @@ test('recent rows: six at most, labels, the review dot and the words a screen re
   for (const r of recentRows(sample)) assert.doesNotMatch(`${r.ariaLabel}${r.title}`, /[–—]/);
 });
 
+test('a skipped match carries no review dot and never counts as waiting for review', () => {
+  const [skipped, waiting] = recentRows({ items: [row({ hasReview: false, win: false, isSkipped: true }), row({ gameId: 43, hasReview: false })] });
+  assert.equal(skipped.pending, false, 'a skip clears the dot');
+  assert.equal(skipped.ariaLabel, 'Jinx vs Caitlyn, loss');
+  assert.equal(skipped.title, 'Jinx vs Caitlyn · Loss · Jun 14, 11:58');
+  assert.equal(waiting.pending, true);
+  assert.equal(pendingCount({ view: 'history', items: [row({ hasReview: false, isSkipped: true }), row({ hasReview: false })] }), 1);
+  assert.ok(sample.items.some(item => item.isSkipped === true && item.hasReview === false), 'the preview shows a skipped match');
+});
+
 test('a failed or empty history keeps or clears the list deliberately', () => {
   assert.equal(recentRows({ errorText: 'Revu could not read your games.', items: [] }), null);
   assert.equal(recentRows(null), null);
@@ -75,13 +85,13 @@ test('the Match library count is the review queue total, or the fixture rows in 
   assert.equal(pendingCount({ view: 'queue', totalCount: 'x' }), null);
   assert.equal(pendingCount({ view: 'queue', totalCount: 3, errorText: 'locked' }), null);
   assert.equal(pendingCount(null), null);
-  assert.equal(pendingCount(sample), sample.items.filter(item => !item.hasReview && !item.isRemake).length);
+  assert.equal(pendingCount(sample), sample.items.filter(item => !item.hasReview && !item.isRemake && !item.isSkipped).length);
   assert.equal(pendingCount({ view: 'history', items: [row({ hasReview: false }), row({ hasReview: false, isRemake: true }), row()] }), 1);
 });
 
 test('the preview queue fixture is the unreviewed part of the history fixture, counted like the sidecar', async () => {
   const queue = JSON.parse(await readFile(new URL('sample-games-queue.json', ui), 'utf8'));
-  const waiting = sample.items.filter(item => !item.hasReview && !item.isRemake);
+  const waiting = sample.items.filter(item => !item.hasReview && !item.isRemake && !item.isSkipped);
   assert.equal(queue.view, 'queue');
   assert.deepEqual(queue.items, waiting);
   assert.equal(queue.totalCount, waiting.length);
@@ -240,7 +250,7 @@ test('the sidebar renders recent matches, the review count and the account from 
   assert.equal(first.children[0].getAttribute('data-result'), sample.items[0].win ? 'win' : 'loss');
   assert.equal(first.children[1].textContent, matchLabel(sample.items[0]));
   const todo = links.filter(link => link.children.some(child => child.className === 'side-rec-todo'));
-  assert.equal(todo.length, sample.items.slice(0, 6).filter(item => !item.hasReview).length);
+  assert.equal(todo.length, sample.items.slice(0, 6).filter(item => !item.hasReview && !item.isSkipped).length);
   assert.equal(h.doc.els['nav-games-count'].textContent, '3');
   assert.equal(h.doc.els['nav-games-count'].hidden, false);
   assert.equal(h.doc.els['nav-games-count-text'].textContent, '3 matches to review');

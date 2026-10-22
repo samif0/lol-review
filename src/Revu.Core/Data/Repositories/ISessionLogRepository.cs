@@ -104,6 +104,12 @@ public interface ISessionLogRepository
     /// one-click skip doesn't pollute behavioral signal.</summary>
     Task MarkSkippedAsync(long gameId);
 
+    /// <summary>Skip (or unskip) several games at once, the Match library's Skip and
+    /// Undo. Only games that exist are changed; their ids come back. A game without a
+    /// session_log row (a legacy import) gets the row every capture path writes, so the
+    /// skip holds. Review drafts are kept, so an Undo loses nothing.</summary>
+    Task<IReadOnlyList<long>> SetSkippedAsync(IReadOnlyCollection<long> gameIds, bool skipped, DbWriteSession? session = null);
+
     /// <summary>Reset is_skipped to 0 — used when a previously-skipped game
     /// gets a real review on a follow-up open of the review page.</summary>
     Task ClearSkippedAsync(long gameId, DbWriteSession? session = null);
