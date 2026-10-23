@@ -115,8 +115,11 @@ export function createLibobsRecorder({ helperPath, ffmpegPath, ffprobePath,
       if (disposed) return;
       // Once recording, a stale/failed LCU observation is unknown, not an exit.
       // Test scope requires explicit launch authorization and a current game.
-      // Ordinary launches enumerate League processes only during ranked games.
-      if (!session && !supportedContext(context)) return;
+      // Ordinary launches enumerate League processes only during ranked games. A game
+      // found then is watched until it closes, in any phase: the client leaves the game
+      // phases when the match ends while League is still open, and the host waits for
+      // the exit (the recordings size limit runs only once League has closed).
+      if (!session && identified === undefined && !supportedContext(context)) return;
       const value = await query(['--discover']);
       if (disposed) return;
       if (value?.type !== 'games' || !Array.isArray(value.games) || value.games.length > 16

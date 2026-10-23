@@ -130,6 +130,37 @@ test('no discovery helper is launched while a recording is running', async t => 
   assert.ok(discoveries() > during, 'discovery resumes once the recording helper has exited');
 });
 
+test('a ranked game stays watched after its match ends until League closes', async t => {
+  let current = context, running = [{ pid: 123, width: 1920, height: 1080 }];
+  const phases = [];
+  const f = await fixture(t, { shouldDiscover: () => true, getContext: async () => current,
+    queryHelper: async (_file, args) => {
+      if (args[0] === '--discover') phases.push(current.phase);
+      return { stdout: JSON.stringify(args[0] === '--probe'
+        ? { type: 'capabilities', protocol: 1, available: true, encoders: ['obs_nvenc_h264_tex'], selectedEncoder: 'obs_nvenc_h264_tex' }
+        : { type: 'games', games: running }) };
+    } });
+  const until = async (done, message) => {
+    const deadline = Date.now() + 2000;
+    while (!done() && Date.now() < deadline) await wait(5);
+    assert.ok(done(), message);
+  };
+  await until(() => f.games.length === 1, 'the ranked game is found');
+  await f.start();
+  // At match end the client leaves the game phases and reports no queue, while League
+  // is still open on its end screen.
+  current = { gameId: null, queueId: null, phase: 'EndOfGame' };
+  f.child().send({ type: 'stopped', hasError: false, filePath: path.join(f.directory, 'capture.mp4'), duration: 60_000, splitCount: 0 });
+  f.child().close();
+  await until(() => phases.includes('EndOfGame'), 'discovery keeps watching the game after its match');
+  assert.deepEqual(f.games, [{ pid: 123, width: 1920, height: 1080, running: true }]);
+  running = [];
+  await until(() => f.games.length === 2, 'League closing is reported');
+  assert.deepEqual(f.games[1], { pid: 123, running: false });
+  const closed = phases.length; await wait(60);
+  assert.equal(phases.length, closed, 'with no game left to watch, discovery waits for the next ranked game');
+});
+
 test('recording always launches game first and a helper that is not game first is stopped', async t => {
   const f = await fixture(t);
   const refused = f.driver.start({ pid: 123, priority: 'normal', outputDirectory: f.directory });
