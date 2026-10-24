@@ -250,12 +250,14 @@ public sealed class HardStopEnforcerTests
 
     // ── 3.14.1: remakes never count toward the lock ──────────────────────────
 
+    // A second apart from RecentGameTodayUnix, so none is yesterday's; in the first
+    // seconds after midnight the last ones share the current second, never a later one.
     private static async Task SeedTodayAsync(Harness h, params (long Id, bool Remake)[] games)
     {
-        var at = RecentGameTodayUnix - games.Length;
+        var at = RecentGameTodayUnix;
         foreach (var (id, remake) in games)
         {
-            await h.Scope.SeedGameAsync(gameId: id, timestamp: at++);
+            await h.Scope.SeedGameAsync(gameId: id, timestamp: Math.Min(at++, NowUnix));
             if (remake) await h.Scope.Games.SetRemakeVerdictAsync(id, true, false, "eog");
         }
     }
