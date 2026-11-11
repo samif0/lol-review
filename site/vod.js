@@ -65,6 +65,12 @@
     ink: function () { return ink; } }) : null;
   var markMoment = root.RevuVodSide ? function (button, item, label) { return root.RevuVodSide.markMoment(V, button, item, label); }
     : function () { return ''; };
+  // Read-ahead (vod-warm.js) while an HLS game plays: the seconds around the playhead, the
+  // second under the pointer on the lane, and the uploaded moments (their video seconds).
+  var momentTimes = [];
+  var warmer = root.RevuVodWarm ? root.RevuVodWarm.attach({ root: root, video: video,
+    warm: function (spans) { return !!live && live.warm(spans); },
+    moments: function () { return momentTimes; } }) : null;
 
   function show(name) {
     Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== name; });
@@ -241,7 +247,9 @@
       length: function () { return laneLength; },
       edge: function () { return liveEdge; },
       started: function () { return playButton.hidden; },
-      start: function () { playButton.click(); }
+      start: function () { playButton.click(); },
+      // The second under the pointer on the lane (null once it leaves): a jump may come next.
+      hover: function (t) { if (warmer) warmer.hover(t); }
     });
   }
 
@@ -318,6 +326,7 @@
     drawAxis(doc);
     var shown = side ? side.draw({ doc: doc, live: o.live, items: items, choose: choose }) : false;
     panels.game.classList.toggle('has-notes', shown);
+    momentTimes = items.filter(function (item) { return !item.pending; }).map(function (item) { return item.vt; });
     updatePlayhead();
     if (controls) controls.paint();
   }
