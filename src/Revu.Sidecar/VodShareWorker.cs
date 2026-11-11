@@ -586,7 +586,7 @@ public sealed partial class VodShareWorker
         "pool_full" => "Sharing space is full right now. Try 720p, or save the file instead.",
         "not_allowed" => "Full-game sharing isn't available for this account.",
         "needs_login" => "Sign in to share this game.",
-        "live_limit" => "You already share 3 games. Stop sharing one to share this game.",
+        "live_limit" => "You already share 5 games. Stop sharing one to share this game.",
         "daily_limit" => "You've reached today's limit for shared games.",
         "busy" => "Another game is still being shared. Try again when it finishes.",
         "starting" => "Revu is still starting. Try again in a moment.",

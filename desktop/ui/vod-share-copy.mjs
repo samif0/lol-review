@@ -135,7 +135,7 @@ function errorText(code, options) {
       return can720 ? `${space} Try 720p, or save the file instead.`
         : `${space} Try again ${when ? 'then' : 'later'}, or save the file instead.`;
     }
-    case 'live_limit': return `You already share ${Number(limits?.maxLive) || 3} games. Stop sharing one to share this game.`;
+    case 'live_limit': return `You already share ${Number(limits?.maxLive) || 5} games. Stop sharing one to share this game.`;
     case 'daily_limit': {
       const started = `You've started ${Number(limits?.maxStartsPerDay) || 6} shares today.`;
       return when ? `${started} You can share again after ${when}.` : `${started} You can share again tomorrow.`;

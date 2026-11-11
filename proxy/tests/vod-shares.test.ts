@@ -43,7 +43,7 @@ describe("GET /vod-shares/status", () => {
     const now = out.now as number;
     expect(out).toMatchObject({ allowed: true, sharing: true, serving: true });
     expect(out.limits).toEqual({
-      max_bytes: 2147483648, max_seconds: 7200, ttl_seconds: 259200, max_live: 3, max_pending: 1, max_starts_per_day: 6,
+      max_bytes: 2147483648, max_seconds: 7200, ttl_seconds: 259200, max_live: 5, max_pending: 1, max_starts_per_day: 6,
       part_size: 16777216, markers_max_bytes: 49152, notes_max_bytes: 14336, daily_play_cap: 200,
     });
     expect(out.usage).toEqual({ live: 1, pending: 0, starts_today: 1, day_resets_at: nextUtcMidnight(now) });
@@ -158,7 +158,7 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
     expect(s.r2.calls.deleted).toContain(row.r2_key);
   });
 
-  it("429 too_many_pending_uploads with one live upload, 409 live_limit at 3 live shares", async () => {
+  it("429 too_many_pending_uploads with one live upload, 409 live_limit at 5 live shares", async () => {
     const s = await vodSetup();
     await vodInitOk(s.env, OWNER);
     const pending = await vodInitOk(s.env, OWNER);
@@ -166,12 +166,17 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
     expect((await body(pending)).error).toBe("too_many_pending_uploads");
 
     const t = await vodSetup();
-    for (let i = 0; i < 3; i++) await shareVod(t, OWNER);
+    for (let i = 0; i < 4; i++) await shareVod(t, OWNER);
+    resetUserLimits();
+    // The fifth share is still allowed; the sixth is refused.
+    expect((await shareVod(t, OWNER)).id).toBeTruthy();
     resetUserLimits();
     const live = await vodInitOk(t.env, OWNER);
     expect(live.status).toBe(409);
-    expect((await body(live)).error).toBe("live_limit");
-    expect(t.db.q("SELECT starts FROM vod_share_usage")).toEqual([{ starts: 3 }]);
+    expect(await body(live)).toMatchObject({
+      error: "live_limit", message: "You already share 5 games. Stop sharing one to share another.",
+    });
+    expect(t.db.q("SELECT starts FROM vod_share_usage")).toEqual([{ starts: 5 }]);
   });
 
   it("409 pool_full with retry_at and free_bytes, without spending a daily start", async () => {
