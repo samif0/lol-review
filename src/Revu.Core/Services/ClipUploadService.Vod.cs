@@ -258,7 +258,7 @@ public sealed partial class ClipUploadService : IVodShareClient
         "not_allowed" => "Full-game sharing isn't available for this account.",
         "vod_sharing_disabled" => "Full-game sharing is paused right now. Try again later.",
         "pool_full" => "Sharing space is full right now. Try 720p, or save the file instead.",
-        "live_limit" => "You already share 3 games. Stop sharing one to share this game.",
+        "live_limit" => "You already share 5 games. Stop sharing one to share this game.",
         "daily_limit" => "You've reached today's limit for shared games.",
         "too_many_pending_uploads" => "Another game is still being shared. Try again when it finishes.",
         "rate_limited" => "Too many requests. Wait a moment and try again.",

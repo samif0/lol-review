@@ -120,7 +120,7 @@ test('every errorCode has the agreed copy, and unknown codes fall back to the si
   const time = () => 'Thursday 9:41 PM';
   const expected = {
     pool_full: 'Sharing space is full until Thursday 9:41 PM. Try 720p, or save the file instead.',
-    live_limit: 'You already share 3 games. Stop sharing one to share this game.',
+    live_limit: 'You already share 5 games. Stop sharing one to share this game.',
     daily_limit: "You've started 6 shares today. You can share again after Thursday 9:41 PM.",
     busy: 'Another game is still being shared. Try again when it finishes.',
     starting: 'Revu is still starting. Try again in a moment.',
@@ -380,7 +380,8 @@ test('refusals show their copy; not_allowed hides the action; sign-in and the re
     await f.share.check({ gameId: 123 });
     await f.share.open();
     await f.share.start();
-    const expected = vodShareErrorText(code, { retryAt: 1760486400, error: 'The sidecar said so.',
+    // The sheet words a limit with the number the server sent, not the built-in default.
+    const expected = vodShareErrorText(code, { retryAt: 1760486400, error: 'The sidecar said so.', limits: status().limits,
       time: unix => formatShareTime(unix, { now: NOW, locale: 'en-US', timeZone: 'UTC' }) });
     assert.equal(f.sheetMessage(), flat(expected), code);
     assert.equal(f.sheet.el('message-box').classList.contains('is-error'), true, code);
