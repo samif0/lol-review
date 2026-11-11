@@ -658,9 +658,13 @@ public sealed partial class VodShareWorkerTests
             await StartShareAsync(h);
             Assert.True((await StartGameAsync(h, GameId + 1)).GetProperty("accepted").GetBoolean());
             await WaitUntilAsync(() => StatusOf(h, GameId).Job?.Percent == 34 && StatusOf(h, GameId + 1).Job?.Percent == 34);
-            // Both links are out while both games are still being prepared.
-            Assert.Equal("https://revu.lol/v/aaa1111", StatusOf(h, GameId).Job!.Url);
-            Assert.Equal("https://revu.lol/v/bbb2222", StatusOf(h, GameId + 1).Job!.Url);
+            // Both links come out while both games are still being prepared. A link arrives with its upload's
+            // init, which runs beside the encode, so wait for it rather than expect it at 34%.
+            await WaitUntilAsync(() => StatusOf(h, GameId).Job?.Url is not null && StatusOf(h, GameId + 1).Job?.Url is not null);
+            Assert.Equal(("running", "preparing", "https://revu.lol/v/aaa1111"),
+                (StatusOf(h, GameId).Job!.State, StatusOf(h, GameId).Job!.Phase, StatusOf(h, GameId).Job!.Url));
+            Assert.Equal(("running", "preparing", "https://revu.lol/v/bbb2222"),
+                (StatusOf(h, GameId + 1).Job!.State, StatusOf(h, GameId + 1).Job!.Phase, StatusOf(h, GameId + 1).Job!.Url));
 
             release.SetResult();
             await WaitRetiredAsync(h);
