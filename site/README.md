@@ -54,6 +54,14 @@ every page preloads `geist.woff2`. The CSP's `font-src 'self'` covers them.
   order:
   - `vod-lib.js` (`RevuVod`): pure helpers and all the page's copy, which
     `tests/` runs directly
+  - `vod-warm.js` (`RevuVodWarm`): read-ahead for an HLS game. hls.js
+    fetches one segment at a time and each waits on the storage's first
+    byte, so the page fetches what the viewer is about to need side by
+    side into the browser's cache, where hls.js finds it: the seconds
+    around the playhead (skips both ways, 2x and 3x), the second under a
+    resting pointer on the lane, and the game's moments while the buffer
+    is full. Same token, only while loading runs, no extra play counted;
+    fewer fetches on a slow line, none on mobile data or with Save-Data
   - `vod-player.js` (`RevuVodPlayer`): which player a browser gets, the
     play token (`POST /vod-play/<id>`), the hls.js loader and the engine
   - `vod-live.js` (`RevuVodLive`): the controller for a game shared in

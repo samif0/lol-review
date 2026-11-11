@@ -242,14 +242,17 @@
       seekTo(atPointer(ev));
       showTip(ev);
     });
+    // The page may fetch the second under a resting pointer before the press (o.hover).
+    function hover(t) { if (typeof o.hover === 'function') o.hover(t); }
     track.addEventListener('pointermove', function (ev) {
       showTip(ev);
       if (dragging) seekTo(atPointer(ev));
+      else if (started() && duration() > 0) hover(seekTarget(atPointer(ev), duration(), edge()));
     });
     function endDrag() { dragging = null; }
     track.addEventListener('pointerup', endDrag);
     track.addEventListener('pointercancel', endDrag);
-    track.addEventListener('pointerleave', function () { if (o.tip && !dragging) o.tip.hidden = true; });
+    track.addEventListener('pointerleave', function () { if (o.tip && !dragging) o.tip.hidden = true; hover(null); });
 
     ['timeupdate', 'durationchange', 'loadedmetadata', 'seeked'].forEach(function (name) { video.addEventListener(name, paint); });
     ['play', 'pause', 'volumechange'].forEach(function (name) { video.addEventListener(name, glyphs); });

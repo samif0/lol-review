@@ -150,13 +150,18 @@
   /*
    * create(video, { kind: 'hlsjs'|'native', api, id, doc, fetch, online, onEdge(edge, ended), onProblem(info) })
    * info: { kind: 'limited'|'paused'|'gone'|'notready'|'offline'|'unplayable'|'unsupported', fatal, during, status }
-   * Returns { kind, begin(at), stop(), resume(at), destroy() }. Nothing is fetched before begin.
+   * Returns { kind, begin(at), stop(), resume(at), warm(spans), destroy() }. Nothing is fetched
+   * before begin.
    */
   function create(video, o) {
     var self = { kind: o.kind };
     var Hls = null, hls = null;
     var started = false, destroyed = false, want = false, sourced = false, parsed = false;
     var url = '', startAt = 0, recovered = 0, mintedAt = -Infinity, seekOnLoad = false;
+    // Read-ahead (vod-warm.js): hls.js's segment list, the segment it is fetching, and the queue.
+    var Warm = root.RevuVodWarm;
+    var warmer = Warm ? Warm.queue({ root: root, video: video, fetch: o.fetch }) : null;
+    var fragments = null, loadingUrl = '';
 
     function problem(info) { if (!destroyed) o.onProblem(info); }
 
@@ -200,6 +205,10 @@
         startAt = at;
         parsed = false;
         want = true;
+        // Every segment has a new address now: what was fetched under the old one is no use.
+        fragments = null;
+        loadingUrl = '';
+        if (warmer) warmer.reset();
         hls.loadSource(url);
         if (playing) playQuietly(video);
       }, minted);
@@ -230,8 +239,12 @@
       });
       hls.on(H.Events.LEVEL_UPDATED, function (event, data) {
         var details = data && data.details;
+        if (details && details.fragments && details.fragments.length) fragments = details.fragments;
         if (details && !destroyed) o.onEdge(edgeOf(details), details.live === false);
       });
+      // What hls.js fetches itself is in the browser's cache too: read-ahead leaves it alone.
+      if (H.Events.FRAG_LOADING) hls.on(H.Events.FRAG_LOADING, function (event, data) { loadingUrl = fragUrl(data); });
+      if (H.Events.FRAG_LOADED) hls.on(H.Events.FRAG_LOADED, function (event, data) { if (warmer) warmer.fetched(fragUrl(data)); });
       hls.on(H.Events.ERROR, onError);
       hls.attachMedia(video);
       return true;
@@ -273,10 +286,32 @@
       });
     };
 
+    function fragUrl(data) {
+      return data && data.frag ? String(data.frag.url || '') : '';
+    }
+
+    // Read-ahead (vod-warm.js): the segments that hold `spans` ([{ from, to, idle }] in video
+    // seconds) go to the browser's cache, where hls.js finds them. False while it may not run:
+    // only with hls.js, and only while loading runs. warm(null) only asks.
+    self.warm = function (spans) {
+      if (!warmer || !hls || !parsed || !want || destroyed || !fragments || !url) return false;
+      if (!spans) return true;
+      var base = url.slice(0, url.lastIndexOf('/') + 1);
+      var entries = [];
+      spans.forEach(function (span) {
+        Warm.segmentsBetween(fragments, base, span.from, span.to).forEach(function (segment) {
+          entries.push({ url: segment.url, start: segment.start, end: segment.end, idle: span.idle === true });
+        });
+      });
+      warmer.set(entries, loadingUrl);
+      return true;
+    };
+
     // Stop and start fetching (hls.js only: playlist reloads and segments).
     self.stop = function () {
       if (!want || destroyed) return;
       want = false;
+      if (warmer) warmer.stop();
       if (hls && parsed) hls.stopLoad();
     };
     self.resume = function (at) {
@@ -289,6 +324,7 @@
     self.destroy = function () {
       if (destroyed) return;
       destroyed = true;
+      if (warmer) warmer.destroy();
       if (hls) { try { hls.destroy(); } catch (e) { /* already gone */ } hls = null; }
       try { video.pause(); } catch (e) { /* nothing is playing */ }
       try { video.removeAttribute('src'); video.load(); } catch (e) { /* the element is already empty */ }
