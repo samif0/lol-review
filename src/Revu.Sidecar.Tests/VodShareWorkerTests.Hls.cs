@@ -279,6 +279,35 @@ public sealed partial class VodShareWorkerTests
     }
 
     [Fact]
+    public async Task AShareThatRanBesideAnother_RemembersNoUploadSpeed()
+    {
+        var (h, tap) = await StartHlsAsync();
+        using (h)
+        using (tap)
+        {
+            // Another game is still being prepared (as an MP4 copy) while this one uploads its segments.
+            h.Worker.EnvironmentVariable = name => name == "REVU_VOD_SHARE_HLS" ? "0" : null;
+            h.Encoder.DuringEncode = ct => Task.Delay(Timeout.Infinite, ct);
+            Assert.True((await StartGameAsync(h, GameId + 1)).GetProperty("accepted").GetBoolean());
+            await WaitUntilAsync(() => StatusOf(h, GameId + 1).Job?.Percent == 34);
+
+            h.Worker.EnvironmentVariable = _ => null;
+            h.Client.Hls.Ingest = 0.5;   // half the line each: slow for 1080p, but that is not the line's speed
+            h.Client.Hls.ActiveSeconds = 0;   // too early for the 720p switch
+            await StartShareAsync(h);
+            await WaitUntilAsync(() => StatusOf(h, GameId).Job?.State == "done");
+            await WaitUntilAsync(() => !h.Worker.SharingGameIds.Contains(GameId));
+
+            Assert.Equal("hls", StatusOf(h, GameId).Job!.Format);
+            Assert.Null(h.Memory.UplinkBytesPerSecond(await h.Worker.AccountKeyAsync()));
+            Assert.Null(StatusOf(h, GameId).PreferredQuality);
+
+            h.Worker.Cancel(GameId + 1);
+            await WaitRetiredAsync(h);
+        }
+    }
+
+    [Fact]
     public async Task AShareStoppedElsewhere_EndsTheJobWithoutADelete()
     {
         var (h, tap) = await StartHlsAsync();

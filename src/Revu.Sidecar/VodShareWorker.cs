@@ -10,8 +10,8 @@ using Revu.Core.Services;
 namespace Revu.Sidecar;
 
 /// <summary>
-/// Full-game (VOD) sharing, 4.2 (contract 7.5): one job at a time, globally. A job encodes the
-/// game's linked recording into a share copy under <c>ShareTemp</c> at the recording's frame
+/// Full-game (VOD) sharing, 4.2 (contract 7.5): up to <see cref="MaxConcurrentJobs"/> jobs at a time, one per
+/// game. A job encodes the game's linked recording into a share copy under <c>ShareTemp</c> at the recording's frame
 /// rate, uploads it in 16 MiB parts while it encodes (4.3), attaches the timeline markers and
 /// records the link in <see cref="VodShareStore"/>. The link is shown from the upload's init on
 /// (the watch page shows the upload's progress until the game is ready), so it can be sent
@@ -30,6 +30,8 @@ public sealed partial class VodShareWorker
     /// <summary>A start reuses the share sheet's status read this recent (one round trip less at Share).</summary>
     internal static readonly TimeSpan SheetStatusReuse = TimeSpan.FromSeconds(60);
     internal const long DefaultTtlSeconds = 259200;
+    /// <summary>Games that can share at the same time on this PC (the proxy allows as many uploads in progress).</summary>
+    internal const int MaxConcurrentJobs = 2;
 
     private readonly IVodShareClient _client;
     private readonly IClipUploadService _clips;
@@ -54,7 +56,8 @@ public sealed partial class VodShareWorker
     private (string Token, bool Allowed, long At)? _allowed;
     private (string Token, VodShareServerStatus Status, long At)? _sheetStatus;
     private int _prewarming;
-    private VodShareJob? _running;
+    /// <summary>The running jobs by game. Guarded by <c>_gate</c>.</summary>
+    private readonly Dictionary<long, VodShareJob> _jobs = new();
     private int _started;
 
     public VodShareWorker(
@@ -122,6 +125,10 @@ public sealed partial class VodShareWorker
         public required int Fps { get; init; }
         public required bool IncludeNotes { get; init; }
         public required CancellationTokenSource Cts { get; init; }
+        /// <summary>The disk space this job was started with (its share copy plus headroom).</summary>
+        public long DiskBytes { get; init; }
+        /// <summary>Another share ran beside this one, so its measured upload speed is not the line's. Guarded by <c>_gate</c>.</summary>
+        public bool SharedUplink { get; set; }
         public VodShareQuality Quality { get; set; }
         public string? QualityReason { get; set; }
         /// <summary>The proxy's HLS settings when this job shares as HLS segments (4.4); null for the MP4 path.</summary>
@@ -159,8 +166,25 @@ public sealed partial class VodShareWorker
     /// <summary>Enable starts (idempotent). NarrationStartup calls this after clearing ShareTemp.</summary>
     public void Start() => Interlocked.Exchange(ref _started, 1);
 
-    /// <summary>The game whose VOD is sharing now, if any. Its recording must not be deleted.</summary>
-    public long? SharingGameId { get { lock (_gate) return _running?.GameId; } }
+    /// <summary>The games whose VODs are sharing now. Their recordings must not be deleted.</summary>
+    public IReadOnlyCollection<long> SharingGameIds { get { lock (_gate) return [.. _jobs.Keys]; } }
+
+    /// <summary>
+    /// A game being shared, other than <paramref name="gameId"/>, when no further share can start beside the running
+    /// ones; null while there is room. Call under <c>_gate</c>.
+    /// </summary>
+    private long? BusyWith(long gameId)
+    {
+        long? first = null;
+        var others = 0;
+        foreach (var id in _jobs.Keys)
+        {
+            if (id == gameId) continue;
+            first ??= id;
+            others++;
+        }
+        return others >= MaxConcurrentJobs ? first : null;
+    }
 
     // ── Status ───────────────────────────────────────────────────────────────
 
@@ -231,9 +255,9 @@ public sealed partial class VodShareWorker
         long? busy;
         lock (_gate)
         {
-            if (_running is { } r && r.GameId == gameId) job = r.Status;
+            if (_jobs.TryGetValue(gameId, out var r)) job = r.Status;
             else job = _last.TryGetValue(gameId, out var last) ? last : null;
-            busy = _running is { } other && other.GameId != gameId ? other.GameId : null;
+            busy = BusyWith(gameId);
         }
         var entry = _store.Get(gameId);
         var preferred = d > 0 && signedIn ? await PreferredQualityAsync(fps, d).ConfigureAwait(false) : null;
@@ -314,7 +338,7 @@ public sealed partial class VodShareWorker
         if (Volatile.Read(ref _started) == 0) return Refuse("starting");
 
         // Starts are serialized: the checks below take seconds, and two of them must never
-        // both pass the "one job at a time" check.
+        // both take the last free job slot.
         await _startGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -322,14 +346,14 @@ public sealed partial class VodShareWorker
             VodShareJob? dying = null;
             lock (_gate)
             {
-                if (_running is { } r)
+                if (_jobs.TryGetValue(gameId, out var r))
                 {
-                    if (r.GameId != gameId) return Refuse("busy", busyGameId: r.GameId);
                     // A share the player just cancelled is still cleaning up (ffmpeg, the remote
                     // delete). Never answer "already running" for it: the new start would vanish.
                     if (r.CancelCode is null) return VodShareStartReply.AlreadyRunning();
                     dying = r;
                 }
+                else if (BusyWith(gameId) is { } other) return Refuse("busy", busyGameId: other);
             }
             if (dying is not null)
             {
@@ -337,7 +361,8 @@ public sealed partial class VodShareWorker
                 catch (TimeoutException) { return Refuse("stopping"); }
                 lock (_gate)
                 {
-                    if (_running is { } r) return r.GameId == gameId ? Refuse("stopping") : Refuse("busy", busyGameId: r.GameId);
+                    if (_jobs.ContainsKey(gameId)) return Refuse("stopping");
+                    if (BusyWith(gameId) is { } other) return Refuse("busy", busyGameId: other);
                 }
                 if (_store.Get(gameId) is { } kept) return VodShareStartReply.AlreadyShared(VodShareLinkDto.From(kept));
             }
@@ -395,7 +420,11 @@ public sealed partial class VodShareWorker
                 _logger.LogDebug(ex, "Free disk check failed for {Dir}", TempDirectory);
                 free = 0;
             }
-            if (free < VodShareQualityPolicy.DiskNeeded(decision.Quality, fps, duration)) return Refuse("disk_full");
+            // A share already running keeps the space it was started with.
+            var diskNeeded = VodShareQualityPolicy.DiskNeeded(decision.Quality, fps, duration);
+            long diskClaimed;
+            lock (_gate) diskClaimed = _jobs.Values.Sum(j => j.DiskBytes);
+            if (free - diskClaimed < diskNeeded) return Refuse("disk_full");
 
             var hls = info is { } src && HlsAllowed(status, src) ? status.Hls : null;
             var job = new VodShareJob
@@ -411,16 +440,22 @@ public sealed partial class VodShareWorker
                 Hls = hls,
                 Format = hls is null ? "mp4" : "hls",
                 SourceStartSeconds = info?.StartSeconds ?? 0,
+                DiskBytes = diskNeeded,
             };
             lock (_gate)
             {
-                _running = job;
+                if (_jobs.Count > 0)
+                {
+                    job.SharedUplink = true;
+                    foreach (var beside in _jobs.Values) beside.SharedUplink = true;
+                }
+                _jobs[gameId] = job;
                 _last.Remove(gameId);
             }
             Report(job, "running", "queued", 0);
             if (!_work.TryRun("vod-share", () => RunJobAsync(job)))
             {
-                lock (_gate) if (ReferenceEquals(_running, job)) _running = null;
+                lock (_gate) if (_jobs.TryGetValue(gameId, out var mine) && ReferenceEquals(mine, job)) _jobs.Remove(gameId);
                 job.Cts.Dispose();
                 return Refuse("closing");
             }
@@ -442,8 +477,7 @@ public sealed partial class VodShareWorker
         VodShareJob? job;
         lock (_gate)
         {
-            job = _running;
-            if (job is null || job.GameId != gameId) return false;
+            if (!_jobs.TryGetValue(gameId, out job)) return false;
             job.CancelCode ??= code;
         }
         try { job.Cts.Cancel(); }
@@ -461,7 +495,7 @@ public sealed partial class VodShareWorker
     public async Task<VodShareStopReply> StopAsync(long gameId, CancellationToken ct, bool forgetIfQueued = false)
     {
         VodShareJob? job;
-        lock (_gate) job = _running is { } r && r.GameId == gameId ? r : null;
+        lock (_gate) job = _jobs.GetValueOrDefault(gameId);
         if (job is not null && Cancel(gameId))
         {
             try { await job.Finished.Task.WaitAsync(StopWaitForJob, ct).ConfigureAwait(false); }
@@ -588,7 +622,7 @@ public sealed partial class VodShareWorker
         "needs_login" => "Sign in to share this game.",
         "live_limit" => "You already share 5 games. Stop sharing one to share this game.",
         "daily_limit" => "You've reached today's limit for shared games.",
-        "busy" => "Another game is still being shared. Try again when it finishes.",
+        "busy" => "Two games are already being shared. Try again when one finishes.",
         "starting" => "Revu is still starting. Try again in a moment.",
         "closing" => "Revu is closing. Share again after it restarts.",
         "stopping" => "Stopping the previous share. Try again in a moment.",

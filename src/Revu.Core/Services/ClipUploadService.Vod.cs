@@ -260,7 +260,7 @@ public sealed partial class ClipUploadService : IVodShareClient
         "pool_full" => "Sharing space is full right now. Try 720p, or save the file instead.",
         "live_limit" => "You already share 5 games. Stop sharing one to share this game.",
         "daily_limit" => "You've reached today's limit for shared games.",
-        "too_many_pending_uploads" => "Another game is still being shared. Try again when it finishes.",
+        "too_many_pending_uploads" => "Two games are already being shared. Try again when one finishes.",
         "rate_limited" => "Too many requests. Wait a moment and try again.",
         "payload_too_large" => "This game is too large to share, even at 720p.",
         _ => null,

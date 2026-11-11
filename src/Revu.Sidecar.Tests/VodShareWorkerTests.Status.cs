@@ -113,7 +113,7 @@ public sealed partial class VodShareWorkerTests
 
             Assert.True(status.SignedIn && status.Allowed && status.SharingOn && status.Reachable);
             Assert.Equal(new VodSharePoolDto(1_000_000_000, false, true, FakeVodClient.Now + 3600, null), status.Pool);
-            Assert.Equal(new VodShareLimitsDto(1, 3, 0, 2, 6, FakeVodClient.Now + 86_400), status.Limits);
+            Assert.Equal(new VodShareLimitsDto(1, 5, 0, 2, 6, FakeVodClient.Now + 86_400), status.Limits);
             Assert.Null(status.Share);
             Assert.Null(h.Store.Get(GameId));
         }

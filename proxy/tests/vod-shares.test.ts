@@ -43,7 +43,7 @@ describe("GET /vod-shares/status", () => {
     const now = out.now as number;
     expect(out).toMatchObject({ allowed: true, sharing: true, serving: true });
     expect(out.limits).toEqual({
-      max_bytes: 2147483648, max_seconds: 7200, ttl_seconds: 259200, max_live: 5, max_pending: 1, max_starts_per_day: 6,
+      max_bytes: 2147483648, max_seconds: 7200, ttl_seconds: 259200, max_live: 5, max_pending: 2, max_starts_per_day: 6,
       part_size: 16777216, markers_max_bytes: 49152, notes_max_bytes: 14336, daily_play_cap: 200,
     });
     expect(out.usage).toEqual({ live: 1, pending: 0, starts_today: 1, day_resets_at: nextUtcMidnight(now) });
@@ -150,20 +150,30 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
     const s = await vodSetup();
     const first = await body(await vodInitOk(s.env, OWNER));
     const row = s.db.q<{ r2_key: string; upload_id: string }>("SELECT r2_key, upload_id FROM clips WHERE id = ?1", first.id)[0];
+    // Two uploads may run at once; a third waits.
+    const second = await body(await vodInitOk(s.env, OWNER));
     expect((await vodInitOk(s.env, OWNER)).status).toBe(429);
     s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2", nowSec() - 900, first.id);
     expect((await vodInitOk(s.env, OWNER)).status).toBe(201);
     expect(s.db.q("SELECT id FROM clips WHERE id = ?1", first.id)).toHaveLength(0);
+    // The upload that is still active keeps its slot.
+    expect(s.db.q("SELECT id FROM clips WHERE id = ?1", second.id)).toHaveLength(1);
     expect(s.r2.uploads.get(row.upload_id)!.state).toBe("aborted");
     expect(s.r2.calls.deleted).toContain(row.r2_key);
   });
 
-  it("429 too_many_pending_uploads with one live upload, 409 live_limit at 5 live shares", async () => {
+  it("429 too_many_pending_uploads with two uploads in progress, 409 live_limit at 5 live shares", async () => {
     const s = await vodSetup();
-    await vodInitOk(s.env, OWNER);
+    expect((await vodInitOk(s.env, OWNER)).status).toBe(201);
+    expect((await vodInitOk(s.env, OWNER)).status).toBe(201);
+    expect((await body(await vodStatus(s.env, OWNER))).usage).toMatchObject({ live: 2, pending: 2 });
     const pending = await vodInitOk(s.env, OWNER);
     expect(pending.status).toBe(429);
-    expect((await body(pending)).error).toBe("too_many_pending_uploads");
+    expect(await body(pending)).toEqual({
+      error: "too_many_pending_uploads", message: "Two games are still uploading. Try again when one finishes.",
+    });
+    expect(s.db.q("SELECT id FROM clips")).toHaveLength(2);
+    resetUserLimits();
 
     const t = await vodSetup();
     for (let i = 0; i < 4; i++) await shareVod(t, OWNER);
@@ -284,6 +294,8 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
   it("the post-insert recount rolls back the loser of a pending race", async () => {
     const s = await vodSetup();
     const now = nowSec();
+    // One upload already runs, so one slot is left.
+    const running = (await body(await vodInitOk(s.env, OWNER))).id as string;
     // A concurrent init commits its row right after ours.
     s.db._after("INSERT INTO clips", () => {
       s.db.x(
@@ -294,8 +306,9 @@ describe("POST /vod-shares/uploads refusals, in order", () => {
     const res = await vodInitOk(s.env, OWNER);
     expect(res.status).toBe(429);
     expect((await body(res)).error).toBe("too_many_pending_uploads");
-    expect(s.db.q<{ id: string }>("SELECT id FROM clips").map((r) => r.id)).toEqual(["Racer01"]);
-    expect([...s.r2.uploads.values()].map((u) => u.state)).toEqual(["aborted"]);
+    expect(s.db.q<{ id: string }>("SELECT id FROM clips").map((r) => r.id).sort()).toEqual([running, "Racer01"].sort());
+    // The upload that already ran is untouched; only the loser's is aborted.
+    expect([...s.r2.uploads.values()].map((u) => u.state).sort()).toEqual(["aborted", "live"]);
   });
 
   it("the post-insert recount rolls back a budget overrun", async () => {
