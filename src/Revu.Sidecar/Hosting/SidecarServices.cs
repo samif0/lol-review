@@ -87,7 +87,7 @@ public static class SidecarServices
             var live = sp.GetRequiredService<LcuLiveState>();
             return new RecordingStoragePruner(AppDataPaths.RecordingsDirectory, w.Config,
                 sp.GetRequiredService<RecordingRegistrationService>(), w.RecordingLinks,
-                () => sp.GetRequiredService<VodShareWorker>().SharingGameId,
+                () => sp.GetRequiredService<VodShareWorker>().SharingGameIds,
                 // Disk-heavy deletes wait until no match is loading or playing.
                 () => live.IsGameInProgress || live.IsInChampSelect,
                 w.BackupGuard.EnsureBackedUpAsync, sp.GetRequiredService<ILogger<RecordingStoragePruner>>());

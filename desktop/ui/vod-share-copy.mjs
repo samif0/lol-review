@@ -40,7 +40,7 @@ const FALLBACK = "Sharing didn't finish. Try again.";
 
 const COPY = {
   needs_login: 'Sign in to share this game.',
-  busy: 'Another game is still being shared. Try again when it finishes.',
+  busy: 'Two games are already being shared. Try again when one finishes.',
   starting: 'Revu is still starting. Try again in a moment.',
   closing: 'Revu is closing. Share again after it restarts.',
   stopping: 'Stopping the previous share. Try again in a moment.',

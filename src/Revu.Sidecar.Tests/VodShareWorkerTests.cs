@@ -50,7 +50,7 @@ public sealed partial class VodShareWorkerTests
     /// Until the job retires. Its last event (done, error or cancelled) goes out before it deletes its temp files and
     /// retires, so a test checks ShareTemp after this, not right after the event.
     /// </summary>
-    private static Task WaitRetiredAsync(VodShareHarness h) => WaitUntilAsync(() => h.Worker.SharingGameId is null);
+    private static Task WaitRetiredAsync(VodShareHarness h) => WaitUntilAsync(() => h.Worker.SharingGameIds.Count == 0);
 
     // ── Pre-checks ───────────────────────────────────────────────────────────
 
@@ -92,9 +92,10 @@ public sealed partial class VodShareWorkerTests
             Assert.Equal("not_allowed", Code(await StartShareAsync(h)));
             h.Client.Status = () => FakeVodClient.Allowed(sharing: false);
             Assert.Equal("sharing_paused", Code(await StartShareAsync(h)));
-            h.Client.Status = () => FakeVodClient.Allowed(pending: 1, live: 3);
+            // One upload in progress on the account (another PC, say) leaves room for a second.
+            h.Client.Status = () => FakeVodClient.Allowed(pending: 2, live: 5);
             Assert.Equal("busy", Code(await StartShareAsync(h)));
-            h.Client.Status = () => FakeVodClient.Allowed(live: 3, startsToday: 6);
+            h.Client.Status = () => FakeVodClient.Allowed(live: 5, startsToday: 6);
             Assert.Equal("live_limit", Code(await StartShareAsync(h)));
             h.Client.Status = () => FakeVodClient.Allowed(startsToday: 6, freeBytes: 0);
             var daily = await StartShareAsync(h);
@@ -579,8 +580,14 @@ public sealed partial class VodShareWorkerTests
         }
     }
 
+    private static VodShareStatusDto StatusOf(VodShareHarness h, long gameId) =>
+        h.Worker.GetStatusAsync(gameId, CancellationToken.None).GetAwaiter().GetResult();
+
+    private static async Task<JsonElement> StartGameAsync(VodShareHarness h, long gameId, string quality = "1080p") =>
+        Body(await h.Worker.StartAsync(gameId, quality, false, CancellationToken.None));
+
     [Fact]
-    public async Task OneJobAtATime_AnotherGameIsBusy_TheSameGameIsAlreadyRunning()
+    public async Task TwoGamesShareAtOnce_AThirdIsBusy_TheSameGameIsAlreadyRunning()
     {
         var (h, tap) = await StartAsync();
         using (h)
@@ -588,22 +595,84 @@ public sealed partial class VodShareWorkerTests
         {
             h.Encoder.DuringEncode = ct => Task.Delay(Timeout.Infinite, ct);
             await StartShareAsync(h);
-            await WaitPhaseAsync(tap, "preparing");
-
+            await WaitEncodingAsync(h);
             Assert.True((await StartShareAsync(h)).GetProperty("alreadyRunning").GetBoolean());
-            var other = Body(await h.Worker.StartAsync(GameId + 1, "1080p", false, CancellationToken.None));
-            Assert.Equal(("busy", GameId), (Code(other), other.GetProperty("busyGameId").GetInt64()));
-            Assert.Equal(GameId, (await h.Worker.GetStatusAsync(GameId + 1, CancellationToken.None)).BusyGameId);
-            VodShareStatusDto mine = null!;
-            await WaitUntilAsync(() =>
-            {
-                mine = h.Worker.GetStatusAsync(GameId, CancellationToken.None).GetAwaiter().GetResult();
-                return mine.Job?.Percent == 34;
-            });
-            Assert.Equal(("running", "preparing", 34), (mine.Job!.State, mine.Job.Phase, mine.Job.Percent));
+            Assert.Null(StatusOf(h, GameId + 1).BusyGameId);
+
+            // The first share keeps the disk space it was started with: a second one needs its own.
+            h.FreeDisk = 3_000_000_000;
+            Assert.Equal("disk_full", Code(await StartGameAsync(h, GameId + 1)));
+            h.FreeDisk = 1_000_000_000_000;
+
+            // A second game starts beside the first, and each reports its own progress.
+            var second = await StartGameAsync(h, GameId + 1, "720p");
+            Assert.True(second.GetProperty("accepted").GetBoolean());
+            await WaitUntilAsync(() => StatusOf(h, GameId + 1).Job?.Percent == 34);
+            Assert.Equal(new[] { GameId, GameId + 1 }, h.Worker.SharingGameIds.Order());
+            Assert.Equal(2, Volatile.Read(ref h.Encoder.Running));
+            var mine = StatusOf(h, GameId);
+            Assert.Equal(("running", "preparing", 34, "1080p"), (mine.Job!.State, mine.Job.Phase, mine.Job.Percent, mine.Job.Quality));
             Assert.Null(mine.BusyGameId);
-            h.Worker.Cancel(GameId);
-            await WaitPhaseAsync(tap, "cancelled");
+            var other = StatusOf(h, GameId + 1);
+            Assert.Equal(("running", "preparing", "720p"), (other.Job!.State, other.Job.Phase, other.Job.Quality));
+            Assert.Null(other.BusyGameId);
+
+            // A third game waits while two are sharing.
+            var third = await StartGameAsync(h, GameId + 2);
+            Assert.Equal("busy", Code(third));
+            Assert.Contains(third.GetProperty("busyGameId").GetInt64(), new[] { GameId, GameId + 1 });
+            Assert.NotNull(StatusOf(h, GameId + 2).BusyGameId);
+            Assert.Equal(2, h.Encoder.Encodes.Count);
+
+            // Cancelling one leaves the other running and frees a place for the third.
+            Assert.True(h.Worker.Cancel(GameId));
+            await WaitUntilAsync(() => !h.Worker.SharingGameIds.Contains(GameId));
+            Assert.Equal("cancelled", StatusOf(h, GameId).Job!.State);
+            Assert.Equal("running", StatusOf(h, GameId + 1).Job!.State);
+            Assert.Null(StatusOf(h, GameId + 2).BusyGameId);
+            Assert.True((await StartGameAsync(h, GameId + 2)).GetProperty("accepted").GetBoolean());
+            await WaitUntilAsync(() => StatusOf(h, GameId + 2).Job?.Percent == 34);
+            Assert.Equal(new[] { GameId + 1, GameId + 2 }, h.Worker.SharingGameIds.Order());
+
+            h.Worker.Cancel(GameId + 1);
+            h.Worker.Cancel(GameId + 2);
+            await WaitRetiredAsync(h);
+            Assert.Empty(Directory.EnumerateFiles(h.TempDir));
+        }
+    }
+
+    [Fact]
+    public async Task TwoGamesSharedAtOnce_EachFinishesUnderItsOwnLink()
+    {
+        var (h, tap) = await StartAsync();
+        using (h)
+        using (tap)
+        {
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Encoder.DuringEncode = ct => release.Task.WaitAsync(ct);
+            string IdFor(string file) => Path.GetFileName(file).StartsWith($"game-{GameId}-", StringComparison.Ordinal) ? "aaa1111" : "bbb2222";
+            h.Client.InitFor = file => FakeVodClient.Started(IdFor(file));
+            h.Client.OnUpload = (file, _, _, _, _) => Task.FromResult(
+                new VodUploadResult(IdFor(file), "https://revu.lol/v/" + IdFor(file), FakeVodClient.Now + 259_200));
+
+            await StartShareAsync(h);
+            Assert.True((await StartGameAsync(h, GameId + 1)).GetProperty("accepted").GetBoolean());
+            await WaitUntilAsync(() => StatusOf(h, GameId).Job?.Percent == 34 && StatusOf(h, GameId + 1).Job?.Percent == 34);
+            // Both links are out while both games are still being prepared.
+            Assert.Equal("https://revu.lol/v/aaa1111", StatusOf(h, GameId).Job!.Url);
+            Assert.Equal("https://revu.lol/v/bbb2222", StatusOf(h, GameId + 1).Job!.Url);
+
+            release.SetResult();
+            await WaitRetiredAsync(h);
+
+            // The store first: a status read reconciles it with the proxy double, which lists no shares.
+            Assert.Equal(("aaa1111", "https://revu.lol/v/aaa1111"), (h.Store.Get(GameId)!.Id, h.Store.Get(GameId)!.Url));
+            Assert.Equal(("bbb2222", "https://revu.lol/v/bbb2222"), (h.Store.Get(GameId + 1)!.Id, h.Store.Get(GameId + 1)!.Url));
+            Assert.Equal(("done", "https://revu.lol/v/aaa1111"), (StatusOf(h, GameId).Job!.State, StatusOf(h, GameId).Job!.Url));
+            Assert.Equal(("done", "https://revu.lol/v/bbb2222"), (StatusOf(h, GameId + 1).Job!.State, StatusOf(h, GameId + 1).Job!.Url));
+            // Each game's markers went to its own upload.
+            Assert.Equal(new[] { "aaa1111", "bbb2222" }, h.Client.Markers.Select(m => m.Id).Distinct().Order());
+            Assert.Empty(Directory.EnumerateFiles(h.TempDir));
         }
     }
 
