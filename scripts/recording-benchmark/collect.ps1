@@ -52,7 +52,7 @@ try {
         } while ($added)
         $processTime = $timer.Elapsed.TotalMilliseconds
         $processRows = @($allProcesses | Where-Object {
-            $ownedIds.Contains([int]$_.ProcessId) -or $_.ProcessId -eq $PID -or $_.Name -match '^(League of Legends|revu-desktop|Revu.Sidecar|Ascent|ascent-gep|Overwolf|OverwolfBrowser|OverwolfHelper|OverwolfHelper64|obs64|obs32)\.exe$'
+            $ownedIds.Contains([int]$_.ProcessId) -or $_.ProcessId -eq $PID -or $_.Name -match '^(League of Legends|revu-desktop|Revu.Sidecar|Ascent|ascent-gep|obs64|obs32)\.exe$'
         } | ForEach-Object {
             $proc = $_
             $key = '{0}/{1}' -f $proc.ProcessId, $proc.CreationDate
