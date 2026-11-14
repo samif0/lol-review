@@ -527,21 +527,6 @@ public sealed class LcuClient : ILcuClient
         }
     }
 
-    /// <inheritdoc />
-    public async Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default)
-    {
-        try
-        {
-            await SendNoContentAsync(HttpMethod.Post, "/lol-matchmaking/v1/ready-check/decline", ct).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            _logger.LogDebug(ex, "LCU: decline ready check rejected");
-            return false;
-        }
-    }
-
     // ── Internal helper ─────────────────────────────────────────────────
 
     private async Task<JsonElement?> GetAsync(string endpoint, CancellationToken ct)

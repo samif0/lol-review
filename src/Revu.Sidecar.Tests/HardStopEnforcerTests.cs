@@ -14,6 +14,8 @@ namespace Revu.Sidecar.Tests;
 /// an enforced, tripped rule cancels the queue exactly once per tick window,
 /// records the intervention, publishes <c>hardStop</c>, and stays quiet for
 /// everything else (not enforced, overridden today, LCU refused, custom).
+/// A match that was already found is never answered: the enforcer sends the
+/// client nothing, records nothing, and shows the rule once.
 /// </summary>
 public sealed class HardStopEnforcerTests
 {
@@ -82,7 +84,6 @@ public sealed class HardStopEnforcerTests
         Assert.NotNull(snapshot.UnlockAt);
         Assert.True(snapshot.UnlockAt > NowUnix);
         Assert.Equal(1, h.Lcu.CancelCalls);
-        Assert.Equal(0, h.Lcu.DeclineCalls);
 
         // Ledger + replay + SSE.
         var counts = await h.HardStops.GetCountsAsync(0);
@@ -120,18 +121,132 @@ public sealed class HardStopEnforcerTests
     }
 
     [Fact]
-    public async Task ReadyCheck_DeclinesInsteadOfCancelling()
+    public async Task MatchFound_LeavesTheClientAlone_RecordsNothing_AndShowsTheRule()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        var (reader, sub) = h.Hub.Subscribe();
+        using var _ = sub;
+
+        var notice = await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck);
+
+        // The only thing the enforcer asked the client was which queue this is.
+        Assert.Equal(["GetLobbyQueueIdAsync"], h.Lcu.Calls);
+        Assert.Equal(0, h.Lcu.CancelCalls);
+
+        // Nothing was held, so nothing is counted on the Rules page.
+        Assert.Empty(await h.HardStops.GetCountsAsync(0));
+
+        // The player still sees the rule and the plan they wrote.
+        Assert.NotNull(notice);
+        Assert.Equal(ruleId, notice!.RuleId);
+        Assert.Equal(HardStopActions.MatchFound, notice.Action);
+        Assert.Equal("walk it off", notice.ReplacementPlan);
+        Assert.Equal(notice, h.Live.HardStop);
+        Assert.True(reader.TryRead(out var evt));
+        Assert.Equal("hardStop", evt.Type);
+        Assert.Same(notice, evt.Payload);
+    }
+
+    [Fact]
+    public async Task MatchFound_IsShownOncePerMatch()
     {
         using var h = new Harness();
         await h.InitializeAsync();
         await h.RuleAsync("max_games", "1", enforce: true);
         await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        var (reader, sub) = h.Hub.Subscribe();
+        using var _ = sub;
 
-        var snapshot = await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck);
+        // The monitor reports the same found match on every tick it stays up.
+        Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        h.Clock = h.Clock.AddSeconds(5);
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        h.Clock = h.Clock.AddSeconds(5);
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        Assert.True(reader.TryRead(out var _));
+        Assert.False(reader.TryRead(out var _));
 
-        Assert.NotNull(snapshot);
-        Assert.Equal(HardStopActions.DeclinedReadyCheck, snapshot!.Action);
-        Assert.Equal(1, h.Lcu.DeclineCalls);
+        // A later match is a new one.
+        h.Clock = h.Clock.AddSeconds(60);
+        Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        Assert.Equal(0, h.Lcu.CancelCalls);
+        Assert.Empty(await h.HardStops.GetCountsAsync(0));
+    }
+
+    [Fact]
+    public async Task MatchFound_ThenBackInQueue_CancelsTheSearch_AndTheNextMatchGetsItsOwnNotice()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+
+        Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+
+        // Someone else let the match fall through: the client is searching again.
+        h.Clock = h.Clock.AddSeconds(5);
+        var stop = await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking);
+        Assert.NotNull(stop);
+        Assert.Equal(HardStopActions.CancelledQueue, stop!.Action);
+        Assert.Equal(1, h.Lcu.CancelCalls);
+        Assert.Equal(stop, h.Live.HardStop);
+        Assert.Equal(new HardStopCounts(Held: 1, Overridden: 0), (await h.HardStops.GetCountsAsync(0))[ruleId]);
+
+        // Re-queued, and a match was found inside the same half minute.
+        h.Clock = h.Clock.AddSeconds(5);
+        var again = await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck);
+        Assert.NotNull(again);
+        Assert.Equal(HardStopActions.MatchFound, again!.Action);
+        Assert.Equal(1, h.Lcu.CancelCalls);
+    }
+
+    [Fact]
+    public async Task MatchFound_Accepted_ClearsTheNotice_ButNeverALockFromACancelledSearch()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        var (reader, sub) = h.Hub.Subscribe();
+        using var _ = sub;
+
+        Assert.NotNull(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        while (reader.TryRead(out var _)) { }
+
+        h.Enforcer.EndMatchFoundNotice(); // champ select began
+        Assert.Null(h.Live.HardStop);
+        Assert.True(reader.TryRead(out var evt));
+        Assert.Equal("hardStopCleared", evt.Type);
+        Assert.Contains(ruleId.ToString(), JsonSerializer.Serialize(evt.Payload));
+
+        // Nothing showing: nothing to clear, nothing published.
+        h.Enforcer.EndMatchFoundNotice();
+        Assert.False(reader.TryRead(out var _));
+
+        // A lock from a cancelled search is not about one match and stays.
+        h.Clock = h.Clock.AddSeconds(60);
+        var stop = await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking);
+        Assert.NotNull(stop);
+        while (reader.TryRead(out var _)) { }
+        h.Enforcer.EndMatchFoundNotice();
+        Assert.Equal(stop, h.Live.HardStop);
+        Assert.False(reader.TryRead(out var _));
+    }
+
+    [Fact]
+    public async Task MatchFound_AfterAnOverride_ShowsNothing()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        await h.Enforcer.OverrideAsync(ruleId);
+
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        Assert.Null(h.Live.HardStop);
         Assert.Equal(0, h.Lcu.CancelCalls);
     }
 
@@ -231,7 +346,6 @@ public sealed class HardStopEnforcerTests
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking));
         Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
         Assert.Equal(0, h.Lcu.CancelCalls);
-        Assert.Equal(0, h.Lcu.DeclineCalls);
         Assert.Null(h.Live.HardStop);
     }
 
@@ -323,13 +437,32 @@ public sealed class HardStopEnforcerTests
         Assert.Equal("HELD 3× THIS WEEK · OVERRIDDEN 1×", RulesSnapshotBuilder.BuildHardStopLine(new HardStopCounts(3, 1)));
     }
 
-    /// <summary>Minimal ILcuClient: counts the two hard-stop calls, answers
-    /// <see cref="Accept"/>, and stubs everything else.</summary>
+    [Fact]
+    public async Task RowsFromVersionsThatDeclinedAMatch_StillLoadAndCountAsHeld()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
+
+        // The stored value is spelled out: these rows are already on players' disks.
+        Assert.Equal("declined_ready_check", HardStopActions.DeclinedReadyCheck);
+        await h.HardStops.RecordAsync(ruleId, "declined_ready_check", "Already played 1/1 games today", NowUnix - 120);
+        await h.HardStops.RecordAsync(ruleId, HardStopActions.CancelledQueue, "Already played 1/1 games today", NowUnix - 60);
+
+        var counts = await h.HardStops.GetCountsAsync(0);
+        Assert.Equal(new HardStopCounts(Held: 2, Overridden: 0), counts[ruleId]);
+        Assert.Equal("HELD 2× THIS WEEK", RulesSnapshotBuilder.BuildHardStopLine(counts[ruleId]));
+        Assert.Empty(await h.HardStops.GetOverriddenRuleIdsAsync(0));
+    }
+
+    /// <summary>Minimal ILcuClient: counts the queue cancel, answers
+    /// <see cref="Accept"/>, names every call the enforcer makes, and stubs
+    /// everything else.</summary>
     private sealed class FakeLcu : ILcuClient
     {
         public bool Accept { get; set; } = true;
         public int CancelCalls { get; private set; }
-        public int DeclineCalls { get; private set; }
+        public List<string> Calls { get; } = [];
         public int QueueId { get; set; } = 420;
 
         public void Configure(LcuCredentials credentials) { }
@@ -337,9 +470,8 @@ public sealed class HardStopEnforcerTests
         public Task<JsonElement?> GetCurrentSummonerAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default) => Task.FromResult(GamePhase.Matchmaking);
         public Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
-        public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) { CancelCalls++; return Task.FromResult(Accept); }
-        public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) { DeclineCalls++; return Task.FromResult(Accept); }
-        public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(QueueId);
+        public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) { CancelCalls++; Calls.Add(nameof(CancelMatchmakingAsync)); return Task.FromResult(Accept); }
+        public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) { Calls.Add(nameof(GetLobbyQueueIdAsync)); return Task.FromResult(QueueId); }
         public Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default) => Task.FromResult(new List<JsonElement>());
         public Task<JsonElement?> GetMatchDetailsAsync(long gameId, CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default) => Task.FromResult<string?>(null);

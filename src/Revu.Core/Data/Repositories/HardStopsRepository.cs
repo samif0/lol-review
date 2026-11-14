@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 namespace Revu.Core.Data.Repositories;
 
 /// <summary>Per-rule hard-stop record over a window: interventions the enforcer
-/// made (queue cancelled / ready check declined) and explicit overrides.</summary>
+/// made (queue search cancelled, plus matches declined by older versions) and explicit overrides.</summary>
 public sealed record HardStopCounts(int Held, int Overridden);
 
 /// <summary>

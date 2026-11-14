@@ -10,8 +10,15 @@ public static class HardStopActions
     /// <summary>The enforcer left the matchmaking queue on the player's behalf.</summary>
     public const string CancelledQueue = "cancelled_queue";
 
-    /// <summary>A match popped inside the poll window; the enforcer declined it.</summary>
+    /// <summary>Legacy. Versions before this one declined a match that popped inside the
+    /// poll window and recorded it under this value. Nothing writes it any more, but old
+    /// rows carry it and still count as held, so the value stays.</summary>
     public const string DeclinedReadyCheck = "declined_ready_check";
+
+    /// <summary>A match was found while a rule holds. Revu does nothing to the client and
+    /// only shows the player their rule. Live snapshot only: never written to hard_stops,
+    /// because nothing was held.</summary>
+    public const string MatchFound = "match_found";
 
     /// <summary>The player explicitly overrode the rule for the rest of the day.</summary>
     public const string Override = "override";

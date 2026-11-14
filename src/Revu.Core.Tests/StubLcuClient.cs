@@ -24,7 +24,6 @@ internal sealed class StubLcuClient : ILcuClient
     public Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
     public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(420);
     public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) => Task.FromResult(true);
-    public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) => Task.FromResult(true);
     public Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default) =>
         Task.FromResult(History.ToList());
 
