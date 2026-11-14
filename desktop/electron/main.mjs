@@ -29,7 +29,6 @@ let backendCrashed = false, restartAfterFailure = false, recovering = false, aba
 // True while Windows is ending the session (logoff, restart, shutdown).
 let sessionEnding = () => false;
 const media = new MediaRegistry();
-const packageEvents = [];
 const pendingCommands = new Set();
 const commandNames = new WeakMap();
 const commandGate = createCommandGate();
@@ -49,14 +48,6 @@ const DRAG_CSS = '[data-window-drag]{-webkit-app-region:drag}[data-window-drag] 
 process.on('uncaughtException', error => hostLog.error('Uncaught exception in the main process', error));
 process.on('unhandledRejection', reason => hostLog.error('Unhandled promise rejection in the main process', reason));
 
-// This build requests no gaming packages; one that starts anyway ends the app.
-app.overwolf?.disableAnonymousAnalytics();
-for (const eventName of ['loading', 'ready', 'failed-to-initialize']) {
-  app.overwolf?.packages.on(eventName, (_event, packageName) => {
-    packageEvents.push({ event: eventName, packageName });
-    process.exitCode = 1; app.quit();
-  });
-}
 protocol.registerSchemesAsPrivileged([
   { scheme: 'revu-app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
   { scheme: 'revu-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -253,7 +244,7 @@ async function start() {
   if (process.platform === 'win32') app.setAppUserModelId(windowsAppId);
   app.setPath('userData', profile);
   app.setPath('sessionData', path.join(profile, 'session'));
-  // The runtime's own logs sit with Revu's, so "Open logs" shows everything support needs.
+  // Electron's own logs sit with Revu's, so "Open logs" shows everything support needs.
   app.setAppLogsPath(runtimeLogDirectory(dataRoot));
   if (!app.requestSingleInstanceLock()) { app.quit(); return; }
   hostLog.open(logDirectory(dataRoot));
@@ -316,8 +307,8 @@ async function start() {
     // The hardware probe runs in the background; Settings follows its status.
     void attachRecorder();
   } else recording.publish('unavailable', 'Recording is unavailable in this isolated preview.');
-  // Revu's network policy belongs to its own session; it must not intercept
-  // runtime-owned consent or package-manager windows in the default session.
+  // Revu's network policy belongs to its own session, which also keeps the
+  // UI's storage in the same partition every earlier build used.
   const appSession = session.fromPartition('persist:revu-ui');
   registerProtocols({ protocol: appSession.protocol, session: appSession, uiDirectory, media });
   window = new BrowserWindow({ width: 1600, height: 1000, minWidth: 980, minHeight: 640,
@@ -364,7 +355,7 @@ async function start() {
   if (smoke) {
     window.showInactive(); // Exercise actual painting without stealing focus.
     const { runSmoke } = await import('./smoke.mjs');
-    const result = await runSmoke(window, { dataRoot, packageEvents, media, backend, executable });
+    const result = await runSmoke(window, { dataRoot, media, backend, executable });
     await shutdown();
     await unlink(path.join(dataRoot, 'electron-smoke-error.txt')).catch(() => {});
     await writeFile(path.join(dataRoot, 'electron-smoke.json'), JSON.stringify({ ...result, ownedSidecarStopped: true }, null, 2));

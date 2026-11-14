@@ -1,7 +1,7 @@
 # Dependency updates, kept deliberately quiet: at most one grouped PR per
 # ecosystem per month, minor and patch only. Major upgrades (TypeScript, Vitest,
 # Node types, asar, workers-types...) change tooling behavior and are done by hand
-# in their own commit. The Overwolf Electron runtime and builder move only with a
+# in their own commit. The Electron runtime and builder move only with a
 # runtime upgrade (desktop/runtime), never on their own. Security updates are
 # separate: enable Dependabot alerts and security updates in repository settings.
 version: 2
@@ -45,8 +45,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "@overwolf/ow-electron"
-      - dependency-name: "@overwolf/ow-electron-builder"
+      - dependency-name: "electron"
+      - dependency-name: "electron-builder"
 
   - package-ecosystem: npm
     directory: /proxy

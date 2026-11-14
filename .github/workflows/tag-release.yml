@@ -11,7 +11,7 @@ name: Create release tag
 # pushed from a machine whose own credentials can create them (CONTRIBUTING.md).
 #
 # A tag pushed with GITHUB_TOKEN never triggers release.yml's tag push, so after
-# tagging this dispatches "Build & Release (Overwolf Electron)" on the new tag
+# tagging this dispatches "Build & Release" on the new tag
 # (workflow_dispatch is the one event GITHUB_TOKEN may start; the tag ref is
 # what the Azure code-signing federated credential trusts).
 #

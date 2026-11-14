@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { cleanRuntimeEnvironment } from '../runtime/overwolf.mjs';
+import { cleanRuntimeEnvironment } from '../runtime/electron.mjs';
 import { requireCleanBackendExit } from './shutdown.mjs';
 
 const normalize = (value) => path.resolve(value).replace(/[\\/]+$/, '').toLowerCase();

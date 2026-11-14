@@ -1,6 +1,6 @@
 # Electron desktop host
 
-Overwolf Electron is Revu's only desktop host. Build and launch from `desktop/`;
+Electron is Revu's only desktop host. Build and launch from `desktop/`;
 see the [root README](../../README.md#development) for setup and commands.
 There is one dependency lockfile at `desktop/package-lock.json`.
 
@@ -21,8 +21,8 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 - `media.mjs`: revocable media grants and byte-range playback.
 - `preload.cjs`: the sandboxed renderer API; filesystem and bearer access stay private.
 - `logging.mjs`: size-capped rolling logs under `<dataRoot>/Revu/logs` (`host.log` and a
-  copy of the sidecar's stderr; the sidecar writes `sidecar.log` there, and the Overwolf
-  runtime writes to `logs/runtime`). Settings opens this folder.
+  copy of the sidecar's stderr; the sidecar writes `sidecar.log` there, and Electron
+  itself writes to `logs/runtime`). Settings opens this folder.
 - `lifecycle.mjs` and `splash.mjs`: crash recovery (Restart Revu, Open logs, Quit), relaunch
   arguments, and the startup window shown while the sidecar starts or upgrades data.
 - `appearance.mjs`: the native mirror of the theme the shell shows (`set_window_appearance`). It
@@ -31,10 +31,8 @@ There is one dependency lockfile at `desktop/package-lock.json`.
 
 The shared command catalog is `../ui/platform/commands.mjs`. Same-origin child
 pages deliberately use the trusted top document's bridge. The renderer uses its
-own Chromium session, so its network restrictions don't affect runtime-owned
-windows. Automatic match recording, match attachment, Settings and background
-behavior use a bundled libobs helper; the ordinary build requests no gaming
-packages. Run `npm run recorder:setup` to build the native runtime. See
+own Chromium session. Automatic match recording, match attachment, Settings
+and background behavior use a bundled libobs helper. Run `npm run recorder:setup` to build the native runtime. See
 [automatic recording](RECORDING.md) for setup and remaining live validation.
 
 Built-in recording shows **Beta** when the bundled provider is available and
@@ -92,13 +90,10 @@ root and synthetic H.264/AAC fixture. Its real Chromium smoke checks rendered
 snapshots, top/iframe bridge isolation, rejected commands, duplicate sidecar
 ownership, playback/seek/refresh and graceful shutdown.
 
-No developer key is required for these tests. Synthetic playback does not prove
+Synthetic playback does not prove
 League recording, audio isolation, capture recovery or performance. Signed
 installation and upgrades still require release acceptance testing.
 
-The root dependency overrides pin fixed esbuild and HTTP redirect helpers,
-including the scoped builder helper's compatible upstream replacement. The
-remaining npm audit entries come from the builder's Linux AppImage advisory;
-this project packages Windows only. Recheck these overrides when updating the
-official Overwolf builder. The pinned rcedit helper supplies Windows branding
+The root dependency overrides pin fixed esbuild and HTTP redirect helpers.
+Recheck these overrides when updating electron-builder. The pinned rcedit helper supplies Windows branding
 without requiring administrator privileges to unpack the builder's legacy tools.
