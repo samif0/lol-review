@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { access, mkdir, mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanRuntimeEnvironment } from '../runtime/overwolf.mjs';
+import { cleanRuntimeEnvironment } from '../runtime/electron.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const executable = path.join(repository, 'artifacts/desktop-package/win-unpacked/revu-desktop.exe');

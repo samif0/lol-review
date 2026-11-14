@@ -565,7 +565,8 @@ public sealed partial class VodShareWorker
         /// <summary>
         /// Remember how fast this account's upload went (the last ingest ratio, as bytes per second of the media it
         /// carried), so a slow uplink gets 720p preselected next time. The ratio is the encoder's speed when the
-        /// encoder was the slower one, which never preselects anything.
+        /// encoder was the slower one, which never preselects anything. A share that ran beside another one measured
+        /// only its part of the line, so it remembers nothing.
         /// </summary>
         private async Task RememberUplinkAsync()
         {
@@ -573,6 +574,7 @@ public sealed partial class VodShareWorker
             double bytesPerMediaSecond;
             lock (worker._gate)
             {
+                if (job.SharedUplink) return;
                 ratio = _lastIngest;
                 bytesPerMediaSecond = _bytesPerMediaSecond;
             }

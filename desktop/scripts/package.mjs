@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import asar from '@electron/asar';
 import config from '../electron-builder.config.mjs';
-import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime/overwolf.mjs';
+import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime/electron.mjs';
 import { verifyRecorderRuntime } from '../recorder/runtime/libobs.mjs';
 import { setupRecorder } from '../recorder/scripts/setup.mjs';
 
@@ -14,7 +14,7 @@ const uiExtensions = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.png', '.
 export const bundledFonts = Object.freeze(['source-serif-4-roman', 'source-serif-4-italic', 'instrument-sans',
   'geist', 'geist-mono'].map(name => `ui/fonts/${name}.woff2`));
 const requiredAppFiles = ['package.json', 'electron/main.mjs', 'electron/preload.cjs', 'electron/libobs-recorder.mjs',
-  'electron/branding/revu.ico', 'ui/index.html', 'ui/platform/index.mjs', 'runtime/overwolf.mjs',
+  'electron/branding/revu.ico', 'ui/index.html', 'ui/platform/index.mjs', 'runtime/electron.mjs',
   'ui/appearance.css', ...bundledFonts];
 // Electron fuse wire v1 (@electron/fuses): sentinel, version byte, length byte, then one
 // ASCII '0'/'1' per fuse. Each packaged build must carry the states electron-builder.config.mjs sets.
@@ -28,7 +28,7 @@ export const ffmpegNotices = Object.freeze(['README.txt', 'COPYING.GPLv3.txt', '
 export function isAppFile(relative) {
   if (relative.includes('\\') || relative.split('/').some(part => !part || part.startsWith('.'))) return false;
   if (/\.(?:test|spec|local)\./i.test(relative)) return false;
-  if (relative === 'package.json' || relative === 'runtime/overwolf.mjs'
+  if (relative === 'package.json' || relative === 'runtime/electron.mjs'
       || relative === 'electron/branding/revu.ico') return true;
   if (/^electron\/[^/]+\.(mjs|cjs)$/.test(relative)) return true;
   if (!/^ui\/(?:[^/]+|(?:fonts|platform)\/[^/]+)$/.test(relative)) return false;
@@ -45,7 +45,7 @@ async function copyRegular(source, destination) {
 }
 
 export async function stageApp(root, destination) {
-  const files = ['package.json', 'runtime/overwolf.mjs', 'electron/branding/revu.ico'];
+  const files = ['package.json', 'runtime/electron.mjs', 'electron/branding/revu.ico'];
   for (const directory of ['electron', 'ui', 'ui/fonts', 'ui/platform']) {
     const source = path.join(root, directory);
     if (!(await lstat(source)).isDirectory()) throw new Error(`Packaging requires a real directory: ${source}`);
@@ -60,8 +60,7 @@ export async function stageApp(root, destination) {
     if (!unique.includes(relative)) throw new Error(`Missing required app file: ${relative}`);
   }
   const manifest = JSON.parse(await readFile(path.join(destination, 'package.json'), 'utf8'));
-  if (manifest.main !== 'electron/main.mjs' || !Array.isArray(manifest.overwolf?.packages)
-      || manifest.overwolf.packages.length !== 0) throw new Error('Unexpected desktop entry or gaming package activation');
+  if (manifest.main !== 'electron/main.mjs') throw new Error('Unexpected desktop entry');
   return unique;
 }
 
@@ -116,8 +115,7 @@ export async function verifyPackage(directory, { verifyRecorder = verifyRecorder
   }
   for (const item of requiredAppFiles) if (!files.has(item)) throw new Error(`Missing packaged app file: ${item}`);
   const manifest = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8'));
-  if (manifest.main !== 'electron/main.mjs' || manifest.overwolf?.packages?.length !== 0)
-    throw new Error('Packaged manifest changed its entry or enabled gaming packages');
+  if (manifest.main !== 'electron/main.mjs') throw new Error('Packaged manifest changed its entry');
   await verifyFuses(path.join(directory, 'revu-desktop.exe'));
   await verifyRecorder(path.join(directory, 'recorder'));
   if (await isRegularFile(path.join(directory, 'ffmpeg.exe'))) {
@@ -173,11 +171,11 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
   const runtime = inspectRuntime({ root });
   if (!runtime.installed) throw new Error('Run npm run runtime:install before packaging.');
   const require = createRequire(path.join(root, 'package.json'));
-  const builderPackage = require.resolve('@overwolf/ow-electron-builder/package.json');
+  const builderPackage = require.resolve('electron-builder/package.json');
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const installedBuilder = JSON.parse(await readFile(builderPackage, 'utf8'));
-  if (installedBuilder.version !== manifest.devDependencies?.['@overwolf/ow-electron-builder'])
-    throw new Error('Installed Overwolf builder does not match the desktop pin.');
+  if (installedBuilder.version !== manifest.devDependencies?.['electron-builder'])
+    throw new Error('Installed electron-builder does not match the desktop pin.');
   const repository = path.resolve(root, '..');
   // Release builds use the same pinned, source-accompanied recorder setup as local builds.
   // Missing C++ tools, failed downloads, unexpected modules or bad hashes fail packaging.

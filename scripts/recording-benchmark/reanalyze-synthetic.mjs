@@ -30,7 +30,7 @@ const corrected = original.map(result => {
     resourceCoverage: { rawSamples: rows.length, activeSamples: active.length, qualified: active.length >= 5, approximateUtcBoundaries: approximate,
       note: 'Post-exit and >3s acquisition rows excluded; common active-owner window. Historical boundaries approximated from progress-file creation/final write, with 2s startup and 500ms tail margins. Diagnostic only, not a game performance benchmark.' },
     resources: resourceSummary(active), media, ffmpegProgress: { frames: progressLast('frame'), duplicates: progressLast('dup_frames'), drops: progressLast('drop_frames'),
-      note: 'FFmpeg pipeline progress counters on generated input, not Overwolf render/output skip counters.' } };
+      note: 'FFmpeg pipeline progress counters on generated input, not the recorder's render/output skip counters.' } };
 });
 writeFileSync(path.join(root, 'results-reanalyzed.json'), JSON.stringify(corrected, null, 2));
 console.log(JSON.stringify(corrected.map(r => ({ name: r.name, samples: r.resourceCoverage.activeSamples, cpu: r.resources.ownedCpuPercentMachine.mean,

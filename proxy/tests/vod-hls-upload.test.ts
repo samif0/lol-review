@@ -122,6 +122,8 @@ describe("POST /vod-shares/uploads?format=hls", () => {
   it("counts toward the pending limit; a paused share holds its slot, an idle one is settled by the next start", async () => {
     const s = await hlsSetup();
     const id = await liveShare(s, 4);
+    // A second share may upload beside it; a third waits.
+    expect((await hlsInit(s.env, OWNER)).status).toBe(201);
     expect((await hlsInit(s.env, OWNER)).status).toBe(429);
     expect((await pause(s.env, id)).status).toBe(200);
     s.db.x("UPDATE clips SET last_activity_at = ?1 WHERE id = ?2", nowSec() - 3600, id);

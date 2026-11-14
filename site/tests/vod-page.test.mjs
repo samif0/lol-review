@@ -452,8 +452,8 @@ test('the page is unlisted, has no video card or inline script, and offers a rep
     assert.match(html, new RegExp(`<link rel="stylesheet" href="${asset}" />`));
   }
   const order = [...html.matchAll(/<script src="\/([\w.-]+)" defer><\/script>/g)].map(m => m[1]);
-  assert.deepEqual(order, ['vod-lib.js', 'review-notes.js', 'review-notes-ui.js', 'vod-ink.js', 'vod-controls.js', 'vod-player.js',
-    'vod-live.js', 'vod-side.js', 'vod.js'], 'every helper loads before the page script that uses it');
+  assert.deepEqual(order, ['vod-lib.js', 'review-notes.js', 'review-notes-ui.js', 'vod-ink.js', 'vod-controls.js', 'vod-warm.js',
+    'vod-player.js', 'vod-live.js', 'vod-side.js', 'vod.js'], 'every helper loads before the page script that uses it');
   assert.doesNotMatch(html, /<script\b(?![^>]*\bsrc=)[^>]*>/);
   for (const tag of html.match(/<[^>]+>/g)) assert.doesNotMatch(tag, /\son[a-z]+\s*=/i, tag);
   assert.doesNotMatch(html, /(?:href|src)="(?!\/|https:\/\/)[^"]*"/, 'every local path is absolute (the page is served at /v/<id>)');

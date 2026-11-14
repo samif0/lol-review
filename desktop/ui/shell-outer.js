@@ -316,6 +316,11 @@ wireWindowControls();
 // (fresh enforcement → modal, window brought to the front) and by the liveState
 // replay (reload mid-lockout → bar only, so the lock survives navigation).
 //
+// A match that was already found is different (action 'match_found'): Revu did
+// nothing to the League client, because answering it is the player's call. The
+// same card shows the rule and the plan inside Revu, and the window is NOT
+// brought forward, so it never covers the client's Accept and Decline buttons.
+//
 // Deliberately NOT a form. The player set the rule while calm; this surface only
 // shows them the plan they wrote for this moment and a countdown. OK collapses it
 // to the bar. "Queue anyway" is the one escape hatch and it only unlocks after a
@@ -323,6 +328,17 @@ wireWindowControls();
 // silences that rule for the rest of the day; the Rules page counts it.
 // Every server string goes through textContent.
 const HARDSTOP_HOLD_S = 5 * 60;
+const HARDSTOP_COPY = {
+  cancelled: {
+    head: 'Revu cancelled your queue.',
+    foot: 'Take five minutes before choosing to override. Revu keeps cancelling the queue until your rule unlocks or you override it.',
+  },
+  matchFound: {
+    head: 'A match was found. Revu left it for you to answer.',
+    foot: 'Revu never accepts or declines a match for you. If you end up back in queue, Revu cancels the search until your rule unlocks or you override it.',
+  },
+};
+const isMatchFound = (s) => !!s && s.action === 'match_found';
 const hardStop = { snap: null, holdStartedAt: 0, timer: null };
 const hsEl = (id) => document.getElementById(id);
 
@@ -371,12 +387,11 @@ function fillHardStop(s) {
     if (s.hasPlan && s.replacementPlan) { planT.textContent = s.replacementPlan; plan.hidden = false; }
     else plan.hidden = true;
   }
+  const copy = isMatchFound(s) ? HARDSTOP_COPY.matchFound : HARDSTOP_COPY.cancelled;
   const h = hsEl('hardstop-h');
-  if (h) {
-    h.textContent = s.action === 'declined_ready_check'
-      ? 'Revu declined the match.'
-      : 'Revu cancelled your queue.';
-  }
+  const foot = hsEl('hardstop-foot');
+  if (h) h.textContent = copy.head;
+  if (foot) foot.textContent = copy.foot;
   tickHardStop();
 }
 
@@ -413,6 +428,7 @@ function stopHardStopTimer() {
 }
 
 // fresh=true: a new enforcement just happened (modal + bring forward, new hold).
+// A found match also opens the modal, but leaves the window where it is.
 // fresh=false: replayed from liveState — bar only, no window grab, no hold reset.
 function showHardStop(snap, fresh) {
   if (!snap || !hardStopHolds(snap)) return;
@@ -425,7 +441,7 @@ function showHardStop(snap, fresh) {
   if (fresh) {
     if (modal) modal.hidden = false;
     if (bar) bar.hidden = true;
-    bringShellForward();
+    if (!isMatchFound(snap)) bringShellForward();
     const ok = hsEl('hardstop-ok');
     if (ok) { try { ok.focus(); } catch (_) { /* ignore */ } }
   } else {
@@ -713,8 +729,8 @@ async function wireLiveAutoShow() {
           leaveLiveSurface();
         }
         break;
-      // v3.7 hard stop: a fresh enforcement takes the screen; an override
-      // (from any surface) clears it.
+      // v3.7 hard stop: a fresh enforcement takes the screen (a found match only
+      // shows inside Revu); an override (from any surface) clears it.
       case 'hardStop': showHardStop(p, true); break;
       case 'hardStopOverridden': clearHardStop(); break;
       // 3.14.1: the lock no longer holds (a counted game turned out to be a remake).

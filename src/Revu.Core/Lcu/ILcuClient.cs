@@ -47,17 +47,11 @@ public interface ILcuClient
     /// v3.7 (hard stop): leave the matchmaking queue — the same request the
     /// client's own Cancel button makes (DELETE /lol-lobby/v2/lobby/matchmaking/search).
     /// Acts only on the user's own client; touches no game data. Returns false
-    /// when the LCU rejects it (already out of queue, etc.).
+    /// when the LCU rejects it (already out of queue, etc.). This is the only
+    /// request Revu makes that changes anything in the client. There is no call
+    /// that answers a found match: accepting or declining stays with the player.
     /// </summary>
     Task<bool> CancelMatchmakingAsync(CancellationToken ct = default);
-
-    /// <summary>
-    /// v3.7 (hard stop): decline a pending ready check
-    /// (POST /lol-matchmaking/v1/ready-check/decline). Used only when a match pops
-    /// inside the monitor's poll window before the search could be cancelled.
-    /// Returns false when the LCU rejects it.
-    /// </summary>
-    Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default);
 
     /// <summary>
     /// Get the queue ID from the current lobby/session. Returns -1 if unavailable.

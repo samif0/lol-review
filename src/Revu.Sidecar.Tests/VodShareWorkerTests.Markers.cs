@@ -92,9 +92,8 @@ public sealed partial class VodShareWorkerTests
             var entry = h.Store.Get(GameId)!;
             Assert.Equal(("vod1234", true), (entry.Id, entry.MarkersAttached));
             Assert.Equal(1, Volatile.Read(ref builds));
-            // The job is over: another game can be shared.
-            await WaitUntilAsync(() =>
-                h.Worker.GetStatusAsync(GameId + 1, CancellationToken.None).GetAwaiter().GetResult().BusyGameId is null);
+            // The job is over: it no longer holds a place.
+            await WaitRetiredAsync(h);
         }
     }
 

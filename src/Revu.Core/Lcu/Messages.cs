@@ -85,6 +85,7 @@ public sealed record LcuConnectionChangedMessage(bool IsConnected);
 /// holds, not just on the transition, so a player who re-queues straight after an
 /// enforced cancel is caught again. The monitor only reports "in queue right now";
 /// the sidecar's HardStopEnforcer owns the decision (it needs the rules and
-/// today's games) and the LCU cancel.
+/// today's games) and the LCU cancel. It cancels only a search: a found match
+/// is never answered for the player.
 /// </summary>
 public sealed record QueueDetectedMessage(GamePhase Phase);

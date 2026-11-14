@@ -16,6 +16,14 @@ namespace Revu.Sidecar;
 /// plan they wrote for this moment.
 ///
 /// <para>
+/// A match that has already been found is never answered. Accepting or declining
+/// it affects the other players in that lobby, so that choice stays with the
+/// player: in <see cref="GamePhase.ReadyCheck"/> the enforcer makes no request
+/// that changes the client, records nothing, and only publishes the rule and the
+/// plan as a notice (<see cref="HardStopActions.MatchFound"/>), once per match.
+/// </para>
+///
+/// <para>
 /// The point is that nothing is asked of the player in the moment. The rule was
 /// chosen in advance; the app holds it. A tripped rule without <c>enforce</c>
 /// still behaves exactly as before (a label on the Rules page).
@@ -23,9 +31,9 @@ namespace Revu.Sidecar;
 ///
 /// <para>
 /// Scope and safety: acts only on the user's own client through the LCU Revu
-/// already talks to; reads no game data; never dodges a champ select (that
-/// costs LP — once the player is past the ready check the stop is over for
-/// this game), and never touches a queue that is not ranked (ARAM, normals
+/// already talks to; reads no game data; never answers a found match and never
+/// dodges a champ select (once a match is found the stop is over for this
+/// game), and never touches a queue that is not ranked (ARAM, normals
 /// and other casual modes always proceed). Every decision comes from <see cref="HardStopPolicy"/> (pure)
 /// over the same live check the Rules page runs. An override written through
 /// <see cref="OverrideAsync"/> silences the rule for the rest of the local day.
@@ -39,6 +47,11 @@ public sealed class HardStopEnforcer
     /// matters when the cancel call itself was slow.</summary>
     private static readonly TimeSpan Debounce = TimeSpan.FromSeconds(3);
 
+    /// <summary>The monitor reports a found match on every tick it stays on screen.
+    /// One notice per match: later ticks inside this window are the same match. A
+    /// tick that sees the client searching again ends the window early.</summary>
+    private static readonly TimeSpan MatchFoundNoticeWindow = TimeSpan.FromSeconds(30);
+
     private readonly IRulesRepository _rules;
     private readonly IGameRepository _games;
     private readonly IHardStopsRepository _hardStops;
@@ -50,6 +63,10 @@ public sealed class HardStopEnforcer
 
     private readonly object _gate = new();
     private DateTimeOffset _lastActionAt = DateTimeOffset.MinValue;
+    private DateTimeOffset _matchFoundNoticeAt = DateTimeOffset.MinValue;
+    // Bumped when champ select begins, so a notice still being decided for the
+    // match that was just accepted is dropped instead of shown late.
+    private long _matchGeneration;
     private bool _busy;
 
     public HardStopEnforcer(
@@ -76,17 +93,26 @@ public sealed class HardStopEnforcer
     /// Evaluate the enforced rules against today's games and, if one holds, act.
     /// Returns the snapshot that was published, or null when the queue may proceed
     /// (nothing enforced, nothing tripped, overridden today, debounced, or the LCU
-    /// rejected the cancel).
+    /// rejected the cancel). While the client is searching, acting means cancelling
+    /// the search. Once a match is found, acting means showing the notice and
+    /// nothing else.
     /// </summary>
     public async Task<HardStopSnapshot?> HandleQueueAsync(GamePhase phase, CancellationToken ct = default)
     {
         if (phase is not (GamePhase.Matchmaking or GamePhase.ReadyCheck)) return null;
+        var matchFound = phase == GamePhase.ReadyCheck;
+        long generation;
 
         lock (_gate)
         {
+            // Searching again: the next found match is a new one and gets its own notice.
+            if (!matchFound) _matchFoundNoticeAt = DateTimeOffset.MinValue;
             if (_busy) return null;
-            if (_clock() - _lastActionAt < Debounce) return null;
+            var tick = _clock();
+            if (tick - _lastActionAt < Debounce) return null;
+            if (matchFound && tick - _matchFoundNoticeAt < MatchFoundNoticeWindow) return null;
             _busy = true;
+            generation = _matchGeneration;
         }
 
         try
@@ -104,16 +130,31 @@ public sealed class HardStopEnforcer
                 return null;
             }
 
-            var action = phase == GamePhase.ReadyCheck
-                ? HardStopActions.DeclinedReadyCheck
-                : HardStopActions.CancelledQueue;
+            if (matchFound)
+            {
+                // The match is the player's to answer. No request goes to the client
+                // and nothing is recorded, because nothing was held.
+                var foundAt = _clock();
+                var notice = BuildSnapshot(decision, HardStopActions.MatchFound, foundAt);
+                lock (_gate)
+                {
+                    // Champ select began while this was being decided: the match is
+                    // no longer waiting for an answer.
+                    if (generation != _matchGeneration) return null;
+                    _matchFoundNoticeAt = foundAt;
+                    _liveState.SetHardStop(notice);
+                    _eventHub.Publish("hardStop", notice);
+                }
+                _logger.LogInformation("Hard stop: a match was found while rule '{Rule}' holds ({Reason}); left for the player to answer",
+                    decision.Rule.Name, decision.Reason);
+                return notice;
+            }
 
-            var ok = phase == GamePhase.ReadyCheck
-                ? await _lcu.DeclineReadyCheckAsync(ct).ConfigureAwait(false)
-                : await _lcu.CancelMatchmakingAsync(ct).ConfigureAwait(false);
+            const string action = HardStopActions.CancelledQueue;
+            var ok = await _lcu.CancelMatchmakingAsync(ct).ConfigureAwait(false);
             if (!ok)
             {
-                // Match already accepted / already out of queue — nothing to hold.
+                // Already out of queue: nothing to hold.
                 _logger.LogInformation("Hard stop: LCU rejected {Action} for rule {RuleId} ({Reason})",
                     action, decision.Rule.Id, decision.Reason);
                 return null;
@@ -122,16 +163,7 @@ public sealed class HardStopEnforcer
             var now = _clock();
             lock (_gate) _lastActionAt = now;
 
-            var snapshot = new HardStopSnapshot(
-                RuleId: decision.Rule.Id,
-                RuleName: decision.Rule.Name,
-                Reason: decision.Reason,
-                ConditionCue: RulesSnapshotBuilder.ConditionText(decision.Rule.RuleType, decision.Rule.ConditionValue),
-                ReplacementPlan: decision.Rule.ReplacementPlan,
-                HasPlan: !string.IsNullOrWhiteSpace(decision.Rule.ReplacementPlan),
-                Action: action,
-                UnlockAt: decision.UnlockAt,
-                At: now.ToUnixTimeSeconds());
+            var snapshot = BuildSnapshot(decision, action, now);
 
             try
             {
@@ -162,6 +194,41 @@ public sealed class HardStopEnforcer
         {
             lock (_gate) _busy = false;
         }
+    }
+
+    private static HardStopSnapshot BuildSnapshot(HardStopDecision decision, string action, DateTimeOffset at) =>
+        new(
+            RuleId: decision.Rule.Id,
+            RuleName: decision.Rule.Name,
+            Reason: decision.Reason,
+            ConditionCue: RulesSnapshotBuilder.ConditionText(decision.Rule.RuleType, decision.Rule.ConditionValue),
+            ReplacementPlan: decision.Rule.ReplacementPlan,
+            HasPlan: !string.IsNullOrWhiteSpace(decision.Rule.ReplacementPlan),
+            Action: action,
+            UnlockAt: decision.UnlockAt,
+            At: at.ToUnixTimeSeconds());
+
+    /// <summary>
+    /// The player accepted the found match and champ select began: they chose to
+    /// play, so the notice goes away, and the next found match gets its own. A
+    /// lock from a cancelled search is a different thing and stays until it is
+    /// overridden or stops holding. A match the player declines or lets time out
+    /// does not come through here: the rule still holds, so the card stays as the
+    /// lock, with the plan and the override, like one from a cancelled search.
+    /// </summary>
+    public void EndMatchFoundNotice()
+    {
+        HardStopSnapshot? current;
+        lock (_gate)
+        {
+            _matchGeneration++;
+            _matchFoundNoticeAt = DateTimeOffset.MinValue;
+            current = _liveState.HardStop;
+            if (current is null || current.Action != HardStopActions.MatchFound) return;
+            _liveState.SetHardStop(null);
+            _eventHub.Publish("hardStopCleared", new { ruleId = current.RuleId });
+        }
+        _logger.LogInformation("Hard stop: the found match was accepted; notice for rule {RuleId} cleared", current.RuleId);
     }
 
     /// <summary>

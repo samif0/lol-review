@@ -124,6 +124,8 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
 
     public void Receive(ChampSelectStartedMessage m)
     {
+        // The found match was accepted: a notice about it is over.
+        _hardStop.EndMatchFoundNotice();
         var sessionKey = _liveState.BeginChampSelect(m.MyChampion, m.EnemyLaner, m.MyPosition, m.ParticipantMapJson);
         _eventHub.Publish("champSelectStarted", new
         {
@@ -172,7 +174,7 @@ public sealed partial class SidecarGameFlowCoordinator : IHostedService,
     public void Receive(QueueDetectedMessage m)
     {
         // Off the messenger thread: the decision reads rules + today's games and
-        // may call the LCU. The enforcer debounces + serializes itself, so the
+        // may cancel the queue search. The enforcer debounces + serializes itself, so the
         // per-tick re-sends while the phase holds are cheap when nothing trips.
         var phase = m.Phase;
         _backgroundWork.TryRun("queue hard stop", () => _hardStop.HandleQueueAsync(phase));

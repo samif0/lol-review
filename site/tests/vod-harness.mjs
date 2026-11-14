@@ -11,8 +11,8 @@ export const html = read('vod.html');
 // ink and controls (the canvas and the reviewer transport) are checked for their rules here but not
 // run: this DOM has no canvas or SVG, and the page works without them.
 export const sources = { lib: read('vod-lib.js'), ink: read('vod-ink.js'), controls: read('vod-controls.js'),
-  player: read('vod-player.js'), live: read('vod-live.js'), notes: read('review-notes.js'), notesUi: read('review-notes-ui.js'),
-  side: read('vod-side.js'), page: read('vod.js') };
+  warm: read('vod-warm.js'), player: read('vod-player.js'), live: read('vod-live.js'), notes: read('review-notes.js'),
+  notesUi: read('review-notes-ui.js'), side: read('vod-side.js'), page: read('vod.js') };
 // The tests swap the real pin (empty until hls.js is vendored) for this one; the fake loader checks it.
 export const TEST_INTEGRITY = `sha384-${'A'.repeat(64)}`;
 const PIN = /var HLS_INTEGRITY = '[^']*';/;
@@ -37,6 +37,9 @@ export const NOW = Date.UTC(2026, 9, 14, 12);
 export const NOW_S = NOW / 1000;
 export const token = n => `${NOW_S + 43200}.${`tok${n}`.padEnd(22, 'x')}`;
 export const playlist = n => `https://clips.revu.lol/vod-hls/Abc1234/${token(n)}/index.m3u8`;
+// hls.js's list of a game's segments, two seconds each, under token n.
+export const segmentUrl = (n, seq) => `https://clips.revu.lol/vod-hls/Abc1234/${token(n)}/${seq}.m4s`;
+export const fragments = (count, n = 1) => Array.from({ length: count }, (unused, seq) => ({ start: seq * 2, duration: 2, url: segmentUrl(n, seq) }));
 
 export const DOC = { version: 1, gameTimeAtVideoStart: 0,
   game: { champion: 'Jinx', opponentChampion: 'Caitlyn', role: 'BOTTOM', result: 'win', durationS: 1000, playedAt: '2026-10-12' },
@@ -149,19 +152,23 @@ export function fakeHlsClass(win) {
     stopLoad() { this.calls.push(['stopLoad']); }
     recoverMediaError() { this.calls.push(['recoverMediaError']); }
     destroy() { this.calls.push(['destroy']); this.destroyed = true; }
-    level(edge, live = true) { this.emit(FakeHls.Events.LEVEL_UPDATED, { level: 0, details: { edge, totalduration: edge, live, targetduration: 6 } }); }
+    // `list`: the playlist's segments (fragments()), as hls.js keeps them on the level's details.
+    level(edge, live = true, list) {
+      this.emit(FakeHls.Events.LEVEL_UPDATED, { level: 0, details: { edge, totalduration: edge, live, targetduration: 6, ...(list ? { fragments: list } : {}) } });
+    }
     fail(type, fatal, code, details = 'fragLoadError') {
       this.emit(FakeHls.Events.ERROR, { type, details, fatal, response: code === undefined ? undefined : { code, text: '' } });
     }
     last() { return this.calls[this.calls.length - 1]; }
   }
-  FakeHls.Events = { MANIFEST_PARSED: 'hlsManifestParsed', LEVEL_UPDATED: 'hlsLevelUpdated', ERROR: 'hlsError' };
+  FakeHls.Events = { MANIFEST_PARSED: 'hlsManifestParsed', LEVEL_UPDATED: 'hlsLevelUpdated', ERROR: 'hlsError',
+    FRAG_LOADING: 'hlsFragLoading', FRAG_LOADED: 'hlsFragLoaded' };
   FakeHls.ErrorTypes = { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError', OTHER_ERROR: 'otherError' };
   return FakeHls;
 }
 
 function response(status, body) {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
+  return { ok: status >= 200 && status < 300, status, json: async () => body, arrayBuffer: async () => new ArrayBuffer(Number(body && body.bytes) || 0) };
 }
 
 /*
@@ -216,6 +223,8 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
       if (route === undefined && method === 'POST' && path === '/vod-play/Abc1234') {
         route = () => { mints += 1; return { token: token(mints), expires_at: NOW_S + 43200 }; };
       }
+      // A segment (read-ahead fetches them; hls.js here is a fake): 'GET segment' answers them all.
+      if (route === undefined && method === 'GET' && /^\/vod-hls\/Abc1234\/[^/]+\/\d+\.m4s$/.test(path)) route = routes['GET segment'] ?? {};
       const reply = typeof route === 'function' ? route({ now, method, path }) : route;
       if (reply instanceof Error) throw reply;
       if (reply === undefined || reply === null) return response(404, { error: 'not_found' });
@@ -227,7 +236,7 @@ export function openPage({ routes = {}, browser = 'chrome', pinned = true, hlsLo
   vm.createContext(context);
   assert.equal(sources.player.match(new RegExp(PIN.source, 'g'))?.length, 1, 'vod-player.js has one HLS_INTEGRITY pin');
   const player = sources.player.replace(PIN, `var HLS_INTEGRITY = '${pinned ? TEST_INTEGRITY : ''}';`);
-  for (const code of [sources.lib, sources.notes, sources.notesUi, player, sources.live, sources.side, sources.page]) vm.runInContext(code, context);
+  for (const code of [sources.lib, sources.notes, sources.notesUi, sources.warm, player, sources.live, sources.side, sources.page]) vm.runInContext(code, context);
   const $ = id => document.byId.get(id);
 
   // Moves the fake clock on, running every timer that comes due, in order.

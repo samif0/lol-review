@@ -115,11 +115,31 @@ function fakePage({ width = 1600, height = 900 } = {}) {
 
 function transport({ ink = null, started = true } = {}) {
   const run = fakePage();
-  Object.assign(run, { started, edge: null, starts: 0 });
+  Object.assign(run, { started, edge: null, starts: 0, hovers: [] });
   run.handle = Controls.attach({ doc: run.doc, video: run.video, deck: run.deck, bar: run.bar, track: run.track, fill: run.fill,
-    playhead: run.playhead, tip: run.tip, ink, length: () => 1000, edge: () => run.edge, started: () => run.started, start: () => { run.starts += 1; } });
+    playhead: run.playhead, tip: run.tip, ink, length: () => 1000, edge: () => run.edge, started: () => run.started, start: () => { run.starts += 1; },
+    hover: t => run.hovers.push(t) });
   return run;
 }
+
+test('the lane tells the page the second under a hovering pointer, for read-ahead, and when it leaves', () => {
+  const run = transport({ started: false });
+  run.pointer(run.track, 'pointermove', 500);
+  assert.deepEqual(run.hovers, [], 'nothing can be fetched before the first play');
+  run.started = true;
+  run.pointer(run.track, 'pointermove', 500);
+  run.pointer(run.track, 'pointermove', 900);
+  assert.deepEqual(run.hovers, [500, 900]);
+  run.edge = 120;
+  run.pointer(run.track, 'pointermove', 900);
+  assert.deepEqual(run.hovers, [500, 900, 119.5], 'where a press would land: not past the uploaded edge');
+  run.pointer(run.track, 'pointerleave', 900);
+  assert.deepEqual(run.hovers, [500, 900, 119.5, null]);
+  run.edge = null;
+  run.drag(run.track, [[100, 0], [300, 0], [600, 0]]);
+  assert.deepEqual(run.hovers, [500, 900, 119.5, null], 'a drag seeks; the seek itself asks for what is around it');
+  assert.equal(run.video.currentTime, 600);
+});
 
 function inkPage(size) {
   const run = fakePage(size);

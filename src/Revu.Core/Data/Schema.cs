@@ -1187,8 +1187,8 @@ public static class Schema
     /// <summary>
     /// v3.7 (schema v14): hard stops. A rule with <c>enforce = 1</c> is not just
     /// displayed when it trips — while it is tripped the sidecar cancels the
-    /// League client's own matchmaking queue (and declines a ready check that
-    /// pops inside the poll window). Each intervention is one row here, as is
+    /// League client's own matchmaking queue search (older versions also declined
+    /// a match that popped inside the poll window; those rows remain). Each intervention is one row here, as is
     /// each explicit override, so the Rules page can show "HELD 3× · OVERRIDDEN
     /// 1×" and the enforcer can honor an override for the rest of the day.
     /// Behavioral record only — nothing here is a score.
