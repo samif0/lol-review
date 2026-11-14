@@ -35,8 +35,7 @@ own Chromium session, so its network restrictions don't affect runtime-owned
 windows. Automatic match recording, match attachment, Settings and background
 behavior use a bundled libobs helper; the ordinary build requests no gaming
 packages. Run `npm run recorder:setup` to build the native runtime. See
-[automatic recording](RECORDING.md) for setup and remaining live validation. Separate manual
-diagnostics remain in `../overwolf-probes/`.
+[automatic recording](RECORDING.md) for setup and remaining live validation.
 
 Built-in recording shows **Beta** when the bundled provider is available and
 stays off until you enable it. The provider automatically detects NVIDIA NVENC,

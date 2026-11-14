@@ -53,14 +53,14 @@ test('staging copies the canonical app and rejects tests, output, private files 
     'electron/.local/credentials.json', 'electron/package.json', 'ui/dist/index.html', 'ui/.env',
     'ui/private.json', 'ui/node_modules/test.js', 'ui/fonts/Inter.ttf', 'ui/fonts/notes.md', 'ui/fonts/Inter.woff',
     'ui/fonts/extra/x.woff2', 'runtime/test/host.test.mjs',
-    'overwolf-probes/src/main.ts', 'node_modules/dependency/index.js']) await file(source, name, 'must not ship');
+    'tools/src/main.ts', 'node_modules/dependency/index.js']) await file(source, name, 'must not ship');
   const copied = await stageApp(source, stage);
   // The font folder ships exactly the bundled woff2 faces and their license texts.
   assert.deepEqual(copied.filter(name => name.startsWith('ui/fonts/')).sort(), [...FONT_FILES].sort());
   assert.deepEqual((await readdir(path.join(stage, 'ui/fonts'))).sort(), FONT_FILES.map(name => name.slice(9)).sort());
   assert.ok(copied.includes('ui/appearance.css'));
   assert.ok(copied.includes('ui/sample-dashboard.json'));
-  assert.equal(copied.some(name => /test|private|credentials|node_modules|dist|overwolf-probes/.test(name)), false);
+  assert.equal(copied.some(name => /test|private|credentials|node_modules|dist|tools/.test(name)), false);
   assert.deepEqual((await readdir(path.join(stage, 'electron'))).sort(), ['branding', 'libobs-recorder.mjs', 'main.mjs', 'preload.cjs']);
   assert.equal(await readFile(path.join(stage, 'ui/app.js'), 'utf8'), 'fixture');
 });

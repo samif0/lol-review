@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 export function launchOptions(argv) {
@@ -16,15 +16,6 @@ export function launchOptions(argv) {
   if (smoke && !isolated) throw new Error('--smoke requires --isolated');
   if (recordingTest && isolated) throw new Error('--recording-test cannot be combined with --isolated');
   return { isolated, smoke, recordingTest, dataRoot: value('--data-root'), executable: value('--sidecar') };
-}
-
-// Gaming packages this build requests (package.json overwolf.packages). The ordinary
-// build declares none; only the credentialed development launcher adds 'recorder'.
-export function declaredPackages(desktopRoot) {
-  try {
-    const packages = JSON.parse(readFileSync(path.join(desktopRoot, 'package.json'), 'utf8')).overwolf?.packages;
-    return Array.isArray(packages) ? packages.filter(name => typeof name === 'string') : [];
-  } catch { return []; }
 }
 
 export function isMaintenanceLaunch(argv) {

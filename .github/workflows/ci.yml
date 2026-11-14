@@ -157,16 +157,12 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Verify desktop and diagnostics
+      - name: Verify desktop
         working-directory: desktop
         run: |
           npm ci --ignore-scripts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run check:probes
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:probes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

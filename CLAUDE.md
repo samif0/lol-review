@@ -11,7 +11,6 @@ Revu is a Windows desktop app for reviewing League of Legends games. Overwolf El
 | `desktop/electron` | Overwolf Electron host, preload, native operations, child lifetime | `cd desktop; npm test` |
 | `desktop/ui` | JavaScript pages and desktop platform adapter | `cd desktop; npm test; npm run build` |
 | `desktop/runtime` | Shared pinned Overwolf runtime setup | `cd desktop; npm test` |
-| `desktop/overwolf-probes` | Separate, manually gated gaming diagnostics | `npm run check:probes` + `npm run test:probes` from `desktop` |
 | `proxy/` | Cloudflare Worker for Match-V5 lookups | its own tests; **deployed manually via wrangler** |
 | `site/` | Marketing site | n/a |
 
@@ -24,11 +23,9 @@ cd desktop
 npm ci --ignore-scripts
 npm test
 npm run build
-npm run check:probes
-npm run test:probes
 ```
 
-The desktop commands are required when `desktop/**` changes. Use Node 22.12 or newer. `npm run setup` explicitly installs/verifies the runtime and builds the sidecar under `artifacts/desktop-build`. `npm start` uses existing production Revu data; `npm run start:isolated` uses a restricted scratch profile. `npm run readiness` exercises runtime startup without gaming packages. None of these diagnostics establishes live GEP/Recorder approval.
+The desktop commands are required when `desktop/**` changes. Use Node 22.12 or newer. `npm run setup` explicitly installs/verifies the runtime and builds the sidecar under `artifacts/desktop-build`. `npm start` uses existing production Revu data; `npm run start:isolated` uses a restricted scratch profile.
 
 CI lives in `.github/workflows/ci.yml`. Releases are tag-triggered (`v*`) through `.github/workflows/release.yml` and Velopack. Preserve packId `LoLReview` and main executable `revu-desktop.exe`. `npm run package:dir` produces `artifacts/desktop-package/win-unpacked` locally without publishing.
 

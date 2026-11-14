@@ -53,13 +53,7 @@ for presets, recovery and the separate Practice Tool test launch.
 
 Use `npm run start:isolated` for a separate diagnostic profile and database under
 `artifacts/desktop-preview/`. It restricts operations with external effects and
-does not write to production Revu data. `npm run readiness` checks actual runtime
-startup and renderer loading without requesting gaming packages.
-
-Neither startup check enables automatic recording or proves Overwolf package
-approval. GEP and Recorder remain separate, manually enabled diagnostics that
-require reviewed access and a developer key. See the
-[probe setup instructions](desktop/overwolf-probes/README.md).
+does not write to production Revu data, and it never starts the recorder.
 
 `npm run build` compiles the UI; `npm run dev` provides its Vite development
 preview. Neither command starts the desktop host.
@@ -79,12 +73,9 @@ dotnet test src\Revu.Sidecar.Tests\Revu.Sidecar.Tests.csproj -c Release -p:Platf
 npm ci --ignore-scripts
 npm test
 npm run build
-npm run check:probes
-npm run test:probes
 ```
 
-Backend tests use temporary SQLite fixtures. Runtime readiness is a separate
-local diagnostic; live gaming activation does not belong in CI.
+Backend tests use temporary SQLite fixtures.
 
 ### Project layout
 
@@ -102,7 +93,6 @@ desktop/
   ui/                Vanilla JavaScript pages and desktop platform adapter
   runtime/           Shared pinned runtime installation and verification
   recorder/          Pinned OBS helper, hardware encoder policy and source bundle
-  overwolf-probes/   Separate GEP, Recorder, and readiness diagnostics
 site/                 Static landing site at revu.lol
 proxy/                Cloudflare Worker that proxies Riot Match-V5
 .github/              Issue templates, CI, and the release workflow
