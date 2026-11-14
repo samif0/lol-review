@@ -30,7 +30,7 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/asar": "3.4.1",
-    "electron": "42.7.1",
+    "electron": "45.3.2",
     "electron-builder": "26.18.0",
     "rcedit": "5.0.2",
     "typescript": "5.9.3",

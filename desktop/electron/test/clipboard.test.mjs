@@ -19,6 +19,16 @@ test('a failed clipboard write rejects instead of returning a copied acknowledge
   await assert.rejects(native('copy_text_to_clipboard', { text: '# Review' }), error => error === failure);
 });
 
+test('copy waits for an asynchronous clipboard write and reports its failure', async () => {
+  let finished = false;
+  const slow = nativeCommands({ clipboard: { writeText: async () => { await new Promise(resolve => setTimeout(resolve, 5)); finished = true; } } });
+  assert.deepEqual(await slow('copy_text_to_clipboard', { text: '# Review' }), { ok: true });
+  assert.equal(finished, true, 'the acknowledgement must follow the write');
+  const failure = new Error('Synthetic asynchronous clipboard failure');
+  const failing = nativeCommands({ clipboard: { writeText: async () => { throw failure; } } });
+  await assert.rejects(failing('copy_text_to_clipboard', { text: '# Review' }), error => error === failure);
+});
+
 test('copy retains trusted main-frame sender validation and accepts only a text argument', () => {
   const mainFrame = { url: 'revu-app://ui/index.html' };
   const contents = { mainFrame };
