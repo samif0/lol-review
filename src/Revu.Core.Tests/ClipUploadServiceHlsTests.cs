@@ -285,7 +285,10 @@ public sealed class ClipUploadServiceHlsTests : IDisposable
         Assert.DoesNotContain("PUT hls/seg/8", proxy.Routes());
         held.SetResult();
         await session.Completion.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(Enumerable.Range(0, 20).Select(s => "PUT hls/seg/" + s), proxy.Routes().Skip(1));
+        // Every segment exactly once, in whatever order this fake noted them: the next body starts once the previous
+        // one is written, which can be before the fake notes that one.
+        Assert.Equal(Enumerable.Range(0, 20).Select(s => "PUT hls/seg/" + s),
+            proxy.Routes().Skip(1).OrderBy(r => int.Parse(r.Split('/')[^1])));
         Assert.True(proxy.MaxWaiting <= VodHlsUploadSession.MaxAwaiting, $"{proxy.MaxWaiting} requests waited at once");
     }
 
