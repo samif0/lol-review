@@ -25,7 +25,7 @@ public sealed class WalModeReassertTests
     {
         using var scope = new TestDatabaseScope();
         await scope.InitializeAsync();
-        SqliteConnection.ClearAllPools();
+        scope.ReleasePooledConnections();
         using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder
                {
                    DataSource = scope.DatabasePath, Pooling = false,
