@@ -14,7 +14,7 @@ const audioOnly = types => Array.isArray(types) && types.length > 0 && types.eve
 // lists output device ids and allows setSinkId (the players and the Settings test
 // sound) when the page passes either the audio 'media' check or the
 // 'speaker-selection' check; with both denied, setSinkId fails with SecurityError.
-// Verified in the pinned 42.7.1 runtime, where setSinkId consults only the checks
+// Verified in the 42.7.1 runtime, where setSinkId consults only the checks
 // (no request arrives). Granting speaker selection keeps the output choice working
 // on its own rather than through the microphone grant. Camera, screen/system
 // capture and every other permission stay denied. Pages run inside the same-origin

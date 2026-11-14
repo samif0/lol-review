@@ -38,7 +38,7 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPr
         return { ok: true, saved: true, path: result.filePath };
       }
       case 'copy_text_to_clipboard': {
-        clipboard.writeText(args.text);
+        await clipboard.writeText(args.text); // Returns a promise since Electron 44.
         return { ok: true };
       }
       case 'get_microphone_access':
