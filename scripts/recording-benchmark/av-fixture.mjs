@@ -28,7 +28,7 @@ const frameRate = 30;
 const pulseSeconds = [1, 5, 9];
 const commands = [];
 const limitations = [
-  'Synthetic codec/mux timestamp test only; no League, Overwolf capture, WASAPI, real-time device clocks, contention or long-match drift measurement.',
+  'Synthetic codec/mux timestamp test only; no League, game capture, WASAPI, real-time device clocks, contention or long-match drift measurement.',
   'The source is generated and encoded offline, not paced in real time. Encoding timing is not a recording-performance benchmark.',
   'Video onset is the first decoded frame above a mean-luma threshold. Fixture pulses align to 30 FPS frames; arbitrary real events have up to one-frame timing ambiguity.',
   'Audio onset uses non-overlapping 1 ms RMS windows with three consecutive above-threshold windows. AAC pre-echo/threshold effects can move the measured onset.',

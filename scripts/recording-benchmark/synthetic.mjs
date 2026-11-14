@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resourceSummary } from './analyze.mjs';
 
-// Developer experiment: generated test pattern/sine only. This is NOT game capture or an Overwolf benchmark.
+// Developer experiment: generated test pattern/sine only. This is NOT game capture or a benchmark of Revu's recorder.
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(Array.from({ length: (process.argv.length - 2) / 2 }, (_, i) => [process.argv[2 + i * 2], process.argv[3 + i * 2]]));
 const output = path.resolve(args['--output'] ?? 'artifacts/recording-benchmark/synthetic');
@@ -21,7 +21,7 @@ const versions = { ffmpeg: execFileSync(ffmpeg, ['-version'], { encoding: 'utf8'
   ffprobe: execFileSync(ffprobe, ['-version'], { encoding: 'utf8', windowsHide: true }).split('\n')[0], node: process.version };
 writeFileSync(path.join(output, 'experiment.json'), JSON.stringify({ generatedAt: new Date().toISOString(), versions, seconds,
   source: 'CPU-generated 1920x1080 60fps yuv420p testsrc2 and 48kHz sine. Both inputs paced in real time.',
-  inferenceLimits: 'No League, game capture hook, GPU-resident frames, contention workload, or Overwolf package. FFmpeg uploads CPU frames; settings are not asserted equivalent to libobs. Counters include existing background applications.' }, null, 2));
+  inferenceLimits: 'No League, game capture hook, GPU-resident frames, contention workload, or the bundled recorder. FFmpeg uploads CPU frames; settings are not asserted equivalent to libobs. Counters include existing background applications.' }, null, 2));
 
 async function run(name, preset, { abrupt = false, fragmented = true, encoder = 'nvenc' } = {}) {
   const runPath = path.join(output, name); mkdirSync(runPath);
@@ -62,7 +62,7 @@ async function run(name, preset, { abrupt = false, fragmented = true, encoder = 
     row.processes.some(p => p.owned) && row.processes.filter(p => p.owned).every(p => Number.isFinite(p.cpuPercentMachine)));
   const result = { name, preset, encoder: preset ? encoder : null, fragmented, abrupt, command, status, samplingStatus, startedUtcMs, requestedStopUtcMs,
     elapsedSeconds: (status.endedMs - started) / 1000, stopRequestToExitMs: requestedStopMs === null ? null : status.endedMs - requestedStopMs,
-    finalizationCaveat: 'Graceful q-to-process-exit includes encoder drain, muxer finalization and input loop response; it is not Overwolf stop-to-playable time. Abrupt runs have no finalization measurement.',
+    finalizationCaveat: 'Graceful q-to-process-exit includes encoder drain, muxer finalization and input loop response; it is not the recorder's stop-to-playable time. Abrupt runs have no finalization measurement.',
     media, resourceCoverage: { rawSamples: rows.length, activeSamples: activeRows.length, qualified: activeRows.length >= 5,
       note: 'All resource fields share the active-child window, excluding first 2s and queries taking >3s or crossing stop request. Fewer than 5 samples is invalid. Instrumentation overhead/ambient workload still prevent game-performance inference.' },
     resources: resourceSummary(activeRows) };

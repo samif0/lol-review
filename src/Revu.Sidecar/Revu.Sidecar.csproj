@@ -15,7 +15,7 @@
     <Platform>x64</Platform>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!--
-      Application backend for the Overwolf Electron desktop host. Targets the
+      Application backend for the Electron desktop host. Targets the
       same Windows TFM as Revu.Core. Read endpoints use a read-only database
       graph; mutations use WriteServices. Startup owns additive schema upgrades.
     -->
