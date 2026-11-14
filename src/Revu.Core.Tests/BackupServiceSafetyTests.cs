@@ -13,6 +13,7 @@ namespace Revu.Core.Tests;
 /// before the live database is touched. Temp files a killed copy or restore left behind
 /// are swept at launch.
 /// </summary>
+[Collection(ProcessWidePoolClearCollection.Name)]
 public sealed class BackupServiceSafetyTests
 {
     private static BackupService Service(TestDatabaseScope scope, AppConfig? config = null) =>
