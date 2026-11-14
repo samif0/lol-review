@@ -35,7 +35,7 @@
     <!-- Velopack client lib for the update CHECK + DOWNLOAD (UpdateManager). The
          APPLY/restart is driven by the bundled Update.exe from the desktop host, since
          that must run as the main exe. Version tracks the installed Update.exe (1.x). -->
-    <PackageReference Include="Velopack" Version="1.2.0" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>
 
 </Project>
