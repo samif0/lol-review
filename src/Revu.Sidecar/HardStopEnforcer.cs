@@ -64,6 +64,9 @@ public sealed class HardStopEnforcer
     private readonly object _gate = new();
     private DateTimeOffset _lastActionAt = DateTimeOffset.MinValue;
     private DateTimeOffset _matchFoundNoticeAt = DateTimeOffset.MinValue;
+    // Bumped when champ select begins, so a notice still being decided for the
+    // match that was just accepted is dropped instead of shown late.
+    private long _matchGeneration;
     private bool _busy;
 
     public HardStopEnforcer(
@@ -98,6 +101,7 @@ public sealed class HardStopEnforcer
     {
         if (phase is not (GamePhase.Matchmaking or GamePhase.ReadyCheck)) return null;
         var matchFound = phase == GamePhase.ReadyCheck;
+        long generation;
 
         lock (_gate)
         {
@@ -108,6 +112,7 @@ public sealed class HardStopEnforcer
             if (tick - _lastActionAt < Debounce) return null;
             if (matchFound && tick - _matchFoundNoticeAt < MatchFoundNoticeWindow) return null;
             _busy = true;
+            generation = _matchGeneration;
         }
 
         try
@@ -130,10 +135,16 @@ public sealed class HardStopEnforcer
                 // The match is the player's to answer. No request goes to the client
                 // and nothing is recorded, because nothing was held.
                 var foundAt = _clock();
-                lock (_gate) _matchFoundNoticeAt = foundAt;
                 var notice = BuildSnapshot(decision, HardStopActions.MatchFound, foundAt);
-                _liveState.SetHardStop(notice);
-                _eventHub.Publish("hardStop", notice);
+                lock (_gate)
+                {
+                    // Champ select began while this was being decided: the match is
+                    // no longer waiting for an answer.
+                    if (generation != _matchGeneration) return null;
+                    _matchFoundNoticeAt = foundAt;
+                    _liveState.SetHardStop(notice);
+                    _eventHub.Publish("hardStop", notice);
+                }
                 _logger.LogInformation("Hard stop: a match was found while rule '{Rule}' holds ({Reason}); left for the player to answer",
                     decision.Rule.Name, decision.Reason);
                 return notice;
@@ -198,16 +209,25 @@ public sealed class HardStopEnforcer
             At: at.ToUnixTimeSeconds());
 
     /// <summary>
-    /// The player accepted the found match and champ select began. The notice was
-    /// about that one match, so it goes away. A lock from a cancelled search is a
-    /// different thing and stays until it is overridden or stops holding.
+    /// The player accepted the found match and champ select began: they chose to
+    /// play, so the notice goes away, and the next found match gets its own. A
+    /// lock from a cancelled search is a different thing and stays until it is
+    /// overridden or stops holding. A match the player declines or lets time out
+    /// does not come through here: the rule still holds, so the card stays as the
+    /// lock, with the plan and the override, like one from a cancelled search.
     /// </summary>
     public void EndMatchFoundNotice()
     {
-        var current = _liveState.HardStop;
-        if (current is null || current.Action != HardStopActions.MatchFound) return;
-        _liveState.SetHardStop(null);
-        _eventHub.Publish("hardStopCleared", new { ruleId = current.RuleId });
+        HardStopSnapshot? current;
+        lock (_gate)
+        {
+            _matchGeneration++;
+            _matchFoundNoticeAt = DateTimeOffset.MinValue;
+            current = _liveState.HardStop;
+            if (current is null || current.Action != HardStopActions.MatchFound) return;
+            _liveState.SetHardStop(null);
+            _eventHub.Publish("hardStopCleared", new { ruleId = current.RuleId });
+        }
         _logger.LogInformation("Hard stop: the found match was accepted; notice for rule {RuleId} cleared", current.RuleId);
     }
 

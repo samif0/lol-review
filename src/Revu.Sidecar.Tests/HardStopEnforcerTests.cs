@@ -226,6 +226,15 @@ public sealed class HardStopEnforcerTests
         h.Enforcer.EndMatchFoundNotice();
         Assert.False(reader.TryRead(out var _));
 
+        // A dodge and a second match seconds later, with no searching tick in between:
+        // it is a new match and gets its own notice.
+        h.Clock = h.Clock.AddSeconds(10);
+        var second = await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck);
+        Assert.NotNull(second);
+        Assert.Equal(HardStopActions.MatchFound, second!.Action);
+        h.Enforcer.EndMatchFoundNotice();
+        while (reader.TryRead(out var _)) { }
+
         // A lock from a cancelled search is not about one match and stays.
         h.Clock = h.Clock.AddSeconds(60);
         var stop = await h.Enforcer.HandleQueueAsync(GamePhase.Matchmaking);
@@ -234,6 +243,41 @@ public sealed class HardStopEnforcerTests
         h.Enforcer.EndMatchFoundNotice();
         Assert.Equal(stop, h.Live.HardStop);
         Assert.False(reader.TryRead(out var _));
+    }
+
+    [Fact]
+    public async Task MatchFound_DecidedAfterChampSelectBegan_IsDropped()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+        var (reader, sub) = h.Hub.Subscribe();
+        using var _ = sub;
+
+        // The client is slow to answer, and champ select begins in the meantime.
+        h.Lcu.BeforeQueueIdAnswer = h.Enforcer.EndMatchFoundNotice;
+
+        Assert.Null(await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck));
+        Assert.Null(h.Live.HardStop);
+        Assert.False(reader.TryRead(out var _));
+    }
+
+    [Fact]
+    public async Task MatchFound_Declined_KeepsTheRuleShowingUntilOverridden()
+    {
+        using var h = new Harness();
+        await h.InitializeAsync();
+        var ruleId = await h.RuleAsync("max_games", "1", enforce: true);
+        await h.Scope.SeedGameAsync(gameId: 9001, timestamp: RecentGameTodayUnix);
+
+        // Declined or timed out: the client is back in the lobby and sends nothing.
+        // The rule still holds, so the card stays as the lock with the plan and the override.
+        var notice = await h.Enforcer.HandleQueueAsync(GamePhase.ReadyCheck);
+        Assert.Equal(notice, h.Live.HardStop);
+
+        await h.Enforcer.OverrideAsync(ruleId);
+        Assert.Null(h.Live.HardStop);
     }
 
     [Fact]
@@ -463,6 +507,7 @@ public sealed class HardStopEnforcerTests
         public bool Accept { get; set; } = true;
         public int CancelCalls { get; private set; }
         public List<string> Calls { get; } = [];
+        public Action? BeforeQueueIdAnswer { get; set; }
         public int QueueId { get; set; } = 420;
 
         public void Configure(LcuCredentials credentials) { }
@@ -471,7 +516,7 @@ public sealed class HardStopEnforcerTests
         public Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default) => Task.FromResult(GamePhase.Matchmaking);
         public Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) { CancelCalls++; Calls.Add(nameof(CancelMatchmakingAsync)); return Task.FromResult(Accept); }
-        public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) { Calls.Add(nameof(GetLobbyQueueIdAsync)); return Task.FromResult(QueueId); }
+        public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) { Calls.Add(nameof(GetLobbyQueueIdAsync)); BeforeQueueIdAnswer?.Invoke(); return Task.FromResult(QueueId); }
         public Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default) => Task.FromResult(new List<JsonElement>());
         public Task<JsonElement?> GetMatchDetailsAsync(long gameId, CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<string?> GetChampionNameAsync(int championId, CancellationToken ct = default) => Task.FromResult<string?>(null);

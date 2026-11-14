@@ -101,6 +101,11 @@ public sealed partial class LeagueClientEndpointContractTests
             + string.Join("\n", found.HelperCallsWithoutLiteralPath));
         Assert.Equal(new Dictionary<string, int> { [LcuClientFile] = 2, [LiveEventApiFile] = 1 }, found.RawSends);
 
+        // The practice diagnostic holds the same trusted client. It sends one request,
+        // and that request is the pinned one, however an address might be put together.
+        Assert.Equal(1, found.PracticeSends);
+        Assert.Single(found.Requests, request => request.File == PracticeCaptureFile);
+
         // The scan must actually have read the clients (a moved file would otherwise pass).
         Assert.True(found.Requests.Count >= 16, $"Only {found.Requests.Count} request call sites were scanned.");
     }
@@ -110,7 +115,7 @@ public sealed partial class LeagueClientEndpointContractTests
     {
         var found = ScanSource();
 
-        // The League client needs its port and token. These are the only files that handle them.
+        // The League client needs its port and token. These are the only files that name them.
         Assert.Equal(
             new[]
             {
@@ -121,6 +126,23 @@ public sealed partial class LeagueClientEndpointContractTests
                 "src/Revu.Core/Models/LcuCredentials.cs",
             },
             found.FilesNaming("LcuCredentials"));
+
+        // Getting the port and token means asking the discovery. A var hides the type
+        // name, so the calls are pinned too.
+        Assert.Equal(
+            new[]
+            {
+                "src/Revu.Core/Lcu/GameMonitorService.cs",
+                "src/Revu.Core/Lcu/ILcuCredentialDiscovery.cs",
+                "src/Revu.Core/Lcu/LcuCredentialDiscovery.cs",
+            },
+            found.FilesNaming("FindCredentials", "FindFromProcess", "FindFromLockfile"));
+
+        // The League client and the game present a self-signed certificate. Only this
+        // file may build a client that accepts one.
+        Assert.Equal(
+            new[] { "src/Revu.Sidecar/Hosting/SidecarServices.cs" },
+            found.FilesNaming("ServerCertificateCustomValidationCallback", "RemoteCertificateValidationCallback", "DangerousAcceptAnyServerCertificateValidator"));
 
         // The Live Client Data API is a fixed local address. These are the only files that name it.
         Assert.Equal(new[] { LiveEventApiFile, PracticeCaptureFile }, found.FilesNaming(":2999"));
@@ -248,6 +270,8 @@ public sealed partial class LeagueClientEndpointContractTests
         Dictionary<string, int> RawSends,
         Dictionary<string, string> Code)
     {
+        public int PracticeSends { get; set; }
+
         public string[] FilesNaming(params string[] needles) => Code
             .Where(file => needles.Any(needle => file.Value.Contains(needle, StringComparison.Ordinal)))
             .Select(file => file.Key)
@@ -287,6 +311,7 @@ public sealed partial class LeagueClientEndpointContractTests
                     scan.StrayPathLiterals.Add($"{file}:{LineOf(code, literal.Index)}: {literal.Value}");
             }
 
+            if (file == PracticeCaptureFile) scan.PracticeSends = PracticeSend().Matches(code).Count;
             if (!isClient) continue;
             var literalCalls = RequestCall().Matches(code).Select(call => call.Index).ToHashSet();
             foreach (Match call in HelperCall().Matches(code))
@@ -302,8 +327,7 @@ public sealed partial class LeagueClientEndpointContractTests
 
     private static string Holes(string endpoint) => Hole().Replace(endpoint, "{}");
 
-    private static bool IsLeaguePath(string literal) =>
-        LeaguePath().IsMatch(literal) && !literal.Contains("/lol-review", StringComparison.Ordinal);
+    private static bool IsLeaguePath(string literal) => LeaguePath().IsMatch(literal);
 
     private static int LineOf(string code, int index) => code.AsSpan(0, index).Count('\n') + 1;
 
@@ -346,12 +370,17 @@ public sealed partial class LeagueClientEndpointContractTests
     [GeneratedRegex(@"\b_httpClient\.\w+Async\(")]
     private static partial Regex RawSend();
 
+    [GeneratedRegex(@"\bclient\.\w+Async\(")]
+    private static partial Regex PracticeSend();
+
     [GeneratedRegex(@"\$?\x22(?<body>(?:[^\x22\\\r\n]|\\.)*)\x22")]
     private static partial Regex StringLiteral();
 
-    // The League client serves its plugins under /lol-<name>/ and a few other roots; the
-    // game serves /liveclientdata/.
-    [GeneratedRegex(@"/(?:lol-[a-z0-9-]+|liveclientdata|riotclient|riot-messaging-service|process-control|player-notifications)/", RegexOptions.IgnoreCase)]
+    // The League client serves its plugins under lol-<name> and a few other roots; the
+    // game serves liveclientdata. The name alone counts, with or without slashes, so a
+    // base address kept in a constant is seen too. lol-review is this repository's own
+    // name on GitHub.
+    [GeneratedRegex(@"(?<![\w-])(?:lol-(?!review(?![\w-]))[a-z0-9-]+|liveclientdata|riotclient|riot-messaging-service|process-control|player-notifications)(?![\w-])", RegexOptions.IgnoreCase)]
     private static partial Regex LeaguePath();
 
     [GeneratedRegex(@"\{[^{}]*\}")]
