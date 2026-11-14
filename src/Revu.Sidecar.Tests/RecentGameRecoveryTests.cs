@@ -272,7 +272,6 @@ public sealed class RecentGameRecoveryTests
         public Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default) => Task.FromResult(GamePhase.None);
         public Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) => throw new NotSupportedException();
         public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(420);
         public async Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default)
         {

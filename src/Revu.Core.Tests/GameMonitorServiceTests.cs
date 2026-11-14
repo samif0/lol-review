@@ -903,7 +903,6 @@ public sealed partial class GameMonitorServiceTests
             return Task.FromResult(true);
         }
 
-        public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) => Task.FromResult(true);
 
         public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(QueueId);
 

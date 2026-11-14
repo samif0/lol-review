@@ -557,7 +557,6 @@ public sealed class MissedGamesFlowTests : IAsyncLifetime
         public Task<GamePhase> GetGameflowPhaseAsync(CancellationToken ct = default) => Task.FromResult(GamePhase.None);
         public Task<JsonElement?> GetEndOfGameStatsAsync(CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
         public Task<bool> CancelMatchmakingAsync(CancellationToken ct = default) => Task.FromResult(false);
-        public Task<bool> DeclineReadyCheckAsync(CancellationToken ct = default) => Task.FromResult(false);
         public Task<int> GetLobbyQueueIdAsync(CancellationToken ct = default) => Task.FromResult(420);
         public Task<List<JsonElement>> GetMatchHistoryAsync(int begin = 0, int count = 5, CancellationToken ct = default) => Task.FromResult(new List<JsonElement>());
         public Task<JsonElement?> GetMatchDetailsAsync(long gameId, CancellationToken ct = default) => Task.FromResult<JsonElement?>(null);
