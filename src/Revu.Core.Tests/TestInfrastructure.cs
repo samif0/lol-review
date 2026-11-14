@@ -4,6 +4,7 @@ using Revu.Core.Models;
 using Revu.Core.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.RegularExpressions;
 
 namespace Revu.Core.Tests;
 
@@ -114,11 +115,36 @@ internal sealed class TestDatabaseScope : IDisposable
 
     public SqliteConnection OpenConnection() => ConnectionFactory.CreateConnection();
 
+    /// <summary>
+    /// Closes the idle pooled connections to this scope's database, and only those.
+    /// SqliteConnection.ClearAllPools() is process-wide: when it runs while another
+    /// test class is opening a connection, Microsoft.Data.Sqlite can take that
+    /// connection for a leaked one and dispose its handle, and the other test fails
+    /// with ObjectDisposedException ('SQLitePCL.sqlite3') on its first command.
+    /// A test that needs the process-wide clear, or drives product code that does
+    /// it, belongs in <see cref="ProcessWidePoolClearCollection"/>.
+    /// </summary>
+    public void ReleasePooledConnections()
+    {
+        // The pool is keyed by the connection string, so ask the factory for a
+        // connection rather than rebuilding its string here.
+        using var connection = ConnectionFactory.CreateConnection();
+        SqliteConnection.ClearPool(connection);
+    }
+
     public void Dispose()
     {
         // Pooled shared-cache connections keep test.db open; without clearing them
         // the delete fails silently and every scope leaks a database under %TEMP%.
-        SqliteConnection.ClearAllPools();
+        try
+        {
+            ReleasePooledConnections();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Test database pool not cleared: {_rootDirectory} ({ex.Message})");
+        }
+
         try
         {
             Directory.Delete(_rootDirectory, recursive: true);
@@ -128,6 +154,84 @@ internal sealed class TestDatabaseScope : IDisposable
             Console.Error.WriteLine($"Test database folder not removed: {_rootDirectory} ({ex.Message})");
         }
     }
+}
+
+/// <summary>
+/// The test classes that clear every connection pool in the process: directly, or by
+/// driving product code that does (BackupService reset and restore, AppDataMigrator).
+/// xUnit runs a collection with parallelization disabled after all the parallel ones
+/// have finished, one class at a time, so a process-wide clear here can no longer
+/// dispose a connection that another test class is opening.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ProcessWidePoolClearCollection
+{
+    public const string Name = "Process-wide SQLite pool clear";
+}
+
+public sealed partial class ProcessWidePoolClearGuardTests
+{
+    [Fact]
+    public async Task DisposingAScope_ReleasesItsOwnDatabase_AndLeavesOtherScopesPooledConnectionsOpen()
+    {
+        using var other = new TestDatabaseScope();
+        await other.InitializeAsync();
+        SQLitePCL.sqlite3 pooledHandle;
+        using (var connection = other.OpenConnection())
+        {
+            pooledHandle = connection.Handle!;
+        }
+
+        var disposed = new TestDatabaseScope();
+        await disposed.InitializeAsync();
+        disposed.Dispose();
+
+        Assert.False(File.Exists(disposed.DatabasePath), "a disposed scope must release and delete its own database");
+        using var reopened = other.OpenConnection();
+        Assert.Same(pooledHandle, reopened.Handle);
+        Assert.False(pooledHandle.IsClosed, "another scope's pooled connection was closed");
+    }
+
+    [Fact]
+    public void TestsThatClearEveryPool_AreInTheSerialCollection()
+    {
+        var root = CountedGamesGuardTests.RepoRoot();
+        var clearCall = new Regex(@"\bClearAllPools\s*\(");
+
+        // The Revu.Core types that clear every pool, by the file that makes the call
+        // (BackupService.Restore.cs is BackupService).
+        var productTypes = SourceFiles(Path.Combine(root, "src", "Revu.Core"))
+            .Where(path => clearCall.IsMatch(Code(path)))
+            .Select(path => Path.GetFileName(path).Split('.')[0])
+            .Distinct()
+            .ToList();
+        Assert.Contains("BackupService", productTypes);
+
+        var reachesAClear = new Regex(
+            clearCall + "|" + string.Join("|", productTypes.Select(type => $@"\b{Regex.Escape(type)}\b")));
+        var offenders = SourceFiles(Path.Combine(root, "src", "Revu.Core.Tests"))
+            .Where(path => reachesAClear.IsMatch(Code(path))
+                && !File.ReadAllText(path).Contains("[Collection(ProcessWidePoolClearCollection.Name)]", StringComparison.Ordinal))
+            .Select(path => Path.GetFileName(path))
+            .ToList();
+
+        Assert.True(offenders.Count == 0,
+            "These test files call SqliteConnection.ClearAllPools() or use a Revu.Core type that does ("
+            + string.Join(", ", productTypes) + "). A process-wide clear can dispose a connection another test class "
+            + "is opening. Use TestDatabaseScope.ReleasePooledConnections(), or mark the class "
+            + "[Collection(ProcessWidePoolClearCollection.Name)]:\n" + string.Join("\n", offenders));
+    }
+
+    private static IEnumerable<string> SourceFiles(string directory) =>
+        Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal));
+
+    /// <summary>The file without its comments and string literals, so a mention is not a use.</summary>
+    private static string Code(string path) => CommentsAndStrings().Replace(File.ReadAllText(path), " ");
+
+    [GeneratedRegex(@"//[^\n]*|/\*.*?\*/|""(?:[^""\\\n]|\\.)*""", RegexOptions.Singleline)]
+    private static partial Regex CommentsAndStrings();
 }
 
 internal sealed class TestConfigService : IConfigService
