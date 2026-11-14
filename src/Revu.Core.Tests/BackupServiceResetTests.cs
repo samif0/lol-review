@@ -13,6 +13,7 @@ namespace Revu.Core.Tests;
 /// the VM reported success anyway. Every assertion here maps to a real
 /// production failure mode.
 /// </summary>
+[Collection(ProcessWidePoolClearCollection.Name)]
 public sealed class BackupServiceResetTests
 {
     // ─── ResetAllDataAsync ────────────────────────────────────────────
