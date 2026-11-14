@@ -13,7 +13,7 @@ path such as `C:\src\revu`: in a deeply nested checkout the sidecar test output
 passes the Windows MAX_PATH limit, the native SQLite library (`e_sqlite3.dll`)
 fails to load, and the sidecar tests fail for reasons unrelated to your change.
 From `desktop/`, run `npm ci --ignore-scripts`, then `npm run setup` to install
-the pinned Overwolf Electron runtime and build the sidecar. `npm start` opens
+the pinned Electron runtime and build the sidecar. `npm start` opens
 the normal application using your existing Revu data. Use
 `npm run start:isolated` for a restricted scratch profile; see
 [README.md](README.md) for commands and the host/frontend/backend layout.

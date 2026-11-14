@@ -8,7 +8,7 @@ Revu sits alongside the League client and turns each game into a short, structur
 
 Rules you set (a daily game cap, a loss-streak cool-off, a curfew) can be flagged as **hard stops**: while one is tripped, Revu cancels the League client's own queue instead of just showing you a warning, and shows you the plan you wrote for that moment. An override is one click, but only after a 60-second hold, and it's counted.
 
-Reviews and objectives are stored locally in SQLite, with no cloud synchronization. Account linking and Match-V5 lookups use Revu's Cloudflare proxy; sharing a clip uploads the selected media. The Overwolf Electron host disables optional anonymous analytics, but Overwolf retains mandatory minimal runtime telemetry, including launch and basic session signals. See [Overwolf's analytics description](https://dev.overwolf.com/ow-electron/getting-started/onboarding-resources/ow-electron-technical-overview/#app-usage-analytics).
+Reviews and objectives are stored locally in SQLite, with no cloud synchronization. Account linking and Match-V5 lookups use Revu's Cloudflare proxy; sharing a clip uploads the selected media. The desktop app runs on Electron; Revu does not turn on Electron's crash reporter.
 
 ## Install
 
@@ -30,7 +30,7 @@ Download the latest **`Revu-Setup.exe`** from [Releases](https://github.com/sami
 
 ### Build and run
 
-Overwolf Electron is the only desktop host. Its main process owns windows,
+Electron is the only desktop host. Its main process owns windows,
 native dialogs, media access, and the C# sidecar's lifetime. The sandboxed UI
 uses a narrow preload API; the sidecar owns persistence and application workflows.
 
@@ -41,7 +41,7 @@ npm run setup
 npm start
 ```
 
-`setup` installs and verifies the pinned Overwolf Electron runtime and builds
+`setup` installs and verifies the pinned Electron runtime and builds
 the sidecar into `artifacts/desktop-build/`. **`npm start` opens your existing
 Revu database and enables normal application behavior.**
 
@@ -89,7 +89,7 @@ src/
     Endpoints/       API routes grouped by feature and request contracts
   Revu.Sidecar.Tests/ API, persistence, and lifecycle contract tests
 desktop/
-  electron/          Overwolf Electron main process and sandboxed preload
+  electron/          Electron main process and sandboxed preload
   ui/                Vanilla JavaScript pages and desktop platform adapter
   runtime/           Shared pinned runtime installation and verification
   recorder/          Pinned OBS helper, hardware encoder policy and source bundle
@@ -119,7 +119,7 @@ The result is `artifacts/desktop-package/win-unpacked/`, containing
 `revu-desktop.exe`, the self-contained Windows sidecar, and application resources.
 This local build does not publish a release.
 
-The tag-triggered (`v*`) `.github/workflows/release.yml` builds the Overwolf
+The tag-triggered (`v*`) `.github/workflows/release.yml` builds the
 Electron application folder and packages it through Velopack. Preserve the
 installed identity **`LoLReview`** and main executable **`revu-desktop.exe`** so
 existing installations remain on the same update chain. Installer signing,

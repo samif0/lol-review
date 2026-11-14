@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using Revu.Sidecar;
 using Velopack;
 
-// Overwolf Electron owns the desktop lifecycle. The sidecar owns persistence,
+// The Electron host owns the desktop lifecycle. The sidecar owns persistence,
 // migrations, application workflows, and the authenticated loopback API.
 var isolatedHostTest = Environment.GetEnvironmentVariable("REVU_ISOLATED_HOST_TEST") == "1";
 // Electron applies updates only after the sidecar has drained accepted writes.
