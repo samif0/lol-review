@@ -3,8 +3,7 @@ import { mkdtemp, mkdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { declaredPackages, isMaintenanceLaunch, launchOptions, prepareConfiguration } from '../configuration.mjs';
+import { isMaintenanceLaunch, launchOptions, prepareConfiguration } from '../configuration.mjs';
 import { externalUrl, updaterPath, nativeCommands } from '../native.mjs';
 import { appResponse } from '../protocols.mjs';
 
@@ -94,16 +93,6 @@ test('Open log folder opens the logs directory beside the sidecar log; navigatio
   assert.ok((await stat(opened[0])).isDirectory());
   for (const command of ['review_vod', 'open_review', 'take_next_step'])
     await assert.rejects(native(command, {}), /Unsupported desktop operation/);
-});
-
-test('the ordinary build declares no gaming packages, so the dormant recorder stays idle', async () => {
-  assert.deepEqual(declaredPackages(fileURLToPath(new URL('../..', import.meta.url))), []);
-  const root = await mkdtemp(path.join(os.tmpdir(), 'Revu.Packages.'));
-  assert.deepEqual(declaredPackages(root), []);
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ overwolf: { packages: ['recorder', 7] } }));
-  assert.deepEqual(declaredPackages(root), ['recorder']);
-  await writeFile(path.join(root, 'package.json'), '{');
-  assert.deepEqual(declaredPackages(root), []);
 });
 
 test('UI protocol serves approved assets with CSP and rejects arbitrary files and malformed paths', async () => {

@@ -167,14 +167,10 @@ jobs:
           npm --prefix desktop version $env:VERSION --no-git-tag-version --allow-same-version --ignore-scripts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify desktop and diagnostics
+      - name: Verify desktop
         working-directory: desktop
         run: |
           npm test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run check:probes
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:probes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

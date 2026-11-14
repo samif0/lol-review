@@ -4,13 +4,12 @@ import path from 'node:path';
 import { Sidecar } from './sidecar.mjs';
 import { MediaRegistry } from './media.mjs';
 import { APP_ORIGIN, commandRequest, isAppUrl, snapshotMedia, validateSender } from './routing.mjs';
-import { declaredPackages, isMaintenanceLaunch, launchOptions, prepareConfiguration } from './configuration.mjs';
+import { isMaintenanceLaunch, launchOptions, prepareConfiguration } from './configuration.mjs';
 import { nativeCommands, externalUrl } from './native.mjs';
 import { registerProtocols } from './protocols.mjs';
 import { createCommandGate, createQuitHandler, shutdownOwnedApp } from './shutdown.mjs';
 import { RecordingService } from './recording-service.mjs';
 import { createRecordingOptimizer } from './recording-optimizer.mjs';
-import { createOverwolfRecorder } from './recorder-adapter.mjs';
 import { createLibobsRecorder, retryableProbeFailure } from './libobs-recorder.mjs';
 import { createBackgroundController } from './background.mjs';
 import { createAppearanceController, readWindowAppearance, windowPalette } from './appearance.mjs';
@@ -22,7 +21,7 @@ import { createSplash, createStartupProgress } from './splash.mjs';
 
 app.setName('Revu');
 let window, backend, eventAbort, configuration, native, afterShutdown, splash, progress;
-let recording, optimizer, background, appearance, recorderReady = false, recorderAttached = false, recordingPrepared = false;
+let recording, optimizer, background, appearance, recorderAttached = false, recordingPrepared = false;
 let quitting = false, restart = false, pageGeneration = 0;
 // A crashed backend cannot stop cleanly; restartAfterFailure is the user's recovery choice.
 // abandonedWork: quit cancelled a long job, so its backend may need to be ended.
@@ -50,23 +49,14 @@ const DRAG_CSS = '[data-window-drag]{-webkit-app-region:drag}[data-window-drag] 
 process.on('uncaughtException', error => hostLog.error('Uncaught exception in the main process', error));
 process.on('unhandledRejection', reason => hostLog.error('Unhandled promise rejection in the main process', reason));
 
-// The ordinary unsigned build requests no gaming packages. The explicit
-// credentialed development launcher enables Recorder for the integrated app.
+// This build requests no gaming packages; one that starts anyway ends the app.
 app.overwolf?.disableAnonymousAnalytics();
 for (const eventName of ['loading', 'ready', 'failed-to-initialize']) {
   app.overwolf?.packages.on(eventName, (_event, packageName) => {
     packageEvents.push({ event: eventName, packageName });
-    if (['gep', 'overlay'].includes(packageName)) { process.exitCode = 1; app.quit(); }
-    if (packageName === 'recorder') {
-      if (eventName === 'ready') { recorderReady = true; void attachRecorder(); }
-      if (eventName === 'failed-to-initialize') { recorderReady = false; recording?.unavailable(); }
-    }
+    process.exitCode = 1; app.quit();
   });
 }
-app.overwolf?.packages.on('crashed', event => {
-  event.preventDefault(); // Keep the interrupted session visible; no silent restart.
-  recorderReady = false; recording?.unavailable();
-});
 protocol.registerSchemesAsPrivileged([
   { scheme: 'revu-app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
   { scheme: 'revu-media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -92,21 +82,17 @@ async function shutdown() {
 }
 async function attachRecorder() {
   if (!recordingPrepared || !recording || recorderAttached || configuration?.isolated || quitting) return;
-  const overwolfRecorder = declaredPackages(app.getAppPath()).includes('recorder');
-  if (overwolfRecorder && !recorderReady) return;
   recorderAttached = true;
   try {
     recording.expectDriver();
-    if (!overwolfRecorder) await recording.prepareProvider('libobs');
+    await recording.prepareProvider('libobs');
     const callbacks = {
       shouldDiscover: () => recording.settings.enabled || !!recording.current,
       onGame: game => recording.onGame(game), onUnavailable: () => recording.unavailable(),
       onDetectionIssue: code => hostLog.warn(`Recording detection: ${code}`),
     };
     const directory = configuration.recorderDirectory;
-    const createDriver = () => overwolfRecorder
-      ? createOverwolfRecorder({ ...callbacks, recorder: app.overwolf.packages.recorder })
-      : createLibobsRecorder({ ...callbacks, helperPath: path.join(directory, 'revu-recorder.exe'),
+    const createDriver = () => createLibobsRecorder({ ...callbacks, helperPath: path.join(directory, 'revu-recorder.exe'),
         recordingTest: configuration.recordingTest,
         ffmpegPath: path.join(directory, 'revu-media-ffmpeg.exe'), ffprobePath: path.join(directory, 'revu-media-ffprobe.exe'),
         onUnavailable: code => {
@@ -121,7 +107,7 @@ async function attachRecorder() {
         log: line => hostLog.info(`Recorder: ${line.trim()}`) });
     await recording.attachDriver(createDriver());
     // A slow or failed probe at login can succeed later; hardware answers are final.
-    if (!recording.available && !overwolfRecorder && retryableProbeFailure(recording.unavailableCode) && !quitting) {
+    if (!recording.available && retryableProbeFailure(recording.unavailableCode) && !quitting) {
       hostLog.warn(`The recorder check did not finish (${recording.unavailableCode}); checking once more shortly.`);
       recording.expectDriver();
       await new Promise(resolve => setTimeout(resolve, PROBE_RETRY_MS));
@@ -322,7 +308,7 @@ async function start() {
     ffprobePath: path.join(configuration.recorderDirectory, 'revu-media-ffprobe.exe'),
     available: () => recordingPrepared && !isolated && !quitting });
   // Native capture is owned by a separate libobs helper. Isolated previews
-  // never probe or launch it; the explicit Overwolf launcher stays diagnostic.
+  // never probe or launch it.
   if (!isolated) {
     try { await recording.initialize(); recordingPrepared = true; }
     catch { recording.publish('failed', 'The recordings folder is unavailable. Your other Revu features are still available.'); }

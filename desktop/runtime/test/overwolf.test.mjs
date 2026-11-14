@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { desktopRoot, inspectRuntime, cleanRuntimeEnvironment } from '../overwolf.mjs';
-import * as probeRuntime from '../../overwolf-probes/scripts/runtime.mjs';
 
 function scratch(t) {
   const base = path.resolve(os.tmpdir());
@@ -30,12 +29,8 @@ function fixture(root, { pin = '42.7.1', version = '42.7.1', dependencySection =
   return { module, marker };
 }
 
-test('host and probe resolve one shared install/environment helper', () => {
+test('the desktop root is the folder that holds package.json', () => {
   assert.equal(desktopRoot, path.resolve(fileURLToPath(new URL('../..', import.meta.url))));
-  assert.equal(probeRuntime.desktopRoot, desktopRoot);
-  assert.equal(probeRuntime.inspectRuntime, inspectRuntime);
-  assert.equal(probeRuntime.cleanRuntimeEnvironment, cleanRuntimeEnvironment);
-  assert.equal(probeRuntime.probeRoot, path.join(desktopRoot, 'overwolf-probes'));
 });
 test('read-only inspection resolves package metadata without loading the installer entry', t => {
   const root = scratch(t); const { module, marker } = fixture(root);
@@ -51,9 +46,9 @@ test('root pin is required and mismatched package cannot be silently used', t =>
   writeFileSync(path.join(root, 'package.json'), JSON.stringify({ dependencies: { '@overwolf/ow-electron': '42.7.0' } }));
   assert.equal(inspectRuntime({ root, verifyBinary: false }).failure, 'package-version-mismatch');
 });
-test('production dependency metadata works and nested probe package pins are irrelevant', t => {
+test('production dependency metadata works and nested package pins are irrelevant', t => {
   const root = scratch(t); const { module } = fixture(root, { dependencySection: 'dependencies' });
-  const probe = path.join(root, 'overwolf-probes'); mkdirSync(probe);
+  const probe = path.join(root, 'tools'); mkdirSync(probe);
   writeFileSync(path.join(probe, 'package.json'), JSON.stringify({ devDependencies: { '@overwolf/ow-electron': '0.0.0' } }));
   const result = inspectRuntime({ root, verifyBinary: false });
   assert.equal(result.packageVersion, '42.7.1'); assert.equal(result.executable, path.join(module, 'dist/electron.exe'));

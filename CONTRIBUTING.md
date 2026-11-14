@@ -22,8 +22,8 @@ Run both `src/Revu.Core.Tests/Revu.Core.Tests.csproj` and
 `src/Revu.Sidecar.Tests/Revu.Sidecar.Tests.csproj` with
 `dotnet test <project> -c Release -p:Platform=x64`. The platform flag is required.
 These suites use temporary SQLite fixtures rather than your real database.
-For desktop changes, run `npm test`, `npm run build`, `npm run check:probes`,
-and `npm run test:probes` from `desktop/` after the dependency install.
+For desktop changes, run `npm test` and `npm run build` from `desktop/` after
+the dependency install.
 For `proxy/`, run `npm ci`, `npm run typecheck` and `npm test` there; for
 `site/`, run `node --test site/tests` from the repository root.
 
@@ -31,10 +31,7 @@ Each .NET project commits a `packages.lock.json`, and CI restores in locked
 mode. After changing a `PackageReference`, run a normal `dotnet restore` and
 commit the updated lock files with the change.
 
-`npm run readiness` checks runtime startup without gaming packages. Live GEP
-and Recorder tests require reviewed access and explicit manual activation;
-never put developer credentials in code, logs, or fixtures. A passing diagnostic
-does not establish recording approval or production capture behavior.
+Never put credentials in code, logs, or fixtures.
 
 PR-acceptance bar: builds clean (0 warnings, 0 errors on Release; Release
 builds treat warnings as errors), CI is green, and the change is scoped to
