@@ -313,7 +313,7 @@ Limits (all in `src/share-limits.ts`):
 - Only accounts with a `vod_sharers` row can start a share. Rows are added by hand
   at deploy time, never by code.
 - Per account: 5 live shares (ready, or uploading and not idle for 15 minutes),
-  1 pending upload, 6 starts per UTC day (a D1 counter; a start is spent at init
+  2 pending uploads, 6 starts per UTC day (a D1 counter; a start is spent at init
   and not refunded). Idle VOD uploads are discarded by the owner's next init.
 - Upload window: long enough to send the declared size at 0.45 Mbps plus an
   hour, between 6 and 12 hours (a 2 GiB share gets about 11.6 hours). The share

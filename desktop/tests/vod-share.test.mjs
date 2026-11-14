@@ -122,7 +122,7 @@ test('every errorCode has the agreed copy, and unknown codes fall back to the si
     pool_full: 'Sharing space is full until Thursday 9:41 PM. Try 720p, or save the file instead.',
     live_limit: 'You already share 5 games. Stop sharing one to share this game.',
     daily_limit: "You've started 6 shares today. You can share again after Thursday 9:41 PM.",
-    busy: 'Another game is still being shared. Try again when it finishes.',
+    busy: 'Two games are already being shared. Try again when one finishes.',
     starting: 'Revu is still starting. Try again in a moment.',
     closing: 'Revu is closing. Share again after it restarts.',
     stopping: 'Stopping the previous share. Try again in a moment.',

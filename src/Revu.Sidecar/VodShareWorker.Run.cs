@@ -473,7 +473,7 @@ public sealed partial class VodShareWorker
         lock (_gate)
         {
             if (job.Status is { } last) _last[job.GameId] = last;
-            if (ReferenceEquals(_running, job)) _running = null;
+            if (_jobs.TryGetValue(job.GameId, out var current) && ReferenceEquals(current, job)) _jobs.Remove(job.GameId);
         }
         job.Finished.TrySetResult();
         job.Cts.Dispose();

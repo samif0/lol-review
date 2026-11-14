@@ -15,7 +15,7 @@ internal sealed class FakeVodClient : IVodShareClient
     public static VodShareServerStatus Allowed(int live = 0, int pending = 0, int startsToday = 0, long freeBytes = 7_000_000_000,
         bool sharing = true, IReadOnlyList<VodSharePoolRelease>? releases = null, IReadOnlyList<VodShareServerShare>? shares = null) =>
         new(true, true, sharing, true, Now,
-            new VodShareServerLimits(2147483648L, 7200, 259200, 3, 1, 6, 16777216, 49152, 14336, 200),
+            new VodShareServerLimits(2147483648L, 7200, 259200, 5, 2, 6, 16777216, 49152, 14336, 200),
             new VodShareServerUsage(live, pending, startsToday, Now + 86_400),
             new VodSharePool(9_000_000_000, 7_000_000_000, 7_000_000_000 - freeBytes, 7_000_000_000 - freeBytes, freeBytes,
                 releases ?? []),
@@ -45,6 +45,8 @@ internal sealed class FakeVodClient : IVodShareClient
 
     /// <summary>What init reports for an upload that starts with the encode, before anything is written.</summary>
     public VodUploadStarted InitStarted { get; set; } = Started("vod1234");
+    /// <summary>Per share copy (its temp file path): what init reports, for tests that share two games at once.</summary>
+    public Func<string, VodUploadStarted>? InitFor { get; set; }
 
     /// <summary>
     /// Uploads that went through: Declared is the reserved size of one that ran while the copy was
@@ -105,7 +107,7 @@ internal sealed class FakeVodClient : IVodShareClient
         // a copy that was given up throws once the remote is gone.
         await Task.Yield();
         if (InitError is { } refused) throw refused;
-        onStarted?.Invoke(InitStarted);
+        onStarted?.Invoke(InitFor?.Invoke(filePath) ?? InitStarted);
         bool ok;
         try { ok = await written.WaitAsync(ct); }
         catch (OperationCanceledException) { throw; }

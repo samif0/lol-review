@@ -35,7 +35,7 @@ async function walkBoxes(handle, size, offset, signal) {
 }
 
 /** Top-level MP4 layout and fragment count from a bounded header walk, even for a match-sized mdat payload.
- * 'fragmented': one init moov plus moof/mdat pairs (still recording, interrupted at a fragment boundary, or Overwolf output).
+ * 'fragmented': one init moov plus moof/mdat pairs (still recording, or interrupted at a fragment boundary).
  * 'progressive': one complete moov and no top-level moof (a cleanly finalized hybrid or faststart file).
  * null: anything else, including truncation, a box past EOF, a missing or repeated moov, or no media.
  * Rejects only for open/read failures or abort. */

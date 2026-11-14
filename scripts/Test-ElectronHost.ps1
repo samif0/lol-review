@@ -2,7 +2,7 @@ param([string]$DataRoot, [string]$PackagedExe)
 $ErrorActionPreference = 'Stop'
 $handoffRepo = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($DataRoot)) {
-    $DataRoot = Join-Path $handoffRepo ('artifacts\overwolf-handoff\smoke-' + [Guid]::NewGuid().ToString('N'))
+    $DataRoot = Join-Path $handoffRepo ('artifacts\host-smoke\smoke-' + [Guid]::NewGuid().ToString('N'))
 }
 if (-not [IO.Path]::IsPathRooted($DataRoot)) { throw 'DataRoot must be absolute.' }
 $DataRoot = [IO.Path]::GetFullPath($DataRoot)
@@ -33,9 +33,9 @@ try {
     if ([string]::IsNullOrWhiteSpace($PackagedExe)) {
         & node $handoffLauncher --isolated --data-root $DataRoot --sidecar $handoffExe --smoke
     } else {
-        # Use the same credential-free environment as the development launcher.
+        # Use the same cleaned environment as the development launcher.
         # Arguments cross the process boundary as values, with no shell interpolation.
-        $handoffRuntime = Join-Path $handoffRepo 'desktop\runtime\overwolf.mjs'
+        $handoffRuntime = Join-Path $handoffRepo 'desktop\runtime\electron.mjs'
         @'
 import { spawn } from 'node:child_process';
 import path from 'node:path';

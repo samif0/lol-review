@@ -217,9 +217,9 @@ public sealed record HardStopSnapshot(
     // The player's own THEN plan; may be empty.
     string ReplacementPlan,
     bool HasPlan,
-    // "cancelled_queue" | "declined_ready_check" (HardStopActions).
+    // "cancelled_queue" | "match_found" (HardStopActions).
     string Action,
     // Unix second the rule stops holding (countdown), null when unknown.
     long? UnlockAt,
-    // Unix second of this enforcement.
+    // Unix second of this enforcement (or of the notice, for "match_found").
     long At);

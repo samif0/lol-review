@@ -1,6 +1,6 @@
 # Revu recording benchmark
 
-These developer tools collect evidence. They never start capture, change game settings, request microphone/desktop access, kill existing applications, or install a required application. Revu remains one Overwolf Electron installation. Store raw output under the ignored `artifacts/recording-benchmark/` directory; it can include process identifiers and local machine details.
+These developer tools collect evidence. They never start capture, change game settings, request microphone/desktop access, kill existing applications, or install a required application. Revu remains one Electron installation. Store raw output under the ignored `artifacts/recording-benchmark/` directory; it can include process identifiers and local machine details.
 
 ## Tools and collection
 
@@ -30,7 +30,7 @@ Use Node 22.12+, PowerShell 7, and Windows performance counters. PresentMon's co
 
 | Dimension | Cases |
 |---|---|
-| Recording mode | Disabled; Overwolf Recorder 720p30, 1080p30, 1080p60; current defaults and conservative tuning separately; any supported alternative at matched quality |
+| Recording mode | Disabled; built-in recorder 720p30, 1080p30, 1080p60; current defaults and conservative tuning separately; any supported alternative at matched quality |
 | Workload | Idle lane, movement/combat, repeatable teamfight; same scene capped with headroom and GPU-saturated/uncapped; UI visible and minimized |
 | Hardware | Older low-core CPU + entry discrete GPU; NVIDIA, AMD, Intel/Arc; integrated/shared-memory GPU; hybrid laptop encoding on same and other adapter; battery and AC where supported |
 | Storage | NVMe; SATA SSD; constrained free space; competing disk activity as a separate controlled condition |
@@ -66,12 +66,11 @@ node --test scripts/recording-benchmark/analyze.test.mjs
 
 This generates an artificial 1080p60 CPU test pattern and sine. Disabled output goes to the null muxer; enabled output uses NVENC H.264/AAC and fragmented MP4 at 720p30/4 Mb/s, 1080p30/6 Mb/s and 1080p60/10 Mb/s. An AMF initialization trial and forced termination of **only the FFmpeg process created by this experiment** compare ordinary/fragmented MP4 structural recovery. Graceful stop measures `q` request to FFmpeg exit, including drain/muxing/input response. Each run saves exact arguments, logs, hardware inventory, counter samples and output files, with no overwrite. The fixed experiment bitrates are independently labeled and are not automatically synchronized to Revu presets.
 
-CPU-generated frames require upload and lack the game's GPU contention/capture hook. FFmpeg's encoder/muxer behavior is not asserted identical to the Overwolf/libobs implementation. This experiment can expose local encoder availability and file-structure behavior; it cannot establish League FPS impact, Overwolf access, game-only capture correctness, or full-match synchronization.
+CPU-generated frames require upload and lack the game's GPU contention/capture hook. FFmpeg's encoder/muxer behavior is not asserted identical to the libobs implementation. This experiment can expose local encoder availability and file-structure behavior; it cannot establish League FPS impact, game-only capture correctness, or full-match synchronization.
 
-`av-fixture.mjs` separately measures generated flash/beep events before and after 720p30 NVENC/AAC encoding, calibrating against the lossless source and testing a known +120 ms audio-delay positive control. Its content-alignment result applies only to the synthetic codec/mux path. It does not test Overwolf, audio devices, game capture or long-match drift.
+`av-fixture.mjs` separately measures generated flash/beep events before and after 720p30 NVENC/AAC encoding, calibrating against the lossless source and testing a known +120 ms audio-delay positive control. Its content-alignment result applies only to the synthetic codec/mux path. It does not test audio devices, game capture or long-match drift.
 
 ## Primary method references
 
 - Intel/GameTechDev, [PresentMon console documentation](https://github.com/GameTechDev/PresentMon/blob/main/README-ConsoleApplication.md): process/swapchain filtering, CSV metric definitions, timing and ETW session flags. Accessed September 12, 2026.
-- Overwolf, [RecorderStats](https://dev.overwolf.com/ow-electron/reference/Overwolf-electron-APIs/recorder/interfaces/RecorderStats/): render/output totals, skipped counters, active FPS, CPU, memory and disk-space fields. Accessed September 12, 2026.
 - FFmpeg, [format documentation: fragmentation](https://ffmpeg.org/ffmpeg-formats.html#Fragmentation): ordinary MP4 versus fragmented output behavior. Verify the actual runtime muxer's output separately.

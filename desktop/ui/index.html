@@ -105,7 +105,8 @@
        initial page is the dashboard; a #hash on the shell URL can deep-link a page
        (e.g. index.html#vodplayer.html?gameId=5); see shell-outer.js. -->
   <!-- HARD STOP (v3.7): shown when the sidecar cancelled the queue because an
-       ENFORCED rule is tripped (SSE 'hardStop'), and re-shown as the slim bar
+       ENFORCED rule is tripped (SSE 'hardStop'), or when a match was found while
+       one is tripped (Revu leaves that match alone), and re-shown as the slim bar
        from the liveState replay while the lock still holds. Not a form: the plan
        the player wrote while calm, a countdown, OK, and an override that only
        unlocks after a five-minute hold. Lives on the persistent shell (not the
@@ -128,7 +129,7 @@
         <button class="cta cta-sm hardstop-ok" id="hardstop-ok" type="button">OK</button>
         <button class="hardstop-override" id="hardstop-override" type="button" disabled>Queue anyway (5:00)</button>
       </div>
-      <div class="hardstop-foot">Take five minutes before choosing to override. Revu keeps cancelling the queue until your rule unlocks or you override it.</div>
+      <div class="hardstop-foot" id="hardstop-foot">Take five minutes before choosing to override. Revu keeps cancelling the queue until your rule unlocks or you override it.</div>
     </div>
   </div>
   <div class="hardbar" id="hardbar" hidden>

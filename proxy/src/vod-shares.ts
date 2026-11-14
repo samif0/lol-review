@@ -204,7 +204,7 @@ export async function handleVodShareStatus(env: Env, userId: number): Promise<Re
 
 // ── POST /vod-shares/uploads ────────────────────────────────────────────────
 
-const PENDING_MESSAGE = "Another game is still uploading. Try again when it finishes.";
+const PENDING_MESSAGE = "Two games are still uploading. Try again when one finishes.";
 const LIVE_MESSAGE = `You already share ${VOD_MAX_LIVE_PER_USER} games. Stop sharing one to share another.`;
 const POOL_MESSAGE = "Sharing space is full right now.";
 
@@ -258,7 +258,7 @@ export async function handleVodUploadInit(request: Request, env: Env, userId: nu
   const now = nowSeconds();
 
   // 10. Discard the caller's idle VOD uploads (an app killed mid-upload must
-  // not hold the one pending slot for the whole upload window). An idle HLS
+  // not hold a pending slot for the whole upload window). An idle HLS
   // share is settled instead: ended at its edge when people can watch it,
   // discarded otherwise. A paused one is not idle; one paused for longer than
   // the pause limit is settled too.

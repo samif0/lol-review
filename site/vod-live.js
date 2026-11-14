@@ -488,10 +488,9 @@
         if (error && error.status === 404) goneNow(); else schedule();
       },
       // The page became a message (the link expired, or a refusal): stop everything.
-      stop: function () {
-        if (engine) { engine.destroy(); engine = null; }
-        mode = 'done';
-      }
+      stop: function () { if (engine) { engine.destroy(); engine = null; } mode = 'done'; },
+      // Read-ahead (vod-warm.js): only while the engine loads; warm(null) only asks.
+      warm: function (spans) { return mode === 'game' && !!engine && started && !hold && !gone && engine.warm(spans) === true; }
     };
   }
 

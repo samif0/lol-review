@@ -17,7 +17,7 @@ public sealed class RecordingStoragePrunerTests : IDisposable
     private string Root => Path.Combine(_testRoot, "Revu", "Recordings");
     private readonly SidecarWriteScope _db = new();
     private RecordingRegistrationService _registrations = null!;
-    private long? _sharing;
+    private long[] _sharing = [];
     private bool _inGame;
     private int _backups;
 
@@ -131,14 +131,15 @@ public sealed class RecordingStoragePrunerTests : IDisposable
     }
 
     [Fact]
-    public async Task TheSharingGameAndAnOpenFileAreSkipped_AndTheNextOldestGoes()
+    public async Task TheSharingGamesAndAnOpenFileAreSkipped_AndTheNextOldestGoes()
     {
         await InitAsync(4); // 4000 bytes
         var shared = await SessionAsync(0, 3000, gameId: 1);
+        var alsoShared = await SessionAsync(5, 3000, gameId: 5);
         var open = await SessionAsync(10, 3000, gameId: 2);
         var next = await SessionAsync(20, 3000, gameId: 3);
         await SessionAsync(30, 100, gameId: 4);
-        _sharing = 1;
+        _sharing = [1, 5];
 
         PruneResult result;
         using (new FileStream(open.Video, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -146,6 +147,7 @@ public sealed class RecordingStoragePrunerTests : IDisposable
 
         Assert.Equal(1, result.Value.Deleted);
         Assert.True(File.Exists(shared.Video));
+        Assert.True(File.Exists(alsoShared.Video));
         Assert.True(File.Exists(open.Video));
         Assert.False(File.Exists(next.Video));
         Assert.Null(await _db.Vod.GetVodAsync(3));

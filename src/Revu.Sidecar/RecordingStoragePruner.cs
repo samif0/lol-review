@@ -10,13 +10,13 @@ public sealed record RecordingPruneResult(bool Ok, int Deleted, long FreedBytes,
 /// limit). Runs only between games: the host asks after a match's recording has settled, and
 /// a game in progress defers it to the next match end. Oldest finished sessions go first.
 /// Never deleted: the newest session, a session still recording or awaiting its match, a
-/// receipt still pending its match, the game whose VOD is sharing, and any session whose
+/// receipt still pending its match, a game whose VOD is sharing, and any session whose
 /// files another process has open (playback, clip extraction, speed-up). Only the deleted
 /// files' VOD links are removed; clips, bookmarks and notes stay.
 /// </summary>
 public sealed class RecordingStoragePruner(string root, IConfigService config,
     RecordingRegistrationService registrations, RecordingLinkStore links,
-    Func<long?> sharingGameId, Func<bool> gameInProgress, Func<Task> ensureBackup,
+    Func<IReadOnlyCollection<long>> sharingGameIds, Func<bool> gameInProgress, Func<Task> ensureBackup,
     ILogger<RecordingStoragePruner> logger, long bytesPerGb = 1024L * 1024 * 1024)
 {
     private static readonly HashSet<string> FinishedStates = new(StringComparer.Ordinal) { "saved", "partial" };
@@ -40,11 +40,11 @@ public sealed class RecordingStoragePruner(string root, IConfigService config,
             if (total <= limit) return new RecordingPruneResult(true, 0, 0, total, "under-limit");
 
             var newest = sessions.MaxBy(s => s.StartedAt)?.Id;
-            var sharing = sharingGameId();
+            var sharing = sharingGameIds();
             var candidates = sessions
                 .Where(s => s.Id != newest && s.State is not null && FinishedStates.Contains(s.State)
                     && !(receipts.TryGetValue(s.Id, out var status) && status == "pending-match")
-                    && !(sharing is not null && s.GameId == sharing))
+                    && !(s.GameId is { } game && sharing.Contains(game)))
                 .OrderBy(s => s.StartedAt);
 
             int deleted = 0;
