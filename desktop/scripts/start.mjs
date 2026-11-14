@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
-import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime/overwolf.mjs';
+import { cleanRuntimeEnvironment, desktopRoot, inspectRuntime } from '../runtime/electron.mjs';
 import { launchOptions } from '../electron/configuration.mjs';
 
 try {

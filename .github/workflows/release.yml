@@ -1,6 +1,6 @@
-name: Build & Release (Overwolf Electron)
+name: Build & Release
 
-# Overwolf Electron builds the app directory; Velopack retains the installed
+# electron-builder builds the app directory; Velopack retains the installed
 # LoLReview identity, signing pipeline, release feed and delta chain.
 #
 # ONLY REVIEWED MAIN SHIPS: the guard job refuses a tag whose commit is not on
@@ -183,7 +183,7 @@ jobs:
 
       # Same isolated, allowlisted layout used by local packaging and CI. The
       # sidecar and self-contained dependencies sit next to revu-desktop.exe.
-      - name: Package Overwolf Electron app directory
+      - name: Package the Electron app directory
         working-directory: desktop
         run: |
           npm run runtime:install

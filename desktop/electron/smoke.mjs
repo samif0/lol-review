@@ -11,7 +11,7 @@ export const HOME_STAT_LABELS = Object.freeze(['Win rate', 'Average mental', 'Pa
 
 // Executed only with --smoke against an explicit scratch root. This exercises
 // the real Chromium renderer/preload, sidecar, and synthetic codec fixture.
-export async function runSmoke(window, { dataRoot, packageEvents, media, backend, executable }) {
+export async function runSmoke(window, { dataRoot, media, backend, executable }) {
   const contents = window.webContents;
   const boundary = await contents.executeJavaScript(`(async () => {
     const bridge = window.revuDesktop;
@@ -171,9 +171,8 @@ export async function runSmoke(window, { dataRoot, packageEvents, media, backend
   await contents.executeJavaScript(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
   await writeFile(path.join(dataRoot, 'electron-smoke.png'), (await contents.capturePage()).toPNG());
   const ui = await checkDesktopUi(window, dataRoot, async () => (await media.replace([fixture]))[0][1]);
-  assert.equal(packageEvents.length, 0, 'Gaming packages must remain disabled');
   return { passed: true, utc: new Date().toISOString(), versions: process.versions,
-    gamingPackages: packageEvents, boundary, iframe, dashboard, rendered, playback, timing, recovery, recordingSettings, ui,
+    boundary, iframe, dashboard, rendered, playback, timing, recovery, recordingSettings, ui,
     sameReviewSeekAfterRefresh: true, duplicateSidecarRejected: true,
     limitations: ['No signed installer or upgrade acceptance', 'Synthetic H.264/AAC fixture, not League Recorder capture',
       'Scratch data only; external effects and live monitoring disabled', 'No real match, approval, latency, performance, installer or upgrade acceptance'] };
