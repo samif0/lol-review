@@ -29,8 +29,8 @@ minions or a turret; cast Barrier while taking damage; disengage. Note the game
 clock for each action. An enemy-bot exchange, where available, is a separate test
 from a dummy hit. Dummy damage is not evidence of a real champion exchange.
 
-This instrument validates capture/clock/engine behavior. It does not connect an
-Overwolf source, establish damage attribution, or prove that cast timestamps are
+This instrument validates capture/clock/engine behavior. It does not
+establish damage attribution, or prove that cast timestamps are
 available. Raw schema and labeled action windows must be examined before any
 advanced detector is enabled. CPU figures cover the whole sidecar, not isolated
 added overhead; gameplay frame-time and matched resource gates remain unmeasured.

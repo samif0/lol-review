@@ -1,6 +1,6 @@
 # Revu — project context
 
-Revu is a Windows desktop app for reviewing League of Legends games. Overwolf Electron is its only desktop host, with a sandboxed JavaScript UI, C# core, C# sidecar, and SQLite storage under %LOCALAPPDATA%. **This repo is public.**
+Revu is a Windows desktop app for reviewing League of Legends games. Electron is its only desktop host, with a sandboxed JavaScript UI, C# core, C# sidecar, and SQLite storage under %LOCALAPPDATA%. **This repo is public.**
 
 ## Components
 
@@ -8,9 +8,9 @@ Revu is a Windows desktop app for reviewing League of Legends games. Overwolf El
 |---|---|---|
 | `src/Revu.Core` | Domain + persistence (C#, .NET 8) | `src/Revu.Core.Tests` |
 | `src/Revu.Sidecar` | Backend: `Hosting/` startup/composition; `Endpoints/` feature routes | `src/Revu.Sidecar.Tests` |
-| `desktop/electron` | Overwolf Electron host, preload, native operations, child lifetime | `cd desktop; npm test` |
+| `desktop/electron` | Electron host, preload, native operations, child lifetime | `cd desktop; npm test` |
 | `desktop/ui` | JavaScript pages and desktop platform adapter | `cd desktop; npm test; npm run build` |
-| `desktop/runtime` | Shared pinned Overwolf runtime setup | `cd desktop; npm test` |
+| `desktop/runtime` | Pinned Electron runtime install and verification | `cd desktop; npm test` |
 | `proxy/` | Cloudflare Worker for Match-V5 lookups | its own tests; **deployed manually via wrangler** |
 | `site/` | Marketing site | n/a |
 
@@ -29,7 +29,7 @@ The desktop commands are required when `desktop/**` changes. Use Node 22.12 or n
 
 CI lives in `.github/workflows/ci.yml`. Releases are tag-triggered (`v*`) through `.github/workflows/release.yml` and Velopack. Preserve packId `LoLReview` and main executable `revu-desktop.exe`. `npm run package:dir` produces `artifacts/desktop-package/win-unpacked` locally without publishing.
 
-The sidecar must retain exclusive data ownership, schema downgrade checks, separate read-only/write-capable database graphs, and graceful draining of accepted work. Host promotion does not authorize schema or data migration changes. Never describe the runtime as telemetry-free: disabling optional Overwolf analytics still leaves its mandatory minimal runtime telemetry.
+The sidecar must retain exclusive data ownership, schema downgrade checks, separate read-only/write-capable database graphs, and graceful draining of accepted work. Host promotion does not authorize schema or data migration changes. The host is stock Electron, pinned to an exact version in `desktop/package.json`. Revu does not start Electron's crash reporter; if that or anything else the app sends ever changes, update `site/privacy.html` and the README in the same change.
 
 ## Autonomous loop
 
