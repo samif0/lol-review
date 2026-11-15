@@ -142,14 +142,14 @@ test('this repository has no unreviewed name or domain, and its brand files matc
   assert.deepEqual(result.unreviewed.map(item => `${item.file}:${item.line}: ${item.source.trim()}`), []);
 });
 
-test('the manual steps cover what a script cannot do, with the redirect last among the domain steps', () => {
+test('the manual steps cover what a script cannot do, in an order that keeps sign-in and old links working', () => {
   const steps = manualSteps(brand, { ...sample, formerDomains: ['revu.lol'] });
   const titles = steps.map(step => step.title).join('\n');
   for (const topic of [/Cloudflare/, /Email sender/, /Turnstile/, /Worker/, /Pages/, /Riot/, /Redirect revu\.lol/])
     assert.match(titles, topic);
   const index = pattern => steps.findIndex(step => pattern.test(step.title));
-  assert.ok(index(/Ship the desktop app/) < index(/Redirect revu\.lol/));
-  assert.ok(index(/Email sender/) < index(/Worker/));
+  for (const [earlier, later] of [[/Email sender/, /Worker/], [/Turnstile/, /Worker/], [/Worker/, /Pages/], [/Pages/, /Redirect revu\.lol/],
+    [/Worker/, /Ship the desktop app/]]) assert.ok(index(earlier) < index(later), `${earlier} before ${later}`);
   const nameOnly = manualSteps(brand, { ...brand, name: 'Sample' }).map(step => step.title).join('\n');
   assert.doesNotMatch(nameOnly, /Redirect|Turnstile|Email sender/);
 });

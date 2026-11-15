@@ -491,10 +491,15 @@ export function rename(repo, target) {
     repo.write(file, next);
     changed.push(file);
   }
+  let rehashed = 0;
   for (const file of headerFiles) {
     const text = repo.read(file);
     let next = text;
-    for (const [before, after] of hashes) next = next.split(before).join(after);
+    for (const [before, after] of hashes) {
+      if (!next.includes(before)) continue;
+      next = next.split(before).join(after);
+      rehashed += 1;
+    }
     if (next !== text) { repo.write(file, next); changed.push(file); }
   }
   const rawReviewed = JSON.parse(repo.read(REVIEWED_FILE));
@@ -503,7 +508,7 @@ export function rename(repo, target) {
   repo.write(BRAND_FILE, `${JSON.stringify(to, null, 2)}\n`);
   changed.push(BRAND_FILE, ...sync(repo, to));
   return {
-    from, to, changed: [...new Set(changed)], collisions, rehashed: hashes.size,
+    from, to, changed: [...new Set(changed)], collisions, rehashed,
     kept: [...kept].map(([key, count]) => { const [file, why] = key.split('\n'); return { file, why, count }; }),
   };
 }
@@ -524,40 +529,38 @@ export function manualSteps(from, to) {
   if (domainChanged) {
     add(`Register ${to.domain} and add it to Cloudflare`,
       `Create the zone, then DNS records for ${now.siteHost}, ${now.wwwHost} and ${now.apiHost}.`,
-      `Keep ${from.domain} registered and on Cloudflare for as long as any old link should work. If it ever lapses, first remove it`,
+      `Keep ${from.domain} registered and on Cloudflare for as long as any old link should work. If it is ever let go, first remove it`,
       `from formerDomains in brand.json and run --sync, so a new owner of ${from.domain} is not a trusted origin of the account API.`);
     add('Email sender',
       `Verify ${to.domain} in Resend (SPF, DKIM, DMARC records) before the Worker starts sending from ${now.sender}.`,
-      `Until it is verified, sign-in emails from ${now.sender} bounce: verify first, deploy second.`);
+      'Until it is verified, sign-in emails bounce: verify first, deploy second.');
     add('Turnstile',
-      `Add ${now.siteHost} and ${now.wwwHost} to the Turnstile widget's hostnames. Keep ${was.siteHost} and ${was.wwwHost} until the redirects below are live.`);
+      `Add ${now.siteHost} and ${now.wwwHost} to the Turnstile widget's hostnames. Keep ${was.siteHost} and ${was.wwwHost} until the redirect below is live.`);
     add('Worker (proxy/)',
-      `Add a custom domain or route for ${now.apiHost} to the Worker and keep the one for ${was.apiHost}: old clip links (${was.apiUrl}/<id>) and`,
-      'installs that have not updated yet still call it. Then deploy the Worker from a clean checkout of main.',
-      `The web sign-in cookie is bound to ${was.apiHost}, so everyone signed in on the site signs in once more on ${now.siteHost}.`);
+      `Add a custom domain for ${now.apiHost} to the Worker and keep the one for ${was.apiHost}: old clip links (${was.apiUrl}/<id>) are served from it.`,
+      'Then deploy the Worker from a clean checkout of main. From this deploy on, new share links use the new domain.',
+      `The web sign-in cookie is bound to ${was.apiHost}, so everyone signed in on the site signs in once more.`);
     add('Pages (site/)',
-      `Add ${now.siteHost} and ${now.wwwHost} as custom domains of the Pages project, then deploy with node scripts/deploy-site.mjs.`,
-      `Keep ${was.siteHost} attached until the redirect rule below is in place.`);
-    add('Riot and search verification',
-      `site/riot.txt must be reachable at ${now.siteUrl}/riot.txt. Update the product URL in the Riot developer portal application and tell Riot about the new name and domain.`,
-      `Re-verify ${to.domain} in Google Search Console (site/google*.html is tied to the old property) and submit ${now.siteUrl}/sitemap.xml.`);
-    add('Ship the desktop app before switching share links',
-      `Tag a release. The new build shows the new name and accepts share links on both ${now.siteHost} and ${was.siteHost}.`,
-      `Installs that have not updated only recognise ${was.siteHost} links, so give the update a few days to spread before the redirect step,`,
-      'or accept that an old build hides the link of a newly shared game until it updates.');
+      `Right after the Worker: add ${now.siteHost} and ${now.wwwHost} as custom domains of the Pages project, then deploy with node scripts/deploy-site.mjs.`,
+      `Keep ${was.siteHost} attached until the redirect rule below is in place. Until then its account pages cannot sign in: go straight on to the redirect.`);
     add(`Redirect ${from.domain} so every old link keeps working`,
       `Once the new site is live, add one Cloudflare redirect rule on the ${from.domain} zone: https://${was.siteHost}/* and https://${was.wwwHost}/* to`,
       `${now.siteUrl}/$1, status 301, preserving the path and query string. Browsers carry the #notes= fragment across the redirect themselves.`,
-      `Leave ${was.apiHost} served by the Worker (no redirect): media, uploads and old builds use it directly.`,
+      `Do not redirect ${was.apiHost}: the Worker keeps serving it for old clip links.`,
       `Check after the rule is on: an old clip link (${was.apiUrl}/<id>), an old full-game link (${was.siteUrl}/v/<id>), and a link with #notes=.`,
       `Coach notes and the "viewed" marks a browser saved under ${was.siteHost} stay with that origin and do not follow the redirect; notes inside a link do.`);
+    add('Riot and search verification',
+      `site/riot.txt must be reachable at ${now.siteUrl}/riot.txt. Update the product URL in the Riot developer portal application and tell Riot about the new name and domain.`,
+      `Re-verify ${to.domain} in Google Search Console (site/google*.html is tied to the old property) and submit ${now.siteUrl}/sitemap.xml.`);
+    add('Ship the desktop app the same day',
+      `Tag a release. The new build shows the new name and accepts share links on both ${now.siteHost} and ${was.siteHost}.`,
+      `A build that has not updated recognises only ${was.siteHost} links: after the Worker deploy it shares a full game but hides its link until it updates.`,
+      'The link is still listed on the site under My clips. Releasing the same day keeps that window short.');
   }
   add('Places that keep the old name on purpose, each a separate decision',
     '.github/workflows/release.yml: the installer shortcut title (--packTitle), the GitHub release name and the Revu-Setup.exe asset the site downloads.',
     'Changing --packTitle renames Start menu and desktop shortcuts on update; test an in-place update from the current release before shipping that.',
     'The GitHub repository, the Discord server, the Azure signing profile and the Worker, bucket and database names do not change with the display name.');
-  add('Tell people',
-    'Update the README badge and links if the repository moves, the Discord server name, and the Riot application text.');
   return steps;
 }
 
