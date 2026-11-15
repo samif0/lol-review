@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Revu.Core.Data;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Services;
 
@@ -230,7 +231,7 @@ public sealed partial class BackupService
         {
             var header = new byte[SqliteHeader.Length];
             if (input.Read(header, 0, header.Length) != header.Length || !header.AsSpan().SequenceEqual(SqliteHeader))
-                throw new InvalidDataException("That file is not a Revu backup, so nothing was changed.");
+                throw new InvalidDataException($"That file is not a {Brand.Name} backup, so nothing was changed.");
             using var output = new FileStream(staged, FileMode.CreateNew, FileAccess.Write, FileShare.None);
             input.Position = 0;
             input.CopyTo(output);
@@ -245,10 +246,10 @@ public sealed partial class BackupService
         {
             games.CommandText = "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'games'";
             if (Convert.ToInt64(games.ExecuteScalar()) == 0)
-                throw new InvalidDataException("That file is not a Revu backup, so nothing was changed.");
+                throw new InvalidDataException($"That file is not a {Brand.Name} backup, so nothing was changed.");
         }
         if (DatabaseSchemaCompatibility.ReadVersion(connection) > Schema.CurrentAppSchemaVersion)
-            throw new InvalidDataException("That backup was made by a newer version of Revu. Update Revu, then restore it.");
+            throw new InvalidDataException($"That backup was made by a newer version of {Brand.Name}. Update {Brand.Name}, then restore it.");
     }
 
     /// <summary>

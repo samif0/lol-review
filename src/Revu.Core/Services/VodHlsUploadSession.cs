@@ -8,6 +8,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Services;
 
@@ -838,7 +839,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
             {
                 delay = attempt < 3 ? retry.After(ex) : null;
                 if (delay is null)
-                    throw new VodHlsUploadException(VodHlsFailure.Network, "network", $"Couldn't reach Revu for {path}.", ex);
+                    throw new VodHlsUploadException(VodHlsFailure.Network, "network", $"Couldn't reach {Brand.Name} for {path}.", ex);
             }
             await Task.Delay(delay.Value, ct).ConfigureAwait(false);
         }

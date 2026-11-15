@@ -2,8 +2,8 @@
 
 using System.Globalization;
 using System.Text.RegularExpressions;
-using Revu.Core.Constants;
 using Microsoft.Extensions.Logging;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Services;
 
@@ -104,7 +104,7 @@ public sealed partial class ClipService : IClipService
                 // A re-encode of a long clip cannot finish inside the request budget.
                 _logger.LogWarning("Stream copy failed for a {Duration}s clip; too long for the re-encode fallback", duration);
                 throw new ClipExtractionException(ClipExtractionFailure.LongClipCopyFailed,
-                    "Revu could not save this clip. Try a shorter range.");
+                    $"{Brand.Name} could not save this clip. Try a shorter range.");
             }
 
             _logger.LogWarning("Stream copy failed, falling back to re-encode");

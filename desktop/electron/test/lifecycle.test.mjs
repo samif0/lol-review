@@ -266,7 +266,7 @@ test('the host wires session end into the backend exit and the closing error', a
   assert.match(main, /sessionEnding = watchSessionEnd\(\{ window \}\);/);
   assert.doesNotMatch(main, /powerMonitor/, "powerMonitor 'shutdown' never fires on Windows");
   assert.match(main, /backendExitAction\(\{ quitting, sessionEnding: sessionEnding\(\) \}\)/);
-  assert.match(main, /!configuration\?\.smoke && !sessionEnding\(\)\)\s+dialog\.showErrorBox\('Revu could not finish closing'/);
+  assert.match(main, /!configuration\?\.smoke && !sessionEnding\(\)\)\s+dialog\.showErrorBox\(`\$\{APP_NAME\} could not finish closing`/);
 });
 
 test('a briefly unreadable settings file is read again before launch goes on', async () => {

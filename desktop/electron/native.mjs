@@ -56,7 +56,7 @@ export function nativeCommands({ app, clipboard, dialog, screen, shell, systemPr
       case 'open_export_folder': {
         // The fixed folder the sidecar saves "Export all reviews" into (Documents\Revu);
         // never a path the page supplies.
-        if (await shell.openPath(path.join(app.getPath('documents'), 'Revu')))
+        if (await shell.openPath(path.join(app.getPath('documents'), 'Revu'))) // rebrand: keep (export folder)
           throw new Error('Unable to open the export folder');
         return null;
       }

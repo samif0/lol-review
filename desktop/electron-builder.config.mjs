@@ -1,7 +1,9 @@
+import { APP_NAME } from './electron/brand.mjs';
+
 // Velopack owns installers, signing and updates. This builds its Windows app directory.
 export default {
   appId: 'gg.revu.desktop',
-  productName: 'Revu',
+  productName: APP_NAME,
   executableName: 'revu-desktop',
   // The app loads only from this archive, and Electron checks its integrity at
   // startup (see the fuses below). It contains the canonical source modules,

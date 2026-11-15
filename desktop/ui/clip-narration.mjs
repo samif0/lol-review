@@ -2,6 +2,7 @@ import { clampOffset, computeOffsetMs, createStudioStateMachine, formatClock, fo
   MAX_TAKE_MS, micErrorMessage, MIC_COPY, MIN_TAKE_MS, pickMimeType, rmsLevel } from './narration-capture.mjs';
 import { bindOutputSink, DEFAULT_DEVICE_ID, onAudioPrefsChange, resolveAudioDevice, saveAudioPref } from './audio-devices.mjs';
 import { fillMicSelect, openNarrationMic } from './narration-mic.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Narration studio: a modal <dialog> on the VOD page. The user talks over the saved
 // clip file at 1x; stopping a take saves it at once (the host renders the narrated
@@ -17,8 +18,8 @@ export const STUDIO_COPY = Object.freeze({
   remove: 'Remove the narration from this clip?',
   leave: 'Leave without saving your narration?',
   rendering: 'Rendering narrated clip...',
-  leaveOk: 'You can leave this page. Revu keeps rendering.',
-  renderFailed: 'Revu could not render the narrated clip. Your recording was not saved.',
+  leaveOk: `You can leave this page. ${APP_NAME} keeps rendering.`,
+  renderFailed: `${APP_NAME} could not render the narrated clip. Your recording was not saved.`,
   missing: 'Clip file is missing. Save the clip again.',
   tooShort: 'Recording was too short. Record at least one second.',
   shareCleared: 'Narration changed. Share again to update the link.',

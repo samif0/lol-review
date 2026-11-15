@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { planWithoutThen, recordLabel, ruleBadgeTone, shortDate } from '../ui/rule-labels.mjs';
+import { withBrand } from './brand-fixture.mjs';
 
 const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
 
@@ -61,7 +62,7 @@ function node() {
 }
 
 test('rule cards paint no sidecar color and mark the player\'s own words', async () => {
-  const source = (await read('rules.js')).replace(/^import .*?;\r?\n/gm, '');
+  const source = withBrand((await read('rules.js')).replace(/^import .*?;\r?\n/gm, ''));
   assert.doesNotMatch(source, /accentHex/, 'the sidecar hex is never read');
   assert.doesNotMatch(source, /style\.(color|borderColor|background)/);
   const card = node();

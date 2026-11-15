@@ -2,9 +2,10 @@
 // DOM, snapshot reader and invoke bridge. Shared by the row, library and skip tests.
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { withBrand } from './brand-fixture.mjs';
 
 const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
-export const source = (await read('games.js')).replace(/^import .*?;\r?\n/gm, '');
+export const source = withBrand((await read('games.js')).replace(/^import .*?;\r?\n/gm, ''));
 export const html = await read('games.html');
 const skipHelpers = await import('../ui/games-skip.mjs');
 export const plain = value => JSON.parse(JSON.stringify(value));

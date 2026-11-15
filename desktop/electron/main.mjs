@@ -18,8 +18,9 @@ import { createRollingLog, logDirectory, runtimeLogDirectory } from './logging.m
 import { askRecovery, askSlowStart, backendExitAction, createClosingNotice, createRendererRecovery, readLaunchConfig, relaunchArgs, shellPage, shellUrl,
   watchSessionEnd } from './lifecycle.mjs';
 import { createSplash, createStartupProgress } from './splash.mjs';
+import { APP_NAME } from './brand.mjs';
 
-app.setName('Revu');
+app.setName('Revu'); // rebrand: keep (Electron derives default per-user paths from the app name)
 let window, backend, eventAbort, configuration, native, afterShutdown, splash, progress;
 let recording, optimizer, background, appearance, recorderAttached = false, recordingPrepared = false;
 let quitting = false, restart = false, pageGeneration = 0;
@@ -115,18 +116,18 @@ const openLogs = async () => {
   if (error) throw new Error(error);
 };
 app.on('before-quit', createQuitHandler({
-  begin: () => { quitting = true; void optimizer?.cancel(); hostLog.info('Revu is closing'); },
+  begin: () => { quitting = true; void optimizer?.cancel(); hostLog.info(`${APP_NAME} is closing`); },
   shutdown: async () => { await shutdown(); if (restart || restartAfterFailure) relaunch(); },
   failed: error => {
     process.exitCode = 1;
-    hostLog.error('Revu could not finish closing', error);
+    hostLog.error(`${APP_NAME} could not finish closing`, error);
     // After a backend crash its unclean stop is expected; the user already chose.
     // Ending a backend that was still stopping a cancelled long job is logged above.
     if (restartAfterFailure) relaunch();
     else if (!backendCrashed && !(abandonedWork && error?.forced) && !configuration?.smoke && !sessionEnding())
-      dialog.showErrorBox('Revu could not finish closing', String(error?.message || error));
+      dialog.showErrorBox(`${APP_NAME} could not finish closing`, String(error?.message || error));
   },
-  exit: () => { hostLog.info(`Revu exited (code ${process.exitCode || 0})`); app.exit(process.exitCode || 0); },
+  exit: () => { hostLog.info(`${APP_NAME} exited (code ${process.exitCode || 0})`); app.exit(process.exitCode || 0); },
 }));
 app.on('window-all-closed', () => app.quit());
 app.on('child-process-gone', (_event, details) => hostLog.warn(`A helper process stopped (${details.type}, ${details.reason})`));
@@ -221,9 +222,9 @@ function registerIpc() {
   // It shares command admission, so it cannot race an update or database replacement.
   ipcMain.handle('revu:narration-save', (event, bytes, meta) => {
     validateSender(event, window.webContents);
-    if (configuration.isolated || quitting || restart) throw new Error('Narration is unavailable while Revu is closing or in isolated mode');
+    if (configuration.isolated || quitting || restart) throw new Error(`Narration is unavailable while ${APP_NAME} is closing or in isolated mode`);
     return track(commandGate({ terminal: false, pendingCommands }, () =>
-      saveNarration({ root: path.join(configuration.dataRoot, 'Revu', 'Narration'), backend, bytes, meta })), 'narration-save');
+      saveNarration({ root: path.join(configuration.dataRoot, 'Revu', 'Narration'), backend, bytes, meta })), 'narration-save'); // rebrand: keep (data folder)
   });
 }
 
@@ -251,7 +252,7 @@ async function start() {
   sidecarStderr.open(logDirectory(dataRoot));
   // A login launch starts hidden in the tray.
   const login = process.argv.includes('--revu-startup');
-  hostLog.info(`Revu ${app.getVersion()} starting (${app.isPackaged ? 'packaged' : 'development'}`
+  hostLog.info(`${APP_NAME} ${app.getVersion()} starting (${app.isPackaged ? 'packaged' : 'development'}`
     + `${isolated ? ', isolated' : ''}${smoke ? ', smoke' : ''}${login ? ', login' : ''})`);
   app.on('second-instance', () => {
     // The window is destroyed (or hidden for good) while a quit drains pending work.
@@ -287,7 +288,7 @@ async function start() {
   await backend.start();
   progress.finish();
   if (quitting) return;
-  recording = new RecordingService({ root: path.join(dataRoot, 'Revu', 'Recordings'), profile, backend, isolated,
+  recording = new RecordingService({ root: path.join(dataRoot, 'Revu', 'Recordings'), profile, backend, isolated, // rebrand: keep (data folder)
     recordingTest: configuration.recordingTest,
     // A speed-up yields to recording at once, and its doomed copy counts as free space.
     space: directory => optimizer.recordingSpace(directory),
@@ -302,7 +303,7 @@ async function start() {
   // never probe or launch it.
   if (!isolated) {
     try { await recording.initialize(); recordingPrepared = true; }
-    catch { recording.publish('failed', 'The recordings folder is unavailable. Your other Revu features are still available.'); }
+    catch { recording.publish('failed', `The recordings folder is unavailable. Your other ${APP_NAME} features are still available.`); }
     await optimizer.init(); // Abandoned speed-up copies, and a capture whose index never reached the disk.
     // The hardware probe runs in the background; Settings follows its status.
     void attachRecorder();
@@ -312,8 +313,8 @@ async function start() {
   const appSession = session.fromPartition('persist:revu-ui');
   registerProtocols({ protocol: appSession.protocol, session: appSession, uiDirectory, media });
   window = new BrowserWindow({ width: 1600, height: 1000, minWidth: 980, minHeight: 640,
-    frame: false, show: false, title: configuration.recordingTest ? 'Revu recording test'
-      : isolated ? 'Revu (isolated preview)' : 'Revu', icon: iconPath,
+    frame: false, show: false, title: configuration.recordingTest ? `${APP_NAME} recording test`
+      : isolated ? `${APP_NAME} (isolated preview)` : APP_NAME, icon: iconPath,
     backgroundColor: windowPalette(savedAppearance, { dark: nativeTheme.shouldUseDarkColors }).background,
     webPreferences: { session: appSession, preload: path.join(app.getAppPath(), 'electron/preload.cjs'), contextIsolation: true,
       additionalArguments: isolated ? ['--revu-isolated'] : [], sandbox: true, devTools: !app.isPackaged,
@@ -364,17 +365,17 @@ async function start() {
   else window.hide();
   if (smoke) return;
   splash.close();
-  hostLog.info('Revu is ready');
+  hostLog.info(`${APP_NAME} is ready`);
 }
 
 start().catch(async error => {
   process.exitCode = 1;
-  hostLog.error('Revu could not start', error);
+  hostLog.error(`${APP_NAME} could not start`, error);
   progress?.finish();
   if (configuration?.smoke) await writeFile(path.join(configuration.dataRoot, 'electron-smoke-error.txt'), String(error.message)).catch(() => {});
   // Closed during startup, or a backend crash already asked: that choice owns the exit.
   else if (quitting || recovering) return;
-  else if (!app.isReady() || !hostLog.file) dialog.showErrorBox('Revu could not start', String(error?.message || error));
+  else if (!app.isReady() || !hostLog.file) dialog.showErrorBox(`${APP_NAME} could not start`, String(error?.message || error));
   else {
     // A verified backend that cannot open its database explains why here.
     const choice = await askRecovery({ dialog, kind: 'startup', detail: String(error?.message || error), openLogs })

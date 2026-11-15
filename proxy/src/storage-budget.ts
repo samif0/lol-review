@@ -21,6 +21,7 @@ import { jsonResponse } from "./http";
 import { RELEASES_MAX, VOD_TTL_SECONDS, totalBudgetBytes, userClipBudgetBytes, vodBudgetBytes } from "./share-limits";
 // Read only inside releaseAt, so the clips.ts <-> storage-budget.ts cycle is safe.
 import { CLIP_TTL_SECONDS } from "./clips";
+import { APP_NAME } from "./brand";
 
 export interface StorageUsage {
   used: number;
@@ -50,7 +51,7 @@ export const STORAGE_USAGE_SQL =
 const RELEASE_ROWS_SQL = "SELECT kind, size_bytes, status, created_at, expires_at FROM clips ORDER BY expires_at ASC LIMIT 1000";
 const RELEASE_TOMBS_SQL = "SELECT kind, size_bytes FROM storage_tombstones LIMIT 1000";
 
-export const STORAGE_FULL_MESSAGE = "Revu's sharing space is full right now. Try again in a few hours.";
+export const STORAGE_FULL_MESSAGE = `${APP_NAME}'s sharing space is full right now. Try again in a few hours.`;
 
 /** 403 refusal for clip uploads; 4.0.1 desktops show `message` for quota_exceeded. */
 export function storageFull(): Response {

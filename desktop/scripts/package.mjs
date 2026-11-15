@@ -211,8 +211,8 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
     icon: builderConfig.win.icon,
     'file-version': manifest.version.split('-')[0],
     'product-version': manifest.version.split('-')[0],
-    'version-string': { ProductName: 'Revu', FileDescription: manifest.description,
-      InternalName: 'Revu', OriginalFilename: 'revu-desktop.exe', ProductVersion: manifest.version },
+    'version-string': { ProductName: config.productName, FileDescription: manifest.description,
+      InternalName: config.productName, OriginalFilename: 'revu-desktop.exe', ProductVersion: manifest.version },
     'requested-execution-level': 'asInvoker',
   });
   await copyTree(sidecar, built);
@@ -223,7 +223,7 @@ export async function packageDesktop({ root = desktopRoot } = {}) {
   await writeFile(path.join(outputRoot, 'package-manifest.json'), JSON.stringify({ version: manifest.version,
     runtimeVersion: runtime.pinnedVersion, recorderVersion: (await verifyRecorderRuntime(recorder)).obsVersion,
     builderVersion: installedBuilder.version, directory, appFiles: files }, null, 2));
-  console.log(`Packaged Revu ${manifest.version}: ${directory}`);
+  console.log(`Packaged ${config.productName} ${manifest.version}: ${directory}`);
   return directory;
 }
 

@@ -12,13 +12,13 @@
 import { clientIpKey } from "./client-ip";
 import { sha256Hex } from "./crypto";
 import { mediaTypeOf, readSmallBody } from "./http";
+import { authBase } from "./brand";
 import { Env } from "./types";
 
 export const WEB_COOKIE = "__Host-revu_web";
 export const WEB_COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
 export const WEB_BODY_MAX_BYTES = 4096;
 
-const DEFAULT_AUTH_BASE = "https://clips.revu.lol";
 const TOKEN_SHAPE = /^[0-9a-f]{48}$/;
 
 export function webSetCookie(token: string): string {
@@ -53,7 +53,7 @@ export function hasWebCookie(request: Request): boolean {
 }
 
 export function authBaseHost(env: Env): string {
-  return new URL(env.AUTH_BASE || DEFAULT_AUTH_BASE).host;
+  return new URL(authBase(env)).host;
 }
 
 export function credentialedOrigins(env: Env): string[] {

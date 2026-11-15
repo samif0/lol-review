@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Revu.Core.Lcu;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -54,7 +55,7 @@ public static partial class SidecarEndpoints
             catch (Exception ex) when (ex is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException)
             { response.SetResult(Results.BadRequest(new { ok = false, error = ex.Message })); }
             catch (Exception ex) { response.SetException(ex); }
-        })) return Results.Json(new { ok = false, error = "Revu is shutting down." }, statusCode: 503);
+        })) return Results.Json(new { ok = false, error = $"{Brand.Name} is shutting down." }, statusCode: 503);
         return await response.Task;
     }
 }

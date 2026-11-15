@@ -35,6 +35,7 @@ import { sendMagicLinkEmail } from "./email";
 import { EMAIL_CAP_MESSAGE, refundEmailSend, reserveEmailSend } from "./email-budget";
 import { Env } from "./types";
 import { jsonResponse, badRequest } from "./http";
+import { APP_NAME, appName } from "./brand";
 
 export const OTP_LIFETIME_SECONDS = 10 * 60;
 export const SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
@@ -107,7 +108,7 @@ async function sendLoginCode(env: Env, email: string): Promise<Response> {
     await sendMagicLinkEmail(
       env.RESEND_API_KEY,
       env.MAGIC_LINK_FROM,
-      env.APP_NAME || "Revu",
+      appName(env),
       email,
       otp,
       "login",
@@ -164,7 +165,7 @@ export async function handleVerify(request: Request, env: Env): Promise<Response
   if (rawEmail && !isValidEmail(rawEmail)) return badRequest("invalid_email");
   const emailRequired = env.REQUIRE_VERIFY_EMAIL === "1";
   if (!rawEmail && emailRequired) {
-    return jsonResponse({ error: "email_required", message: "Update Revu, then request a new code." }, 400);
+    return jsonResponse({ error: "email_required", message: `Update ${APP_NAME}, then request a new code.` }, 400);
   }
 
   let email: string | null;

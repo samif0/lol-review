@@ -4,7 +4,7 @@ import path from 'node:path';
 // Revu's own logs live beside the handshake, under the data root (respects --data-root
 // and REVU_DATA_ROOT). The sidecar writes sidecar.log here; the host writes host.log
 // and a capped copy of the sidecar's stderr. Electron's own logs go to the runtime subfolder.
-export const logDirectory = dataRoot => path.join(dataRoot, 'Revu', 'logs');
+export const logDirectory = dataRoot => path.join(dataRoot, 'Revu', 'logs'); // rebrand: keep (data folder)
 export const runtimeLogDirectory = dataRoot => path.join(logDirectory(dataRoot), 'runtime');
 
 const SECRETS = [

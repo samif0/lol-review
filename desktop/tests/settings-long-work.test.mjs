@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
+import { withBrand } from './brand-fixture.mjs';
 
 // Long Settings work. "Export review data": the sidecar saves the Markdown into
 // Documents\Revu and answers with the path; the page never carries the export itself (it
 // used to hit the 4 MiB IPC cap). "Update & restart": the download is accepted sidecar work,
 // so a request deadline means "still downloading", never "failed".
-const source = (await readFile(new URL('../ui/settings.js', import.meta.url), 'utf8'))
-  .replace(/^import .*?;\r?\n/gm, '');
+const source = withBrand((await readFile(new URL('../ui/settings.js', import.meta.url), 'utf8'))
+  .replace(/^import .*?;\r?\n/gm, ''));
 
 function element(id, action = '') {
   return {

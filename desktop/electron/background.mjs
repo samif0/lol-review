@@ -1,5 +1,6 @@
 import { access, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { APP_NAME } from './brand.mjs';
 
 const DEFAULTS = Object.freeze({ closeToTray: false, startWithWindows: false });
 const LOGIN_ARGS = Object.freeze(['--revu-startup']);
@@ -38,7 +39,7 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
     try { await access(launcher); } catch { launcher = null; }
   }
   if (typeof app.setLoginItemSettings !== 'function' || typeof app.getLoginItemSettings !== 'function') launcher = null;
-  const loginOptions = launcher ? { path: launcher, args: [...LOGIN_ARGS], name: 'Revu' } : null;
+  const loginOptions = launcher ? { path: launcher, args: [...LOGIN_ARGS], name: 'Revu' } : null; // rebrand: keep (the Windows startup entry is stored under this name)
   const readStartup = () => {
     if (!loginOptions) return false;
     const actual = app.getLoginItemSettings(loginOptions);
@@ -47,7 +48,7 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
   try {
     settings = validateBackgroundSettings(JSON.parse(await readFile(file, 'utf8')));
   } catch (error) {
-    if (error.code !== 'ENOENT') message = 'Background preferences could not be read. Revu will open normally.';
+    if (error.code !== 'ENOENT') message = `Background preferences could not be read. ${APP_NAME} will open normally.`;
   }
   // Read the Windows setting without recreating an entry disabled outside Revu.
   try { settings.startWithWindows = readStartup(); }
@@ -64,14 +65,14 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
   const ensureTray = () => {
     if (tray && !tray.isDestroyed()) return;
     if (smoke || typeof Tray !== 'function' || !Menu?.buildFromTemplate)
-      throw new Error('The system tray is unavailable. Revu will keep opening normally.');
+      throw new Error(`The system tray is unavailable. ${APP_NAME} will keep opening normally.`);
     const created = new Tray(iconPath);
     try {
-      created.setToolTip('Revu');
+      created.setToolTip(APP_NAME);
       created.setContextMenu(Menu.buildFromTemplate([
-        { label: 'Open Revu', click: restore },
+        { label: `Open ${APP_NAME}`, click: restore },
         { type: 'separator' },
-        { label: 'Quit Revu', click: () => { quitting = true; app.quit(); } },
+        { label: `Quit ${APP_NAME}`, click: () => { quitting = true; app.quit(); } },
       ]));
       created.on('click', restore);
       created.on('double-click', restore);
@@ -80,7 +81,7 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
   };
   if (settings.closeToTray) {
     try { ensureTray(); }
-    catch { settings.closeToTray = false; message = 'The system tray is unavailable. Closing Revu will quit the app.'; }
+    catch { settings.closeToTray = false; message = `The system tray is unavailable. Closing ${APP_NAME} will quit the app.`; }
   }
 
   const beginQuit = () => { quitting = true; };
@@ -96,9 +97,9 @@ export async function createBackgroundController({ app, window, Tray, Menu, icon
   const saveSettings = payload => {
     const requested = validateBackgroundSettings(payload);
     const operation = saving.then(async () => {
-      if (disposed || closing()) throw new Error('Revu is closing');
+      if (disposed || closing()) throw new Error(`${APP_NAME} is closing`);
       if (requested.startWithWindows && !launcher)
-        throw new Error('Start with Windows is available after installing Revu.');
+        throw new Error(`Start with Windows is available after installing ${APP_NAME}.`);
       const previousStartup = launcher ? readStartup() : false;
       const createdTray = requested.closeToTray && !tray;
       if (requested.closeToTray) ensureTray();

@@ -26,6 +26,10 @@ import { takeawayText } from './journal-takeaway.mjs';
 import { SPEED_UP_HELD, speedUpHoldsRecording } from './recording-optimize.mjs';
 import { createVodShare } from './vod-share.mjs';
 import { platform } from './platform/index.mjs';
+import { APP_NAME, SITE_HOST } from './brand.mjs';
+
+// Sidecar clip errors that are already written for the player and are shown as they are.
+const KNOWN_CLIP_ERROR = new RegExp(`(?:Clips can be up to 10 minutes|${APP_NAME} could not save this clip)\\..*$`);
 
 function clock(s) { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
@@ -2458,7 +2462,7 @@ function openShareLogin(bmId, prefillEmail, message) {
   show($('vp-sl-email'), true);
   show($('vp-sl-otp'), false);
   shareLoginErr('');
-  shareLoginMsg(message || 'Log in to publish this clip to revu.lol.');
+  shareLoginMsg(message || `Log in to publish this clip to ${SITE_HOST}.`);
   const box = $('vp-sl-emailbox');
   if (box) { box.value = prefillEmail || _shareEmail || ''; box.focus(); }
   // The panel renders as a centered popover (CSS .vp-sharelogin[ ... ]:not([hidden]))
@@ -3282,7 +3286,7 @@ async function saveClipNow() {
   } catch (err) {
     // The sidecar returns "...ffmpeg..." in the message when it isn't installed.
     const msg = String(err && err.message ? err.message : err);
-    const known = msg.match(/(?:Clips can be up to 10 minutes|Revu could not save this clip)\..*$/);
+    const known = msg.match(KNOWN_CLIP_ERROR);
     clipHint(known ? known[0] : /ffmpeg/i.test(msg) ? 'Clip save failed; is ffmpeg installed?' : 'Clip save failed.', true);
     console.error('[vodplayer] extract_clip failed:', err);
   } finally {

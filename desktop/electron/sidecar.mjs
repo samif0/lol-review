@@ -5,6 +5,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { cleanRuntimeEnvironment } from '../runtime/electron.mjs';
 import { requireCleanBackendExit } from './shutdown.mjs';
+import { APP_NAME } from './brand.mjs';
 
 const normalize = (value) => path.resolve(value).replace(/[\\/]+$/, '').toLowerCase();
 export function validateHandshake(value, { launchId, processId, dataDirectory }) {
@@ -68,7 +69,7 @@ export async function readHealth(request) {
     const detail = await request('/api/host/health').catch(() => null);
     if (detail?.status === 'ready') return detail;
     return { status: 'degraded', error: typeof detail?.error === 'string' && detail.error.trim()
-      ? detail.error : "Revu couldn't open its database." };
+      ? detail.error : `${APP_NAME} couldn't open its database.` };
   }
 }
 
@@ -128,7 +129,7 @@ export class Sidecar {
         if (child.exitCode !== null || child.signalCode !== null) throw new Error('Sidecar exited before becoming ready; another data owner or incompatible schema may be present');
         let verdict;
         try {
-          const text = await readFile(path.join(root, 'Revu', 'sidecar.json'), 'utf8');
+          const text = await readFile(path.join(root, 'Revu', 'sidecar.json'), 'utf8'); // rebrand: keep (data folder)
           if (text.length > 4096) throw new Error('Invalid handshake size');
           const value = JSON.parse(text);
           if (isStartingHandshake(value, identity)) {
@@ -160,7 +161,7 @@ export class Sidecar {
       }
       if (preparing) {
         const minutes = Math.round(this.preparingTimeoutMs / 60_000);
-        throw new Error(`Updating your Revu data did not finish within ${minutes} minutes. Revu continues the update the next time it opens.`);
+        throw new Error(`Updating your ${APP_NAME} data did not finish within ${minutes} minutes. ${APP_NAME} continues the update the next time it opens.`);
       }
       throw new Error('The owned sidecar did not become ready within 20 seconds');
     } catch (error) { await this.stop().catch(() => {}); throw error; }

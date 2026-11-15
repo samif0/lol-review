@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Models;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -218,7 +219,7 @@ public sealed class GamesSnapshotBuilder
     }
 
     private const string LoadErrorText =
-        "Revu couldn't read your games from its local database. Try again, or restart Revu.";
+        $"{Brand.Name} couldn't read your games from its local database. Try again, or restart {Brand.Name}.";
 
     /// <summary>Strip numbers for a single-shot view whose whole list is loaded:
     /// remakes are listed but never counted; reviewed and skipped match the row labels.</summary>

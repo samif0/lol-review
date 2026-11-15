@@ -10,6 +10,7 @@
 import { Env } from "./types";
 import { opsFlagOn } from "./ops-flags";
 import { playSecretOk } from "./play-token";
+import { publicBase, watchBase } from "./brand";
 
 export const DEFAULT_TOTAL_BUDGET_BYTES = 9_000_000_000;
 export const DEFAULT_VOD_BUDGET_BYTES = 7_000_000_000;
@@ -223,7 +224,7 @@ export async function vodHlsOn(env: Env, userId: number): Promise<boolean> {
 
 /** Public watch link for a VOD share: ${WATCH_BASE}/v/<id>. */
 export function vodWatchUrl(env: Env, id: string): string {
-  const base = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
+  const base = watchBase(env);
   return `${base}/v/${id}`;
 }
 
@@ -235,7 +236,7 @@ export function vodWatchUrl(env: Env, id: string): string {
 export function onPublicHost(request: Request, env: Env): boolean {
   let host: string;
   try {
-    host = new URL(env.PUBLIC_BASE || "https://clips.revu.lol").host;
+    host = new URL(publicBase(env)).host;
   } catch {
     return false;
   }

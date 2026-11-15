@@ -1,7 +1,9 @@
 // "Speed up slow recordings" in Settings > Recording. A built-in recording saved before Revu
 // indexed recordings, or interrupted before it finished saving, opens slowly. The host lists
 // them by game and rewrites one file at a time in place; the page only ever names a game.
-export const SPEED_UP_WORKING = 'Speeding up this recording. This can take a minute; keep Revu open.';
+import { APP_NAME } from './brand.mjs';
+
+export const SPEED_UP_WORKING = `Speeding up this recording. This can take a minute; keep ${APP_NAME} open.`;
 export const SPEED_UP_DONE = 'This recording now opens instantly.';
 export const SPEED_UP_LOADING = 'Checking your recordings…';
 export const SPEED_UP_EMPTY = 'Every recording opens quickly. Nothing to speed up.';
@@ -22,11 +24,11 @@ const WAITING_MANY = {
 };
 const FAILED = {
   'recording-in-use': 'The recording was in use, for example by a clip being saved. Try again in a moment.',
-  'game-running': 'A League game started, so Revu stopped speeding up this recording.',
-  'recording-active': 'A recording started, so Revu stopped speeding up this recording.',
+  'game-running': `A League game started, so ${APP_NAME} stopped speeding up this recording.`,
+  'recording-active': `A recording started, so ${APP_NAME} stopped speeding up this recording.`,
   'not-enough-space': 'There is not enough free space on this drive.',
-  'verify-failed': 'The faster copy did not match the original exactly, so Revu discarded it.',
-  'remux-failed': 'Revu could not rewrite this recording.',
+  'verify-failed': `The faster copy did not match the original exactly, so ${APP_NAME} discarded it.`,
+  'remux-failed': `${APP_NAME} could not rewrite this recording.`,
   'not-eligible': 'This recording cannot be sped up.',
   busy: 'Another recording is being sped up. Try again when it finishes.',
 };

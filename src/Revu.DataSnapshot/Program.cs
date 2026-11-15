@@ -1,4 +1,5 @@
 using Revu.Core.Data;
+using Revu.Core.Constants;
 
 if (args.Length == 1 && args[0] is "--help" or "-h")
 {
@@ -47,7 +48,7 @@ catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or A
 
 static void PrintUsage()
 {
-    Console.WriteLine("Revu compatibility snapshot harness (explicit local directories only)");
+    Console.WriteLine($"{Brand.Name} compatibility snapshot harness (explicit local directories only)");
     Console.WriteLine("  snapshot <source-data-directory> <empty-bundle-directory>");
     Console.WriteLine("  verify <bundle-directory>");
     Console.WriteLine("  restore <bundle-directory> <empty-target-data-directory>");

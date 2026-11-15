@@ -5,6 +5,7 @@ using System.Text.Json;
 using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -385,7 +386,7 @@ public static partial class SidecarEndpoints
             return Results.Json(new { ok = false, error = "Auto-clip is already running for this game; try again when it finishes." },
                 jsonOptions, statusCode: 409);
         if (job is null)
-            return Results.Json(new { ok = false, error = "Revu is closing; auto-clip was not started." }, jsonOptions, statusCode: 503);
+            return Results.Json(new { ok = false, error = $"{Brand.Name} is closing; auto-clip was not started." }, jsonOptions, statusCode: 503);
 
         try
         {
@@ -400,7 +401,7 @@ public static partial class SidecarEndpoints
         }
         catch (OperationCanceledException)
         {
-            return Results.Json(new { ok = false, error = "Revu is closing; auto-clip stopped. Clips already saved are kept." },
+            return Results.Json(new { ok = false, error = $"{Brand.Name} is closing; auto-clip stopped. Clips already saved are kept." },
                 jsonOptions, statusCode: 503);
         }
         catch (Exception ex)

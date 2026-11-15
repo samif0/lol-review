@@ -56,6 +56,7 @@ import {
   handlePutTranscript,
   handleTranscribe,
 } from "./transcripts";
+import { APP_NAME, watchBase } from "./brand";
 
 // ── Auth resolution ─────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ async function authOrDeny(request: Request, env: Env): Promise<DesktopAuth | Res
   } catch (err) {
     console.error(JSON.stringify({ scope: "auth.session_lookup", error: (err as Error).message }));
     return jsonResponse(
-      { error: "auth_unavailable", message: "Revu's server is busy. Try again in a moment." },
+      { error: "auth_unavailable", message: `${APP_NAME}'s server is busy. Try again in a moment.` },
       503,
       { "Retry-After": "5" },
     );
@@ -358,17 +359,17 @@ async function route(request: Request, url: URL, env: Env, ctx: ExecutionContext
   if (request.method === "GET" || request.method === "HEAD") {
     const seg = url.pathname.slice(1);
     if (seg.indexOf("/") === -1 && isClipSlug(seg)) {
-      const watchBase = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
+      const watchOrigin = watchBase(env);
       try {
         const og = await renderClipOgPage(env, seg);
         if (og) return og;
         // A full-game share (ready, or still uploading): straight to its watch
         // page, never OG video tags.
-        if (await findShownVod(env.DB, seg)) return Response.redirect(`${watchBase}/v/${seg}`, 302);
+        if (await findShownVod(env.DB, seg)) return Response.redirect(`${watchOrigin}/v/${seg}`, 302);
       } catch (err) {
         console.error(JSON.stringify({ scope: "clips.og", error: (err as Error)?.message ?? String(err) }));
       }
-      return Response.redirect(`${watchBase}/clip.html?id=${seg}`, 302);
+      return Response.redirect(`${watchOrigin}/clip.html?id=${seg}`, 302);
     }
   }
 
@@ -471,7 +472,7 @@ export default {
         method: request.method,
         error: (err as Error)?.message ?? String(err),
       }));
-      return withCors(jsonResponse({ error: "internal", message: "Revu hit a temporary error. Try again." }, 500), cors);
+      return withCors(jsonResponse({ error: "internal", message: `${APP_NAME} hit a temporary error. Try again.` }, 500), cors);
     }
   },
 };

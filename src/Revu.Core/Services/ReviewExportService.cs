@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Text;
 using Revu.Core.Data.Repositories;
+using Revu.Core.Constants;
 using GameStats = Revu.Core.Models.GameStats;
 
 namespace Revu.Core.Services;
@@ -149,7 +150,7 @@ public sealed class ReviewExportService : IReviewExportService
             TagIds: await _conceptTags.GetIdsByGameAsync());
 
         var sb = new StringBuilder();
-        sb.AppendLine("# Revu Review Export");
+        sb.AppendLine($"# {Brand.Name} Review Export");
         sb.AppendLine();
         AppendField(sb, "Exported", DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture));
         AppendField(sb, "Games exported", games.Count.ToString(CultureInfo.InvariantCulture));

@@ -1,0 +1,121 @@
+{
+  "paths": [
+    {
+      "glob": ".github/workflows/release.yml",
+      "kind": "identity",
+      "why": "release identity: installer title, release name and asset names change by hand"
+    },
+    {
+      "glob": "proxy/migrations/**",
+      "kind": "identity",
+      "why": "applied migrations are never edited"
+    },
+    {
+      "glob": "site/**",
+      "kind": "display",
+      "why": "static site, no build step"
+    },
+    {
+      "glob": "desktop/ui/*.html",
+      "kind": "display",
+      "why": "desktop pages are served as written, no build step"
+    },
+    {
+      "glob": "desktop/ui/sample-*.json",
+      "kind": "display",
+      "why": "browser-preview sample data"
+    },
+    {
+      "glob": "**/*.md",
+      "kind": "display",
+      "why": "documentation"
+    },
+    {
+      "glob": "licenses/**",
+      "kind": "display",
+      "why": "notices shipped with the app"
+    },
+    {
+      "glob": "desktop/recorder/**",
+      "kind": "display",
+      "why": "recorder helper: notices, comments and internal object labels"
+    },
+    {
+      "glob": ".github/ISSUE_TEMPLATE/**",
+      "kind": "display",
+      "why": "issue templates"
+    },
+    {
+      "glob": "desktop/tests/**",
+      "kind": "display",
+      "why": "test fixtures and expectations"
+    },
+    {
+      "glob": "desktop/electron/test/**",
+      "kind": "display",
+      "why": "test fixtures and expectations"
+    },
+    {
+      "glob": "desktop/runtime/test/**",
+      "kind": "display",
+      "why": "test fixtures and expectations"
+    },
+    {
+      "glob": "proxy/tests/**",
+      "kind": "display",
+      "why": "test fixtures and expectations"
+    },
+    {
+      "glob": "src/Revu.Core.Tests/**",
+      "kind": "display",
+      "why": "test fixtures and expectations"
+    },
+    {
+      "glob": "src/Revu.Sidecar.Tests/**",
+      "kind": "display",
+      "why": "test fixtures and expectations"
+    },
+    {
+      "glob": "scripts/**",
+      "kind": "display",
+      "why": "developer tooling and its tests"
+    },
+    {
+      "glob": "desktop/scripts/**",
+      "kind": "display",
+      "why": "developer tooling output"
+    }
+  ],
+  "lines": [
+    {
+      "file": "desktop/package.json",
+      "has": "\"productName\": \"Revu\"",
+      "why": "JSON manifest; the build reads the name from electron/brand.mjs"
+    },
+    {
+      "file": "desktop/package.json",
+      "has": "\"description\": \"Revu desktop app",
+      "why": "JSON manifest; becomes the file description of the executable"
+    },
+    {
+      "file": "desktop/electron/branding/revu.svg",
+      "has": "<title>Revu</title>",
+      "why": "artwork"
+    },
+    {
+      "file": "src/Revu.Sidecar/Hosting/SidecarStartup.cs",
+      "has": "\"Revu sidecar listening on",
+      "why": "log message template: analyzers require a constant, so it stays written out"
+    },
+    {
+      "file": "src/Revu.Sidecar/UpdateService.cs",
+      "has": "Update download stopped (Revu is closing)",
+      "why": "log message template: analyzers require a constant, so it stays written out"
+    },
+    {
+      "file": "src/Revu.Sidecar/VodShareWorker.Hls.cs",
+      "has": "as Revu closes",
+      "why": "log message template: analyzers require a constant, so it stays written out"
+    }
+  ]
+}

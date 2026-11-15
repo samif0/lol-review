@@ -63,7 +63,7 @@ public static class AppDataPaths
     /// <c>REVU_DATA_ROOT</c> override isolates it too — a dev/e2e sidecar must
     /// never clobber the installed app's handshake.
     /// </summary>
-    public static string SidecarHandshakeDirectory => Path.Combine(LocalAppDataRoot, "Revu");
+    public static string SidecarHandshakeDirectory => Path.Combine(LocalAppDataRoot, "Revu"); // rebrand: keep (data folder)
     public static string RecordingsDirectory => Path.Combine(SidecarHandshakeDirectory, "Recordings");
 
     /// <summary>

@@ -5,6 +5,7 @@ using System.Text.Json;
 using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -208,7 +209,7 @@ public static partial class SidecarEndpoints
     {
         var clips = string.IsNullOrWhiteSpace(cfg.ClipsFolder) ? AppDataPaths.ClipsDirectory : cfg.ClipsFolder;
         if (LocalPathPolicy.FoldersOverlap(clips, AppDataPaths.RecordingsDirectory))
-            return "Your clips folder can't be the same as, inside, or contain Revu's recordings folder. Choose a separate folder for clips.";
+            return $"Your clips folder can't be the same as, inside, or contain {Brand.Name}'s recordings folder. Choose a separate folder for clips.";
         return null;
     }
 
@@ -239,7 +240,7 @@ public static partial class SidecarEndpoints
             return result;
         });
         if (job is null)
-            return Results.Json(new UpdateDownloadResult(false, null, null, "Revu is closing; the download was not started."),
+            return Results.Json(new UpdateDownloadResult(false, null, null, $"{Brand.Name} is closing; the download was not started."),
                 jsonOptions, statusCode: 503);
 
         try
@@ -264,7 +265,7 @@ public static partial class SidecarEndpoints
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         if (string.IsNullOrWhiteSpace(documents))
             documents = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents");
-        return Path.Combine(documents, "Revu");
+        return Path.Combine(documents, "Revu"); // rebrand: keep (export folder)
     }
 
     internal static async Task<IResult> SaveReviewExportAsync(IReviewExportService export, string folder,

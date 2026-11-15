@@ -41,6 +41,7 @@ import {
   webSetCookie,
   webTokenHash,
 } from "./web-http";
+import { appName, siteHost } from "./brand";
 
 export const TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 export const TURNSTILE_ACTION = "web_signin";
@@ -149,7 +150,7 @@ export async function handleEmailStart(request: Request, env: Env): Promise<Resp
   }
 
   try {
-    await sendMagicLinkEmail(env.RESEND_API_KEY, env.MAGIC_LINK_FROM, env.APP_NAME || "Revu", email, otp, "web");
+    await sendMagicLinkEmail(env.RESEND_API_KEY, env.MAGIC_LINK_FROM, appName(env), email, otp, "web", siteHost(env));
   } catch (err) {
     // Drop the row so an immediate retry is not throttled by a code that never arrived.
     try { await deleteLoginRequestByCode(env.DB, codeHash); } catch { /* best effort */ }

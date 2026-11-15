@@ -12,7 +12,7 @@ internal static class CoreDiagnostics
 
     private static string LogDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Revu");
+        "Revu"); // rebrand: keep (data folder)
 
     private static string StartupLogPath => Path.Combine(LogDirectory, "startup.log");
 

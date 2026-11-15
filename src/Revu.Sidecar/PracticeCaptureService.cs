@@ -28,7 +28,7 @@ public sealed class PracticeCaptureService(IHttpClientFactory clients, ILogger<P
             _stop?.Dispose();
             _stop = new CancellationTokenSource(TimeSpan.FromHours(1));
             var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Revu", "diagnostics", $"practice-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}");
+                "Revu", "diagnostics", $"practice-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"); // rebrand: keep (data folder)
             System.IO.Directory.CreateDirectory(directory);
             _status = new("waiting-for-game", directory, 0, 0, null, "",
                 "Riot Live Client capture only. Attributed champion damage and cast timing are not validated; health changes are not trades.");

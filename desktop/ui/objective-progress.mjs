@@ -1,3 +1,5 @@
+import { APP_NAME } from './brand.mjs';
+
 const NO_DATA = 'No data yet';
 
 export const PRACTICE_STAGES = [
@@ -37,7 +39,7 @@ export function objectiveProgress(o) {
       : 'Your success and consistency checks are met. You can mark this objective complete.';
   } else if (games === 0) {
     title = 'Start with your first game';
-    hint = o.hasStructuredCriteria ? 'Play with this objective so Revu can check your game-stat target.'
+    hint = o.hasStructuredCriteria ? `Play with this objective so ${APP_NAME} can check your game-stat target.`
       : 'Practice this objective, then confirm how it went in your game review.';
   } else if (games !== null && games < minGames) {
     title = 'Keep gathering practice';
@@ -56,7 +58,7 @@ export function objectiveProgress(o) {
     hint = 'Meet your success condition in the last 3 games in a row, or in 8 of your last 10.';
   } else {
     title = 'Building consistency';
-    hint = 'Keep practicing and reviewing this objective. Revu checks success across games and over time.';
+    hint = `Keep practicing and reviewing this objective. ${APP_NAME} checks success across games and over time.`;
   }
   return { score, stageIndex, stage, nextStage, pointsToNext, ready, title, hint,
     successRate, games, days, threshold, minGames, minDays, rateMet, recentMet };

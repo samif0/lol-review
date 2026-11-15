@@ -87,7 +87,7 @@ internal static class FfmpegRunner
     {
         var candidates = new List<string>
         {
-            Path.Combine(localAppData, "Revu", "ffmpeg.exe"),
+            Path.Combine(localAppData, "Revu", "ffmpeg.exe"), // rebrand: keep (data folder)
             Path.Combine(programFiles, "ffmpeg", "bin", "ffmpeg.exe"),
             Path.Combine(userProfile, "scoop", "shims", "ffmpeg.exe"),
         };

@@ -3,6 +3,7 @@
 // localStorage. They never write the review's focus adherence, which answers a
 // different question ("Did you practice what you intended?") about one game.
 // Every server string is written with textContent. Nothing here throws on storage.
+import { APP_NAME } from './brand.mjs';
 
 export const FOLLOWTHROUGH_KEY = 'revu.journal.followthrough.v1';
 export const FOLLOWTHROUGH_ANSWERS = Object.freeze(['yes', 'partly', 'notyet']);
@@ -198,7 +199,7 @@ export function createTakeawayCard({ elements, load, storage = defaultStorage(),
     const next = answerOf(current.gameId) === value ? null : value;
     local[current.gameId] = next;
     const result = saveFollowThrough(current.gameId, next, storage);
-    if (!result.ok) console.warn('[journal] this answer is kept until Revu closes; storage refused it.');
+    if (!result.ok) console.warn(`[journal] this answer is kept until ${APP_NAME} closes; storage refused it.`);
     paintAnswers();
     return next;
   }

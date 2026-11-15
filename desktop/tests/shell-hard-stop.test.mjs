@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { withBrand } from './brand-fixture.mjs';
 
 // The hard-stop card on the shell. A cancelled queue search takes the screen. A match
 // that was already found is the player's to answer: the card shows inside Revu and the
 // window stays where it is, so it never covers the League client's own prompt.
 const outer = await readFile(new URL('../ui/shell-outer.js', import.meta.url), 'utf8');
 const markup = await readFile(new URL('../ui/index.html', import.meta.url), 'utf8');
-const code = outer.slice(outer.indexOf('const HARDSTOP_HOLD_S'), outer.indexOf('\nwireHardStop();'));
+const code = withBrand(outer.slice(outer.indexOf('const HARDSTOP_HOLD_S'), outer.indexOf('\nwireHardStop();')));
 const IDS = ['hardstop', 'hardbar', 'hardstop-h', 'hardstop-foot', 'hardstop-rule', 'hardstop-reason', 'hardstop-plan',
   'hardstop-plan-t', 'hardstop-count', 'hardbar-txt', 'hardstop-override', 'hardstop-ok', 'hardbar-btn'];
 

@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Data.Sqlite;
 using Revu.Core.Data;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -74,7 +75,7 @@ public static class SidecarApiMiddleware
                     {
                         SqliteConnection.ClearAllPools();
                         var dbPath = app.Services.GetRequiredService<WriteServices>().DatabasePath;
-                        error = $"Revu couldn't open its database: {SqliteOpenHealth.Describe(dbPath)}";
+                        error = $"{Brand.Name} couldn't open its database: {SqliteOpenHealth.Describe(dbPath)}";
                     }
                     else
                     {

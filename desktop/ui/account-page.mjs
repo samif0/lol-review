@@ -4,6 +4,7 @@
 // first-launch Get started card.
 // Pages that change the Revu sign-in announce it, so the shell's account row
 // (shell-recent.mjs) rereads it without waiting for a navigation.
+import { APP_NAME } from './brand.mjs';
 
 export const ACCOUNT_CHANGED = 'revu:account-changed';
 
@@ -30,7 +31,7 @@ export function signedInFor(state) {
 
 /** The Account page heading. signedIn is null while it is unknown or beside the point. */
 export function accountHero(signedIn) {
-  const subtitle = signedIn === true ? 'Your Revu sign-in.'
+  const subtitle = signedIn === true ? `Your ${APP_NAME} sign-in.`
     : signedIn === false ? 'Sign in with email to share clips and look up match details.' : '';
   return { title: 'Account', subtitle };
 }
@@ -59,7 +60,7 @@ export function needsRiotId(riotId) {
 export function applyAccountPage(doc, signedIn) {
   const $ = id => doc?.getElementById?.(id) || null;
   const hero = accountHero(signedIn);
-  if (doc) doc.title = `Revu: ${hero.title}`;
+  if (doc) doc.title = `${APP_NAME}: ${hero.title}`;
   const eyebrow = $('onb-eyebrow'), title = $('onb-title'), subtitle = $('onb-subt');
   if (eyebrow) eyebrow.hidden = true;
   if (title) title.textContent = hero.title;

@@ -6,6 +6,7 @@ using System.Text;
 using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -623,16 +624,16 @@ public sealed partial class VodShareWorker
         "live_limit" => "You already share 5 games. Stop sharing one to share this game.",
         "daily_limit" => "You've reached today's limit for shared games.",
         "busy" => "Two games are already being shared. Try again when one finishes.",
-        "starting" => "Revu is still starting. Try again in a moment.",
-        "closing" => "Revu is closing. Share again after it restarts.",
+        "starting" => $"{Brand.Name} is still starting. Try again in a moment.",
+        "closing" => $"{Brand.Name} is closing. Share again after it restarts.",
         "stopping" => "Stopping the previous share. Try again in a moment.",
-        "network" => "Couldn't reach Revu. Check your connection and try again.",
+        "network" => $"Couldn't reach {Brand.Name}. Check your connection and try again.",
         "sharing_paused" => "Full-game sharing is paused right now. Try again later.",
         "too_long" => "Games longer than 2 hours can't be shared.",
         "too_large" => "This game is too large to share, even at 720p.",
         "no_recording" => "This game's recording isn't on this PC.",
         "disk_full" => "There isn't enough free disk space to prepare the video.",
-        "encode_failed" => "Revu couldn't prepare the video. Try again.",
+        "encode_failed" => $"{Brand.Name} couldn't prepare the video. Try again.",
         "game_in_progress" => "Finish your game first, then share.",
         "game_started" => "Sharing stopped because a game started. Share again after the game.",
         "upload_failed" => "The upload didn't finish. Check your connection and try again.",

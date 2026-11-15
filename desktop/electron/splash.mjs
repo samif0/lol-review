@@ -3,10 +3,11 @@
 // in-memory session; no script, no preload, no network. It opens in the colors the
 // shell last reported (electron/appearance.mjs), or the app default before there are any.
 import { splashPalettes, validateWindowAppearance, windowPalette } from './appearance.mjs';
+import { APP_NAME } from './brand.mjs';
 
 export const SPLASH_TEXT = Object.freeze({
-  starting: 'Starting Revu…',
-  preparing: 'Updating your Revu data. This can take a few minutes on a large match library. Revu opens when it is done.',
+  starting: `Starting ${APP_NAME}…`,
+  preparing: `Updating your ${APP_NAME} data. This can take a few minutes on a large match library. ${APP_NAME} opens when it is done.`,
 });
 
 const escapeHtml = text => String(text).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
@@ -19,12 +20,12 @@ export function splashPage(status, appearance = null) {
   const { base, light } = splashPalettes(appearanceOf(appearance));
   return 'data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><html lang="en"><head><meta charset="utf-8">'
     + '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
-    + '<title>Revu</title><style>html,body{margin:0;height:100%;'
+    + `<title>${APP_NAME}</title><style>html,body{margin:0;height:100%;`
     + 'font:14px/1.45 "Segoe UI",system-ui,sans-serif;-webkit-app-region:drag;user-select:none;cursor:default}'
     + 'main{height:100%;box-sizing:border-box;padding:24px;display:flex;flex-direction:column;align-items:center;'
     + 'justify-content:center;gap:10px;text-align:center}h1{margin:0;font-size:26px;font-weight:600}'
     + `p{margin:0;max-width:320px}${colors(base)}${light ? `@media (prefers-color-scheme:light){${colors(light)}}` : ''}`
-    + `</style></head><body><main><h1>Revu</h1><p role="status">${escapeHtml(status)}</p>`
+    + `</style></head><body><main><h1>${APP_NAME}</h1><p role="status">${escapeHtml(status)}</p>`
     + '</main></body></html>');
 }
 
@@ -41,7 +42,7 @@ export function createSplash({ BrowserWindow, iconPath, appearance = null, dark 
     show() {
       if (alive()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); return; }
       window = new BrowserWindow({ width: 400, height: 220, frame: false, resizable: false, maximizable: false,
-        fullscreenable: false, show: false, center: true, title: 'Revu', icon: iconPath, backgroundColor,
+        fullscreenable: false, show: false, center: true, title: APP_NAME, icon: iconPath, backgroundColor,
         webPreferences: { partition: 'revu-splash', sandbox: true, contextIsolation: true, nodeIntegration: false,
           javascript: false, devTools: false, spellcheck: false } });
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
