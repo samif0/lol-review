@@ -559,7 +559,7 @@ export function manualSteps(from, to) {
   }
   add('Places that keep the old name on purpose, each a separate decision',
     '.github/workflows/release.yml: the installer shortcut title (--packTitle), the GitHub release name and the Revu-Setup.exe asset the site downloads.',
-    'Changing --packTitle renames Start menu and desktop shortcuts on update; test an in-place update from the current release before shipping that.',
+    'What an update does to existing Start menu and desktop shortcuts when --packTitle changes is untested: try an in-place update from the current release first.',
     'The GitHub repository, the Discord server, the Azure signing profile and the Worker, bucket and database names do not change with the display name.');
   return steps;
 }
