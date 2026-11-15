@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   KEEP_MARKER, commentScanner, derive, domainPattern, domainReplacement, findIdentity, findOccurrences, generatedFiles,
-  globPattern, inspect, main, manualSteps, namePattern, repository, rewriteText, validateBrand, wranglerVars, writeWranglerVars,
+  globPattern, inlineScriptHashes, inspect, main, manualSteps, namePattern, repository, rewriteText, validateBrand, wranglerVars, writeWranglerVars,
 } from './rebrand.mjs';
 
 const brand = { name: 'Revu', domain: 'revu.lol', formerDomains: [] };
@@ -19,6 +19,24 @@ test('the bare word is the display name; anything shaped like an identifier is n
   for (const identity of ['Revu.Sidecar.exe', 'namespace Revu.Core.Data;', '%LOCALAPPDATA%\\Revu', 'Videos\\\\Revu\\\\clips',
     "'Revu/ElectronProfile'", 'Revu-Setup.exe', 'X-Revu-CSRF', 'RevuVodInk', 'root.RevuNotes', '__revuActiveWork',
     'revu-desktop.exe', 'gg.revu.desktop', 'REVU_DATA_ROOT', 'src/Revu.Core', 'Revu.sln']) assert.equal(names(identity), 0, identity);
+});
+
+test('a name inside a regular expression is display text, and an escaped identifier still is not', () => {
+  for (const display of ['assert.rejects(run(), /Revu is closing/);', 'assert.match(message, /restart Revu/);',
+    'assert.match(message, /restart Revu/i.source);', '/New to Revu\\? The same steps/', '/shared with Revu\\." \\/>/',
+    '/\\bRevu\\b/', "'First line\\nRevu second line'", '/Revu\\s+records/']) assert.equal(names(display), 1, display);
+  for (const identity of ['/^Revu\\.sln$/', "join(root, 'Revu/Recordings')", '`Revu\\logs\\`', "'C:\\\\Revu\\\\clips'",
+    "'Local\\\\Revu\\\\backups'", 'href="/Revu/x"']) assert.equal(names(identity), 0, identity);
+});
+
+test('a quoted name handed to a path builder is a folder, and is kept', () => {
+  const kept = line => findOccurrences(line, brand, 'a.mjs').map(item => Boolean(item.keep));
+  assert.deepEqual(kept("const logs = path.join(dataRoot, 'Revu', 'logs');"), [true]);
+  assert.deepEqual(kept('var folder = Path.Combine(root, "Revu");'), [true]);
+  assert.deepEqual(kept("const title = 'Revu';"), [false]);
+  assert.deepEqual(kept("log(path.join(root, name), 'Revu is ready');"), [false]);
+  assert.equal(rewriteText("open(path.join(documents, 'Revu')); // Revu exports", brand, sample),
+    "open(path.join(documents, 'Revu')); // Sample exports");
 });
 
 test('the domain is found in any case, under subdomains and with escaped dots, but not inside a longer label', () => {
@@ -138,7 +156,7 @@ test('the manual steps cover what a script cannot do, with the redirect last amo
 
 // A throwaway repository shaped like this one: generated files, Worker vars, a static
 // page, a code file with a kept line and a file under an identity path rule.
-function scratchRepository() {
+function scratchRepository(extra = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'rebrand-test-'));
   const write = (file, text) => { mkdirSync(path.dirname(path.join(root, file)), { recursive: true }); writeFileSync(path.join(root, file), text); };
   write('brand.json', `${JSON.stringify(brand, null, 2)}\n`);
@@ -152,6 +170,10 @@ function scratchRepository() {
   write('package.json', '{\n  "name": "revu-desktop",\n  "productName": "Revu"\n}\n');
   write('host.mjs', `// Revu host\nconst folder = join(root, 'Revu'); // ${KEEP_MARKER}\n`);
   write('release.yml', '--packTitle "Revu"\n');
+  write('site/clip.html', `<script src="/app.js"></script>\n<script>\n  var BASE = "https://clips.revu.lol";\n</script>\n`);
+  write('site/_headers', `/clip\n  Content-Security-Policy: script-src 'self' ${inlineScriptHashes(
+    '<script>\n  var BASE = "https://clips.revu.lol";\n</script>').map(hash => `'${hash}'`).join(' ')}; connect-src https://clips.revu.lol\n`);
+  for (const [name, body] of Object.entries(extra)) write(name, body);
   const git = (...args) => execFileSync('git', args, { cwd: root, stdio: 'pipe' });
   git('init', '-q');
   git('add', '-A');
@@ -159,8 +181,8 @@ function scratchRepository() {
   return { root, read: file => readFileSync(path.join(root, file), 'utf8'), write, remove: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-async function withScratch(run) {
-  const scratch = scratchRepository();
+async function withScratch(run, extra) {
+  const scratch = scratchRepository(extra);
   const original = process.cwd();
   try { await run(scratch); } finally { process.chdir(original); scratch.remove(); }
 }
@@ -174,6 +196,14 @@ test('a rename rewrites the tree, keeps identity, records the old domain and lea
   lines.length = 0;
   assert.equal(main(['--to', 'Sample', '--domain', 'sample.example'], repo, line => lines.push(line)), 0, lines.join('\n'));
   const output = lines.join('\n');
+  assert.match(output, /--check passes on the renamed tree/);
+  assert.doesNotMatch(output, /was already written/);
+
+  const csp = scratch.read('site/_headers');
+  for (const hash of inlineScriptHashes(scratch.read('site/clip.html'))) assert.ok(csp.includes(`'${hash}'`), 'the pinned hash follows the script');
+  assert.match(scratch.read('site/clip.html'), /var BASE = "https:\/\/clips\.sample\.example";/);
+  assert.match(csp, /connect-src https:\/\/clips\.sample\.example$/m);
+  assert.match(output, /Updated 2 pinned inline-script hash\(es\) in site\/_headers/);
 
   assert.deepEqual(JSON.parse(scratch.read('brand.json')), { name: 'Sample', domain: 'sample.example', formerDomains: ['revu.lol'] });
   assert.equal(scratch.read('site/index.html'),
@@ -193,8 +223,24 @@ test('a rename rewrites the tree, keeps identity, records the old domain and lea
   assert.match(output, /release\.yml: 1 \(by hand\)/);
   assert.match(output, /host\.mjs: 1 \(marked "rebrand: keep"\)/);
   assert.match(output, /Redirect revu\.lol so every old link keeps working/);
-  assert.match(output, /--check passes on the renamed tree/);
+  assert.match(output, /--identity --of "Revu"/);
 }));
+
+test('a new name that is already a word in the code is reported, because it cannot be told apart afterwards', () => withScratch(async scratch => {
+  const repo = repositoryAt(scratch.root);
+  const lines = [];
+  assert.equal(main(['--to', 'Sample', '--domain', 'sample.example'], repo, line => lines.push(line)), 1);
+  const output = lines.join('\n');
+  assert.match(output, /"Sample" or sample\.example was already written in 2 place\(s\) before the rename/);
+  assert.match(output, /map\.mjs:2: export class Sample \{\}/);
+  assert.match(output, /1 occurrence\(s\) are not on the reviewed list/);
+
+  execFileSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qam', 'renamed'],
+    { cwd: scratch.root });
+  main(['--to', 'Zentro', '--domain', 'zentro.example'], repo, () => {});
+  assert.deepEqual(JSON.parse(scratch.read('brand.json')).formerDomains, ['sample.example', 'revu.lol']);
+  assert.equal(scratch.read('map.mjs'), '// A Zentro here is a map position, not the product.\nexport class Zentro {}\n');
+}, { 'map.mjs': '// A Sample here is a map position, not the product.\nexport class Sample {}\n' }));
 
 test('the check fails on a new hard-coded name, a stale brand file and a stale reviewed line', () => withScratch(async scratch => {
   const repo = repositoryAt(scratch.root);

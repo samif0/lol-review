@@ -11,6 +11,16 @@
       "why": "applied migrations are never edited"
     },
     {
+      "glob": "scripts/release-guards.test.mjs",
+      "kind": "identity",
+      "why": "pins release.yml, which changes by hand"
+    },
+    {
+      "glob": "scripts/rebrand.test.mjs",
+      "kind": "identity",
+      "why": "the rename tool's own tests rename between fixed example names"
+    },
+    {
       "glob": "site/**",
       "kind": "display",
       "why": "static site, no build step"

@@ -9,7 +9,8 @@
 //
 //   node scripts/rebrand.mjs --check              list what is outside the source of truth; exit 1 on
 //                                                 anything unreviewed (CI runs this). Add --verbose for lines.
-//   node scripts/rebrand.mjs --identity           list the name-bearing identifiers a rename leaves alone
+//   node scripts/rebrand.mjs --identity [--of <Name>]
+//                                                 list the name-bearing identifiers a rename leaves alone
 //   node scripts/rebrand.mjs --sync               regenerate the brand files from brand.json
 //   node scripts/rebrand.mjs --to <Name> --domain <domain>
 //                                                 rename, then print the steps a script cannot do
@@ -19,6 +20,7 @@
 // namespaces, storage keys, protocol schemes, the Worker, bucket and database
 // names). Those are shaped differently from prose, or carry a `rebrand: keep` comment.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -51,11 +53,18 @@ export function validateBrand(brand) {
 /**
  * The display name is the bare word in prose or a string. A path separator, a dot,
  * an @, a hyphen or a word character on either side makes it part of an identifier
- * (Revu.Sidecar, %LOCALAPPDATA%\Revu, Revu-Setup.exe, X-Revu-CSRF, RevuVod), which a
- * rename leaves alone.
+ * (Revu.Sidecar, %LOCALAPPDATA%\Revu, Revu/ElectronProfile, Revu-Setup.exe,
+ * X-Revu-CSRF, RevuVod), which a rename leaves alone. Regular expressions are prose
+ * too: /Revu is closing/, /restart Revu/, Revu\. and \bRevu all hold the display name.
  */
 export function namePattern(name) {
-  return new RegExp(`(?<![\\\\/\\w.@-])${escapeRegExp(name)}(?![\\w\\\\/-]|\\.[A-Za-z])`, 'g');
+  const before = '(?:(?<![\\\\/\\w.@-])'           // not glued to an identifier or a path
+    + '|(?<=(?:^|[\\s(,=:!&|?{\\[;])/)'            // the opening slash of a regex literal
+    + '|(?<=(?<!\\\\)\\\\[nrtbsSB]))';              // straight after \n, \b, \s and the like
+  const after = '(?![\\w-]|\\\\*\\.[A-Za-z]'     // not Revu.Core (or Revu\.sln in a regex), Revu-Setup, RevuVod
+    + '|/[A-Za-z0-9_]{3}'                           // not Revu/Recordings (a regex ends /, /i or /gi)
+    + '|\\\\(?:\\\\|[A-Za-z0-9_]{2}))';             // not Revu\logs or Revu\\clips (a regex has \. \? \s)
+  return new RegExp(before + escapeRegExp(name) + after, 'g');
 }
 
 /** The domain in any letter case, with its dots plain or backslash-escaped (inside a regex or a string holding one). */
@@ -130,6 +139,25 @@ export function commentScanner(file) {
   };
 }
 
+// A quoted name handed to a path builder is a folder on disk, not display text.
+const PATH_CALL = /\bpath\.(?:join|resolve)\(|\bPath\.Combine\(|\bJoin-Path\b/;
+
+/** The occurrences in one line. `keep` marks the ones a rename leaves alone. */
+function lineOccurrences(line, name, domain) {
+  const hits = [];
+  for (const match of line.matchAll(domain)) hits.push({ kind: 'domain', index: match.index, text: match[0] });
+  for (const match of line.matchAll(name)) hits.push({ kind: 'name', index: match.index, text: match[0] });
+  if (!hits.length) return hits;
+  hits.sort((a, b) => a.index - b.index);
+  const marked = line.includes(KEEP_MARKER), pathCall = PATH_CALL.test(line);
+  for (const hit of hits) {
+    const quote = line[hit.index - 1];
+    const folder = hit.kind === 'name' && pathCall && (quote === "'" || quote === '"') && line[hit.index + hit.text.length] === quote;
+    hit.keep = marked ? `marked "${KEEP_MARKER}"` : folder ? 'folder name in a path' : null;
+  }
+  return hits;
+}
+
 /** Every display-name and domain occurrence in `text`, with its line and whether it sits in a comment. */
 export function findOccurrences(text, brand, file = '') {
   const commentSpans = commentScanner(file);
@@ -138,25 +166,26 @@ export function findOccurrences(text, brand, file = '') {
   const lines = text.split('\n');
   for (let number = 0; number < lines.length; number += 1) {
     const line = lines[number], spans = commentSpans(line);
-    const hits = [];
-    for (const match of line.matchAll(domain)) hits.push({ kind: 'domain', index: match.index, text: match[0] });
-    for (const match of line.matchAll(name)) hits.push({ kind: 'name', index: match.index, text: match[0] });
-    hits.sort((a, b) => a.index - b.index);
-    const keep = line.includes(KEEP_MARKER);
-    for (const hit of hits) {
-      found.push({ ...hit, line: number + 1, source: line, keep,
+    for (const hit of lineOccurrences(line, name, domain)) {
+      found.push({ ...hit, line: number + 1, source: line,
         comment: spans.some(([start, end]) => hit.index >= start && hit.index < end) });
     }
   }
   return found;
 }
 
-/** `text` with every occurrence renamed, except on lines marked `rebrand: keep`. */
+/** `text` with every occurrence renamed, except the ones a rename leaves alone. */
 export function rewriteText(text, from, to) {
   const name = namePattern(from.name), domain = domainPattern(from.domain);
-  return text.split('\n').map(line => (line.includes(KEEP_MARKER) ? line : line
-    .replace(domain, match => domainReplacement(match, to.domain))
-    .replace(name, () => to.name))).join('\n');
+  return text.split('\n').map(line => {
+    let next = line;
+    for (const hit of lineOccurrences(line, name, domain).reverse()) {
+      if (hit.keep) continue;
+      const replacement = hit.kind === 'domain' ? domainReplacement(hit.text, to.domain) : to.name;
+      next = next.slice(0, hit.index) + replacement + next.slice(hit.index + hit.text.length);
+    }
+    return next;
+  }).join('\n');
 }
 
 /** Name-bearing identifiers: every case-insensitive hit of the name that is neither display text nor the domain. */
@@ -353,7 +382,7 @@ export function inspect(repo = repository()) {
     const tally = { file, name: 0, domain: 0, kept: 0, reason: new Set(), occurrences: [] };
     for (const occurrence of found) {
       let verdict;
-      if (occurrence.keep) verdict = { kind: 'identity', why: `marked "${KEEP_MARKER}"` };
+      if (occurrence.keep) verdict = { kind: 'identity', why: occurrence.keep };
       else if (file === WRANGLER && isWranglerVarLine(occurrence.source, vars)) verdict = { kind: 'display', why: 'Worker var set from brand.json' };
       else if (pathRule) verdict = pathRule;
       else if (occurrence.comment) verdict = { kind: 'display', why: 'code comment' };
@@ -415,6 +444,21 @@ function sync(repo, brand) {
   return written;
 }
 
+const INLINE_SCRIPT = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
+/**
+ * The CSP hashes of a page's inline scripts, one for LF and one for CRLF line
+ * endings. site/_headers pins them, so a rename that edits such a script must
+ * carry the pinned hashes along.
+ */
+export function inlineScriptHashes(html) {
+  const hashes = [];
+  for (const match of html.matchAll(INLINE_SCRIPT)) {
+    const lf = match[1].replace(/\r\n/g, '\n');
+    for (const body of [lf, lf.replace(/\n/g, '\r\n')]) hashes.push(`sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}`);
+  }
+  return hashes;
+}
+
 /** Rewrites the tree from the current brand to `target`. Returns what changed and what was left alone. */
 export function rename(repo, target) {
   const from = repo.brand(), reviewed = repo.reviewed();
@@ -427,15 +471,30 @@ export function rename(repo, target) {
     throw new Error('The new name or domain contains the old one; rename through an unrelated name first');
 
   const owned = new Set([BRAND_FILE, REVIEWED_FILE, ...Object.keys(generatedFiles(from))]);
-  const changed = [], kept = [];
+  const changed = [], kept = new Map(), collisions = [], hashes = new Map(), headerFiles = [];
+  const keep = (file, why) => { const key = `${file}\n${why}`; kept.set(key, (kept.get(key) ?? 0) + 1); };
   for (const [file, text] of repo.texts(owned)) {
+    // The new name as a word that is already here: after the rename it reads as the product's name.
+    for (const item of findOccurrences(text, to, file)) collisions.push({ file, line: item.line, source: item.source });
+    if (path.posix.basename(file) === '_headers') headerFiles.push(file);
     const pathRule = reviewed.paths.find(rule => rule.pattern.test(file));
     const found = findOccurrences(text, from, file);
     if (!found.length) continue;
-    if (pathRule?.kind === 'identity') { kept.push({ file, count: found.length, why: pathRule.why }); continue; }
-    const marked = found.filter(item => item.keep).length;
-    if (marked) kept.push({ file, count: marked, why: `marked "${KEEP_MARKER}"` });
+    if (pathRule?.kind === 'identity') { for (const item of found) keep(file, pathRule.why); continue; }
+    for (const item of found) if (item.keep) keep(file, item.keep);
     const next = rewriteText(text, from, to);
+    if (next === text) continue;
+    if (file.endsWith('.html')) {
+      const before = inlineScriptHashes(text), after = inlineScriptHashes(next);
+      before.forEach((hash, index) => { if (hash !== after[index]) hashes.set(hash, after[index]); });
+    }
+    repo.write(file, next);
+    changed.push(file);
+  }
+  for (const file of headerFiles) {
+    const text = repo.read(file);
+    let next = text;
+    for (const [before, after] of hashes) next = next.split(before).join(after);
     if (next !== text) { repo.write(file, next); changed.push(file); }
   }
   const rawReviewed = JSON.parse(repo.read(REVIEWED_FILE));
@@ -443,7 +502,10 @@ export function rename(repo, target) {
   repo.write(REVIEWED_FILE, `${JSON.stringify(rawReviewed, null, 2)}\n`);
   repo.write(BRAND_FILE, `${JSON.stringify(to, null, 2)}\n`);
   changed.push(BRAND_FILE, ...sync(repo, to));
-  return { from, to, changed: [...new Set(changed)], kept };
+  return {
+    from, to, changed: [...new Set(changed)], collisions, rehashed: hashes.size,
+    kept: [...kept].map(([key, count]) => { const [file, why] = key.split('\n'); return { file, why, count }; }),
+  };
 }
 
 export function manualSteps(from, to) {
@@ -454,7 +516,7 @@ export function manualSteps(from, to) {
   add('Review and verify the rewrite',
     'Read `git diff`. Prose is rewritten word for word, so check grammar, line lengths and anything that reads oddly.',
     'Run every verify command in CLAUDE.md, the proxy and site tests, and `node scripts/rebrand.mjs --check`.',
-    `site/clip.html carries an inline script whose hashes are pinned in site/_headers; if the rename touched it, site/tests/headers.test.mjs names the new hashes to paste in.`);
+    'The hashes site/_headers pins for inline scripts are updated for you; site/tests/headers.test.mjs confirms them.');
   add('Replace the artwork, which no script can redraw',
     'site/og-image.jpg, the icons and favicon in site/, site/revu.svg and site/revu-mark.png, the shot-*.webp screenshots,',
     'and desktop/electron/branding (run desktop/scripts/build-branding.mjs after editing the SVG). File names stay as they are.',
@@ -513,7 +575,7 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (['--check', '--sync', '--identity', '--verbose', '--allow-dirty'].includes(flag)) options[flag.slice(2)] = true;
-    else if (flag === '--to' || flag === '--domain') {
+    else if (flag === '--to' || flag === '--domain' || flag === '--of') {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith('--')) throw new Error(`${flag} needs a value`);
       options[flag.slice(2)] = value; index += 1;
@@ -531,7 +593,7 @@ export function main(argv, repo = repository(), log = console.log) {
     return 0;
   }
   if (options.identity) {
-    const brand = repo.brand(), counts = new Map();
+    const brand = { ...repo.brand(), ...(options.of ? { name: options.of } : {}) }, counts = new Map();
     for (const [, text] of repo.texts(new Set([BRAND_FILE, REVIEWED_FILE])))
       for (const token of findIdentity(text, brand)) counts.set(token, (counts.get(token) ?? 0) + 1);
     log('Name-bearing identifiers a rename leaves alone (count, text):');
@@ -546,9 +608,17 @@ export function main(argv, repo = repository(), log = console.log) {
     }
     const result = rename(repo, { name: options.to ?? current.name, domain: options.domain ?? current.domain });
     log(`Renamed "${result.from.name}" (${result.from.domain}) to "${result.to.name}" (${result.to.domain}) in ${result.changed.length} files.`);
+    if (result.rehashed) log(`Updated ${result.rehashed} pinned inline-script hash(es) in site/_headers.`);
     if (result.kept.length) {
       log('\nLeft alone:');
       for (const item of result.kept) log(`  ${item.file}: ${item.count} (${item.why})`);
+    }
+    log(`\nIdentifiers that contain the old name were not touched. List them with: node scripts/rebrand.mjs --identity --of ${JSON.stringify(result.from.name)}`);
+    if (result.collisions.length) {
+      log(`\n"${result.to.name}" or ${result.to.domain} was already written in ${result.collisions.length} place(s) before the rename.`);
+      log('They now read as the product name, the check may flag the ones in code, and a later rename would rewrite them too:');
+      for (const item of result.collisions.slice(0, 40)) log(`  ${item.file}:${item.line}: ${item.source.trim().slice(0, 140)}`);
+      if (result.collisions.length > 40) log(`  ... and ${result.collisions.length - 40} more`);
     }
     printSteps(manualSteps(result.from, result.to), log);
     const after = inspect(repo);
@@ -559,7 +629,7 @@ export function main(argv, repo = repository(), log = console.log) {
     log('node scripts/rebrand.mjs --check passes on the renamed tree.');
     return 0;
   }
-  log('Usage: node scripts/rebrand.mjs --check [--verbose] | --identity | --sync | --to <Name> --domain <domain>');
+  log('Usage: node scripts/rebrand.mjs --check [--verbose] | --identity [--of <Name>] | --sync | --to <Name> --domain <domain>');
   return 2;
 }
 

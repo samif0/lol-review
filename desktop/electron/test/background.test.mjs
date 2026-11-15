@@ -96,7 +96,7 @@ test('startup registration points at the stable installed stub, persists, and ca
   const { controller, calls, profile } = await fixture(t);
   await controller.saveSettings({ closeToTray: true, startWithWindows: true });
   assert.deepEqual(calls[0], { path: path.join(profile, '../../revu-desktop.exe'),
-    args: ['--revu-startup'], name: 'Revu', openAtLogin: true, enabled: true });
+    args: ['--revu-startup'], name: 'Revu', openAtLogin: true, enabled: true }); // rebrand: keep (the stored startup entry name)
   assert.deepEqual(JSON.parse(await readFile(path.join(profile, 'background-settings.json'), 'utf8')),
     { closeToTray: true, startWithWindows: true });
   await controller.saveSettings({ closeToTray: true, startWithWindows: false });
