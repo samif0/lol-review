@@ -57,11 +57,14 @@
   var laneLength = 0;
   var marks = [];
   var rangeEl = $('vod-lane-range');
+  // The page's sticky header and the gap under it: where the picture sits when the page is at its top.
+  var HEADER_ROOM = 80;
   // The side column (vod-side.js): notes, the viewer's own and the sharer's, and the events.
   var side = root.RevuVodSide ? root.RevuVodSide.attach({ root: root, doc: document, video: video, $: $, V: V, id: id,
     offset: function () { return V.offsetOf(meta && meta.meta); },
     length: function () { return laneLength; },
-    redraw: function () { if (lastMoments) drawMoments(lastMoments); },
+    redraw: function () { if (lastMoments) drawMoments(lastMoments); drawKeptNotes(); },
+    expiry: function () { return banner.hidden ? '' : banner.textContent; },
     ink: function () { return ink; } }) : null;
   var markMoment = root.RevuVodSide ? function (button, item, label) { return root.RevuVodSide.markMoment(V, button, item, label); }
     : function () { return ''; };
@@ -95,6 +98,26 @@
     if (live) live.stop();
     else if (meta) stopPlayback();
     show('missing');
+    drawKeptNotes();
+  }
+
+  // A game that is gone keeps its notes: the ones its link carried (#notes=) and the ones saved
+  // in this browser, as words with their game time. The video and the drawings went with the game.
+  function drawKeptNotes() {
+    var box = $('missing-notes');
+    var list = $('missing-notes-list');
+    if (!box || !list || panels.missing.hidden) return;
+    var notes = side ? side.notes() : [];
+    while (list.firstChild) list.removeChild(list.firstChild);
+    notes.forEach(function (note) {
+      var li = document.createElement('li');
+      li.className = 'vod-kept-note';
+      li.appendChild(span('vod-note-time', V.clock(note.t)));
+      li.appendChild(span('vod-note-kind', note.end === null ? 'Bookmark' : 'Clip to ' + V.clock(note.end)));
+      if (note.text) li.appendChild(span('vod-note-text', note.text));
+      list.appendChild(li);
+    });
+    box.hidden = notes.length === 0;
   }
 
   // Polling.
@@ -319,7 +342,7 @@
     // Shown before it is measured: a hidden lane is 0 px wide.
     lane.hidden = !(laneLength > 0);
     // A clip plays to its end and pauses there (vod-side.js).
-    var choose = side ? side.playing(o.choose) : o.choose;
+    var choose = inView(side ? side.playing(o.choose) : o.choose);
     // The viewer's own notes join the sharer's on the lane.
     var items = V.laneItems(side ? side.laneDoc(doc) : doc, laneLength, o.live, labelGap());
     drawLane(items, choose);
@@ -329,6 +352,20 @@
     momentTimes = items.filter(function (item) { return !item.pending; }).map(function (item) { return item.vt; });
     updatePlayhead();
     if (controls) controls.paint();
+  }
+
+  // A moment chosen from far down the page (a phone shows the notes under the player) brings
+  // the picture back into view, so the jump and a note's drawing are seen.
+  function inView(choose) {
+    return function (item) {
+      choose(item);
+      var stage = $('vod-stage');
+      if (!stage || typeof stage.getBoundingClientRect !== 'function' || typeof root.scrollTo !== 'function') return;
+      var box = stage.getBoundingClientRect();
+      if (box.top >= HEADER_ROOM - 32 && box.bottom <= (root.innerHeight || 0)) return;
+      var calm = typeof root.matchMedia === 'function' && root.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      root.scrollTo({ top: Math.max(0, (root.pageYOffset || 0) + box.top - HEADER_ROOM), behavior: calm ? 'auto' : 'smooth' });
+    };
   }
 
   // A code needs about 30 px: a narrow lane (a phone) shows fewer of them, and every moment

@@ -56,7 +56,13 @@
 
     <section id="state-missing" class="vod-state" hidden>
       <h1 id="state-title" class="vod-state-title">Game not available</h1>
-      <p id="state-copy" class="vod-state-copy">This shared game isn't available. Shared games stay up for 3 days.</p>
+      <p id="state-copy" class="vod-state-copy">This shared game isn't available. Shared games stay up for 3 days, and whoever shared it can share it again from Revu.</p>
+      <!-- A game that is gone keeps its notes: the ones a link carried (#notes=) and the ones
+           saved in this browser. The video and the drawings are gone; the words are not. -->
+      <section id="missing-notes" class="vod-missing-notes" aria-labelledby="missing-notes-title" hidden>
+        <h2 id="missing-notes-title" class="vod-notes-title">Notes for this game</h2>
+        <ol id="missing-notes-list" class="vod-notes-list"></ol>
+      </section>
       <a href="/" class="btn-primary">Back to Revu</a>
     </section>
 
@@ -151,7 +157,7 @@
               </div>
             </form>
             <p id="vod-notes-status" class="vod-notes-status" role="status" aria-live="polite"></p>
-            <p id="vod-mine-empty" class="vod-side-empty">Bookmark a moment or clip part of the game. Your notes stay in this browser until you copy the link.</p>
+            <p id="vod-mine-empty" class="vod-side-empty">Bookmark a moment or clip part of the game. The pencil under the video draws on it. Your notes stay in this browser until you copy the link and send it.</p>
             <ol id="vod-mine-list" class="vod-notes-list vod-mine-list"></ol>
             <div id="vod-share" class="vod-share" hidden>
               <button id="vod-copy-notes" class="vod-copy" type="button">Copy link with notes</button>
