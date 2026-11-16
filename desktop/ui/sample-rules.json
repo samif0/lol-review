@@ -50,7 +50,7 @@
       "isCustom": false,
       "accentHex": "#9d8bff",
       "isViolated": true,
-      "violationReason": "Played 6 games today (max 5)",
+      "violationReason": "Already played 5/5 games today",
       "hasViolationReason": true,
       "isOk": false,
       "evidenceLine": "TRIPPED 7× · WR WHEN TRIPPED 38% VS 52% BASELINE · LAST 2026-06-13",
@@ -148,7 +148,7 @@
   "violations": [
     {
       "ruleName": "Max 5 games per day",
-      "reason": "Played 6 games today (max 5)",
+      "reason": "Already played 5/5 games today",
       "replacementPlan": "Then I will log the session and come back fresh tomorrow.",
       "conditionCue": "Max 5 games per day",
       "hasPlan": true

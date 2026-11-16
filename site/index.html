@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <title>Revu: review every ranked League game</title>
-  <meta name="description" content="Revu is a free Windows app for League of Legends. It records your games and helps you pick one thing to practice next game." />
+  <title>Revu: review every ranked League game, alone or with your coach</title>
+  <meta name="description" content="Revu is a free Windows app for League of Legends. It records your games, helps you pick one thing to practice, and turns a clip or a game into a link your coach can draw on." />
 
-  <meta property="og:title" content="Revu: review every ranked League game" />
-  <meta property="og:description" content="A free Windows app for League of Legends. Revu records your games and helps you pick one thing to practice next game." />
+  <meta property="og:title" content="Revu: review every ranked League game, alone or with your coach" />
+  <meta property="og:description" content="A free Windows app for League of Legends. Revu records your games, helps you pick one thing to practice, and turns a clip or a game into a link your coach can draw on." />
   <meta property="og:image" content="https://revu.lol/og-image.jpg" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -45,7 +45,7 @@
         "url": "https://revu.lol/",
         "operatingSystem": "Windows 10, Windows 11",
         "applicationCategory": "GameApplication",
-        "description": "Records your League of Legends games and helps you pick one thing to practice next game.",
+        "description": "Records your League of Legends games, helps you pick one thing to practice, and turns a clip or a game into a link a coach can draw on.",
         "image": "https://revu.lol/icon-512.png",
         "downloadUrl": "https://github.com/samif0/lol-review/releases/latest/download/Revu-Setup.exe",
         "isAccessibleForFree": true,
@@ -75,14 +75,14 @@
 
   <main class="landing">
     <section class="hero" id="download" aria-labelledby="hero-title">
-      <h1 class="hero-title" id="hero-title">Review every ranked game.</h1>
-      <p class="hero-lead">Revu records your League games and helps you pick one thing to practice next game.</p>
+      <h1 class="hero-title" id="hero-title">Review every ranked game, alone or with your coach.</h1>
+      <p class="hero-lead">Revu records your League games and helps you pick one thing to practice. Share a clip or a game as a link your coach can draw on, and set stop rules that cancel the queue when you said you would stop.</p>
       <div class="download-actions">
         <!-- The static href is the no-JS fallback: the signed, cleanly named
              installer of the latest release. download.js swaps in the exact
              asset URL and fills the version and size. -->
         <a id="download-btn" class="btn-primary btn-lg" data-download href="https://github.com/samif0/lol-review/releases/latest/download/Revu-Setup.exe" rel="noopener">Download for Windows</a>
-        <a class="btn-secondary btn-lg" href="/review">Review a game in your browser</a>
+        <a class="btn-secondary btn-lg" href="#coach">How coach review works</a>
       </div>
       <p class="download-meta"><span data-download-version>Latest version</span> &middot; Windows 10/11<span data-download-size></span></p>
       <p class="download-note" data-download-note hidden></p>
@@ -94,15 +94,38 @@
       <figcaption class="visually-hidden">Home: what to practice this session and which games to review</figcaption>
     </figure>
 
+    <section class="feature is-text" id="coach" aria-labelledby="feature-coach">
+      <div class="feature-copy">
+        <h2 id="feature-coach">Send a game to your coach</h2>
+        <p>Share a clip or a full game from Revu and you get a link. Your coach opens it in a browser, with nothing to install and no account.</p>
+        <p>On that page they draw on the video, bookmark moments, clip parts of the game and write a note on each. Copy link with notes puts all of it into one link to send back. Open it, and their notes and drawings are on your game.</p>
+        <p class="feature-note">Sharing needs a Revu account, signed in by email, and a link stays up for 3 days. Any account can share clips. Full-game sharing is switched on one account at a time for now. A shared video shows other players' names and in-game chat. A coach's notes stay in their browser and in the links they copy, and are never uploaded.</p>
+      </div>
+    </section>
+
+    <section class="feature is-flipped" aria-labelledby="feature-rules">
+      <div class="feature-copy">
+        <h2 id="feature-rules">Stop when you said you would</h2>
+        <p>Write your own stop rules: a loss streak, a daily game limit, an hour of the night, or days you don't play. Each one can carry a plan for what you will do instead.</p>
+        <p>Turn on Hard stop for a rule and, while that rule is tripped, Revu cancels your ranked queue search, the same as pressing Cancel in the client. If a match has already been found, Revu leaves it to you: it never accepts or declines a ready check.</p>
+        <p class="feature-note">Hard stop is off until you turn it on for a rule, and it holds Ranked Solo/Duo and Flex only. You can queue anyway after a five-minute wait, and Revu counts each time you do.</p>
+      </div>
+      <figure class="shot screenshot-tile">
+        <img src="/shot-rules.webp" width="1600" height="1000" loading="lazy"
+             alt="Revu session rules: a loss streak rule with Hard stop off, and a tripped Max 5 games per day rule marked Enforced with Hard stop on" />
+        <figcaption class="visually-hidden">Session rules: a rule with its hard stop on</figcaption>
+      </figure>
+    </section>
+
     <section class="feature" aria-labelledby="feature-recording">
       <div class="feature-copy">
         <h2 id="feature-recording">Start with the recording</h2>
-        <p>Every match review opens on its recording. Jump to any moment, save clips and notes on the plays that matter, then write one takeaway for your next game.</p>
-        <p class="feature-note">Built-in recording is in beta and stays off until you turn it on in Settings. It records Ranked Solo/Duo with League in Borderless mode and needs an NVIDIA, AMD or Intel graphics card with hardware H.264 encoding. Already record with Ascent? Connect its folder instead.</p>
+        <p>When a game has a recording, its review starts there. Jump to any moment or straight to a death, save clips and bookmarks with notes, then write one thing to take into your next game.</p>
+        <p class="feature-note">Built-in recording is in beta and stays off until you turn it on in Settings. It records Ranked Solo/Duo with League in Borderless mode and needs an NVIDIA, AMD or Intel graphics card with hardware H.264 encoding.</p>
       </div>
       <figure class="shot screenshot-tile">
         <img src="/shot-review.webp" width="1600" height="1000" loading="lazy"
-             alt="Revu match review for Jinx vs Caitlyn: the recording with its timeline of the game" />
+             alt="Revu match review for Jinx vs Caitlyn: Start with the recording, with a Review in VOD button and a jump to each death" />
         <figcaption class="visually-hidden">Match review: start with the recording</figcaption>
       </figure>
     </section>
@@ -110,7 +133,7 @@
     <section class="feature is-flipped" aria-labelledby="feature-objectives">
       <div class="feature-copy">
         <h2 id="feature-objectives">Practice one thing</h2>
-        <p>Choose one skill to work on and give it a rule for success. Set it as your focus before you queue, and Revu follows it across the games where you practiced it, from Exploring to Ready.</p>
+        <p>Choose one skill to work on and say what success looks like. Make it your priority, and Revu follows it across the games where you practiced it, from Exploring to Ready.</p>
       </div>
       <figure class="shot screenshot-tile">
         <img src="/shot-objectives.webp" width="1600" height="1000" loading="lazy"
@@ -122,7 +145,7 @@
     <section class="feature" aria-labelledby="feature-patterns">
       <div class="feature-copy">
         <h2 id="feature-patterns">See what repeats</h2>
-        <p>Mark the moments you want to improve. When the same mistake shows up in two or more games, Revu groups those moments so you can compare them. Once it keeps repeating across three games, watch them back to back and decide what to change.</p>
+        <p>Save clips and bookmarks to an objective and mark the ones to improve. When they show up in two or more games, Revu groups them into a mistake trend you can compare. Once a trend has four moments across three games, watch them back to back and decide what to change.</p>
       </div>
       <figure class="shot screenshot-tile">
         <img src="/shot-patterns.webp" width="1600" height="1000" loading="lazy"

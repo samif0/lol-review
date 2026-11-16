@@ -124,3 +124,8 @@
   .feature { padding: 48px 0; }
   .closing { padding-top: 64px; }
 }
+
+/* A feature row with no screenshot (the coach flow): one column of copy. #coach is the hero's
+   second button's target, so keep it clear of the sticky header. */
+.feature.is-text { grid-template-columns: minmax(0, 1fr); scroll-margin-top: var(--header-h); }
+.feature.is-text .feature-copy p { max-width: 62ch; }

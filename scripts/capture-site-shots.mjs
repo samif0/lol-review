@@ -41,6 +41,9 @@ export const SHOTS = [
   { name: 'objectives', page: 'objectives.html', top: 190, ready: "d.querySelectorAll('#active-list > *').length > 0" },
   // 262 ends the pane just above the back-to-back review card under the trends.
   { name: 'patterns', page: 'patterns.html', top: 262, ready: "d.getElementById('pat-main')?.hidden === false" },
+  // The pane opens on the rule whose hard stop is on: tripped, enforced, with its record.
+  { name: 'rules', page: 'rules.html', top: 450,
+    ready: "d.querySelectorAll('#active-list > .rule-card').length >= 4 && d.querySelector('#active-list .rule-enforced:not([hidden])')" },
 ];
 
 /** The site file one shot writes. */
