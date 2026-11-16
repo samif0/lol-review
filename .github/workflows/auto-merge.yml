@@ -1,0 +1,104 @@
+name: Auto-merge
+
+# Merges pull requests without anyone having to remember to. On every run it
+# looks at all open pull requests into main and, for each one opened by the
+# repository owner or by Dependabot from a branch of this repository:
+#
+#   1. turns on squash auto-merge if it is off, so GitHub merges the pull
+#      request as soon as the required checks pass, and
+#   2. merges main into its branch if main has moved, because branch protection
+#      requires an up-to-date branch and GitHub does not update one by itself.
+#
+# It runs when a pull request is opened, reopened or marked ready, on every push
+# to main (which is what leaves the other open pull requests behind), and on
+# demand. Draft pull requests and pull requests from forks are left alone: open
+# a pull request as a draft to hold it. Turning auto-merge off by hand does not
+# hold it, the next run turns it back on.
+#
+# AUTO_MERGE_TOKEN is a fine-grained personal access token of the repository
+# owner, limited to this repository, with read and write access to Contents and
+# Pull requests. The built-in GITHUB_TOKEN cannot do this job: a branch update
+# or merge made with it starts no workflow, so the required checks would never
+# run on the updated branch and main would go untested after the merge. When
+# the token is missing or expired this workflow fails, and pull requests wait
+# for a manual merge until it is replaced.
+#
+# pull_request_target runs this file as it is on main and gives it the token
+# even for Dependabot's pull requests. That is safe here because nothing from
+# the pull request is checked out or executed, and its branch name and title
+# are never read.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # One sweep at a time. A queued sweep is replaced by a newer one, which is
+  # fine: every sweep looks at every open pull request.
+  group: auto-merge
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+    steps:
+      - name: Arm auto-merge and update branches that are behind main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::The AUTO_MERGE_TOKEN secret is not set, so no pull request was armed or updated. See the comment at the top of .github/workflows/auto-merge.yml."
+            exit 1
+          fi
+
+          # number, whether auto-merge is on, head commit. A failure here (an
+          # expired token, for one) fails the run.
+          pulls=$(gh pr list --base main --state open --limit 100 \
+            --json number,isDraft,isCrossRepository,author,autoMergeRequest,headRefOid \
+            --jq '.[]
+              | select(.isDraft | not)
+              | select(.isCrossRepository | not)
+              | select(.author.login == env.OWNER or .author.login == "app/dependabot")
+              | [.number, (.autoMergeRequest != null), .headRefOid] | @tsv')
+
+          if [ -z "$pulls" ]; then
+            echo "No open pull request to arm or update."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r number armed head; do
+            if [ "$armed" != "true" ]; then
+              if gh pr merge "$number" --auto --squash; then
+                echo "#$number: auto-merge is on."
+              else
+                echo "::warning::#$number: could not turn on auto-merge."
+                continue
+              fi
+              # With every check already green, the line above merges at once.
+              if [ "$(gh pr view "$number" --json state --jq .state)" != "OPEN" ]; then
+                echo "#$number: merged."
+                continue
+              fi
+            fi
+
+            behind=$(gh api "repos/$GH_REPO/compare/main...$head" --jq .behind_by)
+            if [ "$behind" -eq 0 ]; then
+              echo "#$number: up to date with main."
+            elif gh api --silent -X PUT "repos/$GH_REPO/pulls/$number/update-branch" -f expected_head_sha="$head"; then
+              echo "#$number: was $behind behind main, updating its branch."
+            else
+              echo "::warning::#$number: is $behind behind main and could not be updated (a merge conflict, or a new push). It waits until that is fixed by hand."
+            fi
+          done <<< "$pulls"
