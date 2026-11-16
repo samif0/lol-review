@@ -10,7 +10,7 @@
  * lane) opens its first frame, paused, with the drawing, and playing on clears it as it clears
  * any ink. A link with notes (#notes=...) adds its notes when the page opens.
  *
- * RevuVodSide.attach({ root, doc, video, $, V, id, offset(), length(), redraw(), ink() }) returns
+ * RevuVodSide.attach({ root, doc, video, $, V, id, offset(), length(), redraw(), ink(), expiry() }) returns
  * { start, laneDoc, draw, playing }: vod.js calls start() once the game shows, puts laneDoc(doc)
  * on its lane, wraps each moment's action with playing(choose) and passes its lane items to
  * draw(); ink() is the pen (vod-ink.js) once it is attached. markMoment is shared with the
@@ -398,6 +398,8 @@
         href: function () { return win.location ? win.location.href : ''; },
         notes: function () { return mine; },
         clipboard: win.navigator && win.navigator.clipboard,
+        // The notes' link ends with the game's: say when, where the coach is looking.
+        copied: function () { return typeof o.expiry === 'function' ? o.expiry() : ''; },
         setTimeout: function (fn, ms) { return win.setTimeout(fn, ms); },
         clearTimeout: function (handle) { win.clearTimeout(handle); }
       });

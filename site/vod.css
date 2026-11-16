@@ -269,6 +269,24 @@
   color: var(--muted);
 }
 
+/* A game that is gone keeps its notes (the ones a link carried, or saved in this browser). */
+.vod-missing-notes {
+  margin: 0 0 24px;
+  padding: 14px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.vod-kept-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 7px 8px;
+  font-size: 13px;
+}
+
 .vod-spinner {
   width: 24px;
   height: 24px;

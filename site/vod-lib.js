@@ -26,7 +26,7 @@
   // A code closer than this (percent of the lane) to the last one shown is left to the hover chip.
   var LABEL_GAP = 5.5;
   var STATES = {
-    missing: { title: 'Game not available', copy: "This shared game isn't available. Shared games stay up for 3 days." },
+    missing: { title: 'Game not available', copy: "This shared game isn't available. Shared games stay up for 3 days, and whoever shared it can share it again from Revu." },
     paused: { title: 'Playback paused', copy: 'Playback is paused right now. Try again later.' },
     limited: { title: 'Playback limit reached', copy: 'This game has been watched a lot today. Try again tomorrow.' },
     stopped: { title: 'Sharing stopped', copy: 'The sharer stopped sharing this game.' }

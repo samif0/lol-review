@@ -3,7 +3,7 @@
 // events with their filter, one at a time behind the Notes and Events switch.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DOC, finishedMeta, hlsMeta, openPage, playlist } from './vod-harness.mjs';
+import { DOC, SPACES, finishedMeta, hlsMeta, openPage, playlist } from './vod-harness.mjs';
 
 const META = 'GET /vod-meta/Abc1234';
 // The same game, shared as a single MP4: its moments seek and play the video directly.
@@ -279,4 +279,68 @@ test('blocked storage keeps the notes for the page\'s life', async () => {
   run.press('b');
   enter(run);
   assert.deepEqual(run.rows('vod-mine-list'), [['0:05', 'Bookmark']]);
+});
+
+test('a game that is gone still shows the notes its link carried, and the notes this browser kept', async () => {
+  const notes = JSON.stringify([[30, 'Their jungler shows top'], [312, 330, 'Dragon fight']]);
+  const storage = memoryStorage();
+  // No /vod-meta route: the proxy answers 404, as for a share past its 3 days.
+  const gone = openPage({ hash: '#notes=j' + Buffer.from(notes).toString('base64url'), globals: { localStorage: storage } });
+  await gone.advance(0);
+  assert.equal(gone.state(), 'state-missing');
+  assert.equal(gone.$('missing-notes').hidden, false);
+  assert.deepEqual(gone.$('missing-notes-list').children.map(li => li.children.map(c => c.textContent)),
+    [['0:30', 'Bookmark', 'Their jungler shows top'], ['5:12', 'Clip to 5:30', 'Dragon fight']]);
+  assert.deepEqual(gone.context.history.replaced, ['https://revu.lol/v/Abc1234'], 'the notes leave the address bar');
+
+  // Opened again without the link's notes: this browser kept them.
+  const again = openPage({ globals: { localStorage: storage } });
+  await again.advance(0);
+  assert.equal(again.$('missing-notes-list').children.length, 2);
+
+  // No notes: the list stays out of the way.
+  const bare = openPage({ globals: { localStorage: memoryStorage() } });
+  await bare.advance(0);
+  assert.deepEqual([bare.state(), bare.$('missing-notes').hidden], ['state-missing', true]);
+
+  // A game that expires while its page is open keeps the notes made on it.
+  const open = await game();
+  open.video.currentTime = 100;
+  open.press('b');
+  text(open, 'Ward here');
+  enter(open);
+  assert.equal(open.$('missing-notes').hidden, true);
+  await open.advance(4 * 86400 * 1000);
+  assert.equal(open.state(), 'state-missing');
+  assert.deepEqual(open.$('missing-notes-list').children.map(li => li.children.map(c => c.textContent)), [['1:40', 'Bookmark', 'Ward here']]);
+});
+
+test('Copy link with notes says when the link stops working', async () => {
+  const copied = [];
+  const run = await game({ globals: { navigator: { onLine: true, clipboard: { writeText: async value => { copied.push(value); } } } } });
+  run.video.currentTime = 100;
+  run.press('b');
+  enter(run);
+  await run.advance(0);
+  run.$('vod-copy-notes').click();
+  await run.advance(0);
+  assert.equal(copied.length, 1);
+  assert.match(run.$('vod-copy-status').textContent.replace(SPACES, ' '),
+    /^Link copied\. Anyone with it sees these notes\. This link expires \w+day \d{1,2}:\d{2} [AP]M\.$/);
+});
+
+test('a moment chosen while the picture is off screen scrolls the page back to it', async () => {
+  const scrolls = [];
+  const run = await game({ globals: { innerHeight: 844, pageYOffset: 500, scrollTo: to => { scrolls.push({ ...to }); } } });
+  const stage = run.$('vod-stage');
+  const row = () => run.$('vod-notes-list').children[0].children[0];
+  // The picture is on screen: nothing moves.
+  stage.getBoundingClientRect = () => ({ top: 80, bottom: 281 });
+  row().click();
+  assert.deepEqual(scrolls, []);
+  // The picture is above the window (a phone, reading the notes under the player).
+  stage.getBoundingClientRect = () => ({ top: -312, bottom: -111 });
+  row().click();
+  assert.deepEqual(scrolls, [{ top: 108, behavior: 'smooth' }]);
+  assert.equal(run.video.currentTime, 400, 'the moment still plays');
 });
