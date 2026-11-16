@@ -38,7 +38,7 @@ export function prepareConfiguration({ options, desktopRoot, localAppData, packa
   // The backend independently rejects aliases and reparse points for scratch data.
   if ((options.isolated || options.recordingTest) && dataRoot.toLowerCase() !== requested.toLowerCase())
     throw new Error('Isolated data-root aliases are not supported');
-  const profile = path.join(dataRoot, 'Revu', options.recordingTest ? 'RecordingTestElectronProfile'
+  const profile = path.join(dataRoot, 'Revu', options.recordingTest ? 'RecordingTestElectronProfile' // rebrand: keep (data folder)
     : options.isolated ? 'IsolatedElectronProfile' : 'ElectronProfile');
   mkdirSync(profile, { recursive: true });
   return {

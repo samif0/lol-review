@@ -5,6 +5,7 @@ using System.Text.Json;
 using Revu.Core.Data;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -63,7 +64,7 @@ public static partial class SidecarEndpoints
             {
                 logger.LogWarning(ex, "Host health probe: read-only DB open/select failed (degraded)");
                 var error = ex is DatabaseUnavailableException unavailable ? unavailable.Message
-                    : $"Revu couldn't open its database: {SqliteOpenHealth.Describe(factory.DatabasePath)}";
+                    : $"{Brand.Name} couldn't open its database: {SqliteOpenHealth.Describe(factory.DatabasePath)}";
                 return Results.Json(new { status = "degraded", error }, jsonOptions);
             }
         });

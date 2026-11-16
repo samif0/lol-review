@@ -1,4 +1,5 @@
 import { validateCommand } from './commands.mjs';
+import { APP_NAME } from '../brand.mjs';
 
 const NARRATION_MAX_BYTES = 33554432;
 const WINDOW_ACTIONS = Object.freeze(['minimize', 'toggleMaximize', 'close', 'unminimize', 'show', 'setFocus']);
@@ -41,7 +42,7 @@ async function resolveAdapter(scope) {
       || typeof bridge.invoke !== 'function') throw new Error('Unsupported desktop bridge');
     return bridge;
   }
-  if (hostedPage(top)) throw new Error('Revu could not connect to its desktop host. Restart Revu.');
+  if (hostedPage(top)) throw new Error(`${APP_NAME} could not connect to its desktop host. Restart ${APP_NAME}.`);
   return null; // Deliberate browser preview; no native host is present.
 }
 

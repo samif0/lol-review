@@ -58,7 +58,7 @@ public sealed class RiotChampionDataClient : IRiotChampionDataClient
         _logger = logger;
         _cacheDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Revu",
+            "Revu", // rebrand: keep (data folder)
             "champion_data");
         Directory.CreateDirectory(_cacheDir);
     }

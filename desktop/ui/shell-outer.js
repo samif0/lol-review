@@ -2,6 +2,7 @@ import { getInvoke, getListen, getWindow } from './platform/index.mjs';
 import { createMatchViewStore } from './match-navigation.mjs';
 import { createShellSidebar, crumbFor, pageOf } from './shell-recent.mjs';
 import { createPatternNudge } from './shell-patterns.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Own the snapshot store in the persistent shell's realm, so its methods never
 // retain a discarded content window. Entries contain cloned plain data only.
@@ -152,7 +153,7 @@ frame?.addEventListener('load', () => {
     document.documentElement.setAttribute('data-frame-page', page);
     markActive(navId);
     setCrumb(page, navId);
-    frame.title = pageLabels[page] || pageLabels[navId] || 'Revu';
+    frame.title = pageLabels[page] || pageLabels[navId] || APP_NAME;
     sidebar.frameLoaded(pathname, search);
     patternNudge.frameLoaded();
   }
@@ -196,8 +197,8 @@ function showUpdateBanner(version) {
   const txt = document.getElementById('updbar-txt');
   if (!bar) return;
   if (txt) txt.textContent = version
-    ? `Revu ${version} is available.`
-    : 'A new version of Revu is available.';
+    ? `${APP_NAME} ${version} is available.`
+    : `A new version of ${APP_NAME} is available.`;
   bar.hidden = false;
   document.body.classList.add('has-updbar');
 }
@@ -330,12 +331,12 @@ wireWindowControls();
 const HARDSTOP_HOLD_S = 5 * 60;
 const HARDSTOP_COPY = {
   cancelled: {
-    head: 'Revu cancelled your queue.',
-    foot: 'Take five minutes before choosing to override. Revu keeps cancelling the queue until your rule unlocks or you override it.',
+    head: `${APP_NAME} cancelled your queue.`,
+    foot: `Take five minutes before choosing to override. ${APP_NAME} keeps cancelling the queue until your rule unlocks or you override it.`,
   },
   matchFound: {
-    head: 'A match was found. Revu left it for you to answer.',
-    foot: 'Revu never accepts or declines a match for you. If you end up back in queue, Revu cancels the search until your rule unlocks or you override it.',
+    head: `A match was found. ${APP_NAME} left it for you to answer.`,
+    foot: `${APP_NAME} never accepts or declines a match for you. If you end up back in queue, ${APP_NAME} cancels the search until your rule unlocks or you override it.`,
   },
 };
 const isMatchFound = (s) => !!s && s.action === 'match_found';

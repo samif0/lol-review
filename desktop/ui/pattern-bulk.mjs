@@ -8,6 +8,7 @@
 //
 // This module holds the queue, the copy, the run's position and timer, and the painters.
 // ./pattern-bulk-review.mjs connects them to the page's player and finish controls.
+import { APP_NAME } from './brand.mjs';
 
 export const BULK_ADVANCE_MS = 1000;
 
@@ -29,7 +30,7 @@ export const BULK_COPY = Object.freeze({
   finishPattern: 'Finish reviewing this pattern',
   takeaway: 'What would you do differently in this moment?',
   takeawayName: 'Your takeaway for this moment',
-  reviewed: 'Reviewed. Revu will bring this back if it keeps happening.',
+  reviewed: `Reviewed. ${APP_NAME} will bring this back if it keeps happening.`,
   next: title => `Another pattern is ready: ${title}`,
   nextButton: 'Watch it next',
 });

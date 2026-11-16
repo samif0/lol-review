@@ -24,7 +24,7 @@ public sealed partial class ClipUploadService : IVodShareClient
     private static readonly TimeSpan VodMarkersTimeout = TimeSpan.FromSeconds(30);
 
     internal const string VodSignInMessage = "Sign in to share this game.";
-    internal const string VodNetworkMessage = "Couldn't reach Revu. Check your connection and try again.";
+    internal const string VodNetworkMessage = $"Couldn't reach {Brand.Name}. Check your connection and try again.";
     internal const string VodUploadFailedMessage = "The upload didn't finish. Check your connection and try again.";
 
     public async Task<VodShareServerStatus> GetVodShareStatusAsync(string sessionToken, CancellationToken ct = default)

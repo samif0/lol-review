@@ -1,4 +1,5 @@
 import { APPEARANCE_EVENT, MODES, THEMES, readAppliedAppearance, resolveMode, saveAppearance } from './appearance.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Settings card "Look and feel": the theme and the mode. Like the Audio devices card,
 // it saves on change to a renderer-local entry (appearance.mjs), so it never joins the
@@ -21,7 +22,7 @@ export const MODE_CHOICES = Object.freeze([
 export const APPEARANCE_SETTINGS_COPY = Object.freeze({
   themeSaved: 'Theme saved.',
   modeSaved: 'Mode saved.',
-  notSaved: 'Could not save. Revu uses this look until you close it.',
+  notSaved: `Could not save. ${APP_NAME} uses this look until you close it.`,
 });
 export const STATUS_CLEAR_MS = 2400;
 

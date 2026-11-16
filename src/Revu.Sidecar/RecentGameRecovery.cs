@@ -1,6 +1,7 @@
 using Revu.Core.Data.Repositories;
 using Revu.Core.Lcu;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -40,7 +41,7 @@ public sealed class RecentGameRecovery(
         var completion = new TaskCompletionSource<RecentGameRecoveryResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!work.TryRun("recover recent League games", async () =>
             completion.TrySetResult(await RunAsync())))
-            completion.TrySetResult(new(false, "Revu is closing; recovery was not started."));
+            completion.TrySetResult(new(false, $"{Brand.Name} is closing; recovery was not started."));
         return completion.Task;
     }
 
@@ -54,7 +55,7 @@ public sealed class RecentGameRecovery(
             entered = true;
             work.Stopping.ThrowIfCancellationRequested();
             if (!await lcu.IsConnectedAsync(work.Stopping))
-                return new(false, "Open League of Legends, sign in, and wait for Revu to connect, then try again.");
+                return new(false, $"Open League of Legends, sign in, and wait for {Brand.Name} to connect, then try again.");
 
             var candidates = await history.FindMissedGamesAsync(checkGameSaved: null, work.Stopping);
             work.Stopping.ThrowIfCancellationRequested();
@@ -84,7 +85,7 @@ public sealed class RecentGameRecovery(
                 }
             }
 
-            const string stillSaving = "Revu is still saving the game you just played. Try again in a minute.";
+            const string stillSaving = $"{Brand.Name} is still saving the game you just played. Try again in a minute.";
             var prefix = recovered.Count == 0
                 ? busy ? stillSaving : "No matches were recovered from League's latest 10 matches. If a match is missing, wait for League's match history to load and try again."
                 : $"Recovered {recovered.Count} {(recovered.Count == 1 ? "ranked game" : "ranked games")}." + (busy ? " " + stillSaving : "");
@@ -92,7 +93,7 @@ public sealed class RecentGameRecovery(
         }
         catch (OperationCanceledException) when (work.Stopping.IsCancellationRequested)
         {
-            return new(false, $"Revu is closing; recovery stopped. {recovered.Count} recovered games and existing video links are kept.", recovered.Count);
+            return new(false, $"{Brand.Name} is closing; recovery stopped. {recovered.Count} recovered games and existing video links are kept.", recovered.Count);
         }
         catch (Exception error)
         {

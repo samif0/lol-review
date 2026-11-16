@@ -3,6 +3,7 @@
 using System.Threading.Channels;
 using Revu.Core.Data.Repositories;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -19,7 +20,7 @@ public sealed class NarrationTranscriptionWorker
     internal const string QuotaMessage = "Daily transcript limit reached. Try again tomorrow.";
     internal const string FailedMessage = "Transcript failed. Try again.";
     /// <summary>Stored error for <see cref="TranscriptionErrorKind.Unavailable"/>; startup re-queues these.</summary>
-    internal const string UnavailableMessage = "Transcripts are not available yet. Revu will try again later.";
+    internal const string UnavailableMessage = $"Transcripts are not available yet. {Brand.Name} will try again later.";
 
     private readonly IClipNarrationRepository _narrations;
     private readonly IVodRepository _vod;

@@ -1,17 +1,21 @@
 // Copy, formatting and the start plan for "Share full game" (vod-share.mjs). Pure: no DOM and
 // no commands, so the page module stays small and these stay easy to test. All of the
 // feature's player-facing copy lives here; the sidecar's `error` sentence is only a fallback.
+import { APP_NAME, FORMER_SITE_HOSTS, SITE_HOST } from './brand.mjs';
 
-export const SHARE_LINK = /^https:\/\/revu\.lol\/v\/[0-9A-Za-z]{7}$/;
+// A watch link on the site, or on a host the site used to live on: links saved before a
+// rename keep opening, because the old host redirects to the new one.
+const SITE_HOSTS = [SITE_HOST, ...FORMER_SITE_HOSTS].map(host => host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+export const SHARE_LINK = new RegExp(`^https://(?:${SITE_HOSTS.join('|')})/v/[0-9A-Za-z]{7}$`);
 // wrangler dev serves the watch page on loopback; nothing else is ever shown or opened.
 const DEV_SHARE_LINK = /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d{1,5})?\/v\/[0-9A-Za-z]{7}$/;
 
 export const POOL_720_HINT = 'Not enough sharing space for 1080p right now, so this game will be shared at 720p.';
 export const SIZE_720_NOTE = 'This game is long, so it will be shared at 720p.';
-export const KEEP_REVIEWING = 'You can close this and keep reviewing while Revu prepares and uploads the video.';
+export const KEEP_REVIEWING = `You can close this and keep reviewing while ${APP_NAME} prepares and uploads the video.`;
 export const STOPPED = 'Sharing stopped. The link no longer works.';
 // Stop sharing could not reach Revu's server (offline, signed out, server error): the link still works.
-export const STOPPED_QUEUED = "Revu couldn't stop the link yet, so it still works. Try again, or stop sharing at revu.lol/my-clips.";
+export const STOPPED_QUEUED = `${APP_NAME} couldn't stop the link yet, so it still works. Try again, or stop sharing at ${SITE_HOST}/my-clips.`;
 export const LINK_READY = 'Full game link ready.';
 export const STOP_FAILED = "Couldn't stop sharing. Try again.";
 export const CHECKING = 'Checking sharing space...';
@@ -41,16 +45,16 @@ const FALLBACK = "Sharing didn't finish. Try again.";
 const COPY = {
   needs_login: 'Sign in to share this game.',
   busy: 'Two games are already being shared. Try again when one finishes.',
-  starting: 'Revu is still starting. Try again in a moment.',
-  closing: 'Revu is closing. Share again after it restarts.',
+  starting: `${APP_NAME} is still starting. Try again in a moment.`,
+  closing: `${APP_NAME} is closing. Share again after it restarts.`,
   stopping: 'Stopping the previous share. Try again in a moment.',
-  network: "Couldn't reach Revu. Check your connection and try again.",
+  network: `Couldn't reach ${APP_NAME}. Check your connection and try again.`,
   sharing_paused: 'Full-game sharing is paused right now. Try again later.',
   too_long: "Games longer than 2 hours can't be shared.",
   too_large: 'This game is too large to share, even at 720p.',
   no_recording: "This game's recording isn't on this PC.",
   disk_full: "There isn't enough free disk space to prepare the video.",
-  encode_failed: "Revu couldn't prepare the video. Try again.",
+  encode_failed: `${APP_NAME} couldn't prepare the video. Try again.`,
   game_in_progress: 'Finish your game first, then share.',
   game_started: 'Sharing stopped because a game started. Share again after the game.',
   upload_failed: "The upload didn't finish. Check your connection and try again.",

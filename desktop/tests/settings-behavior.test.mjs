@@ -3,9 +3,10 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { findSettings, preserveSettingsDraft } from '../ui/settings-navigation.mjs';
+import { withBrand } from './brand-fixture.mjs';
 
-const source = (await readFile(new URL('../ui/settings.js', import.meta.url), 'utf8'))
-  .replace(/^import .*?;\r?\n/gm, '');
+const source = withBrand((await readFile(new URL('../ui/settings.js', import.meta.url), 'utf8'))
+  .replace(/^import .*?;\r?\n/gm, ''));
 const plain = value => JSON.parse(JSON.stringify(value));
 const deferred = () => {
   let resolve;

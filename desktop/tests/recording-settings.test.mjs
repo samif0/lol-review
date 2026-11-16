@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { createRecordingSettingsModel, recordingStatusText, recordingEncoderText } from '../ui/recording-settings.mjs';
 import { validateCommand } from '../ui/platform/commands.mjs';
+import { withBrand } from './brand-fixture.mjs';
 
 const status = { state: 'unavailable', available: false, message: 'Recording is not available in this build yet.',
   settings: { enabled: true, preset: '720p30' } };
@@ -18,8 +19,8 @@ test('native recorder model persists explicit opt-in independently of provider a
   assert.deepEqual(views, ['Recording unavailable. Recording is not available in this build yet.', status.settings]);
 });
 
-const uiSource = (await readFile(new URL('../ui/recording-settings.mjs', import.meta.url), 'utf8'))
-  .replace(/^import .*?;\r?\n/gm, '').replace(/^export /gm, '');
+const uiSource = withBrand((await readFile(new URL('../ui/recording-settings.mjs', import.meta.url), 'utf8'))
+  .replace(/^import .*?;\r?\n/gm, '').replace(/^export /gm, ''));
 
 async function uiFixture(invoke) {
   const ids = new Map(), calls = [], intervals = [], documentListeners = new Map(), windowListeners = new Map();

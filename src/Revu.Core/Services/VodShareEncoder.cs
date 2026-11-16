@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Services;
 
@@ -362,7 +363,7 @@ public sealed partial class VodShareEncoder : IVodShareEncoder
         }
     }
 
-    internal const string EncodeFailedMessage = "Revu couldn't prepare the video. Try again.";
+    internal const string EncodeFailedMessage = $"{Brand.Name} couldn't prepare the video. Try again.";
 
     private VodEncodeException Failed(string detail)
     {

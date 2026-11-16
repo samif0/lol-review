@@ -22,6 +22,7 @@ import { IDLE_SWEEP_ON_START, vodWatchUrl } from "./share-limits";
 import { abortUpload, sweepIdleUploads, tombstoneObject } from "./upload-cleanup";
 import { removeHlsShare } from "./hls-objects";
 import { serveR2Object } from "./r2-serve";
+import { appName, publicBase, watchBase } from "./brand";
 
 export { parseRange } from "./r2-serve";
 
@@ -183,7 +184,7 @@ export interface ClipRow {
 
 /** Public share URL for a clip slug (what POST /clips and complete return). */
 export function clipPublicUrl(env: Env, id: string): string {
-  const base = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
+  const base = publicBase(env);
   return `${base}/${id}`;
 }
 
@@ -280,11 +281,12 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
   const clip = await findClip(env.DB, id);
   if (!clip) return null;
 
-  const publicBase = (env.PUBLIC_BASE || "https://clips.revu.lol").replace(/\/+$/, "");
-  const watchBase = (env.WATCH_BASE || "https://revu.lol").replace(/\/+$/, "");
-  const videoUrl = `${publicBase}/clip-file/${id}`;
-  const watchUrl = `${watchBase}/clip.html?id=${id}`;
-  const imageUrl = `${watchBase}/og-image.jpg?v=${OG_IMAGE_VERSION}`;
+  const publicOrigin = publicBase(env);
+  const watchOrigin = watchBase(env);
+  const brand = appName(env);
+  const videoUrl = `${publicOrigin}/clip-file/${id}`;
+  const watchUrl = `${watchOrigin}/clip.html?id=${id}`;
+  const imageUrl = `${watchOrigin}/og-image.jpg?v=${OG_IMAGE_VERSION}`;
   const videoType = clip.content_type === "video/webm" ? "video/webm" : "video/mp4";
 
   const rawTitle = (clip.title || "").trim() || "League clip";
@@ -292,7 +294,7 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
   // A middle dot, not a dash: user-facing copy never uses em or en dashes.
   const title = escapeHtml(champ ? `${rawTitle} · ${champ}` : rawTitle);
   const desc = escapeHtml(
-    champ ? `${champ} clip shared with Revu. Watch in your browser.` : "Watch this League of Legends clip, shared with Revu.",
+    champ ? `${champ} clip shared with ${brand}. Watch in your browser.` : `Watch this League of Legends clip, shared with ${brand}.`,
   );
 
   // Default 16:9; only used as a hint for the embed aspect ratio.
@@ -306,14 +308,14 @@ export async function renderClipOgPage(env: Env, id: string): Promise<Response |
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="dark" />
 <style>html,body{background:#212121;color:#ececec;font-family:'Segoe UI',system-ui,sans-serif}</style>
-<title>${title} - Revu</title>
+<title>${title} - ${brand}</title>
 <meta name="description" content="${desc}" />
 
-<meta property="og:site_name" content="Revu" />
+<meta property="og:site_name" content="${brand}" />
 <meta property="og:title" content="${title}" />
 <meta property="og:description" content="${desc}" />
 <meta property="og:type" content="video.other" />
-<meta property="og:url" content="${publicBase}/${id}" />
+<meta property="og:url" content="${publicOrigin}/${id}" />
 <meta property="og:image" content="${imageUrl}" />
 
 <meta property="og:video" content="${videoUrl}" />

@@ -72,7 +72,7 @@ public sealed class ReviewExportEndpointTests : IDisposable
     public void TheExportFolderIsDocumentsRevu()
     {
         var folder = SidecarEndpoints.ReviewExportFolder();
-        Assert.Equal("Revu", Path.GetFileName(folder));
+        Assert.Equal("Revu", Path.GetFileName(folder)); // rebrand: keep (export folder)
         Assert.Equal(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), Path.GetDirectoryName(folder));
     }
 }

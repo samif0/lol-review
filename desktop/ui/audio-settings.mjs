@@ -2,6 +2,7 @@ import { getInvoke as platformInvoke } from './platform/index.mjs';
 import { applyOutputSink, AUDIO_COPY, listAudioDevices, onAudioPrefsChange, readAudioPref, resolveAudioDevice,
   resolveSavedDevice, saveAudioPref } from './audio-devices.mjs';
 import { MIC_COPY, micErrorMessage, rmsLevel } from './narration-capture.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Settings card "Audio devices". Choices are renderer-local preferences shared with
 // the narration studio and the players (audio-devices.mjs). They save on change, so
@@ -13,7 +14,7 @@ export const MIC_TEST_LIMIT_MS = 30000;
 export const AUDIO_SETTINGS_COPY = Object.freeze({
   inputSaved: 'Narration microphone saved.',
   outputSaved: 'Playback output saved.',
-  notSaved: 'Revu could not save this choice on this computer.',
+  notSaved: `${APP_NAME} could not save this choice on this computer.`,
   unavailable: 'Audio devices are not available here.',
   testStart: 'Test microphone',
   testStop: 'Stop test',
@@ -22,7 +23,7 @@ export const AUDIO_SETTINGS_COPY = Object.freeze({
   testEnded: 'The microphone was disconnected, so the test stopped.',
   tonePlayed: 'Test sound played.',
   toneFallback: 'The chosen output is not available. The test sound played on the system default.',
-  toneFailed: 'Revu could not play a test sound.',
+  toneFailed: `${APP_NAME} could not play a test sound.`,
   namesShown: 'Device names are shown. The microphone is off.',
   notConnected: label => `${label || 'Saved device'} (not connected)`,
   fallbackName: (which, index) => `${which === 'input' ? 'Microphone' : 'Speaker'} ${index + 1}`,

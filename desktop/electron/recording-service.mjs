@@ -4,6 +4,7 @@ import path from 'node:path';
 import { registrationFor, registrationRejected } from './recording-registration.mjs';
 import { RECORDING_DEFAULTS as defaults, atomicJson, bounded, readRecordingFault, recordingFault, recordingSettings,
   writeRecordingFault } from './recording-store.mjs';
+import { APP_NAME } from './brand.mjs';
 
 export { recordingSettings };
 const unfinished = new Set(['starting', 'recording', 'stopping', 'finalizing']);
@@ -12,7 +13,7 @@ const hardwareEncoders = new Set(['obs_nvenc_h264_tex', 'h264_texture_amf', 'obs
 const encoderId = value => hardwareEncoders.has(value) ? value : null;
 const encoderUnavailableMessage = code => {
   if (['hardware-encoder-unavailable', 'hardware-encoder-failed'].includes(code))
-    return 'No supported hardware encoder is available. Revu supports NVIDIA NVENC, AMD AMF and Intel Quick Sync. Check your graphics driver.';
+    return `No supported hardware encoder is available. ${APP_NAME} supports NVIDIA NVENC, AMD AMF and Intel Quick Sync. Check your graphics driver.`;
   if (['capture-unavailable', 'wgc-unavailable'].includes(code))
     return 'League window capture or game audio is unavailable on this Windows PC.';
   return 'Built-in recording is unavailable on this PC. Your preference is saved.';
@@ -87,20 +88,20 @@ export class RecordingService {
   }
   idleStatus() {
     if (this.isolated) this.publish('unavailable', 'Recording is unavailable in this isolated preview.');
-    else if (this.checking) this.publish('checking', 'Revu checks your graphics hardware each time it starts.');
+    else if (this.checking) this.publish('checking', `${APP_NAME} checks your graphics hardware each time it starts.`);
     else if (!this.available && this.faulted)
-      this.publish('unavailable', 'Recording was turned off after an error. Restart Revu, then turn it back on here.');
+      this.publish('unavailable', `Recording was turned off after an error. Restart ${APP_NAME}, then turn it back on here.`);
     else if (!this.available && this.unavailableCode) this.publish('unavailable', encoderUnavailableMessage(this.unavailableCode));
     else if (!this.settings.enabled) this.publish('disabled', this.fault
       ? 'Recording was turned off after an error in an earlier session. You can turn it back on below.' : 'Automatic recording is off.');
-    else if (this.blocked) this.publish('partial', 'Recording cannot restart safely yet. Existing files have been kept; restart Revu before recording again.');
+    else if (this.blocked) this.publish('partial', `Recording cannot restart safely yet. Existing files have been kept; restart ${APP_NAME} before recording again.`);
     else if (!this.available) this.publish('unavailable', encoderUnavailableMessage(this.unavailableCode));
     else this.publish('idle', 'Ready to record your next League match.');
   }
   async saveSettings(value, { fault = null } = {}) {
     const settings = recordingSettings(value);
     if (this.isolated && settings.enabled) throw new Error('Recording is disabled in isolated previews');
-    if (this.closing) throw new Error('Revu is closing');
+    if (this.closing) throw new Error(`${APP_NAME} is closing`);
     this.requestedEnabled = settings.enabled;
     if (!settings.enabled) {
       this.startRevision++;
@@ -247,7 +248,7 @@ export class RecordingService {
     try { await this.persist(session); return true; }
     catch {
       this.blocked = true; session.reason ||= 'journal-write-failed';
-      this.publish('partial', 'Recording metadata could not be saved. Existing video files have been kept; restart Revu after checking storage.');
+      this.publish('partial', `Recording metadata could not be saved. Existing video files have been kept; restart ${APP_NAME} after checking storage.`);
       return false;
     }
   }
@@ -388,7 +389,7 @@ export class RecordingService {
     if (!confirmed) {
       this.blocked = true; session.state = 'partial'; session.reason = 'stop-unconfirmed';
       await this.preserve(session); this.current = null; this.suppressedPid = session.pid;
-      this.publish('partial', 'Recording did not finish cleanly. Files have been kept; restart Revu before recording again.');
+      this.publish('partial', `Recording did not finish cleanly. Files have been kept; restart ${APP_NAME} before recording again.`);
       return;
     }
     await this.finalize(session, result);
@@ -478,7 +479,7 @@ export class RecordingService {
       }
       session.retryAttempts = Math.min((session.retryAttempts || 0) + 1, 10);
       session.nextRetryAt = this.now() + Math.min(60_000, 1000 * 2 ** session.retryAttempts);
-      if (!this.current) this.publish('partial', 'Video saved. Match attachment is pending; Revu will retry.');
+      if (!this.current) this.publish('partial', `Video saved. Match attachment is pending; ${APP_NAME} will retry.`);
     }
   }
   shutdown() {

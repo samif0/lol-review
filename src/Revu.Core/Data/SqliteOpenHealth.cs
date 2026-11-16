@@ -2,6 +2,7 @@
 
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Data;
 
@@ -142,13 +143,13 @@ public static class SqliteOpenHealth
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
                 return File.Exists(directory)
-                    ? $"a file is blocking Revu's data folder location ({directory}). Remove or rename that file."
-                    : $"Revu's data folder is missing ({directory}).";
+                    ? $"a file is blocking {Brand.Name}'s data folder location ({directory}). Remove or rename that file."
+                    : $"{Brand.Name}'s data folder is missing ({directory}).";
             }
 
             if (Directory.Exists(dbPath))
             {
-                return $"a folder exists where Revu's database file should be ({dbPath}). Remove or rename that folder.";
+                return $"a folder exists where {Brand.Name}'s database file should be ({dbPath}). Remove or rename that folder.";
             }
 
             if (!File.Exists(dbPath))
@@ -158,10 +159,10 @@ public static class SqliteOpenHealth
                 // SQLite replay foreign WAL frames over it, so the app refuses.
                 if (File.Exists(dbPath + "-wal") || File.Exists(dbPath + "-shm"))
                 {
-                    return $"Revu's database file is missing, but its journal files were left behind ({dbPath}). Restore revu.db from a backup, or delete the leftover revu.db-wal and revu.db-shm files to start fresh.";
+                    return $"{Brand.Name}'s database file is missing, but its journal files were left behind ({dbPath}). Restore revu.db from a backup, or delete the leftover revu.db-wal and revu.db-shm files to start fresh.";
                 }
 
-                return $"Revu's database file is missing (expected at {dbPath}).";
+                return $"{Brand.Name}'s database file is missing (expected at {dbPath}).";
             }
 
             foreach (var suffix in SidecarSuffixes)
@@ -184,18 +185,18 @@ public static class SqliteOpenHealth
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    return $"Revu has no permission to access {Path.GetFileName(path)} ({path}). Fix the file's permissions (or delete it if it is a leftover from a backup tool).";
+                    return $"{Brand.Name} has no permission to access {Path.GetFileName(path)} ({path}). Fix the file's permissions (or delete it if it is a leftover from a backup tool).";
                 }
 
                 if (suffix.Length > 0 && !ProbeFileShareable(path))
                 {
-                    return $"Revu can't open its journal file {Path.GetFileName(path)} ({path}). Check the file's permissions, and whether an antivirus or sync tool is holding it.";
+                    return $"{Brand.Name} can't open its journal file {Path.GetFileName(path)} ({path}). Check the file's permissions, and whether an antivirus or sync tool is holding it.";
                 }
             }
 
             if (!ProbeDirectoryWritable(directory))
             {
-                return $"Revu's data folder isn't writable ({directory}). Check the folder's permissions, and whether an antivirus or sync tool is blocking it.";
+                return $"{Brand.Name}'s data folder isn't writable ({directory}). Check the folder's permissions, and whether an antivirus or sync tool is blocking it.";
             }
 
             if (!ProbeFileShareable(dbPath))
@@ -203,7 +204,7 @@ public static class SqliteOpenHealth
                 return $"another program has locked the database file ({dbPath}). Close other tools that might be scanning or syncing it, then try again.";
             }
 
-            return $"the database file could not be opened ({dbPath}). A restart of Revu may fix this; if it persists, check antivirus or disk errors.";
+            return $"the database file could not be opened ({dbPath}). A restart of {Brand.Name} may fix this; if it persists, check antivirus or disk errors.";
         }
         catch (Exception ex)
         {
@@ -275,7 +276,7 @@ public sealed class DatabaseUnavailableException : Exception
     public string Reason { get; }
 
     public DatabaseUnavailableException(string databasePath, string reason, Exception inner)
-        : base($"Revu couldn't open its database: {reason}", inner)
+        : base($"{Brand.Name} couldn't open its database: {reason}", inner)
     {
         DatabasePath = databasePath;
         Reason = reason;

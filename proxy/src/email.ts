@@ -2,6 +2,8 @@
  * Resend integration. Sends the magic-link / one-time-code email.
  */
 
+import { SITE_HOST } from "./brand";
+
 export async function sendMagicLinkEmail(
   resendApiKey: string,
   from: string,
@@ -9,6 +11,7 @@ export async function sendMagicLinkEmail(
   to: string,
   code: string,
   purpose: "signup" | "login" | "web",
+  site: string = SITE_HOST,
 ): Promise<void> {
   const subject = purpose === "web"
     ? `Your ${appName} sign-in code`
@@ -17,14 +20,14 @@ export async function sendMagicLinkEmail(
     : `Your ${appName} login code`;
 
   const body = purpose === "web"
-    ? `Enter this code on revu.lol to sign in to ${appName}:`
+    ? `Enter this code on ${site} to sign in to ${appName}:`
     : purpose === "signup"
     ? `Welcome to ${appName}. Paste this code into the desktop app to finish signing up:`
     : `Paste this code into the ${appName} desktop app to finish logging in:`;
 
   const expiryLine = "This code expires in 10 minutes and can only be used once. If you did not request it, you can safely ignore this email.";
   // Web codes are typed into a website, so the web email also warns against phishing.
-  const phishingLine = "Only enter this code on revu.lol or in the Revu app. Revu will never ask you to share it, and never asks for a password.";
+  const phishingLine = `Only enter this code on ${site} or in the ${appName} app. ${appName} will never ask you to share it, and never asks for a password.`;
   const webExtraHtml = purpose === "web"
     ? `\n      <p style="color: #666; font-size: 13px;">${phishingLine}</p>`
     : "";

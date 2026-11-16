@@ -1,15 +1,16 @@
 // Crash and relaunch decisions for the main process. Pure where possible so the
 // policy is testable without Electron; main.mjs supplies the dialog and the app.
+import { APP_NAME } from './brand.mjs';
 
-export const RECOVERY_BUTTONS = Object.freeze(['Restart Revu', 'Open logs', 'Quit']);
+export const RECOVERY_BUTTONS = Object.freeze([`Restart ${APP_NAME}`, 'Open logs', 'Quit']);
 
 // User-facing copy: sentence case, no em dashes.
 const RECOVERY_COPY = Object.freeze({
-  sidecar: { message: 'Revu stopped working',
-    detail: "Revu's background service closed unexpectedly. Restart Revu to continue. Changes you had not saved may be lost." },
-  renderer: { message: "Revu's window stopped working",
-    detail: 'The window closed unexpectedly again. Restart Revu to continue. Changes you had not saved may be lost.' },
-  startup: { message: 'Revu could not start', detail: 'Restart Revu to try again, or open the logs to see what happened.' },
+  sidecar: { message: `${APP_NAME} stopped working`,
+    detail: `${APP_NAME}'s background service closed unexpectedly. Restart ${APP_NAME} to continue. Changes you had not saved may be lost.` },
+  renderer: { message: `${APP_NAME}'s window stopped working`,
+    detail: `The window closed unexpectedly again. Restart ${APP_NAME} to continue. Changes you had not saved may be lost.` },
+  startup: { message: `${APP_NAME} could not start`, detail: `Restart ${APP_NAME} to try again, or open the logs to see what happened.` },
 });
 
 /** A login launch must not make a reset/restore/crash relaunch start hidden in the tray. */
@@ -93,7 +94,7 @@ export function shellUrl(origin, page) {
  */
 export async function askRecovery({ dialog, parent, kind, detail, openLogs, maxPrompts = 10 }) {
   const copy = RECOVERY_COPY[kind];
-  const options = { type: 'error', title: 'Revu', message: copy.message,
+  const options = { type: 'error', title: APP_NAME, message: copy.message,
     detail: detail ? `${detail}\n\n${copy.detail}` : copy.detail,
     buttons: [...RECOVERY_BUTTONS], defaultId: 0, cancelId: 2, noLink: true };
   for (let prompt = 0; prompt < maxPrompts; prompt++) {
@@ -111,9 +112,9 @@ export const SLOW_START_BUTTONS = Object.freeze(['Keep waiting', 'Open logs', 'Q
  * Escape or an aborted `signal` (startup ended) means keep waiting. Resolves 'wait' or 'quit'.
  */
 export async function askSlowStart({ dialog, signal, openLogs, maxPrompts = 10 }) {
-  const options = { type: 'warning', title: 'Revu', message: 'Revu is taking longer than expected to start',
-    detail: 'Revu is still updating your data. You can keep waiting, or quit and open Revu again later. '
-      + 'If you quit, Revu finishes the update the next time it opens.',
+  const options = { type: 'warning', title: APP_NAME, message: `${APP_NAME} is taking longer than expected to start`,
+    detail: `${APP_NAME} is still updating your data. You can keep waiting, or quit and open ${APP_NAME} again later. `
+      + `If you quit, ${APP_NAME} finishes the update the next time it opens.`,
     buttons: [...SLOW_START_BUTTONS], defaultId: 0, cancelId: 0, noLink: true, signal };
   for (let prompt = 0; prompt < maxPrompts && !signal?.aborted; prompt++) {
     const { response } = await dialog.showMessageBox(options);
@@ -130,8 +131,8 @@ export function createClosingNotice(dialog) {
   return () => {
     if (shown) return;
     shown = true;
-    void Promise.resolve().then(() => dialog.showMessageBox({ type: 'info', title: 'Revu', message: 'Revu is still closing',
-      detail: 'Revu is finishing a task and will close shortly. Open it again in a moment.', buttons: ['OK'], noLink: true }))
+    void Promise.resolve().then(() => dialog.showMessageBox({ type: 'info', title: APP_NAME, message: `${APP_NAME} is still closing`,
+      detail: `${APP_NAME} is finishing a task and will close shortly. Open it again in a moment.`, buttons: ['OK'], noLink: true }))
       .catch(() => {});
   };
 }

@@ -3,6 +3,7 @@
 // shell-outer forwards into the VOD frame as `revu:clip-share-progress`. A status
 // poll covers a missed event. There is no overall deadline while the job is
 // queued or running: long clips can take many minutes to upload.
+import { APP_NAME } from './brand.mjs';
 
 const MAX_POLL_FAILURES = 4;
 
@@ -60,7 +61,7 @@ export function waitForShareJob({ bookmarkId, invoke, target = globalThis.window
       }
     } catch (_) {
       failures += 1;
-      if (failures >= MAX_POLL_FAILURES) failed({ error: 'Revu lost track of this share. Trying again.', retryable: true });
+      if (failures >= MAX_POLL_FAILURES) failed({ error: `${APP_NAME} lost track of this share. Trying again.`, retryable: true });
     } finally { polling = false; }
   }
   if (!Number.isSafeInteger(id) || id <= 0 || typeof invoke !== 'function') {

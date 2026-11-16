@@ -241,5 +241,10 @@ jobs:
       - name: Script tests
         run: node --test scripts/*.test.mjs scripts/recording-benchmark/*.test.mjs
 
+      # The display name and public domain live in brand.json. A name or domain written
+      # into code that could have read it, or a brand file out of step with it, fails here.
+      - name: Display name and domain check
+        run: node scripts/rebrand.mjs --check
+
       - name: Video event recovery checks
         run: python3 -m unittest scripts/test_video_event_recovery.py

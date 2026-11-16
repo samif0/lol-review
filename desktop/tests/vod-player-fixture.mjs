@@ -9,6 +9,7 @@ import { eventTone, polarityTone, resultOf } from '../ui/meaning-tone.mjs';
 import { buildThread, renderThread, moveNow } from '../ui/vod-thread.mjs';
 import { takeawayText } from '../ui/journal-takeaway.mjs';
 import { SPEED_UP_HELD, speedUpHoldsRecording } from '../ui/recording-optimize.mjs';
+import { withBrand } from './brand-fixture.mjs';
 
 // Shared VOD player fixture: executes the page's real render/action handlers.
 // Electron smoke covers native button activation and layout; this fixture covers
@@ -16,8 +17,8 @@ import { SPEED_UP_HELD, speedUpHoldsRecording } from '../ui/recording-optimize.m
 // target, bubble, stopPropagation; blur and focus do not bubble) and focus follows
 // the browser: focusing moves blur to the previous element, and detaching a node
 // that holds focus drops focus to the page without a blur event.
-const source = (await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8'))
-  .replace(/^import\s[\s\S]*?\sfrom\s+['"][^'"]+['"];\r?\n/gm, '');
+const source = withBrand((await readFile(new URL('../ui/vodplayer.js', import.meta.url), 'utf8'))
+  .replace(/^import\s[\s\S]*?\sfrom\s+['"][^'"]+['"];\r?\n/gm, ''));
 if (/^import\s/m.test(source)) throw new Error('vod-player-fixture could not strip every import from vodplayer.js');
 export const plain = value => JSON.parse(JSON.stringify(value));
 

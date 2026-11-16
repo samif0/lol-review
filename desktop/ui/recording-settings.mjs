@@ -1,4 +1,5 @@
 import { getInvoke, getListen } from './platform/index.mjs';
+import { APP_NAME } from './brand.mjs';
 
 const UNAVAILABLE_MESSAGE = 'Built-in recording is unavailable here.';
 const ENCODERS = Object.freeze({ obs_nvenc_h264_tex: 'NVIDIA NVENC', h264_texture_amf: 'AMD AMF', obs_qsv11_v2: 'Intel Quick Sync' });
@@ -92,8 +93,8 @@ export async function initializeRecordingSettings({ document = globalThis.docume
   if (disposed) return;
   if (!invoke) {
     controls.forEach(id => { el(id).disabled = true; });
-    text('recording-status', 'Open the Revu desktop app to manage automatic recording.');
-    text('background-settings-status', 'Background settings are available in the Revu desktop app.');
+    text('recording-status', `Open the ${APP_NAME} desktop app to manage automatic recording.`);
+    text('background-settings-status', `Background settings are available in the ${APP_NAME} desktop app.`);
     return;
   }
   const renderRecording = value => {
@@ -133,7 +134,7 @@ export async function initializeRecordingSettings({ document = globalThis.docume
       el('startWithWindows').disabled = value.startupAvailable === false;
       el('save-background-settings').disabled = false;
       text('background-settings-status', value.message || (value.startupAvailable === false
-        ? 'Start with Windows is available after installing Revu.' : 'Background preferences are saved separately below.'));
+        ? `Start with Windows is available after installing ${APP_NAME}.` : 'Background preferences are saved separately below.'));
     },
   });
   const save = async (kind, operation) => {

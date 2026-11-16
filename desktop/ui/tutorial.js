@@ -1,5 +1,6 @@
 import { getInvoke } from './platform/index.mjs';
 import { guideStage, guideIsActive, guideEventPatch } from './first-review-guide.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Optional inline help. Existing config fields preserve older tutorial progress.
 if (!window.__revuFirstReviewTutorialLoaded) {
@@ -77,7 +78,7 @@ if (!window.__revuFirstReviewTutorialLoaded) {
     guide.append(summary);
     guide.addEventListener('toggle', () => { expanded = guide.open; });
     const content = element('div', 'review-guide-content');
-    content.append(element('p', 'review-guide-intro', 'Use these three steps at your own pace. You can keep exploring Revu with the guide open.'));
+    content.append(element('p', 'review-guide-intro', `Use these three steps at your own pace. You can keep exploring ${APP_NAME} with the guide open.`));
     const list = element('ol', 'review-guide-steps');
     const gameId = Number(config.firstReviewTutorialGameId);
     const validGame = Number.isSafeInteger(gameId) && gameId > 0;

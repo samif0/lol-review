@@ -8,6 +8,7 @@ import { registerLeaveGuard } from './leave-guard.mjs';
 import { initializeAudioSettings } from './audio-settings.mjs';
 import { initializeAppearanceSettings } from './appearance-settings.mjs';
 import { toneFromHex } from './meaning-tone.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Each editable card saves only its own fields through the existing platform
 // boundary. Refreshes preserve drafts in other categories. Recording and startup
@@ -94,7 +95,7 @@ function syncRecoveryControls() {
   if (!button) return;
   button.disabled = _recoveryAvailable !== true || _recovering;
   let text = '', tone;
-  if (_recoveryAvailable === false) text = 'Recover matches in the Revu desktop app. Browser preview cannot reach the League client.';
+  if (_recoveryAvailable === false) text = `Recover matches in the ${APP_NAME} desktop app. Browser preview cannot reach the League client.`;
   else if (_recovering) text = 'Recovering recent matches from League…';
   else if (_recoveryResult) { text = _recoveryResult.text; tone = _recoveryResult.tone; }
   setStatusEl($('recovery-status'), text, tone, false);

@@ -3,6 +3,7 @@ import { readSnapshot } from './data.mjs';
 import { getInvoke } from './platform/index.mjs';
 import { registerLeaveGuard, trackForm } from './leave-guard.mjs';
 import { recordLabel, planWithoutThen, ruleBadgeTone } from './rule-labels.mjs';
+import { APP_NAME } from './brand.mjs';
 
 // Revu desktop — Rules (session protocols) page renderer for the glass-aurora
 // layout. Renders the JSON returned by the Electron command `get_rules`
@@ -247,8 +248,8 @@ function buildRule(r, opts) {
       // The NEXT state this click writes (the button is a flip).
       enforceBtn.dataset.enforce = on ? '0' : '1';
       enforceBtn.title = on
-        ? 'While this rule is tripped, Revu cancels your queue. Click to make it display-only.'
-        : 'Make Revu cancel your queue while this rule is tripped, instead of just showing it.';
+        ? `While this rule is tripped, ${APP_NAME} cancels your queue. Click to make it display-only.`
+        : `Make ${APP_NAME} cancel your queue while this rule is tripped, instead of just showing it.`;
       show(enforceBtn, true);
     } else {
       show(enforceBtn, false);

@@ -27,6 +27,8 @@ npm run build
 
 The desktop commands are required when `desktop/**` changes. Use Node 22.12 or newer. `npm run setup` explicitly installs/verifies the runtime and builds the sidecar under `artifacts/desktop-build`. `npm start` uses existing production Revu data; `npm run start:isolated` uses a restricted scratch profile.
 
+The display name and public domain live in `brand.json`. Code reads them from the generated brand files (`desktop/electron/brand.mjs`, `desktop/ui/brand.mjs`, `Brand.Name` in `src/Revu.Core/Constants`, `proxy/src/brand.ts`); never write the name or domain into code. `node scripts/rebrand.mjs --check` runs in CI and fails on one that is not reviewed; a folder, file or key an install depends on keeps the literal and ends its line with a `rebrand: keep` comment.
+
 CI lives in `.github/workflows/ci.yml`. Releases are tag-triggered (`v*`) through `.github/workflows/release.yml` and Velopack. Preserve packId `LoLReview` and main executable `revu-desktop.exe`. `npm run package:dir` produces `artifacts/desktop-package/win-unpacked` locally without publishing.
 
 The sidecar must retain exclusive data ownership, schema downgrade checks, separate read-only/write-capable database graphs, and graceful draining of accepted work. Host promotion does not authorize schema or data migration changes. The host is stock Electron, pinned to an exact version in `desktop/package.json`. Revu does not start Electron's crash reporter; if that or anything else the app sends ever changes, update `site/privacy.html` and the README in the same change.

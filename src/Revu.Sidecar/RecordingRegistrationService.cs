@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 using Revu.Core.Data;
 using Revu.Core.Services;
+using Revu.Core.Constants;
 
 namespace Revu.Sidecar;
 
@@ -190,7 +191,7 @@ public sealed class RecordingRegistrationService(string root, RecordingLinkStore
         var path = Path.GetFullPath(request.FilePath);
         if (!path.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
             || Path.GetRelativePath(_root, path).Split(Path.DirectorySeparatorChar)[0].Equals(".registrations", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("Recording files must stay inside Revu's recording folder.");
+            throw new ArgumentException($"Recording files must stay inside {Brand.Name}'s recording folder.");
         if (!new[] { ".mp4", ".mkv", ".mov", ".webm" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
             throw new ArgumentException("Recording must be a supported video file.");
         return request with { FilePath = path, StartedAt = request.StartedAt.ToUniversalTime() };

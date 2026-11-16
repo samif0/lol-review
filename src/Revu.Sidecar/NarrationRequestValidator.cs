@@ -23,11 +23,11 @@ internal static class NarrationRequestValidator
     public const string ClipFileMissing = "Clip file is missing. Save the clip again.";
     public const string ShareTypeUnsupported = "Only MP4 and WebM clips can be shared.";
     public const string ShareTooLarge = "Clip is too large to share (2 GB max).";
-    public const string RenderFailed = "Revu could not render the narrated clip. Your recording was not saved.";
+    public const string RenderFailed = $"{Brand.Name} could not render the narrated clip. Your recording was not saved.";
     public const string AlreadyRendering = "This clip is already rendering.";
     public const string NoNarration = "No narration for this clip.";
-    public const string ShuttingDown = "Revu is shutting down.";
-    public const string ExtractLongFailed = "Revu could not save this clip. Try a shorter range.";
+    public const string ShuttingDown = $"{Brand.Name} is shutting down.";
+    public const string ExtractLongFailed = $"{Brand.Name} could not save this clip. Try a shorter range.";
 
     /// <summary>422 text for an extract range over 10 minutes, else null.</summary>
     public static string? ExtractRangeError(int startS, int endS) =>

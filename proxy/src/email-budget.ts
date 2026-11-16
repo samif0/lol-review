@@ -14,9 +14,10 @@
  */
 
 import { Env } from "./types";
+import { APP_NAME } from "./brand";
 
 export const DEFAULT_EMAIL_DAILY_SEND_CAP = 100;
-export const EMAIL_CAP_MESSAGE = "Revu has sent all the sign-in emails it can for today. Try again after midnight UTC.";
+export const EMAIL_CAP_MESSAGE = `${APP_NAME} has sent all the sign-in emails it can for today. Try again after midnight UTC.`;
 
 const RESERVE_SQL =
   "INSERT INTO email_send_usage (day, sends) VALUES (?1, 1) ON CONFLICT(day) DO UPDATE SET sends = sends + 1 RETURNING sends";

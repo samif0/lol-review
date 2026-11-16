@@ -1,6 +1,7 @@
 #nullable enable
 
 using Microsoft.Extensions.Logging;
+using Revu.Core.Constants;
 
 namespace Revu.Core.Services;
 
@@ -152,7 +153,7 @@ public sealed partial class ClipService
     private void LogStillOverLimit(long totalBytes, long maxSizeBytes) =>
         _logger.LogWarning(
             "Clips folder still over its limit after eviction ({SizeMb:F1} MB / {MaxMb} MB): " +
-            "the rest is new, kept, narrated, shared, in use or not a Revu clip, and is never deleted automatically",
+            $"the rest is new, kept, narrated, shared, in use or not a {Brand.Name} clip, and is never deleted automatically",
             totalBytes / (1024.0 * 1024.0), maxSizeBytes / (1024.0 * 1024.0));
 
     private static bool IsExempt(string fullName, string justWrittenFull, IReadOnlySet<string> protectedPaths,
