@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { RecordingService, recordingSettings } from '../recording-service.mjs';
+import { gameClockIsRunning } from '../recording-registration.mjs';
 import { fixture, settle, start } from './recording-fixture.mjs';
 
 test('recording preferences are explicit and cannot smuggle sources or encoder flags', () => {
@@ -256,6 +257,40 @@ test('late startup cannot label the available tail as a full match', async t => 
   assert.equal(f.registrations[0].complete, false);
 });
 
+test('a loading screen clock that stands still never anchors the video; the running clock does', async t => {
+  const f = await fixture(t);
+  let gameZero = null; // wall time of game clock zero; null while the loading screen shows
+  f.context.gameClock = now => gameZero == null || now < gameZero ? 0.04 : 0.04 + (now - gameZero) / 1000;
+  const startedAt = f.now();
+  await start(f);
+  for (let i = 0; i < 16; i++) { f.advance(5000); await f.service.tick(); await settle(f.service); }
+  assert.equal(f.service.current.gameClockAnchor, null);
+  // The game starts 2 s after a reading: the next one moved 3 s in 5, the one after moved with the wall clock.
+  gameZero = f.now() + 2000;
+  f.advance(5000); await f.service.tick(); await settle(f.service);
+  assert.equal(f.service.current.gameClockAnchor, null);
+  f.advance(5000); await f.service.tick(); await settle(f.service);
+  assert.deepEqual(f.service.current.gameClockAnchor, { gameTimeSeconds: 8.04, observedAt: new Date(f.now()).toISOString() });
+  const disk = JSON.parse(await readFile(path.join(f.service.current.directory, 'session.json'), 'utf8'));
+  assert.deepEqual(disk.gameClockAnchor, f.service.current.gameClockAnchor);
+  assert.equal(Object.hasOwn(disk, 'clockReading'), false);
+  f.context.lastEndedGameId = 501; await f.service.tick(); await settle(f.service);
+  // Video zero is the recording's start, 84 s of loading screen before game clock 0.04.
+  assert.ok(Math.abs(f.registrations[0].gameTimeAtVideoStart - (0.04 - (gameZero - startedAt) / 1000)) < 1e-9);
+  assert.ok(Math.abs(f.registrations[0].gameTimeAtVideoStart + 83.96) < 1e-9);
+});
+test('a game clock is running only when two readings moved together', () => {
+  const at = (gameTimeSeconds, seconds) => ({ gameTimeSeconds, observedAt: new Date(Date.parse('2026-09-12T12:00:00Z') + seconds * 1000).toISOString() });
+  assert.equal(gameClockIsRunning(null, at(5, 5)), false);
+  assert.equal(gameClockIsRunning(at(0.04, 0), at(0.04, 5)), false);   // loading screen
+  assert.equal(gameClockIsRunning(at(0.04, 0), at(3.04, 5)), false);   // started between the readings
+  assert.equal(gameClockIsRunning(at(3.04, 5), at(8.04, 10)), true);
+  assert.equal(gameClockIsRunning(at(600, 0), at(605.4, 5)), true);    // a reconnect, mid-game
+  assert.equal(gameClockIsRunning(at(600, 0), at(600.5, 0.5)), false); // too close to tell
+  assert.equal(gameClockIsRunning(at(600, 0), at(660, 60)), false);    // too far apart to trust
+  assert.equal(gameClockIsRunning(at(600, 0), { gameTimeSeconds: 605, observedAt: null }), false);
+});
+
 test('out-of-range provider timing is retained as partial with a valid registration body', async t => {
   const f = await fixture(t);
   const validate = f.driver.validate;
@@ -355,7 +390,9 @@ test('a native callback before start resolves finalizes once without announcing 
   assert.equal(states.includes('recording'), false);
   assert.equal(f.service.current, null);
   f.context.lastEndedGameId = 501; await f.service.tick(); await settle(f.service);
-  assert.equal(f.registrations.length, 1); assert.equal(f.service.state, 'saved');
+  // It ended before the game clock was seen running, so nothing places it on the game clock: kept as partial.
+  assert.equal(f.registrations.length, 1); assert.equal(f.registrations[0].complete, false);
+  assert.equal(f.registrations[0].gameTimeAtVideoStart, null); assert.equal(f.service.state, 'partial');
 });
 
 test('late start completion after deadline is stopped again and cannot resurrect a timed-out session', async t => {
@@ -445,7 +482,7 @@ test('saved pending registrations resume after restart without developer access 
 test('source window readiness retries end 30 seconds after the first launch observation', async t => {
   const f = await fixture(t);
   f.driver.start = async () => { f.calls.push('start'); throw Object.assign(new Error('window pending'), { code: 'source-window-not-ready' }); };
-  await start(f); assert.equal(f.calls.filter(value => value === 'start').length, 1);
+  await start(f, { secondReading: false }); assert.equal(f.calls.filter(value => value === 'start').length, 1);
   f.advance(10_000); f.service.onGame({ pid: 100, running: true }); await settle(f.service);
   assert.equal(f.calls.filter(value => value === 'start').length, 2);
   f.advance(21_000); f.service.onGame({ pid: 100, running: true }); await settle(f.service);

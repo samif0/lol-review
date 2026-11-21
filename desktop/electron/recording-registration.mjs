@@ -17,6 +17,18 @@ export async function registrationRejected(error, session, inspect = stat) {
   catch (failure) { return failure?.code === 'ENOENT'; }
 }
 
+/** League's live clock answers during the loading screen with a value that stands still
+ * (about 0.04 s), so one reading cannot place the video on the game clock: a recording that
+ * anchored on it put every timeline marker early by the rest of the loading screen. A clock
+ * is running when two readings, 1 to 30 seconds apart, moved together to within a second.
+ */
+export function gameClockIsRunning(earlier, later) {
+  if (!earlier || !later) return false;
+  const wall = (Date.parse(later.observedAt) - Date.parse(earlier.observedAt)) / 1000;
+  const game = later.gameTimeSeconds - earlier.gameTimeSeconds;
+  return Number.isFinite(wall) && Number.isFinite(game) && wall >= 1 && wall <= 30 && Math.abs(game - wall) <= 1;
+}
+
 /** Freeze one registration body from durable session facts and the latest match context.
  * Completion requires verified start timing plus fresh exact-match end-clock coverage.
  */

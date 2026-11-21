@@ -26,8 +26,15 @@ export async function fixture(t, options = {}) {
     async validate(value) { return { filePath: value.filePath, fileSize: 7, durationSeconds: value.duration,
       startedAt: new Date(value.startTimeEpoch).toISOString(), startedAtVerified: true }; },
   };
+  // The game clock runs with the fixture's wall clock unless a test supplies its own (context.gameClock).
+  const zero = time;
   const backend = { async request(route, request) {
-    if (route === '/api/recording/context') return { ...context };
+    if (route === '/api/recording/context') {
+      const { gameClock, ...rest } = context;
+      if (rest.gameTimeSeconds == null || rest.observedAt == null) return rest;
+      return { ...rest, observedAt: new Date(time).toISOString(),
+        gameTimeSeconds: gameClock ? gameClock(time) : rest.gameTimeSeconds + (time - zero) / 1000 };
+    }
     if (route === '/api/recording/prune') { prunes.push(request); return { ok: true, deleted: 0 }; }
     assert.equal(route, '/api/recording/register'); registrations.push(request.body);
     return { ok: true, status: request.body.complete ? 'linked' : 'retained-partial' };
@@ -36,10 +43,12 @@ export async function fixture(t, options = {}) {
     now: () => time, space: async () => 10 * 1024 ** 3, deadlines: { start: 100, stop: 100, callback: 100, validate: 100 }, ...options });
   await service.initialize();
   t.after(async () => { await service.shutdown(); await rm(directory, { recursive: true, force: true }); });
-  return { service, driver, context, registrations, calls, prunes, directory, advance: ms => { time += ms; }, callback: () => callback(result) };
+  return { service, driver, context, registrations, calls, prunes, directory, advance: ms => { time += ms; }, now: () => time, callback: () => callback(result) };
 }
-export async function start(f) {
+export async function start(f, { secondReading = true } = {}) {
   await f.service.saveSettings({ enabled: true, preset: '720p30' });
   await f.service.attachDriver(f.driver);
   f.service.onGame({ pid: 100, running: true }); await settle(f.service);
+  // A second reading two seconds on: the recording anchors on a running game clock.
+  if (secondReading) { f.advance(2000); await f.service.tick(); await settle(f.service); }
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, realpath, lstat, statfs } from 'node:fs/promises';
 import path from 'node:path';
-import { registrationFor, registrationRejected } from './recording-registration.mjs';
+import { gameClockIsRunning, registrationFor, registrationRejected } from './recording-registration.mjs';
 import { RECORDING_DEFAULTS as defaults, atomicJson, bounded, readRecordingFault, recordingFault, recordingSettings,
   writeRecordingFault } from './recording-store.mjs';
 import { APP_NAME } from './brand.mjs';
@@ -241,7 +241,7 @@ export class RecordingService {
     } catch { /* The next match end tries again; recording never depends on it. */ }
   }
   async persist(session) {
-    const { abort, completion, finish, startOperation, stoppedResult, ...metadata } = session;
+    const { abort, completion, finish, startOperation, stoppedResult, clockReading, ...metadata } = session;
     await atomicJson(path.join(session.directory, 'session.json'), metadata);
   }
   async preserve(session) {
@@ -274,7 +274,13 @@ export class RecordingService {
     }
     if (session.gameClockAnchor == null && Number.isFinite(context.gameTimeSeconds) && context.gameTimeSeconds > 0
         && Math.abs(this.now() - Date.parse(context.observedAt)) < 5000) {
-      session.gameClockAnchor = { gameTimeSeconds: context.gameTimeSeconds, observedAt: context.observedAt };
+      // The anchor is the later of two readings of a running clock, never a loading screen's standing one.
+      const reading = { gameTimeSeconds: context.gameTimeSeconds, observedAt: context.observedAt };
+      const earlier = session.clockReading;
+      if (earlier?.observedAt === reading.observedAt) return;
+      session.clockReading = reading;
+      if (!gameClockIsRunning(earlier, reading)) return;
+      session.gameClockAnchor = reading;
       await this.persist(session);
     }
   }
