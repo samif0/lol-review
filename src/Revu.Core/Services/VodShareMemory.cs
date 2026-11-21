@@ -9,7 +9,7 @@ namespace Revu.Core.Services;
 /// <summary>
 /// A small cache for HLS full-game sharing (4.4), persisted at <see cref="AppDataPaths.VodShareMemoryPath"/>:
 /// each encoder's HLS self-test result (keyed by ffmpeg binary, encoder and GPU driver) and each account's
-/// measured upload speed, which preselects 720p on the next share. Never holds tokens, emails or paths
+/// measured upload speed, which preselects 720p on the next share, and the codec the last share used. Never holds tokens, emails or paths
 /// beyond the ffmpeg binary's. A lock, load-modify-save, an atomic write (temp file + replace); an
 /// unreadable file starts empty. Losing it costs one self-test and the preselect, nothing else.
 /// </summary>
@@ -69,6 +69,24 @@ public sealed class VodShareMemory
         }
     }
 
+    /// <summary>The codec the last share on this PC was started with ("h264" or "hevc"), or null.</summary>
+    public string? PreferredCodec()
+    {
+        lock (_gate) return Load().Codec is "h264" or "hevc" ? Load().Codec : null;
+    }
+
+    public void SetPreferredCodec(string codec)
+    {
+        if (codec is not ("h264" or "hevc")) return;
+        lock (_gate)
+        {
+            var doc = Load();
+            if (doc.Codec == codec) return;
+            doc.Codec = codec;
+            Save(doc);
+        }
+    }
+
     private static void Trim<T>(Dictionary<string, T> map, Func<T, long> at, int max)
     {
         while (map.Count > max) map.Remove(map.MinBy(kv => at(kv.Value)).Key);
@@ -88,6 +106,7 @@ public sealed class VodShareMemory
                 {
                     SelfTests = new Dictionary<string, SelfTestEntry>(doc.SelfTests ?? new(), StringComparer.Ordinal),
                     Uplink = new Dictionary<string, UplinkEntry>(doc.Uplink ?? new(), StringComparer.Ordinal),
+                    Codec = doc.Codec,
                 };
             }
         }
@@ -121,6 +140,7 @@ public sealed class VodShareMemory
         public int Version { get; set; } = 1;
         public Dictionary<string, SelfTestEntry> SelfTests { get; set; } = new(StringComparer.Ordinal);
         public Dictionary<string, UplinkEntry> Uplink { get; set; } = new(StringComparer.Ordinal);
+        public string? Codec { get; set; }
     }
 
     private sealed class SelfTestEntry

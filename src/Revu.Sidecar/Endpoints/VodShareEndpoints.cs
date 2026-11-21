@@ -25,7 +25,7 @@ public static partial class SidecarEndpoints
             }
         });
 
-        // POST /api/vod-share/start { gameId, quality?, includeNotes? }: checks, then queues the
+        // POST /api/vod-share/start { gameId, quality?, includeNotes?, codec? }: checks, then queues the
         // job and returns at once. Refusals are 200 { ok: false, errorCode, error }.
         app.MapPost("/api/vod-share/start", async (VodShareStartBody body, VodShareWorker worker, CancellationToken ct) =>
         {
@@ -33,7 +33,7 @@ public static partial class SidecarEndpoints
                 return Results.Json(new { ok = false, error = "gameId required" }, jsonOptions, statusCode: 400);
             try
             {
-                var reply = await worker.StartAsync(body.GameId, body.Quality ?? "1080p", body.IncludeNotes ?? false, ct);
+                var reply = await worker.StartAsync(body.GameId, body.Quality ?? "1080p", body.IncludeNotes ?? false, ct, body.Codec);
                 return Results.Json(reply.Body, jsonOptions, statusCode: reply.Status);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

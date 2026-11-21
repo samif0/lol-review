@@ -40,6 +40,11 @@ export const CONFIRM_STOP = 'Stop sharing this game? The link will stop working.
 // Added to an error (or a finished share) that ended before the end of the game but stays watchable.
 export const ENDED_EARLY = 'The upload stopped early. Anyone with the link can watch the part that uploaded.';
 export const UPLINK_720_HINT = 'Your last upload was slower than 1080p plays, so this game will be shared at 720p.';
+// The Smaller choice: an HEVC copy at about 0.6 of the size. Only a hardware encoder makes it.
+export const SMALLER_HINT = "Smaller uploads faster. Some older browsers and devices can't play it and show a message instead.";
+export const SMALLER_NO_ENCODER = "This PC's graphics card can't make the smaller file.";
+export const SMALLER_FELL_BACK_ENCODER = "This PC's graphics card couldn't make the smaller file, so the game is shared as the standard one.";
+export const SMALLER_FELL_BACK_FORMAT = "The smaller file isn't available for this share, so the game is shared as the standard one.";
 const FALLBACK = "Sharing didn't finish. Try again.";
 
 const COPY = {
@@ -159,9 +164,26 @@ export function vodShareTtlText(ttlSeconds) {
   return `Anyone with the link can watch for ${days} ${days === 1 ? 'day' : 'days'}.`;
 }
 
-/** The share sheet's start state for a status reply and the quality the player picked ('auto' before any pick). */
-export function vodSharePlan(status, requested = '1080p') {
+/** Why a share asked for as the smaller file went up as the standard one ('' when it did not). */
+export function vodShareCodecNote(codecReason) {
+  return codecReason === 'encoder' ? SMALLER_FELL_BACK_ENCODER : codecReason === 'format' ? SMALLER_FELL_BACK_FORMAT : '';
+}
+
+/**
+ * The share sheet's start state for a status reply, the quality the player picked ('auto' before any pick) and the
+ * file they picked ('h264', 'hevc', or 'auto' before any pick: what the last share on this PC used).
+ */
+export function vodSharePlan(status, requested = '1080p', requestedCodec = 'auto') {
   const recording = status?.recording || {};
+  // The smaller file has its own sizes, its own room in the sharing space and its own slow-upload bar.
+  const hevc = status?.hevc || null;
+  const disableHevc = !!hevc && hevc.available === false;
+  const wantsHevc = requestedCodec === 'hevc' || (requestedCodec === 'auto' && status?.preferredCodec === 'hevc');
+  const codec = hevc && !disableHevc && wantsHevc ? 'hevc' : 'h264';
+  if (codec === 'hevc') {
+    status = { ...status, estimates: hevc.estimates ?? status.estimates, pool: hevc.pool ?? status.pool,
+      preferredQuality: hevc.preferredQuality ?? null };
+  }
   const pool = status?.pool || null, limits = status?.limits || null;
   const fits1080 = !pool || pool.fits1080 !== false, fits720 = !pool || pool.fits720 !== false;
   const disable1080 = !fits1080 && fits720;
@@ -184,6 +206,8 @@ export function vodSharePlan(status, requested = '1080p') {
   // The copy keeps the recording's frame rate (60 or 30); the sidecar reports it with the recording.
   const label = q => shareQualityLabel(q, recording.fps);
   return { quality, disable1080, block, canShare: !block,
+    codec, codecOffered: !!hevc, disableHevc,
+    codecHint: !hevc ? '' : disableHevc ? SMALLER_NO_ENCODER : codec === 'hevc' ? SMALLER_HINT : '',
     hint: disable1080 ? POOL_720_HINT : slowUplink ? UPLINK_720_HINT : '',
     notice: status?.reachable === false && !block ? 'network' : null, sizeText: size ? `About ${size} at ${label(quality)}.` : '',
     labels: { p1080: label('1080p'), p720: label('720p') },

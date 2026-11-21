@@ -25,11 +25,12 @@ public sealed class HlsSegmentException(string message) : Exception(message);
 
 /// <summary>The tracks of an fMP4 init that matter to the splitter.</summary>
 internal sealed record Fmp4Track(uint TrackId, string Handler, uint Timescale, uint DefaultDuration, uint DefaultFlags,
-    int NalLengthSize);
+    int NalLengthSize, bool Hevc = false);
 
 /// <summary>
 /// Splits the fragmented MP4 ffmpeg writes to stdout (<c>+frag_keyframe+empty_moov+default_base_moof+delay_moov</c>)
-/// into HLS segments: one fragment is one segment (plan 4.1). Each fragment must start on a sync IDR frame and
+/// into HLS segments: one fragment is one segment (plan 4.1). Each fragment must start on a sync IDR frame (H.264
+/// NAL type 5; HEVC types 19 and 20, never a CRA frame, whose leading pictures need the segment before) and
 /// last at most 6.499 s. A resumed run's timestamps are moved onto the share's timeline (video by
 /// <c>videoShiftSeconds</c>, audio by <c>audioShiftSeconds</c>, each in its own track timescale) and its
 /// <c>mfhd</c> sequence numbers continue from <c>firstSeq</c>. Segment files are written directly
@@ -294,35 +295,40 @@ public sealed class Fmp4Splitter
             if (timescale == 0) throw new HlsSegmentException($"track {trackId} has no timescale");
             if (handler is not ("vide" or "soun")) throw new HlsSegmentException($"an unexpected '{handler}' track");
             var defaults = trex.TryGetValue(trackId, out var d) ? d : (0u, 0u);
-            var nal = handler == "vide" ? NalLengthSize(init, mdiaChildren) : 0;
-            tracks[trackId] = new Fmp4Track(trackId, handler, timescale, defaults.Item1, defaults.Item2, nal);
+            var (nal, hevc) = handler == "vide" ? VideoCodec(init, mdiaChildren) : (0, false);
+            tracks[trackId] = new Fmp4Track(trackId, handler, timescale, defaults.Item1, defaults.Item2, nal, hevc);
         }
         if (tracks.Values.Count(t => t.Handler == "vide") != 1) throw new HlsSegmentException("the init needs exactly one video track");
         if (tracks.Values.Count(t => t.Handler == "soun") > 1) throw new HlsSegmentException("the init has more than one audio track");
         return tracks;
     }
 
-    /// <summary>The AVCC NAL length size from <c>stsd/avc1/avcC</c>; 4 when it can't be found.</summary>
-    private static int NalLengthSize(byte[] init, List<Span4> mdiaChildren)
+    /// <summary>
+    /// The video sample entry's NAL length size and whether it is HEVC: from <c>stsd/avc1/avcC</c>, or
+    /// <c>stsd/hvc1/hvcC</c> (the length size sits in byte 21 there). 4 when the configuration box can't be read.
+    /// </summary>
+    private static (int NalLengthSize, bool Hevc) VideoCodec(byte[] init, List<Span4> mdiaChildren)
     {
         var minf = First(mdiaChildren, "minf");
-        if (minf is null) return 4;
+        if (minf is null) return (4, false);
         var stbl = First(Children(init, minf.Value.PayloadStart, minf.Value.End), "stbl");
-        if (stbl is null) return 4;
+        if (stbl is null) return (4, false);
         var stsd = First(Children(init, stbl.Value.PayloadStart, stbl.Value.End), "stsd");
-        if (stsd is null) return 4;
+        if (stsd is null) return (4, false);
         // stsd: version/flags 4, entry_count 4, then sample entries.
         var entries = Children(init, stsd.Value.PayloadStart + 8, stsd.Value.End);
         foreach (var entry in entries)
         {
-            if (entry.Type is not ("avc1" or "avc3")) continue;
+            var hevc = entry.Type is "hvc1" or "hev1";
+            if (!hevc && entry.Type is not ("avc1" or "avc3")) continue;
             // VisualSampleEntry fields take 78 bytes before the child boxes.
-            if (entry.PayloadStart + 78 > entry.End) return 4;
-            var avcC = First(Children(init, entry.PayloadStart + 78, entry.End), "avcC");
-            if (avcC is null || avcC.Value.PayloadStart + 5 > avcC.Value.End) return 4;
-            return (init[avcC.Value.PayloadStart + 4] & 3) + 1;
+            if (entry.PayloadStart + 78 > entry.End) return (4, hevc);
+            var config = First(Children(init, entry.PayloadStart + 78, entry.End), hevc ? "hvcC" : "avcC");
+            var at = hevc ? 21 : 4;
+            if (config is null || config.Value.PayloadStart + at + 1 > config.Value.End) return (4, hevc);
+            return ((init[config.Value.PayloadStart + at] & 3) + 1, hevc);
         }
-        return 4;
+        return (4, false);
     }
 
     /// <summary>A checked and shifted fragment: its place on the share's timeline and its EXTINF.</summary>
@@ -427,7 +433,7 @@ public sealed class Fmp4Splitter
             seenVideo = true;
             if (samples == 0) throw new HlsSegmentException("a fragment without video");
             if (((firstFlags ?? 0) >> 16 & 1) != 0) throw new HlsSegmentException("a fragment that starts on a non-sync frame");
-            if (!StartsWithIdr(moof, mdat, mdatHeader, firstOffset, firstSize, track.NalLengthSize))
+            if (!StartsWithIdr(moof, mdat, mdatHeader, firstOffset, firstSize, track.NalLengthSize, track.Hevc))
                 throw new HlsSegmentException("a fragment whose first frame is not an IDR frame");
             var ms = durationTicks * 1000.0 / track.Timescale;
             if (durationTicks == 0) throw new HlsSegmentException("a fragment of no length");
@@ -442,7 +448,8 @@ public sealed class Fmp4Splitter
     }
 
     /// <summary>True when the sample at moof-relative <paramref name="offset"/> (inside the mdat) holds an IDR NAL unit.</summary>
-    private static bool StartsWithIdr(byte[] moof, byte[] mdat, int mdatHeader, long offset, long size, int lengthSize)
+    private static bool StartsWithIdr(byte[] moof, byte[] mdat, int mdatHeader, long offset, long size, int lengthSize,
+        bool hevc)
     {
         // Moof-relative offsets point past the moof into the mdat that follows it.
         var at = offset - moof.Length;
@@ -454,7 +461,9 @@ public sealed class Fmp4Splitter
             long length = 0;
             for (var i = 0; i < lengthSize; i++) length = (length << 8) | mdat[p + i];
             if (length <= 0 || p + lengthSize + length > end) return false;
-            if ((mdat[p + lengthSize] & 0x1F) == 5) return true;
+            var header = mdat[p + lengthSize];
+            // H.264: nal_unit_type is the low 5 bits (5 = IDR). HEVC: bits 1..6 (19 = IDR_W_RADL, 20 = IDR_N_LP).
+            if (hevc ? (header >> 1 & 0x3F) is 19 or 20 : (header & 0x1F) == 5) return true;
             p += lengthSize + length;
         }
         return false;

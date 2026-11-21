@@ -14,7 +14,8 @@ public sealed record VodShareEntry(
     long SizeBytes,
     long CreatedAt,
     long ExpiresAt,
-    bool MarkersAttached);
+    bool MarkersAttached,
+    string? Codec = null);
 
 /// <summary>
 /// Completed (live) full-game shares, one per game, persisted at

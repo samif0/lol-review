@@ -162,6 +162,43 @@ public sealed class Fmp4SplitterTests : IDisposable
         Assert.Equal(2.0, result.Splitter.EndSeconds);
     }
 
+    // HEVC NAL types: 35 access unit delimiter, 32/33/34 VPS/SPS/PPS, 39 SEI, 19 and 20 IDR, 21 CRA, 1 trailing.
+    [Theory]
+    [InlineData(new[] { 35, 32, 33, 34, 39, 19 }, 4)]
+    [InlineData(new[] { 20 }, 4)]
+    [InlineData(new[] { 35, 19 }, 2)]
+    public async Task AnHevcFragmentThatStartsOnAnIdrFrame_Passes(int[] nals, int nalLengthSize)
+    {
+        var (moof, mdat) = Fragment(new FragmentSpec { Hevc = true, NalLengthSize = nalLengthSize, FirstNals = nals });
+        var result = await SplitAsync(Concat(Init(audio: false, nalLengthSize: nalLengthSize, hevc: true), moof, mdat));
+        Assert.Null(result.Error);
+        Assert.Equal(2000, Assert.Single(result.Items.OfType<HlsSegment>()).DurationMs);
+    }
+
+    [Theory]
+    [InlineData(new[] { 35, 32, 33, 34, 21 })]   // a CRA frame is a keyframe, but not one a segment may start on
+    [InlineData(new[] { 35, 1 })]
+    [InlineData(new[] { 35, 5 })]                // H.264's IDR number means nothing in HEVC
+    public async Task AnHevcFragmentThatDoesNotStartOnAnIdrFrame_IsRefused(int[] nals)
+    {
+        var (moof, mdat) = Fragment(new FragmentSpec { Hevc = true, FirstNals = nals });
+        var result = await SplitAsync(Concat(Init(audio: false, hevc: true), moof, mdat));
+        Assert.Contains("IDR", Assert.IsType<HlsSegmentException>(result.Error).Message);
+    }
+
+    [Fact]
+    public async Task HevcNalTypes_AreNotReadWithTheH264Rule_AndTheReverse()
+    {
+        // HEVC type 19 has the first header byte 0x26, whose low five bits are 6 (an H.264 SEI): not an IDR in H.264.
+        var (moof, mdat) = Fragment(new FragmentSpec { Hevc = true, FirstNals = [19] });
+        var asH264 = await SplitAsync(Concat(Init(audio: false), moof, mdat));
+        Assert.Contains("IDR", Assert.IsType<HlsSegmentException>(asH264.Error).Message);
+        // H.264 type 5 is the byte 0x65, which HEVC reads as type 50: not an IDR in HEVC.
+        var (moof2, mdat2) = Fragment(new FragmentSpec { FirstNals = [9, 5] });
+        var asHevc = await SplitAsync(Concat(Init(audio: false, hevc: true), moof2, mdat2), folder: Path.Combine(_dir, "two"));
+        Assert.Contains("IDR", Assert.IsType<HlsSegmentException>(asHevc.Error).Message);
+    }
+
     [Fact]
     public async Task IdrAfterSeiAndParameterSets_Passes_AndTwoByteNalLengthsAreRead()
     {

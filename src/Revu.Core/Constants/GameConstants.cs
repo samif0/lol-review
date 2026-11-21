@@ -244,11 +244,27 @@ public static class GameConstants
     /// <summary>A long game whose fitted 1080p bitrate falls below this is shared at 720p instead.</summary>
     public const int VodShareMin1080VideoKbps = 3000;
 
+    // The HEVC copy's bitrates: 0.6 of the H.264 ones. On a 1080p60 fight (NVENC p4, 2026-11-20) HEVC scored
+    // VMAF 82.7 at 3 Mbps and 75.5 at 2, where H.264 scored 85.9 at 5, 75.3 at 3 and 62.8 at 2.
+    public const int VodShareHevcVideoKbps1080p60 = 3000;
+    public const int VodShareHevcVideoKbps1080p30 = 2700;
+    public const int VodShareHevcVideoKbps720p60 = 1800;
+    public const int VodShareHevcVideoKbps720p30 = 1500;
+
+    /// <summary>The HEVC copy's 1080p floor (see <see cref="VodShareMin1080VideoKbps"/>).</summary>
+    public const int VodShareHevcMin1080VideoKbps = 1800;
+
     /// <summary>Below this 720p bitrate a game is too long to share.</summary>
     public const int VodShareMinVideoKbps = 1200;
 
     /// <summary>Container and rate-control overshoot the size estimate allows for (4%).</summary>
     public const double VodShareOverhead = 1.04;
+
+    /// <summary>
+    /// The same for the HEVC copy (10%): at its lower bitrates the fragment headers and the encoders' overshoot weigh
+    /// more. On a 60 s cut of a League recording (2026-11-20) NVENC wrote 3,315 kbps and AMF 3,386 for a 3,000 kbps target.
+    /// </summary>
+    public const double VodShareHevcOverhead = 1.10;
 
     public const int VodShareAudioKbps = 128;
 

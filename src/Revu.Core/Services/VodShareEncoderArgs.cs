@@ -9,7 +9,13 @@ namespace Revu.Core.Services;
 public enum VodShareQuality { P1080, P720 }
 
 /// <summary>
-/// Pure ffmpeg argument building for the full-game share copy (contract 7.3): H.264 VBR at the
+/// The share copy's video codec. Wire strings are "h264" and "hevc". H.264 plays everywhere; HEVC is about 0.6 of
+/// the size for close to the same picture, only with a hardware encoder, and only as an HLS share.
+/// </summary>
+public enum VodShareCodec { H264, Hevc }
+
+/// <summary>
+/// Pure ffmpeg argument building for the full-game share copy (contract 7.3): H.264 (or HEVC) VBR at the
 /// source's frame rate (60 or 30) with a 2 s GOP, AAC-LC 128k stereo, the moov at the end,
 /// starting at the source's video time 0. Invariant culture throughout.
 /// </summary>
@@ -18,6 +24,30 @@ public static class VodShareEncoderArgs
     /// <summary>Hardware first; libx264 (CPU) last.</summary>
     public static readonly IReadOnlyList<string> EncoderPriority =
         ["h264_nvenc", "h264_amf", "h264_qsv", "h264_mf", "libx264"];
+
+    /// <summary>Hardware only: a CPU HEVC encode of a whole game is far slower than the upload it saves.</summary>
+    public static readonly IReadOnlyList<string> HevcEncoderPriority = ["hevc_nvenc", "hevc_amf", "hevc_qsv"];
+
+    /// <summary>The encoders tried for <paramref name="codec"/>, best first.</summary>
+    public static IReadOnlyList<string> Encoders(VodShareCodec codec) =>
+        codec == VodShareCodec.Hevc ? HevcEncoderPriority : EncoderPriority;
+
+    /// <summary>The codec an ffmpeg encoder writes ("hevc_nvenc" is HEVC; everything else here is H.264).</summary>
+    public static VodShareCodec CodecOf(string encoder) =>
+        (encoder ?? "").StartsWith("hevc_", StringComparison.Ordinal) ? VodShareCodec.Hevc : VodShareCodec.H264;
+
+    public static string Wire(VodShareCodec codec) => codec == VodShareCodec.Hevc ? "hevc" : "h264";
+
+    /// <summary>"h264" or "hevc" (case-insensitive, trimmed). Anything else is false, with H.264.</summary>
+    public static bool TryParseCodec(string? wire, out VodShareCodec codec)
+    {
+        switch ((wire ?? "").Trim().ToLowerInvariant())
+        {
+            case "h264": codec = VodShareCodec.H264; return true;
+            case "hevc": codec = VodShareCodec.Hevc; return true;
+            default: codec = VodShareCodec.H264; return false;
+        }
+    }
 
     public static string Wire(VodShareQuality quality) => quality == VodShareQuality.P720 ? "720p" : "1080p";
 
@@ -49,68 +79,82 @@ public static class VodShareEncoderArgs
     public static string PixelFormat(string encoder) => encoder == "libx264" ? "yuv420p" : "nv12";
 
     /// <summary>The video bitrate before a long game is fitted (see the GameConstants rates).</summary>
-    public static int NominalKbps(VodShareQuality quality, int fps) => (quality, Fps(fps)) switch
-    {
-        (VodShareQuality.P1080, 60) => GameConstants.VodShareVideoKbps1080p60,
-        (VodShareQuality.P1080, _) => GameConstants.VodShareVideoKbps1080p30,
-        (_, 60) => GameConstants.VodShareVideoKbps720p60,
-        _ => GameConstants.VodShareVideoKbps720p30,
-    };
+    public static int NominalKbps(VodShareQuality quality, int fps, VodShareCodec codec = VodShareCodec.H264) =>
+        (codec, quality, Fps(fps)) switch
+        {
+            (VodShareCodec.Hevc, VodShareQuality.P1080, 60) => GameConstants.VodShareHevcVideoKbps1080p60,
+            (VodShareCodec.Hevc, VodShareQuality.P1080, _) => GameConstants.VodShareHevcVideoKbps1080p30,
+            (VodShareCodec.Hevc, _, 60) => GameConstants.VodShareHevcVideoKbps720p60,
+            (VodShareCodec.Hevc, _, _) => GameConstants.VodShareHevcVideoKbps720p30,
+            (_, VodShareQuality.P1080, 60) => GameConstants.VodShareVideoKbps1080p60,
+            (_, VodShareQuality.P1080, _) => GameConstants.VodShareVideoKbps1080p30,
+            (_, _, 60) => GameConstants.VodShareVideoKbps720p60,
+            _ => GameConstants.VodShareVideoKbps720p30,
+        };
 
     /// <summary>
     /// The highest video bitrate that keeps a game of <paramref name="durationSeconds"/> under
     /// 1.9 GiB: <c>floor(((2040109465 * 8 / d) / 1000 - 128) / 1.04)</c>; int.MaxValue when the
     /// length is unknown.
     /// </summary>
-    public static int FitKbps(double durationSeconds)
+    public static int FitKbps(double durationSeconds, VodShareCodec codec = VodShareCodec.H264)
     {
         if (!double.IsFinite(durationSeconds) || durationSeconds <= 0) return int.MaxValue;
         var fit = Math.Floor(((GameConstants.VodShareTargetMaxBytes * 8.0 / durationSeconds) / 1000.0
-            - GameConstants.VodShareAudioKbps) / GameConstants.VodShareOverhead);
+            - GameConstants.VodShareAudioKbps) / Overhead(codec));
         return (int)Math.Clamp(fit, int.MinValue, int.MaxValue);
     }
 
+    /// <summary>The overshoot the size estimate allows for: 1.04 for H.264, 1.10 for HEVC.</summary>
+    public static double Overhead(VodShareCodec codec) =>
+        codec == VodShareCodec.Hevc ? GameConstants.VodShareHevcOverhead : GameConstants.VodShareOverhead;
+
     /// <summary>The share copy's video bitrate: the nominal rate, lowered to fit a long game under 1.9 GiB.</summary>
-    public static int VideoKbps(VodShareQuality quality, int fps, double durationSeconds) =>
-        Math.Min(NominalKbps(quality, fps), FitKbps(durationSeconds));
+    public static int VideoKbps(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264) =>
+        Math.Min(NominalKbps(quality, fps, codec), FitKbps(durationSeconds, codec));
 
     /// <summary>True when the game is too long for even the lowest allowed 720p bitrate.</summary>
     public static bool IsTooLong(double durationSeconds) =>
         durationSeconds > GameConstants.MaxVodShareSeconds || FitKbps(durationSeconds) < GameConstants.VodShareMinVideoKbps;
 
     /// <summary>True when a long game would have to drop 1080p below its floor to fit (then it is shared at 720p).</summary>
-    public static bool TooLongFor1080(int fps, double durationSeconds) =>
-        VideoKbps(VodShareQuality.P1080, fps, durationSeconds) < GameConstants.VodShareMin1080VideoKbps;
+    public static bool TooLongFor1080(int fps, double durationSeconds, VodShareCodec codec = VodShareCodec.H264) =>
+        VideoKbps(VodShareQuality.P1080, fps, durationSeconds, codec)
+        < (codec == VodShareCodec.Hevc ? GameConstants.VodShareHevcMin1080VideoKbps : GameConstants.VodShareMin1080VideoKbps);
 
     /// <summary>
     /// Expected copy size in bytes: <c>ceil(d * (kbps * 1.04 + 128) * 125)</c>, the bitrate plus
     /// the overshoot the fit allows for. Measured real copies land just under it.
     /// </summary>
-    public static long EstimateBytes(VodShareQuality quality, int fps, double durationSeconds)
+    public static long EstimateBytes(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264)
     {
         if (!double.IsFinite(durationSeconds) || durationSeconds <= 0) return 0;
         durationSeconds = Math.Min(durationSeconds, 1e9);   // a corrupt probe must not overflow
         // Decimal keeps the estimate exact (no 1-byte drift from binary fractions of a second).
-        var kbps = VideoKbps(quality, fps, durationSeconds) * (decimal)GameConstants.VodShareOverhead
+        var kbps = VideoKbps(quality, fps, durationSeconds, codec) * (decimal)Overhead(codec)
             + GameConstants.VodShareAudioKbps;
         return (long)Math.Ceiling((decimal)durationSeconds * kbps * 125m);
     }
 
     /// <summary>Video bitrate, maxrate and bufsize in kbps.</summary>
-    public static (int Bitrate, int MaxRate, int BufSize) Rates(VodShareQuality quality, int fps, double durationSeconds)
+    public static (int Bitrate, int MaxRate, int BufSize) Rates(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264)
     {
-        var v = VideoKbps(quality, fps, durationSeconds);
+        var v = VideoKbps(quality, fps, durationSeconds, codec);
         return (v, (int)Math.Round(1.5 * v, MidpointRounding.AwayFromZero), 2 * v);
     }
 
     /// <summary>
     /// The encoder-specific video arguments (the &lt;VIDEO ARGS&gt; block). NVENC runs preset p4
     /// without multipass: on a 1080p60 recording that encoded 1.7x faster than p5 with
-    /// quarter-resolution multipass and scored the same VMAF (94.5 vs 94.2 at 6 Mbps).
+    /// quarter-resolution multipass and scored the same VMAF (94.5 vs 94.2 at 6 Mbps). The HEVC
+    /// encoders write the <c>hvc1</c> sample entry: Safari plays no other.
     /// </summary>
     public static IReadOnlyList<string> VideoArgs(string encoder, VodShareQuality quality, int fps, double durationSeconds)
     {
-        var (b, max, buf) = Rates(quality, fps, durationSeconds);
+        var (b, max, buf) = Rates(quality, fps, durationSeconds, CodecOf(encoder));
         string[] rates = ["-b:v", Kbps(b), "-maxrate", Kbps(max), "-bufsize", Kbps(buf)];
         var gop = (2 * Fps(fps)).ToString(CultureInfo.InvariantCulture);   // a keyframe every 2 s
         return encoder switch
@@ -121,6 +165,11 @@ public static class VodShareEncoderArgs
                 .. rates, "-g", gop, "-profile:v", "high"],
             "h264_qsv" => ["-c:v", "h264_qsv", "-preset", "medium", .. rates, "-g", gop, "-profile:v", "high"],
             "h264_mf" => ["-c:v", "h264_mf", "-rate_control", "pc_vbr", .. rates, "-g", gop],
+            "hevc_nvenc" => ["-c:v", "hevc_nvenc", "-preset", "p4", "-tune", "hq", "-rc", "vbr",
+                .. rates, "-spatial_aq", "1", "-temporal_aq", "1", "-bf", "3", "-g", gop, "-profile:v", "main", "-tag:v", "hvc1"],
+            "hevc_amf" => ["-c:v", "hevc_amf", "-usage", "transcoding", "-quality", "balanced", "-rc", "vbr_peak",
+                .. rates, "-g", gop, "-profile:v", "main", "-tag:v", "hvc1"],
+            "hevc_qsv" => ["-c:v", "hevc_qsv", "-preset", "medium", .. rates, "-g", gop, "-profile:v", "main", "-tag:v", "hvc1"],
             // -threads 8 is mandatory: default threading segfaulted twice on long inputs. veryfast:
             // medium managed 2.2x real time on 1080p60 with 8 cores, veryfast 5.1x for 2 VMAF less.
             "libx264" => ["-c:v", "libx264", "-preset", "veryfast", "-threads", "8", .. rates, "-g", gop, "-profile:v", "high"],
@@ -256,8 +305,9 @@ public static class VodShareEncoderArgs
     /// the estimate (a fight-heavy 2-minute cut), so the copy is padded up to this size; one that
     /// still comes out larger is uploaded again on its own.
     /// </summary>
-    public static long ReserveBytes(VodShareQuality quality, int fps, double durationSeconds) =>
-        (long)Math.Ceiling(EstimateBytes(quality, fps, durationSeconds) * 1.03m);
+    public static long ReserveBytes(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264) =>
+        (long)Math.Ceiling(EstimateBytes(quality, fps, durationSeconds, codec) * 1.03m);
 
     /// <summary>The 1 s functional probe of an encoder (synthetic black 720p, no output) with 1080p60 settings.</summary>
     public static IReadOnlyList<string> ProbeArgs(string encoder)

@@ -293,4 +293,88 @@ public sealed class VodShareEncoderHlsTests : IDisposable
         Assert.Equal("too_long", error.Code);
         Assert.Empty(fake.Calls);
     }
+
+    // ── HEVC ────────────────────────────────────────────────────────────────
+
+    private static FakeHlsFfmpeg WithHevc()
+    {
+        var fake = new FakeHlsFfmpeg();
+        fake.Listed.Add("hevc_nvenc");
+        fake.Listed.Add("hevc_amf");
+        return fake;
+    }
+
+    [Fact]
+    public async Task Hevc_SelectsAHardwareHevcEncoder_BesideTheH264One()
+    {
+        var fake = WithHevc();
+        var encoder = Encoder(fake, new VodShareMemory(null));
+        Assert.Null(encoder.HlsKnown(VodShareCodec.Hevc));
+
+        Assert.Equal(new VodEncoderChoice(Bin, "hevc_nvenc"), await encoder.SelectHlsAsync(CancellationToken.None, VodShareCodec.Hevc));
+        Assert.Equal(new[] { "selftest:hevc_nvenc" }, fake.Kinds("selftest:"));
+        Assert.True(encoder.HlsKnown(VodShareCodec.Hevc));
+        Assert.Null(encoder.HlsKnown(VodShareCodec.H264));
+
+        // Each codec keeps its own choice.
+        Assert.Equal(new VodEncoderChoice(Bin, "h264_nvenc"), await encoder.SelectHlsAsync(CancellationToken.None));
+        Assert.Equal(new VodEncoderChoice(Bin, "hevc_nvenc"), await encoder.SelectHlsAsync(CancellationToken.None, VodShareCodec.Hevc));
+        Assert.Equal(new[] { "selftest:hevc_nvenc", "selftest:h264_nvenc" }, fake.Kinds("selftest:"));
+    }
+
+    [Fact]
+    public async Task Hevc_WithoutAHardwareEncoder_IsNone_AndNeverTheCpu()
+    {
+        var fake = new FakeHlsFfmpeg();   // lists h264_nvenc, h264_amf and libx264 only
+        var encoder = Encoder(fake, new VodShareMemory(null));
+        Assert.Null(await encoder.SelectHlsAsync(CancellationToken.None, VodShareCodec.Hevc));
+        Assert.Empty(fake.Calls);
+        Assert.False(encoder.HlsKnown(VodShareCodec.Hevc));
+        // H.264 sharing is untouched.
+        Assert.Equal(new VodEncoderChoice(Bin, "h264_nvenc"), await encoder.SelectHlsAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Hevc_APrewarmThatFailsUnderLoad_DecidesNothing_AndASelfTestFailureMovesOn()
+    {
+        var fake = WithHevc();
+        fake.SelfTestFails.Add("hevc_nvenc");
+        fake.SelfTestFails.Add("hevc_amf");
+        var encoder = Encoder(fake, new VodShareMemory(null));
+        await encoder.PrewarmHlsAsync(CancellationToken.None, VodShareCodec.Hevc);
+        Assert.Null(encoder.HlsKnown(VodShareCodec.Hevc));   // a prewarm's failures may be passing load
+
+        fake.SelfTestFails.Remove("hevc_amf");
+        Assert.Equal(new VodEncoderChoice(Bin, "hevc_amf"), await encoder.SelectHlsAsync(CancellationToken.None, VodShareCodec.Hevc));
+        Assert.True(encoder.HlsKnown(VodShareCodec.Hevc));
+    }
+
+    [Fact]
+    public async Task Hevc_AFailingEncoder_HandsOverToTheNextHevcOne_NeverToH264()
+    {
+        var fake = WithHevc();
+        fake.Scripts.Enqueue(new RunScript(FailAfter: 5));
+        fake.Scripts.Enqueue(new RunScript(FailAfter: 3));
+        var (result, items) = await EncodeAsync(Encoder(fake), Request() with { Codec = VodShareCodec.Hevc });
+
+        Assert.Equal(new[] { "selftest:hevc_nvenc", "run:hevc_nvenc", "run:hevc_nvenc", "selftest:hevc_amf", "run:hevc_amf" },
+            fake.Calls.Select(c => c.Kind).Where(k => !k.StartsWith("probe:", StringComparison.Ordinal)));
+        Assert.Equal(new VodHlsEncodeResult(true, 3, 15, 30, "hevc_amf", null), result);
+        Assert.Equal(15, items.OfType<HlsSegment>().Count());
+        var run = string.Join(" ", fake.Calls.First(c => c.Kind == "run:hevc_nvenc").Args);
+        Assert.Contains("-b:v 3000k", run);
+        Assert.Contains("-tag:v hvc1", run);
+    }
+
+    [Fact]
+    public async Task Hevc_WithOnlyOneHevcEncoder_AFailingOneEndsAtTheEdge()
+    {
+        var fake = new FakeHlsFfmpeg();
+        fake.Listed.Add("hevc_nvenc");
+        fake.Scripts.Enqueue(new RunScript(FailAfter: 5));
+        fake.Scripts.Enqueue(new RunScript(FailAfter: 3));
+        var (result, _) = await EncodeAsync(Encoder(fake), Request() with { Codec = VodShareCodec.Hevc });
+        Assert.Equal(new VodHlsEncodeResult(false, 2, 8, 16, "hevc_nvenc", "no_encoder"), result);
+        Assert.DoesNotContain(fake.Calls, c => c.Kind.Contains("h264") || c.Kind.Contains("libx264"));
+    }
 }

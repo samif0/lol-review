@@ -64,19 +64,27 @@ internal static class Fmp4TestMedia
             Zeros(32), U16(0x18), U16(0xFFFF),
             Box("avcC", U8(1), U8(0x64), U8(0), U8(0x2A), U8((byte)(0xFC | (nalLengthSize - 1))), U8(0xE0)));
 
+    /// <summary>An hvc1 entry whose hvcC carries the NAL length size in byte 21 and no parameter set arrays.</summary>
+    private static byte[] Hvc1(int nalLengthSize) =>
+        Box("hvc1", Zeros(6), U16(1), Zeros(16), U16(1920), U16(1080), U32(0x00480000), U32(0x00480000), U32(0), U16(1),
+            Zeros(32), U16(0x18), U16(0xFFFF),
+            Box("hvcC", U8(1), U8(1), U32(0x60000000), Zeros(6), U8(123), U16(0xF000), U8(0xFC), U8(0xFD), U8(0xF8), U8(0xF8),
+                U16(0), U8((byte)(0x0C | (nalLengthSize - 1))), U8(0)));
+
     private static byte[] Mp4a() =>
         Box("mp4a", Zeros(6), U16(1), Zeros(8), U16(2), U16(16), Zeros(4), U32(48000u << 16));
 
     private static byte[] Trex(uint trackId, uint duration) => FullBox("trex", 0, 0, U32(trackId), U32(1), U32(duration), U32(0), U32(0));
 
     /// <summary>ftyp + moov: video track 1 at 15360 and, unless <paramref name="audio"/> is false, audio track 2 at 48000.</summary>
-    public static byte[] Init(bool audio = true, bool mvex = true, int nalLengthSize = 4, string? extraHandler = null)
+    public static byte[] Init(bool audio = true, bool mvex = true, int nalLengthSize = 4, string? extraHandler = null,
+        bool hevc = false)
     {
         var ftyp = Box("ftyp", Ascii("isom"), U32(512), Ascii("isomiso6iso2avc1mp41"));
         var parts = new List<byte[]>
         {
             FullBox("mvhd", 0, 0, Zeros(96)),
-            Trak(1, "vide", VideoTimescale, Avc1(nalLengthSize)),
+            Trak(1, "vide", VideoTimescale, hevc ? Hvc1(nalLengthSize) : Avc1(nalLengthSize)),
         };
         if (audio) parts.Add(Trak(2, "soun", AudioTimescale, Mp4a()));
         if (extraHandler is not null) parts.Add(Trak(3, extraHandler, 1000, Box("text")));
@@ -90,12 +98,17 @@ internal static class Fmp4TestMedia
     }
 
     /// <summary>One AVCC sample: NAL units of the given types (each one length-prefixed, a few bytes long).</summary>
-    public static byte[] Sample(int nalLengthSize, params int[] nalTypes)
+    public static byte[] Sample(int nalLengthSize, params int[] nalTypes) => Sample(nalLengthSize, false, nalTypes);
+
+    /// <summary>The same with HEVC's two-byte NAL header (type in bits 1..6 of the first byte) when asked.</summary>
+    public static byte[] Sample(int nalLengthSize, bool hevc, params int[] nalTypes)
     {
         var units = new List<byte[]>();
         foreach (var type in nalTypes)
         {
-            var body = Concat(U8((byte)(0x60 | type)), Ascii("payload"));
+            var body = hevc
+                ? Concat(U8((byte)(type << 1)), U8(1), Ascii("payload"))
+                : Concat(U8((byte)(0x60 | type)), Ascii("payload"));
             var length = U32((uint)body.Length)[(4 - nalLengthSize)..];
             units.Add(Concat(length, body));
         }
@@ -117,13 +130,15 @@ internal static class Fmp4TestMedia
         public byte TfdtVersion { get; init; } = 1;
         public int NalLengthSize { get; init; } = 4;
         public bool LargeMdat { get; init; }
+        /// <summary>HEVC NAL headers; the other frames are then trailing pictures (type 1).</summary>
+        public bool Hevc { get; init; }
     }
 
     /// <summary>A moof and its mdat (default-base-is-moof data offsets, per-sample durations and sizes).</summary>
     public static (byte[] Moof, byte[] Mdat) Fragment(FragmentSpec spec)
     {
-        var videoSamples = new List<byte[]> { Sample(spec.NalLengthSize, spec.FirstNals) };
-        for (var i = 1; i < spec.VideoFrames; i++) videoSamples.Add(Sample(spec.NalLengthSize, 1));
+        var videoSamples = new List<byte[]> { Sample(spec.NalLengthSize, spec.Hevc, spec.FirstNals) };
+        for (var i = 1; i < spec.VideoFrames; i++) videoSamples.Add(Sample(spec.NalLengthSize, spec.Hevc, 1));
         var audioSamples = new List<byte[]>();
         if (spec.AudioTfdt is not null)
             for (var i = 0; i < spec.AudioFrames; i++) audioSamples.Add(Ascii("aac" + i));

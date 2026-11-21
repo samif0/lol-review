@@ -325,4 +325,75 @@ public sealed class VodShareEncoderArgsTests
         Assert.Equal("720p30", VodShareEncoderArgs.Label(VodShareQuality.P720, 30));
         Assert.Equal(new[] { "h264_nvenc", "h264_amf", "h264_qsv", "h264_mf", "libx264" }, VodShareEncoderArgs.EncoderPriority);
     }
+
+    // ── HEVC ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Codec_WireStrings_Encoders_AndTheCodecAnEncoderWrites()
+    {
+        Assert.True(VodShareEncoderArgs.TryParseCodec(" HEVC ", out var hevc));
+        Assert.Equal(VodShareCodec.Hevc, hevc);
+        Assert.True(VodShareEncoderArgs.TryParseCodec("h264", out var h264));
+        Assert.Equal(VodShareCodec.H264, h264);
+        Assert.False(VodShareEncoderArgs.TryParseCodec("av1", out var other));
+        Assert.Equal(VodShareCodec.H264, other);
+        Assert.Equal(("h264", "hevc"), (VodShareEncoderArgs.Wire(VodShareCodec.H264), VodShareEncoderArgs.Wire(VodShareCodec.Hevc)));
+        // Hardware only: no CPU HEVC encoder is ever tried.
+        Assert.Equal(new[] { "hevc_nvenc", "hevc_amf", "hevc_qsv" }, VodShareEncoderArgs.Encoders(VodShareCodec.Hevc));
+        Assert.Same(VodShareEncoderArgs.EncoderPriority, VodShareEncoderArgs.Encoders(VodShareCodec.H264));
+        Assert.All(VodShareEncoderArgs.HevcEncoderPriority, e => Assert.Equal(VodShareCodec.Hevc, VodShareEncoderArgs.CodecOf(e)));
+        Assert.All(VodShareEncoderArgs.EncoderPriority, e => Assert.Equal(VodShareCodec.H264, VodShareEncoderArgs.CodecOf(e)));
+    }
+
+    [Theory]
+    [InlineData(VodShareQuality.P1080, 60, 3000)]
+    [InlineData(VodShareQuality.P1080, 30, 2700)]
+    [InlineData(VodShareQuality.P720, 60, 1800)]
+    [InlineData(VodShareQuality.P720, 30, 1500)]
+    public void Hevc_NominalBitrates_AreSixTenthsOfH264(VodShareQuality quality, int fps, int kbps)
+    {
+        Assert.Equal(kbps, VodShareEncoderArgs.NominalKbps(quality, fps, VodShareCodec.Hevc));
+        Assert.Equal(kbps, (int)(VodShareEncoderArgs.NominalKbps(quality, fps) * 0.6));
+    }
+
+    [Fact]
+    public void Hevc_VideoArgs_CarryItsRates_AndTheHvc1Tag()
+    {
+        Assert.Equal("-c:v hevc_nvenc -preset p4 -tune hq -rc vbr -b:v 3000k -maxrate 4500k -bufsize 6000k -spatial_aq 1 "
+            + "-temporal_aq 1 -bf 3 -g 120 -profile:v main -tag:v hvc1",
+            Line(VodShareEncoderArgs.VideoArgs("hevc_nvenc", VodShareQuality.P1080, 60, 2255.4)));
+        Assert.Equal("-c:v hevc_amf -usage transcoding -quality balanced -rc vbr_peak -b:v 1500k -maxrate 2250k -bufsize 3000k "
+            + "-g 60 -profile:v main -tag:v hvc1",
+            Line(VodShareEncoderArgs.VideoArgs("hevc_amf", VodShareQuality.P720, 30, 2255.4)));
+        Assert.Equal("-c:v hevc_qsv -preset medium -b:v 1800k -maxrate 2700k -bufsize 3600k -g 120 -profile:v main -tag:v hvc1",
+            Line(VodShareEncoderArgs.VideoArgs("hevc_qsv", VodShareQuality.P720, 60, 2255.4)));
+        // The whole HLS command line of an HEVC encoder differs from H.264's only in the video arguments.
+        var hevc = Line(VodShareEncoderArgs.HlsEncodeArgs("hevc_nvenc", "in.mp4", VodShareQuality.P1080, 60, 2255.4));
+        var h264 = Line(VodShareEncoderArgs.HlsEncodeArgs("h264_nvenc", "in.mp4", VodShareQuality.P1080, 60, 2255.4));
+        Assert.Equal(h264.Replace(Line(VodShareEncoderArgs.VideoArgs("h264_nvenc", VodShareQuality.P1080, 60, 2255.4)),
+            Line(VodShareEncoderArgs.VideoArgs("hevc_nvenc", VodShareQuality.P1080, 60, 2255.4))), hevc);
+        Assert.Equal("nv12", VodShareEncoderArgs.PixelFormat("hevc_nvenc"));
+    }
+
+    [Fact]
+    public void Hevc_Estimate_AllowsTenPercentOvershoot_AndIsUnderTwoThirdsOfH264()
+    {
+        // ceil(2255.4 * (3000 * 1.10 + 128) * 125)
+        Assert.Equal(966_438_900, VodShareEncoderArgs.EstimateBytes(VodShareQuality.P1080, 60, 2255.4, VodShareCodec.Hevc));
+        Assert.Equal(1_502_096_400, VodShareEncoderArgs.EstimateBytes(VodShareQuality.P1080, 60, 2255.4));
+        Assert.Equal((long)Math.Ceiling(966_438_900 * 1.03m),
+            VodShareEncoderArgs.ReserveBytes(VodShareQuality.P1080, 60, 2255.4, VodShareCodec.Hevc));
+        Assert.Equal((1.04, 1.10), (VodShareEncoderArgs.Overhead(VodShareCodec.H264), VodShareEncoderArgs.Overhead(VodShareCodec.Hevc)));
+    }
+
+    [Fact]
+    public void Hevc_ATwoHourGame_Stays1080p_WhereH264DropsTo720p()
+    {
+        // The fit under 1.9 GiB: floor((2266.788 - 128) / 1.10) = 1944 kbps, above HEVC's 1080p floor of 1800.
+        Assert.Equal(1944, VodShareEncoderArgs.FitKbps(7200, VodShareCodec.Hevc));
+        Assert.Equal(1944, VodShareEncoderArgs.VideoKbps(VodShareQuality.P1080, 60, 7200, VodShareCodec.Hevc));
+        Assert.False(VodShareEncoderArgs.TooLongFor1080(60, 7200, VodShareCodec.Hevc));
+        Assert.True(VodShareEncoderArgs.TooLongFor1080(60, 7200));
+        Assert.True(VodShareEncoderArgs.ReserveBytes(VodShareQuality.P1080, 60, 7200, VodShareCodec.Hevc) < 2147483648L);
+    }
 }

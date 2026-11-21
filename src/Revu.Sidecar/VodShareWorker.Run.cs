@@ -68,7 +68,8 @@ public sealed partial class VodShareWorker
             ct.ThrowIfCancellationRequested();
 
             var entry = new VodShareEntry(job.GameId, uploaded.Id, uploaded.Url, VodShareEncoderArgs.Wire(job.Quality),
-                job.IncludeNotes, sizeBytes, createdAt > 0 ? createdAt : Now(), uploaded.ExpiresAt, false);
+                job.IncludeNotes, sizeBytes, createdAt > 0 ? createdAt : Now(), uploaded.ExpiresAt, false,
+                VodShareEncoderArgs.Wire(job.Codec));
             lock (_gate) _storedAt[uploaded.Id] = Stopwatch.GetTimestamp();
             _store.Put(entry);
             stored = true;
@@ -520,7 +521,8 @@ public sealed partial class VodShareWorker
         long? retryAt = null, bool needsLogin = false)
     {
         var now = Stopwatch.GetTimestamp();
-        string at, quality, format;
+        string at, quality, format, codec;
+        string? codecReason;
         int pct;
         bool send, linkChanged, watchable, uplinkSlow, paused, truncated;
         double? media;
@@ -544,12 +546,14 @@ public sealed partial class VodShareWorker
             truncated = job.Truncated;
             job.Phase = at;
             job.Percent = pct;
+            codec = VodShareEncoderArgs.Wire(job.Codec);
+            codecReason = job.CodecReason;
             job.Status = new VodShareJobDto(state, at, pct, quality, job.QualityReason, errorCode, error, retryAt,
                 needsLogin, url, expiresAt, linkChanged, format, media, job.DurationSeconds, watchable, uplinkSlow, paused,
-                truncated);
+                truncated, codec, codecReason);
             // Percent changes within one phase are throttled; a phase or link change always goes out.
             // So does a change of what the sheet says about an HLS share (watchable, slow, paused, quality).
-            var flags = $"{watchable}{uplinkSlow}{paused}{quality}";
+            var flags = $"{watchable}{uplinkSlow}{paused}{quality}{codec}";
             send = at != job.LastPhase || state != "running" || url != job.LastUrl || flags != job.LastFlags
                 || now - job.LastPublish >= ThrottleTicks;
             if (send)
@@ -584,6 +588,8 @@ public sealed partial class VodShareWorker
             uplinkSlow,
             paused,
             truncated,
+            codec,
+            codecReason,
         });
     }
 
