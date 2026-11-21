@@ -23,7 +23,7 @@ test('a failed process check before recording is retried for 30 s, then only tha
   f.driver.prepareStart = async () => {
     checks++; throw Object.assign(new Error('inspection'), { code: 'game-process-inspection-unavailable' });
   };
-  await start(f);
+  await start(f, { secondReading: false });
   assert.equal(f.service.state, 'starting');
   f.advance(29_000); await f.service.tick();
   assert.equal(f.service.state, 'starting');
