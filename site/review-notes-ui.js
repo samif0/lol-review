@@ -170,7 +170,8 @@
 
   /*
    * Copy link with notes. o: { els: { box, copy, status, link }, href() (the page's address),
-   * notes(), clipboard (navigator.clipboard), setTimeout, clearTimeout }. The link is worked
+   * notes(), clipboard (navigator.clipboard), setTimeout, clearTimeout, copied() (a sentence to
+   * add once the link is copied, such as when it expires; optional) }. The link is worked
    * out whenever the notes change, so a press copies at once (Safari copies only inside the
    * press itself).
    */
@@ -220,7 +221,8 @@
         if (!o.clipboard || typeof o.clipboard.writeText !== 'function') throw new Error('no clipboard');
         o.clipboard.writeText(link).then(function () {
           els.link.hidden = true;
-          say('Link copied. Anyone with it sees these notes.');
+          var more = typeof o.copied === 'function' ? o.copied() : '';
+          say('Link copied. Anyone with it sees these notes.' + (more ? ' ' + more : ''));
           if (timer) unwait(timer);
           timer = wait(function () { say(''); }, 6000);
         }, fallback);

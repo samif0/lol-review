@@ -184,10 +184,10 @@ test('the lane maps game time to video time with a negative or positive offset',
 
 test('unavailable, paused and play-limited games show their message and never load the video', async () => {
   const cases = [
-    [{}, 'Game not available', "This shared game isn't available. Shared games stay up for 3 days."],
+    [{}, 'Game not available', "This shared game isn't available. Shared games stay up for 3 days, and whoever shared it can share it again from Revu."],
     [{ '/vod-meta/Abc1234': meta({ serving: false }) }, 'Playback paused', 'Playback is paused right now. Try again later.'],
     [{ '/vod-meta/Abc1234': meta({ play_limited: true }) }, 'Playback limit reached', 'This game has been watched a lot today. Try again tomorrow.'],
-    [{ '/vod-meta/Abc1234': meta({ expires_at: NOW_S - 1 }) }, 'Game not available', "This shared game isn't available. Shared games stay up for 3 days."],
+    [{ '/vod-meta/Abc1234': meta({ expires_at: NOW_S - 1 }) }, 'Game not available', "This shared game isn't available. Shared games stay up for 3 days, and whoever shared it can share it again from Revu."],
   ];
   for (const [routes, title, copy] of cases) {
     const run = page({ routes });
