@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -9,7 +10,7 @@ namespace Revu.Core.Tests;
 
 /// <summary>
 /// The HLS side of the proxy client (plan 4.4, 4.7, 7.1) against a fake proxy that speaks the HLS contract: status
-/// parsing, the init (and an old proxy's MP4 reply), one body on the wire in seq order with at most 8 waiting and never
+/// parsing, the init (and an old proxy's MP4 reply), seq order with one body on the wire until the upload rate allows more, at most 8 waiting and never
 /// 8 seqs past the lowest unacknowledged one, runs before their segments, retries and the outage window, every response
 /// mapping, lost-response replays, and what disposing does.
 /// </summary>
@@ -37,10 +38,23 @@ public sealed class ClipUploadServiceHlsTests : IDisposable
         public Func<Seen, Task<HttpResponseMessage>> Respond { get; set; } = seen => Task.FromResult(Happy(seen));
         public int Waiting;
         public int MaxWaiting;
+        /// <summary>While set and not completed, request bodies are not read: they stay on the wire.</summary>
+        public volatile TaskCompletionSource? HoldBodies;
+        public int OnWire;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage req, CancellationToken ct)
         {
-            var body = req.Content is null ? Array.Empty<byte>() : await req.Content.ReadAsByteArrayAsync(ct);
+            byte[] body;
+            Interlocked.Increment(ref OnWire);
+            try
+            {
+                if (HoldBodies is { } hold) await hold.Task.WaitAsync(ct);
+                body = req.Content is null ? Array.Empty<byte>() : await req.Content.ReadAsByteArrayAsync(ct);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref OnWire);
+            }
             var query = System.Web.HttpUtility.ParseQueryString(req.RequestUri!.Query);
             var seen = new Seen(req.Method.Method, req.RequestUri.AbsolutePath,
                 query.AllKeys.Where(k => k is not null).ToDictionary(k => k!, k => query[k]!), body);
@@ -100,13 +114,13 @@ public sealed class ClipUploadServiceHlsTests : IDisposable
             VodPartOutageWindow = TimeSpan.FromSeconds(30),
         };
 
-    private static VodHlsUploadSession Session(FakeProxy proxy, TimeSpan? outageWindow = null)
+    private static VodHlsUploadSession Session(FakeProxy proxy, TimeSpan? outageWindow = null, Func<long>? clock = null)
     {
         var service = Service(proxy);
         if (outageWindow is { } window) service.VodPartOutageWindow = window;
         var info = new VodHlsSessionInfo(Id, "https://revu.lol/v/" + Id, 1_760_659_200, 1_760_421_600, 1153, 16_777_216, 16_384, 8000, 8);
         return new VodHlsUploadSession(new HttpClient(proxy), NullLogger.Instance, "https://proxy.test", "session-token", info,
-            service.VodRetry, ct => service.DeleteAsync(Id, "session-token", ct));
+            service.VodRetry, ct => service.DeleteAsync(Id, "session-token", ct), clock);
     }
 
     private static readonly byte[] InitBytes = [0, 0, 0, 16, (byte)'f', (byte)'t', (byte)'y', (byte)'p', 1, 2, 3, 4, 5, 6, 7, 8];
@@ -288,6 +302,53 @@ public sealed class ClipUploadServiceHlsTests : IDisposable
         // Every segment exactly once, in whatever order this fake noted them: the next body starts once the previous
         // one is written, which can be before the fake notes that one.
         Assert.Equal(Enumerable.Range(0, 20).Select(s => "PUT hls/seg/" + s),
+            proxy.Routes().Skip(1).OrderBy(r => int.Parse(r.Split('/')[^1])));
+        Assert.True(proxy.MaxWaiting <= VodHlsUploadSession.MaxAwaiting, $"{proxy.MaxWaiting} requests waited at once");
+    }
+
+    /// <summary>
+    /// <paramref name="before"/> segments are acknowledged with the clock standing still, then the clock moves 10 s: the
+    /// ingest ratio is (before - 1) * 2 s / 10 s. The next bodies are held on the wire and counted.
+    /// </summary>
+    [Theory]
+    [InlineData(6, true, 1)]     // 1.0x: no faster than it plays, one body at a time
+    [InlineData(11, true, 3)]    // 2.0x
+    [InlineData(21, true, 6)]    // 4.0x
+    [InlineData(41, true, 6)]    // 8.0x: never more than MaxOnWire
+    [InlineData(21, false, 1)]   // not playable yet: one body at a time whatever the rate
+    public async Task BodiesOnTheWire_FollowTheUploadRate_OnceTheShareIsPlayable(int before, bool playable, int expected)
+    {
+        long ticks = Stopwatch.Frequency;
+        var proxy = new FakeProxy();
+        proxy.Respond = seen =>
+        {
+            if (seen.Method != "PUT" || !seen.Route.StartsWith("hls/seg/", StringComparison.Ordinal)) return Task.FromResult(Happy(seen));
+            var seq = int.Parse(seen.Route.Split('/')[^1]);
+            return Task.FromResult(Json(HttpStatusCode.OK, new { seq, committed = seq + 1, media_ms = (seq + 1) * 2000, playable }));
+        };
+        await using var session = Session(proxy, clock: () => Interlocked.Read(ref ticks));
+        AddRun(session, 0, 0, before);
+        session.Start(CancellationToken.None);
+        await WaitUntilAsync(() => session.State.Acked == before);
+        Assert.Null(session.State.IngestRatio);
+
+        Interlocked.Add(ref ticks, Stopwatch.Frequency * 10);
+        Assert.Equal((before - 1) * 2 / 10.0, session.State.IngestRatio);
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        proxy.HoldBodies = hold;
+        for (var seq = before; seq < before + 12; seq++) session.Add(Segment(seq));
+        session.CompleteAdding();
+
+        await WaitUntilAsync(() => Volatile.Read(ref proxy.OnWire) >= expected);
+        await Task.Delay(150);
+        Assert.Equal(expected, Volatile.Read(ref proxy.OnWire));
+        Assert.True(expected <= VodHlsUploadSession.MaxOnWire);
+
+        proxy.HoldBodies = null;
+        hold.SetResult();
+        await session.Completion.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(before + 12, session.State.Acked);
+        Assert.Equal(Enumerable.Range(0, before + 12).Select(s => "PUT hls/seg/" + s),
             proxy.Routes().Skip(1).OrderBy(r => int.Parse(r.Split('/')[^1])));
         Assert.True(proxy.MaxWaiting <= VodHlsUploadSession.MaxAwaiting, $"{proxy.MaxWaiting} requests waited at once");
     }

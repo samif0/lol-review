@@ -77,8 +77,10 @@ public interface IVodHlsUpload : IAsyncDisposable
 }
 
 /// <summary>
-/// One HLS share's upload (plan 4.7): the encoder's items go in with <see cref="Add"/>, and a pump sends them with one
-/// body on the wire at a time, in seq order. The next body starts once the previous one's last byte is written; up to
+/// One HLS share's upload (plan 4.7): the encoder's items go in with <see cref="Add"/>, and a pump sends them in seq
+/// order. Until the share is playable and its upload rate is known, one body is on the wire at a time: the next starts
+/// once the previous one's last byte is written. After that, a share that uploads faster than it plays sends several
+/// bodies at once (see <see cref="WireLimit"/>), because one connection often carries far less than the line can. Up to
 /// <see cref="MaxAwaiting"/> requests wait for an answer, never more than that many seqs past the lowest one not yet
 /// acknowledged. A run's segments go only after the proxy accepted the run's init. Retries follow
 /// <see cref="UploadRetry"/>; the per-PUT timeout is max(30 s, bytes at 50 KB/s). A terminal answer faults
@@ -90,6 +92,13 @@ public interface IVodHlsUpload : IAsyncDisposable
 public sealed class VodHlsUploadSession : IVodHlsUpload
 {
     public const int MaxAwaiting = 8;
+    /// <summary>The most bodies on the wire at once.</summary>
+    public const int MaxOnWire = 6;
+    /// <summary>
+    /// Bodies on the wire per unit of ingest ratio. If one connection already carries the whole line, n bodies each take
+    /// n times as long, and the playable edge stands still for 2 s * n / ratio: at most 3 s with this factor.
+    /// </summary>
+    internal const double WirePerIngestRatio = 1.5;
     private const long SlowestBytesPerSecond = 50 * 1024;
     private static readonly TimeSpan MinPutTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(30);
@@ -103,6 +112,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
     private readonly string _token;
     private readonly Func<UploadRetry> _retry;
     private readonly Func<CancellationToken, Task<bool>> _delete;
+    private readonly Func<long> _clock;
     private readonly object _gate = new();
     private readonly SortedDictionary<int, Segment> _segments = new();
     private readonly SortedDictionary<int, Run> _runs = new();
@@ -127,8 +137,9 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
     private bool _gone;
 
     internal VodHlsUploadSession(HttpClient http, ILogger logger, string baseUrl, string sessionToken, VodHlsSessionInfo info,
-        Func<UploadRetry> retry, Func<CancellationToken, Task<bool>> delete)
+        Func<UploadRetry> retry, Func<CancellationToken, Task<bool>> delete, Func<long>? clock = null)
     {
+        _clock = clock ?? Stopwatch.GetTimestamp;
         _http = http;
         _logger = logger;
         _base = $"{baseUrl.TrimEnd('/')}/{ClipUploadService.VodRouteBase}/{Uri.EscapeDataString(info.Id)}";
@@ -155,7 +166,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
 
     public VodHlsUploadState State
     {
-        get { lock (_gate) return Snapshot(Stopwatch.GetTimestamp()); }
+        get { lock (_gate) return Snapshot(_clock()); }
     }
 
     private static TaskCompletionSource NewDone() => new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -316,6 +327,11 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
     private async Task PumpAsync(CancellationToken ct)
     {
         var inFlight = new List<Task>();
+        // One task per body that is still being written (it ends when the last byte is out, or the request ended early).
+        var onWire = new List<Task>();
+        var waits = new List<Task>();
+        var stopped = Task.Delay(Timeout.InfiniteTimeSpan, ct);
+        var lastLimit = 1;
         try
         {
             while (true)
@@ -324,9 +340,12 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
                 Work? next;
                 Task wake;
                 TimeSpan? wait;
+                var limit = lastLimit;
+                double? ratio = null;
                 lock (_gate)
                 {
                     inFlight.RemoveAll(t => t.IsCompleted);
+                    onWire.RemoveAll(t => t.IsCompleted);
                     if (_terminal is not null)
                     {
                         // Nothing new goes out, but what was sent settles first: the edge decides where the share ends
@@ -348,15 +367,31 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
                     }
                     else
                     {
-                        next = Pick(Stopwatch.GetTimestamp(), out wait);
+                        var now = _clock();
+                        ratio = Ingest(now);
+                        limit = WireLimit(ratio);
+                        wait = null;
+                        next = onWire.Count < limit ? Pick(now, out wait) : null;
                     }
                     wake = _wake.Task;
                 }
 
+                if (limit != lastLimit)
+                {
+                    _logger.LogInformation("HLS share {Id} sends up to {Limit} segment(s) at once (ingest {Ratio:F1}x)", Info.Id,
+                        limit, ratio ?? 0);
+                    lastLimit = limit;
+                }
+
                 if (next is null)
                 {
-                    // A stop (the token) always ends the wait, even with nothing in flight.
-                    await Task.WhenAny(wake, Task.Delay(wait ?? Timeout.InfiniteTimeSpan, ct)).ConfigureAwait(false);
+                    // A stop (the token) always ends the wait, even with nothing in flight; so does a body leaving the wire.
+                    waits.Clear();
+                    waits.Add(wake);
+                    waits.Add(stopped);
+                    if (wait is { } due) waits.Add(Task.Delay(due, ct));
+                    waits.AddRange(onWire);
+                    await Task.WhenAny(waits).ConfigureAwait(false);
                     continue;
                 }
 
@@ -367,8 +402,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
                     _ => throw new InvalidOperationException(),
                 };
                 inFlight.Add(send);
-                // One body on the wire: the next starts once this one's last byte is written (or it ended early).
-                await Task.WhenAny(sent, send).ConfigureAwait(false);
+                onWire.Add(Task.WhenAny(sent, send));
             }
         }
         finally
@@ -385,6 +419,15 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
             }
         }
     }
+
+    /// <summary>
+    /// How many bodies may be on the wire at once: one until the share is playable and <paramref name="ratio"/> (the
+    /// ingest ratio) is known, then <see cref="WirePerIngestRatio"/> per unit of it, up to <see cref="MaxOnWire"/>. An
+    /// upload no faster than the video plays keeps one body on the wire, so the edge moves every segment. Caller holds
+    /// the gate.
+    /// </summary>
+    private int WireLimit(double? ratio) =>
+        _playable && ratio is { } r ? Math.Clamp((int)(r * WirePerIngestRatio), 1, MaxOnWire) : 1;
 
     /// <summary>The next thing to send, in seq order (a run's init sits right before its first segment). Caller holds the gate.</summary>
     private Work? Pick(long now, out TimeSpan? wait)
@@ -473,7 +516,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
         lock (_gate)
         {
             segment.Phase = Phase.Sending;
-            segment.SentTicks = Stopwatch.GetTimestamp();
+            segment.SentTicks = Math.Max(1, _clock());
             _awaiting++;
         }
         var url = $"{_base}/hls/seg/{item.Seq.ToString(CultureInfo.InvariantCulture)}"
@@ -604,7 +647,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
     {
         lock (_gate)
         {
-            segment.DueTicks = Stopwatch.GetTimestamp() + (long)(delay.TotalSeconds * Stopwatch.Frequency);
+            segment.DueTicks = _clock() + (long)(delay.TotalSeconds * Stopwatch.Frequency);
             Settle(segment);
         }
     }
@@ -613,7 +656,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
     {
         lock (_gate)
         {
-            run.DueTicks = Stopwatch.GetTimestamp() + (long)(delay.TotalSeconds * Stopwatch.Frequency);
+            run.DueTicks = _clock() + (long)(delay.TotalSeconds * Stopwatch.Frequency);
             if (run.Phase != Phase.Done) run.Phase = Phase.Queued;
             _awaiting = Math.Max(0, _awaiting - 1);
             Wake();
@@ -624,7 +667,7 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
     {
         var item = segment.Item;
         VodHlsUploadState state;
-        var now = Stopwatch.GetTimestamp();
+        var now = _clock();
         var counted = false;
         lock (_gate)
         {
@@ -735,18 +778,20 @@ public sealed class VodHlsUploadSession : IVodHlsUpload
         }
     }
 
+    /// <summary>Media seconds acknowledged per wall second over the last 30 s; null before 10 s of history. Caller holds the gate.</summary>
+    private double? Ingest(long now)
+    {
+        if (_samples.Count == 0 || _firstAckTicks <= 0) return null;
+        var since = now - IngestWindowTicks;
+        var start = _samples.LastOrDefault(s => s.Ticks <= since);
+        if (start == default) start = (_firstAckTicks, _samples[0].Seconds);
+        var span = (now - start.Ticks) / (double)Stopwatch.Frequency;
+        return now - _firstAckTicks >= IngestMinimumTicks && span > 0 ? Math.Max(0, _ackedSeconds - start.Seconds) / span : null;
+    }
+
     private VodHlsUploadState Snapshot(long now)
     {
-        double? ingest = null;
-        if (_samples.Count > 0 && _firstAckTicks > 0)
-        {
-            var since = now - IngestWindowTicks;
-            var start = _samples.LastOrDefault(s => s.Ticks <= since);
-            if (start == default) start = (_firstAckTicks, _samples[0].Seconds);
-            var span = (now - start.Ticks) / (double)Stopwatch.Frequency;
-            if (now - _firstAckTicks >= IngestMinimumTicks && span > 0)
-                ingest = Math.Max(0, _ackedSeconds - start.Seconds) / span;
-        }
+        var ingest = Ingest(now);
         var backlog = _segments.Values.Count(s => s.Phase != Phase.Done);
         var past = _segments.Values.Any(s => s.Phase == Phase.Done && s.Item.Seq > _acked);
         var active = _firstAckTicks > 0 ? (now - _firstAckTicks) / (double)Stopwatch.Frequency : 0;
