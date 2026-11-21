@@ -132,6 +132,9 @@ public sealed partial class VodShareWorker
         public bool SharedUplink { get; set; }
         public VodShareQuality Quality { get; set; }
         public string? QualityReason { get; set; }
+        /// <summary>The copy's codec; HEVC only as HLS segments. CodecReason: why an HEVC request became H.264.</summary>
+        public VodShareCodec Codec { get; set; }
+        public string? CodecReason { get; set; }
         /// <summary>The proxy's HLS settings when this job shares as HLS segments (4.4); null for the MP4 path.</summary>
         public VodShareHlsInfo? Hls { get; init; }
         /// <summary>The source's container start time: an HLS share's timeline starts at the first frame, so markers move by it.</summary>
@@ -206,6 +209,8 @@ public sealed partial class VodShareWorker
         var allowed = false;
         var sharingOn = false;
         var reachable = true;
+        var hevcOffered = false;
+        VodSharePoolDto? hevcPool = null;
         VodSharePoolDto? pool = null;
         VodShareLimitsDto? limits = null;
         var ttl = DefaultTtlSeconds;
@@ -221,6 +226,7 @@ public sealed partial class VodShareWorker
                 lock (_gate) _sheetStatus = (session.Token, status, Stopwatch.GetTimestamp());
                 // The sheet is open: pick and self-test the HLS encoder now, so Share starts the encode at once.
                 if (allowed && status.Hls is { Enabled: true } && !_live.IsGameInProgress) Prewarm();
+                hevcOffered = allowed && source is { } probed && HlsAllowed(status, probed);
                 ttl = status.Limits?.TtlSeconds is > 0 ? status.Limits.TtlSeconds : DefaultTtlSeconds;
                 if (allowed && status.Pool is { } p && estimates is not null)
                 {
@@ -231,6 +237,10 @@ public sealed partial class VodShareWorker
                     var fits1080 = at1080 == status.Now;
                     var fits720 = at720 == status.Now;
                     pool = new VodSharePoolDto(p.FreeBytes, fits1080, fits720, fits1080 ? null : at1080, fits720 ? null : at720);
+                    var hevc1080 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P1080, fps, d, VodShareCodec.Hevc), status.Now);
+                    var hevc720 = p.FitsAt(VodShareQualityPolicy.PoolEstimate(VodShareQuality.P720, fps, d, VodShareCodec.Hevc), status.Now);
+                    hevcPool = new VodSharePoolDto(p.FreeBytes, hevc1080 == status.Now, hevc720 == status.Now,
+                        hevc1080 == status.Now ? null : hevc1080, hevc720 == status.Now ? null : hevc720);
                 }
                 if (allowed && status.Usage is { } u && status.Limits is { } l)
                     limits = new VodShareLimitsDto(u.Live, l.MaxLive, u.Pending, u.StartsToday, l.MaxStartsPerDay, u.DayResetsAt);
@@ -262,16 +272,24 @@ public sealed partial class VodShareWorker
         }
         var entry = _store.Get(gameId);
         var preferred = d > 0 && signedIn ? await PreferredQualityAsync(fps, d).ConfigureAwait(false) : null;
+        VodShareHevcDto? hevc = null;
+        if (hevcOffered && d > 0 && estimates is not null)
+        {
+            hevc = new VodShareHevcDto(_encoder.HlsKnown(VodShareCodec.Hevc),
+                new VodShareEstimatesDto(VodShareQualityPolicy.Estimate(VodShareQuality.P1080, fps, d, VodShareCodec.Hevc),
+                    VodShareQualityPolicy.Estimate(VodShareQuality.P720, fps, d, VodShareCodec.Hevc)),
+                hevcPool, await PreferredQualityAsync(fps, d, VodShareCodec.Hevc).ConfigureAwait(false));
+        }
         return new VodShareStatusDto(gameId, signedIn, allowed, sharingOn, reachable, recording, estimates, pool, limits,
-            ttl, job, entry is null ? null : VodShareLinkDto.From(entry), busy, preferred);
+            ttl, job, entry is null ? null : VodShareLinkDto.From(entry), busy, preferred, hevc, _memory?.PreferredCodec());
     }
 
     /// <summary>"720p" when this account's last measured upload could not carry 1080p (below 1.1x its rate), else null.</summary>
-    private async Task<string?> PreferredQualityAsync(int fps, double durationSeconds)
+    private async Task<string?> PreferredQualityAsync(int fps, double durationSeconds, VodShareCodec codec = VodShareCodec.H264)
     {
         if (_memory is null) return null;
         var rate = _memory.UplinkBytesPerSecond(await AccountKeyAsync().ConfigureAwait(false));
-        return rate is { } r && r < PreselectRatio * Rate1080BytesPerSecond(fps, durationSeconds) ? "720p" : null;
+        return rate is { } r && r < PreselectRatio * Rate1080BytesPerSecond(fps, durationSeconds, codec) ? "720p" : null;
     }
 
     /// <summary>A one-way key for the signed-in Revu account: the upload speed is remembered per account, never its email.</summary>
@@ -287,7 +305,12 @@ public sealed partial class VodShareWorker
         if (Interlocked.Exchange(ref _prewarming, 1) == 1) return;
         var started = _work.TryRun("vod-share-prewarm", async () =>
         {
-            try { await _encoder.PrewarmHlsAsync(_work.Stopping).ConfigureAwait(false); }
+            try
+            {
+                await _encoder.PrewarmHlsAsync(_work.Stopping).ConfigureAwait(false);
+                // The sheet's HEVC choice needs to know whether this PC can encode it.
+                await _encoder.PrewarmHlsAsync(_work.Stopping, VodShareCodec.Hevc).ConfigureAwait(false);
+            }
             catch (Exception ex) when (ex is not OperationCanceledException) { _logger.LogDebug(ex, "HLS encoder prewarm failed"); }
             finally { Volatile.Write(ref _prewarming, 0); }
         });
@@ -331,11 +354,14 @@ public sealed partial class VodShareWorker
 
     // ── Start / cancel / stop ────────────────────────────────────────────────
 
-    public async Task<VodShareStartReply> StartAsync(long gameId, string quality, bool includeNotes, CancellationToken ct)
+    public async Task<VodShareStartReply> StartAsync(long gameId, string quality, bool includeNotes, CancellationToken ct,
+        string? codec = null)
     {
         if (gameId <= 0) return VodShareStartReply.BadRequest("gameId required");
         if (!VodShareEncoderArgs.TryParseQuality(string.IsNullOrWhiteSpace(quality) ? "1080p" : quality, out var requested))
             return VodShareStartReply.BadRequest("quality must be 1080p or 720p");
+        if (!VodShareEncoderArgs.TryParseCodec(string.IsNullOrWhiteSpace(codec) ? "h264" : codec, out var requestedCodec))
+            return VodShareStartReply.BadRequest("codec must be h264 or hevc");
         if (Volatile.Read(ref _started) == 0) return Refuse("starting");
 
         // Starts are serialized: the checks below take seconds, and two of them must never
@@ -411,7 +437,22 @@ public sealed partial class VodShareWorker
                 if (usage.Live >= limits.MaxLive) return Refuse("live_limit");
                 if (usage.StartsToday >= limits.MaxStartsPerDay) return Refuse("daily_limit", retryAt: usage.DayResetsAt);
             }
-            var decision = VodShareQualityPolicy.Decide(requested, fps, duration, status.Pool, status.Now);
+            // HEVC goes up only as HLS segments, and only from a hardware encoder that passed its self-test (the
+            // sheet's prewarm usually ran it already). Otherwise the share is H.264, and the sheet says why.
+            var hls = info is { } src && HlsAllowed(status, src) ? status.Hls : null;
+            var jobCodec = requestedCodec;
+            string? codecReason = null;
+            if (jobCodec == VodShareCodec.Hevc && hls is null)
+            {
+                jobCodec = VodShareCodec.H264;
+                codecReason = "format";
+            }
+            else if (jobCodec == VodShareCodec.Hevc && await _encoder.SelectHlsAsync(ct, VodShareCodec.Hevc).ConfigureAwait(false) is null)
+            {
+                jobCodec = VodShareCodec.H264;
+                codecReason = "encoder";
+            }
+            var decision = VodShareQualityPolicy.Decide(requested, fps, duration, status.Pool, status.Now, jobCodec);
             if (!decision.Ok) return Refuse(decision.ErrorCode!, retryAt: decision.RetryAt);
 
             long free;
@@ -422,12 +463,11 @@ public sealed partial class VodShareWorker
                 free = 0;
             }
             // A share already running keeps the space it was started with.
-            var diskNeeded = VodShareQualityPolicy.DiskNeeded(decision.Quality, fps, duration);
+            var diskNeeded = VodShareQualityPolicy.DiskNeeded(decision.Quality, fps, duration, jobCodec);
             long diskClaimed;
             lock (_gate) diskClaimed = _jobs.Values.Sum(j => j.DiskBytes);
             if (free - diskClaimed < diskNeeded) return Refuse("disk_full");
 
-            var hls = info is { } src && HlsAllowed(status, src) ? status.Hls : null;
             var job = new VodShareJob
             {
                 GameId = gameId,
@@ -438,6 +478,8 @@ public sealed partial class VodShareWorker
                 Cts = CancellationTokenSource.CreateLinkedTokenSource(_work.Stopping),
                 Quality = decision.Quality,
                 QualityReason = decision.Reason,
+                Codec = jobCodec,
+                CodecReason = codecReason,
                 Hls = hls,
                 Format = hls is null ? "mp4" : "hls",
                 SourceStartSeconds = info?.StartSeconds ?? 0,
@@ -460,9 +502,12 @@ public sealed partial class VodShareWorker
                 job.Cts.Dispose();
                 return Refuse("closing");
             }
-            _logger.LogInformation("Full-game share queued: game {GameId} at {Quality} as {Format} (reason {Reason}, notes {Notes})",
-                gameId, VodShareEncoderArgs.Label(decision.Quality, fps), job.Format, decision.Reason ?? "none", includeNotes);
-            return VodShareStartReply.Accepted(VodShareEncoderArgs.Wire(decision.Quality), decision.Reason);
+            _memory?.SetPreferredCodec(VodShareEncoderArgs.Wire(requestedCodec));
+            _logger.LogInformation("Full-game share queued: game {GameId} at {Quality} {Codec} as {Format} (reason {Reason}, "
+                + "codec reason {CodecReason}, notes {Notes})", gameId, VodShareEncoderArgs.Label(decision.Quality, fps),
+                VodShareEncoderArgs.Wire(jobCodec), job.Format, decision.Reason ?? "none", codecReason ?? "none", includeNotes);
+            return VodShareStartReply.Accepted(VodShareEncoderArgs.Wire(decision.Quality), decision.Reason,
+                VodShareEncoderArgs.Wire(jobCodec), codecReason);
         }
         finally
         {

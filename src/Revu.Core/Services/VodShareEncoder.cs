@@ -38,13 +38,19 @@ public interface IVodShareEncoder
         Func<CancellationToken, Task>? beforeRetry = null);
 
     /// <summary>
-    /// The first working pair for an HLS share: it passes its probe and its HLS self-test (two IDR-first 2.000 s
-    /// fragments), hardware first; null when none does.
+    /// The first working pair for an HLS share in <paramref name="codec"/>: it passes its probe and its HLS self-test
+    /// (two IDR-first 2.000 s fragments), hardware first; null when none does (for HEVC: no hardware encoder).
     /// </summary>
-    Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct);
+    Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct, VodShareCodec codec = VodShareCodec.H264);
 
     /// <summary>Select the HLS pair ahead of a share (the share sheet opened, no game in progress).</summary>
-    Task PrewarmHlsAsync(CancellationToken ct);
+    Task PrewarmHlsAsync(CancellationToken ct, VodShareCodec codec = VodShareCodec.H264);
+
+    /// <summary>
+    /// What is known without running anything: true when a pair for <paramref name="codec"/> is selected, false when
+    /// the last full search found none, null when nobody looked yet.
+    /// </summary>
+    bool? HlsKnown(VodShareCodec codec) => null;
 
     /// <summary>
     /// Encode <paramref name="request"/> into HLS segments in its folder, announcing each run's init and every

@@ -81,7 +81,8 @@ describe.skipIf(!MEDIA || !FFMPEG || !FFPROBE)("real fMP4 media through the HLS 
       const token = (await json(await play(s.env, id))).token as string;
       const playlist = `http://127.0.0.1:${port}/vod-hls/${id}/${token}/index.m3u8`;
       const live = await run(FFPROBE!, ["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", playlist], 60_000);
-      expect(live.stdout).toContain("h264");
+      // The routes never look at the codec: an HEVC copy (-c:v hevc_nvenc -tag:v hvc1) goes through the same way.
+      expect(live.stdout).toMatch(/h264|hevc/);
       expect(live.stdout).toContain("aac");
 
       for (const seq of order.slice(half)) await put(seq);

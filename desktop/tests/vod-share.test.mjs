@@ -5,6 +5,7 @@ import { createVodShare, formatShareSize, formatShareTime, safeShareUrl, shareQu
   vodShareProgressLabel, vodShareTtlText, CHECKING, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY, LINK_GONE,
   LINK_LIVE, LINK_READY, LINK_REPLACING, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, CONFIRM_STOP,
   CONFIRM_STOP_LIVE, ENDED_EARLY, LINK_WATCH_NOW, LINK_WATCH_SOON, PAUSED_GAME, SWITCHED_720, UPLINK_720_HINT, UPLINK_SLOW,
+  SMALLER_HINT, SMALLER_NO_ENCODER, SMALLER_FELL_BACK_ENCODER, SMALLER_FELL_BACK_FORMAT, vodShareCodecNote,
   vodShareLiveNote } from '../ui/vod-share.mjs';
 
 const read = name => readFile(new URL(`../ui/${name}`, import.meta.url), 'utf8');
@@ -49,7 +50,7 @@ function container(doc, hooks, views = []) {
 }
 const ROW_HOOKS = ['row-label', 'row-url', 'row-detail', 'row-live', 'row-actions', 'row-copy', 'row-open', 'row-stop',
   'row-cancel', 'row-retry', 'row-confirm', 'row-confirm-text', 'row-confirm-stop', 'row-keep'];
-const SHEET_HOOKS = ['close', 'size', 'q1080', 'q720', 'q1080-label', 'q720-label', 'hint', 'ttl', 'imported', 'notes', 'progress-label', 'progress-live', 'progress-bar',
+const SHEET_HOOKS = ['close', 'size', 'q1080', 'q720', 'q1080-label', 'q720-label', 'hint', 'codec-group', 'c-h264', 'c-hevc', 'codec-hint', 'ttl', 'imported', 'notes', 'progress-label', 'progress-live', 'progress-bar',
   'progress-link', 'progress-url', 'progress-copy', 'progress-open', 'progress-link-note',
   'progress-note', 'url', 'copy', 'open', 'expiry', 'markers', 'message-box', 'message', 'signin', 'folder', 'confirm',
   'confirm-text', 'confirm-stop', 'keep', 'actions', 'stop', 'cancel', 'share', 'done'];
@@ -155,7 +156,8 @@ test('every errorCode has the agreed copy, and unknown codes fall back to the si
 });
 
 test('the plan preselects 720p when 1080p does not fit and blocks what cannot be shared', () => {
-  assert.deepEqual(vodSharePlan(status()), { quality: '1080p', disable1080: false, block: null, canShare: true, hint: '',
+  assert.deepEqual(vodSharePlan(status()), { quality: '1080p', disable1080: false, block: null, canShare: true,
+    codec: 'h264', codecOffered: false, disableHevc: false, codecHint: '', hint: '',
     notice: null, sizeText: 'About 1.3 GB at 1080p.', labels: { p1080: '1080p', p720: '720p' }, builtIn: true, imported: false });
   assert.equal(vodSharePlan(status(), '720p').sizeText, 'About 0.8 GB at 720p.');
   const tight = vodSharePlan(status({ pool: { freeBytes: 900e6, fits1080: false, fits720: true, fits1080At: 1760403600 } }), '1080p');
@@ -306,7 +308,7 @@ test('a full share runs from the sheet: fresh status, start payload, progress, d
   f.sheet.el('notes').dispatch('change');
   f.sheet.el('share').click();
   await flush();
-  assert.deepEqual(f.named('start_vod_share'), [['start_vod_share', { payload: { gameId: 123, quality: '720p', includeNotes: true } }]]);
+  assert.deepEqual(f.named('start_vod_share'), [['start_vod_share', { payload: { gameId: 123, quality: '720p', includeNotes: true, codec: 'h264' } }]]);
   assert.equal(f.sheetView(), 'progress');
   assert.equal(f.sheet.el('progress-label').textContent, 'Preparing video 0%');
   assert.equal(f.sheet.el('progress-note').textContent, KEEP_REVIEWING);
@@ -821,7 +823,7 @@ test('the VOD page carries every hook, the agreed copy, and only minimal wiring'
   const visible = html.replace(/<!--[\s\S]*?-->/g, '');
   const hooks = new Set([...module.matchAll(/hook\((?:row|sheet), '([a-z0-9-]+)'\)/g), ...module.matchAll(/on\((?:row|sheet), '([a-z0-9-]+)'/g)]
     .map(match => match[1]));
-  for (const name of ['q1080', 'q720', 'notes']) hooks.add(name);
+  for (const name of ['q1080', 'q720', 'notes', 'c-h264', 'c-hevc']) hooks.add(name);
   assert.ok(hooks.size >= 35, `found ${hooks.size} hooks`);
   for (const name of hooks) assert.match(html, new RegExp(`data-vs="${name}"`), name);
   for (const view of ['start', 'progress', 'done']) assert.match(html, new RegExp(`data-vs-view="${view}"`));
@@ -962,4 +964,85 @@ test('a segmented share people could watch keeps its link when it ends early', a
   f.emit({ ...HLS, state: 'done', phase: 'done', percent: 100, truncated: true, markersAttached: true });
   assert.equal(f.sheetView(), 'done');
   assert.equal(f.sheetMessage(), ENDED_EARLY);
+});
+
+// The smaller file (HEVC): the status carries its sizes, its room in the sharing space and whether this PC can make it.
+const HEVC = { available: true, estimates: { p1080Bytes: 846000000, p720Bytes: 521000000 },
+  pool: { freeBytes: 5684416667, fits1080: true, fits720: true, fits1080At: null, fits720At: null }, preferredQuality: null };
+
+test('the plan offers the smaller file only when the status does, with its own sizes and limits', () => {
+  assert.equal(vodSharePlan(status(), '1080p', 'hevc').codec, 'h264', 'no offer, no smaller file');
+  const offered = status({ hevc: HEVC });
+  const standard = vodSharePlan(offered, '1080p', 'auto');
+  assert.deepEqual([standard.codec, standard.codecOffered, standard.disableHevc, standard.codecHint, standard.sizeText],
+    ['h264', true, false, '', 'About 1.3 GB at 1080p.']);
+  const smaller = vodSharePlan(offered, '1080p', 'hevc');
+  assert.deepEqual([smaller.codec, smaller.codecHint, smaller.sizeText], ['hevc', SMALLER_HINT, 'About 0.8 GB at 1080p.']);
+  assert.equal(vodSharePlan(offered, '720p', 'hevc').sizeText, 'About 0.5 GB at 720p.');
+
+  // What the last share on this PC used is the start, until the player picks.
+  const remembered = status({ hevc: HEVC, preferredCodec: 'hevc' });
+  assert.equal(vodSharePlan(remembered, 'auto', 'auto').codec, 'hevc');
+  assert.equal(vodSharePlan(remembered, 'auto', 'h264').codec, 'h264');
+
+  // A PC without a hardware encoder for it: the choice is shown, disabled, and says why.
+  const none = vodSharePlan(status({ hevc: { ...HEVC, available: false }, preferredCodec: 'hevc' }), 'auto', 'hevc');
+  assert.deepEqual([none.codec, none.codecOffered, none.disableHevc, none.codecHint], ['h264', true, true, SMALLER_NO_ENCODER]);
+  // Not known yet (the check is still running): offered, and the sidecar decides at the start.
+  assert.equal(vodSharePlan(status({ hevc: { ...HEVC, available: null } }), 'auto', 'hevc').codec, 'hevc');
+
+  // The smaller file fits the sharing space, and a slow upload, where the standard one needs 720p.
+  const tight = status({ pool: { freeBytes: 900e6, fits1080: false, fits720: true, fits1080At: 1760403600 },
+    preferredQuality: '720p', hevc: HEVC });
+  assert.deepEqual([vodSharePlan(tight, 'auto', 'h264').quality, vodSharePlan(tight, 'auto', 'h264').disable1080], ['720p', true]);
+  assert.deepEqual([vodSharePlan(tight, 'auto', 'hevc').quality, vodSharePlan(tight, 'auto', 'hevc').disable1080,
+    vodSharePlan(tight, 'auto', 'hevc').hint], ['1080p', false, '']);
+
+  assert.equal(vodShareCodecNote('encoder'), SMALLER_FELL_BACK_ENCODER);
+  assert.equal(vodShareCodecNote('format'), SMALLER_FELL_BACK_FORMAT);
+  assert.equal(vodShareCodecNote(null), '');
+});
+
+test('the sheet shows the file choice when offered, sends it, and explains a fallback to the standard file', async () => {
+  const plain = setup({ replies: { get_vod_share_status: status() } });
+  await plain.share.check({ gameId: 123 });
+  await plain.share.open();
+  assert.equal(plain.sheet.el('codec-group').hidden, true);
+  assert.equal(plain.sheet.el('codec-hint').hidden, true);
+
+  const f = setup({ replies: { get_vod_share_status: status({ hevc: HEVC }),
+    start_vod_share: { ok: true, accepted: true, quality: '1080p', codec: 'h264', codecReason: 'encoder' } } });
+  await f.share.check({ gameId: 123 });
+  await f.share.open();
+  assert.equal(f.sheet.el('codec-group').hidden, false);
+  assert.deepEqual([f.sheet.el('c-h264').checked, f.sheet.el('c-hevc').checked, f.sheet.el('c-hevc').disabled], [true, false, false]);
+  assert.equal(f.sheet.el('size').textContent, 'About 1.3 GB at 1080p.');
+  f.sheet.el('c-hevc').checked = true;
+  f.sheet.el('c-hevc').dispatch('change');
+  assert.deepEqual([f.sheet.el('c-h264').checked, f.sheet.el('c-hevc').checked], [false, true]);
+  assert.equal(f.sheet.el('size').textContent, 'About 0.8 GB at 1080p.');
+  assert.equal(f.sheet.el('codec-hint').textContent, SMALLER_HINT);
+  f.sheet.el('share').click();
+  await flush();
+  assert.deepEqual(f.named('start_vod_share'), [['start_vod_share',
+    { payload: { gameId: 123, quality: '1080p', includeNotes: false, codec: 'hevc' } }]]);
+  assert.equal(f.sheetView(), 'progress');
+  assert.equal(f.sheet.el('progress-note').textContent, `${SMALLER_FELL_BACK_ENCODER} ${KEEP_REVIEWING}`);
+
+  // A PC that cannot make it: the choice is there but cannot be picked.
+  const none = setup({ replies: { get_vod_share_status: status({ hevc: { ...HEVC, available: false }, preferredCodec: 'hevc' }) } });
+  await none.share.check({ gameId: 123 });
+  await none.share.open();
+  assert.deepEqual([none.sheet.el('c-hevc').disabled, none.sheet.el('c-h264').checked], [true, true]);
+  assert.equal(none.sheet.el('codec-hint').textContent, SMALLER_NO_ENCODER);
+
+  // The last share on this PC used the smaller file: it starts selected.
+  const again = setup({ replies: { get_vod_share_status: status({ hevc: HEVC, preferredCodec: 'hevc' }),
+    start_vod_share: { ok: true, accepted: true, quality: '1080p', codec: 'hevc', codecReason: null } } });
+  await again.share.check({ gameId: 123 });
+  await again.share.open();
+  assert.equal(again.sheet.el('c-hevc').checked, true);
+  await again.share.start();
+  assert.equal(again.named('start_vod_share')[0][1].payload.codec, 'hevc');
+  assert.equal(again.sheet.el('progress-note').textContent, KEEP_REVIEWING);
 });

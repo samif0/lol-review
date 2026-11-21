@@ -349,6 +349,7 @@
       }
       if (info.kind === 'limited') block(V.STATES.limited.copy, false);
       else if (info.kind === 'unsupported') block(V.UNSUPPORTED, false);
+      else if (info.kind === 'format') block(P.UNSUPPORTED_FORMAT, false);
       else if (info.kind === 'offline') { block(V.OFFLINE, true); page.onOnline(function () { if (mode === 'blocked') retry(); }); }
       else if (info.kind === 'paused') block(V.STATES.paused.copy, true);
       else if (info.kind === 'gone') { if (info.during === 'mint') recheck(false); else goneNow(); }

@@ -25,6 +25,9 @@
   var HLS_MIME = 'application/vnd.apple.mpegurl';
   // The share copy: H.264 High (level 4.2 covers 1080p60) and AAC-LC.
   var CODECS = 'video/mp4; codecs="avc1.64002a,mp4a.40.2"';
+  // Said when a game shared as the smaller (HEVC) file is opened where nothing can decode it.
+  var UNSUPPORTED_FORMAT = "This game was shared as a smaller video file that this browser can't play. "
+    + 'Try Chrome, Edge or Safari on a recent device, or ask whoever sent the link to share the standard file.';
   var ID = /^[0-9A-Za-z]{7}$/;
   var TOKEN = /^\d{10}\.[A-Za-z0-9_-]{22}$/;
   var INTEGRITY = /^sha384-[A-Za-z0-9+/]{64}$/;
@@ -112,6 +115,7 @@
   }
 
   var api = { HLS_SRC: HLS_SRC, HLS_INTEGRITY: HLS_INTEGRITY, HLS_MIME: HLS_MIME, CODECS: CODECS, TOKEN: TOKEN,
+    UNSUPPORTED_FORMAT: UNSUPPORTED_FORMAT,
     capsOf: capsOf, nativeTrusted: nativeTrusted, choose: choose, autoplayAfterClick: autoplayAfterClick,
     hlsConfig: hlsConfig, mintUrl: mintUrl, playlistUrl: playlistUrl, mintKind: mintKind, errorKind: errorKind, edgeOf: edgeOf };
   root.RevuVodPlayer = api;
@@ -223,6 +227,12 @@
         return;
       }
       if (network && status === 403) { remint(); return; }
+      // The browser has no decoder for this game's video (a smaller HEVC copy on a device without
+      // HEVC): hls.js could not even create its buffer, so recovering or loading again cannot help.
+      if (data.details === 'bufferAddCodecError' || data.details === 'bufferIncompatibleCodecsError') {
+        problem({ kind: 'format', fatal: true, during: 'media' });
+        return;
+      }
       if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recovered < 1) { recovered += 1; hls.recoverMediaError(); return; }
       problem({ kind: errorKind(status, online()), fatal: true, during: 'media', status: status });
     }

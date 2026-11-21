@@ -78,8 +78,11 @@ every page preloads `geist.woff2`. The CSP's `font-src 'self'` covers them.
   wherever MediaSource or ManagedMediaSource plays the share (while it
   uploads and after); Safari's own player only for a finished game;
   browsers without MediaSource (iOS before 17.1) wait for the finished game
-  and then play it natively; Chromium's own HLS player is never used. The
-  tests drive all of it with a fake hls.js (`tests/vod-harness.mjs`)
+  and then play it natively; Chromium's own HLS player is never used. A
+  game shared as the smaller (HEVC) file plays the same way where the
+  browser decodes HEVC; where it does not, hls.js fails to create its
+  buffer (`bufferAddCodecError`) and the page says so once, with no retry.
+  The tests drive all of it with a fake hls.js (`tests/vod-harness.mjs`)
 - `vendor/`: self-hosted third-party scripts, one folder per exact version
   (see Vendored hls.js)
 - `privacy.html`, `terms.html`, `discord.html` (`discord/index.html` is an

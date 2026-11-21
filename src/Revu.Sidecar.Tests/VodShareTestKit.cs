@@ -199,13 +199,34 @@ internal sealed class FakeVodEncoder : IVodShareEncoder
     /// </summary>
     public Func<int, VodHlsEncodeRequest, ChannelWriter<HlsItem>, CancellationToken, Task<VodHlsEncodeResult>>? OnHlsEncode { get; set; }
 
-    public Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct) => SelectAsync(ct);
+    /// <summary>Whether this fake PC has a hardware HEVC encoder that passes its self-test.</summary>
+    public bool HevcEncoder { get; set; } = true;
+    /// <summary>What <see cref="HlsKnown"/> answers for HEVC before anything ran (null: nobody looked yet).</summary>
+    public bool? HevcKnown { get; set; }
+    public int HevcPrewarms;
 
-    public Task PrewarmHlsAsync(CancellationToken ct)
+    public Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct, VodShareCodec codec = VodShareCodec.H264)
     {
-        Interlocked.Increment(ref Prewarms);
+        if (codec != VodShareCodec.Hevc) return SelectAsync(ct);
+        HevcKnown = HevcEncoder;
+        return Task.FromResult(HevcEncoder ? new VodEncoderChoice("ffmpeg", "hevc_nvenc") : null);
+    }
+
+    public Task PrewarmHlsAsync(CancellationToken ct, VodShareCodec codec = VodShareCodec.H264)
+    {
+        if (codec == VodShareCodec.Hevc)
+        {
+            Interlocked.Increment(ref HevcPrewarms);
+            HevcKnown = HevcEncoder;
+        }
+        else
+        {
+            Interlocked.Increment(ref Prewarms);
+        }
         return Task.CompletedTask;
     }
+
+    public bool? HlsKnown(VodShareCodec codec) => codec == VodShareCodec.Hevc ? HevcKnown : null;
 
     public async Task<VodHlsEncodeResult> EncodeHlsAsync(VodHlsEncodeRequest request, ChannelWriter<HlsItem> writer,
         IProgress<double>? mediaSeconds, CancellationToken ct)

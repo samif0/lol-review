@@ -14,7 +14,8 @@ namespace Revu.Core.Services;
 /// <see cref="MaxRuns"/> or more is never started.
 /// </summary>
 public sealed record VodHlsEncodeRequest(string SourcePath, string Folder, VodShareQuality Quality, int Fps,
-    double DurationSeconds, int NextRun = 0, int NextSeq = 0, double ResumeAtSeconds = 0, int MaxRuns = 8);
+    double DurationSeconds, int NextRun = 0, int NextSeq = 0, double ResumeAtSeconds = 0, int MaxRuns = 8,
+    VodShareCodec Codec = VodShareCodec.H264);
 
 /// <summary>
 /// How an HLS encode ended: Complete when ffmpeg encoded to the end of the source; otherwise it stopped at the edge
@@ -31,25 +32,39 @@ public sealed partial class VodShareEncoder
     /// <summary>Runs in a row without a new segment before the encode stops at the edge.</summary>
     internal const int NoProgressRunLimit = 2;
 
-    private VodEncoderChoice? _cachedHls;
+    private readonly Dictionary<VodShareCodec, VodEncoderChoice> _cachedHls = new();
+    private readonly HashSet<VodShareCodec> _noHls = new();
+
+    public bool? HlsKnown(VodShareCodec codec)
+    {
+        lock (_cachedHls) return _cachedHls.ContainsKey(codec) ? true : _noHls.Contains(codec) ? false : null;
+    }
 
     /// <summary>The GPU driver versions the self-test cache is keyed on (tests replace it).</summary>
     internal Func<string> DriverVersion { get; set; } = GpuDriverVersion;
 
-    public Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct) => SelectHlsCoreAsync(prewarm: false, ct);
+    public Task<VodEncoderChoice?> SelectHlsAsync(CancellationToken ct, VodShareCodec codec = VodShareCodec.H264) =>
+        SelectHlsCoreAsync(codec, prewarm: false, ct);
 
-    public async Task PrewarmHlsAsync(CancellationToken ct) => await SelectHlsCoreAsync(prewarm: true, ct).ConfigureAwait(false);
+    public async Task PrewarmHlsAsync(CancellationToken ct, VodShareCodec codec = VodShareCodec.H264) =>
+        await SelectHlsCoreAsync(codec, prewarm: true, ct).ConfigureAwait(false);
 
-    private async Task<VodEncoderChoice?> SelectHlsCoreAsync(bool prewarm, CancellationToken ct)
+    private async Task<VodEncoderChoice?> SelectHlsCoreAsync(VodShareCodec codec, bool prewarm, CancellationToken ct)
     {
         await _selectGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_cachedHls is not null) return _cachedHls;
-            var (choice, passedOverKnownGood) = await FindHlsAsync(null, prewarm, ct).ConfigureAwait(false);
-            // A prewarm can run while the GPU is still busy (a game just ended). It never pins a pair that is worse
-            // than one that failed only now although it passed its self-test on this machine before.
-            if (choice is not null && !(prewarm && passedOverKnownGood)) _cachedHls = choice;
+            lock (_cachedHls) if (_cachedHls.TryGetValue(codec, out var known)) return known;
+            var (choice, passedOverKnownGood) = await FindHlsAsync(codec, null, prewarm, ct).ConfigureAwait(false);
+            lock (_cachedHls)
+            {
+                // A prewarm can run while the GPU is still busy (a game just ended). It never pins a pair that is worse
+                // than one that failed only now although it passed its self-test on this machine before, and it
+                // never concludes that there is none.
+                if (choice is not null && !(prewarm && passedOverKnownGood)) _cachedHls[codec] = choice;
+                if (choice is not null) _noHls.Remove(codec);
+                else if (!prewarm || !passedOverKnownGood) _noHls.Add(codec);
+            }
             if (choice is not null)
                 _logger.LogInformation("HLS share encoder selected: {Encoder} ({Binary}){Prewarm}", choice.Encoder,
                     choice.FfmpegPath, prewarm ? " ahead of the share" : "");
@@ -66,7 +81,8 @@ public sealed partial class VodShareEncoder
         await _selectGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return (await FindHlsAsync(skip, prewarm: false, ct).ConfigureAwait(false)).Choice;
+            // The same codec: a share never changes codec part way (its viewers' players were set up for one).
+            return (await FindHlsAsync(VodShareEncoderArgs.CodecOf(skip.Encoder), skip, prewarm: false, ct).ConfigureAwait(false)).Choice;
         }
         finally
         {
@@ -79,12 +95,12 @@ public sealed partial class VodShareEncoder
     /// cached per binary, encoder and GPU driver; a prewarm caches only passes, never a failure that may be
     /// passing load. The caller holds the gate. PassedOverKnownGood: a better pair with a cached pass failed now.
     /// </summary>
-    private async Task<(VodEncoderChoice? Choice, bool PassedOverKnownGood)> FindHlsAsync(VodEncoderChoice? skip,
-        bool prewarm, CancellationToken ct)
+    private async Task<(VodEncoderChoice? Choice, bool PassedOverKnownGood)> FindHlsAsync(VodShareCodec codec,
+        VodEncoderChoice? skip, bool prewarm, CancellationToken ct)
     {
         var binaries = await _candidates(ct).ConfigureAwait(false);
         var passedOver = false;
-        foreach (var encoder in VodShareEncoderArgs.EncoderPriority)
+        foreach (var encoder in VodShareEncoderArgs.Encoders(codec))
         {
             foreach (var binary in binaries)
             {
@@ -108,7 +124,10 @@ public sealed partial class VodShareEncoder
                 passedOver |= prewarm;
             }
         }
-        _logger.LogWarning("No H.264 encoder passed the HLS self-test ({Count} binaries)", binaries.Count);
+        if (codec == VodShareCodec.Hevc)
+            _logger.LogInformation("No hardware HEVC encoder passed the HLS self-test ({Count} binaries)", binaries.Count);
+        else
+            _logger.LogWarning("No H.264 encoder passed the HLS self-test ({Count} binaries)", binaries.Count);
         return (null, passedOver);
     }
 
@@ -201,7 +220,8 @@ public sealed partial class VodShareEncoder
             throw new VodEncodeException("too_long", "Games longer than 2 hours can't be shared.");
         Directory.CreateDirectory(request.Folder);
         var fps = VodShareEncoderArgs.Fps(request.Fps);
-        var choice = await SelectHlsAsync(ct).ConfigureAwait(false) ?? throw Failed("no encoder passed the HLS self-test");
+        var choice = await SelectHlsAsync(ct, request.Codec).ConfigureAwait(false)
+            ?? throw Failed("no encoder passed the HLS self-test");
 
         var run = request.NextRun;
         var seq = request.NextSeq;
@@ -298,7 +318,8 @@ public sealed partial class VodShareEncoder
         await _selectGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_cachedHls == choice) _cachedHls = null;
+            var codec = VodShareEncoderArgs.CodecOf(choice.Encoder);
+            lock (_cachedHls) if (_cachedHls.TryGetValue(codec, out var cached) && cached == choice) _cachedHls.Remove(codec);
         }
         finally
         {

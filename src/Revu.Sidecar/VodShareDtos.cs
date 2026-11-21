@@ -4,8 +4,11 @@ namespace Revu.Sidecar;
 
 // ── Full-game (VOD) sharing, 4.2 (contract 7.5 to 7.7) ───────────────────────
 
-/// <summary>POST /api/vod-share/start. Quality "1080p" (default) or "720p"; IncludeNotes defaults to false.</summary>
-internal sealed record VodShareStartBody(long GameId, string? Quality, bool? IncludeNotes);
+/// <summary>
+/// POST /api/vod-share/start. Quality "1080p" (default) or "720p"; IncludeNotes defaults to false; Codec "h264"
+/// (default) or "hevc".
+/// </summary>
+internal sealed record VodShareStartBody(long GameId, string? Quality, bool? IncludeNotes, string? Codec = null);
 
 /// <summary>POST /api/vod-share/cancel and /api/vod-share/stop.</summary>
 internal sealed record VodShareGameBody(long GameId);
@@ -22,6 +25,14 @@ public sealed record VodShareEstimatesDto(long P1080Bytes, long P720Bytes);
 /// <summary>The proxy pool for this game's estimates. *At = when it would fit, when it does not fit now.</summary>
 public sealed record VodSharePoolDto(long FreeBytes, bool Fits1080, bool Fits720, long? Fits1080At, long? Fits720At);
 
+/// <summary>
+/// The smaller HEVC copy as the sheet needs it; null on the status when this share cannot be HEVC at all (it would
+/// not go up as HLS segments). Available: whether this PC has a hardware HEVC encoder that passed its self-test
+/// (null while nobody looked yet). Estimates, Pool and PreferredQuality are the status's own, for the HEVC sizes.
+/// </summary>
+public sealed record VodShareHevcDto(bool? Available, VodShareEstimatesDto? Estimates, VodSharePoolDto? Pool,
+    string? PreferredQuality);
+
 /// <summary>The account's VOD usage against its limits.</summary>
 public sealed record VodShareLimitsDto(int Live, int MaxLive, int Pending, int StartsToday, int MaxStartsPerDay,
     long DayResetsAt);
@@ -34,21 +45,29 @@ public sealed record VodShareLimitsDto(int Live, int MaxLive, int Pending, int S
 /// 4.4 HLS shares (Format "hls") also carry the media acknowledged so far and the game's length,
 /// whether people can watch already, whether the upload runs slower than the video plays, whether
 /// the share waits for the player's game, and whether it ended before the end of the game.
+/// Codec is "h264" or "hevc"; CodecReason says why an HEVC request is shared as H.264 ("encoder": no hardware HEVC
+/// encoder here; "format": the share goes up as one MP4).
 /// </summary>
 public sealed record VodShareJobDto(string State, string Phase, int Percent, string? Quality, string? QualityReason,
     string? ErrorCode, string? Error, long? RetryAt, bool NeedsLogin, string? Url = null, long? ExpiresAt = null,
     bool LinkChanged = false, string Format = "mp4", double? MediaSeconds = null, double? DurationSeconds = null,
-    bool Watchable = false, bool UplinkSlow = false, bool Paused = false, bool Truncated = false);
+    bool Watchable = false, bool UplinkSlow = false, bool Paused = false, bool Truncated = false,
+    string Codec = "h264", string? CodecReason = null);
 
 /// <summary>A live share of this game (the store entry without its game id).</summary>
 public sealed record VodShareLinkDto(string Id, string Url, string Quality, bool IncludeNotes, long SizeBytes,
-    long CreatedAt, long ExpiresAt, bool MarkersAttached)
+    long CreatedAt, long ExpiresAt, bool MarkersAttached, string Codec = "h264")
 {
     public static VodShareLinkDto From(VodShareEntry e) =>
-        new(e.Id, e.Url, e.Quality, e.IncludeNotes, e.SizeBytes, e.CreatedAt, e.ExpiresAt, e.MarkersAttached);
+        new(e.Id, e.Url, e.Quality, e.IncludeNotes, e.SizeBytes, e.CreatedAt, e.ExpiresAt, e.MarkersAttached,
+            e.Codec == "hevc" ? "hevc" : "h264");
 }
 
-/// <summary>GET /api/vod-share/status?gameId=N. PreferredQuality: "720p" when this account's last upload was too slow for 1080p.</summary>
+/// <summary>
+/// GET /api/vod-share/status?gameId=N. PreferredQuality: "720p" when this account's last upload was too slow for 1080p.
+/// Hevc: the HEVC choice (see <see cref="VodShareHevcDto"/>). PreferredCodec: the codec the last share on this PC
+/// was started with.
+/// </summary>
 public sealed record VodShareStatusDto(
     long GameId,
     bool SignedIn,
@@ -63,7 +82,9 @@ public sealed record VodShareStatusDto(
     VodShareJobDto? Job,
     VodShareLinkDto? Share,
     long? BusyGameId,
-    string? PreferredQuality = null);
+    string? PreferredQuality = null,
+    VodShareHevcDto? Hevc = null,
+    string? PreferredCodec = null);
 
 /// <summary>
 /// POST /api/vod-share/start reply (HTTP status + JSON body, like <see cref="ApiReply"/>). A
@@ -75,8 +96,9 @@ public sealed record VodShareStartReply(int Status, object Body)
         bool needsLogin = false, long? busyGameId = null) =>
         new(200, new { ok = false, errorCode, error, retryAt, needsLogin, busyGameId });
 
-    public static VodShareStartReply Accepted(string quality, string? qualityReason) =>
-        new(200, new { ok = true, accepted = true, quality, qualityReason });
+    public static VodShareStartReply Accepted(string quality, string? qualityReason, string codec = "h264",
+        string? codecReason = null) =>
+        new(200, new { ok = true, accepted = true, quality, qualityReason, codec, codecReason });
 
     public static VodShareStartReply AlreadyRunning() =>
         new(200, new { ok = true, accepted = true, alreadyRunning = true });

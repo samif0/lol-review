@@ -36,7 +36,7 @@ public sealed class VodShareStoreTests : IDisposable
         Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32());
         var share = Assert.Single(doc.RootElement.GetProperty("shares").EnumerateArray());
         Assert.Equal(
-            new[] { "gameId", "id", "url", "quality", "includeNotes", "sizeBytes", "createdAt", "expiresAt", "markersAttached" },
+            new[] { "gameId", "id", "url", "quality", "includeNotes", "sizeBytes", "createdAt", "expiresAt", "markersAttached", "codec" },
             share.EnumerateObject().Select(p => p.Name));
         Assert.Equal(123, share.GetProperty("gameId").GetInt64());
         Assert.Equal("https://revu.lol/v/abc1234", share.GetProperty("url").GetString());

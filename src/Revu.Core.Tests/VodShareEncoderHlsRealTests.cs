@@ -134,8 +134,9 @@ public sealed class VodShareEncoderHlsRealTests(Xunit.Abstractions.ITestOutputHe
         var length = probe?.DurationSeconds ?? SourceSeconds;
         var failures = new List<string>();
         var tested = 0;
-        foreach (var encoder in VodShareEncoderArgs.EncoderPriority)
+        foreach (var encoder in VodShareEncoderArgs.EncoderPriority.Concat(VodShareEncoderArgs.HevcEncoderPriority))
         {
+            var codec = VodShareEncoderArgs.CodecOf(encoder);
             if (!await ProbePassesAsync(ffmpeg, encoder))
             {
                 output.WriteLine($"{encoder}: not available here");
@@ -151,7 +152,7 @@ public sealed class VodShareEncoderHlsRealTests(Xunit.Abstractions.ITestOutputHe
             var full = run.Segments.Take(run.Segments.Count - 1).ToList();
             if (full.Any(s => s.DurationMs != 2000)) failures.Add($"{encoder}: segments of {string.Join(",", run.Segments.Select(s => s.DurationMs).Distinct())} ms");
             var bytes = run.Segments.Sum(s => s.Bytes) + run.Init!.Bytes.Length;
-            var estimate = VodShareEncoderArgs.EstimateBytes(VodShareQuality.P1080, 60, length);
+            var estimate = VodShareEncoderArgs.EstimateBytes(VodShareQuality.P1080, 60, length, codec);
             var (errors, duration) = await DecodeAsync(ffmpeg, Join(Path.Combine(dir, encoder + ".mp4"), run.Init.Bytes, run.Segments));
             output.WriteLine($"{encoder}: {run.Segments.Count} segments ({string.Join(",", run.Segments.Select(s => s.DurationMs).Distinct())} ms), "
                 + $"first after {run.FirstSegmentMs:F0} ms, {length / run.Seconds:F1}x, {bytes} bytes ({bytes / (double)estimate:P1} of the "
@@ -161,7 +162,7 @@ public sealed class VodShareEncoderHlsRealTests(Xunit.Abstractions.ITestOutputHe
                 + $"init={run.Init.Bytes.Length} decoded={duration:F3}{Environment.NewLine}");
             if (errors.Length > 0) failures.Add($"{encoder}: decode errors {errors}");
             if (Math.Abs((duration ?? 0) - length) > 0.15) failures.Add($"{encoder}: decodes to {duration} s of {length} s");
-            if (recording is not null && bytes > VodShareEncoderArgs.ReserveBytes(VodShareQuality.P1080, 60, length))
+            if (recording is not null && bytes > VodShareEncoderArgs.ReserveBytes(VodShareQuality.P1080, 60, length, codec))
                 failures.Add($"{encoder}: {bytes} bytes past the reservation for the estimate {estimate}");
         }
         Assert.True(tested > 0, "no encoder worked");

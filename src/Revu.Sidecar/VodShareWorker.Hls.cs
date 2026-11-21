@@ -67,8 +67,8 @@ public sealed partial class VodShareWorker
     }
 
     /// <summary>The 1080p rate an upload must sustain, in bytes per second (video with its overshoot, and audio).</summary>
-    internal static double Rate1080BytesPerSecond(int fps, double durationSeconds) =>
-        (VodShareEncoderArgs.VideoKbps(VodShareQuality.P1080, fps, durationSeconds) * 1.04 + 128) * 125;
+    internal static double Rate1080BytesPerSecond(int fps, double durationSeconds, VodShareCodec codec = VodShareCodec.H264) =>
+        (VodShareEncoderArgs.VideoKbps(VodShareQuality.P1080, fps, durationSeconds, codec) * VodShareEncoderArgs.Overhead(codec) + 128) * 125;
 
     /// <summary>One HLS job's state machine (plan 4.2).</summary>
     private sealed class HlsRun(VodShareWorker worker, VodShareJob job, string token) : IAsyncDisposable
@@ -94,7 +94,7 @@ public sealed partial class VodShareWorker
         public async Task<HlsOutcome?> RunAsync(Action<VodUploadStarted> assigned, string mp4File, CancellationToken ct)
         {
             Directory.CreateDirectory(_folder);
-            var declared = VodShareEncoderArgs.ReserveBytes(job.Quality, job.Fps, job.DurationSeconds);
+            var declared = VodShareEncoderArgs.ReserveBytes(job.Quality, job.Fps, job.DurationSeconds, job.Codec);
             var began = Stopwatch.GetTimestamp();
             StartEncode(ct);
 
@@ -109,7 +109,7 @@ public sealed partial class VodShareWorker
                 Log.LogInformation("Full-game share for game {GameId}: HLS is off now; sharing the finished copy instead", job.GameId);
                 await StopEncodeAsync().ConfigureAwait(false);
                 ClearFolder();
-                job.Format = "mp4";
+                ToMp4();
                 var mp4 = await worker.EncodeAndUploadAsync(job, mp4File, token, assigned, ct).ConfigureAwait(false);
                 return mp4 is { } done ? new HlsOutcome(done.Uploaded, done.Encoded.SizeBytes, false) : null;
             }
@@ -124,7 +124,7 @@ public sealed partial class VodShareWorker
                 // An older proxy reserved an MP4 upload: today's pipelined path on that row.
                 await StopEncodeAsync().ConfigureAwait(false);
                 ClearFolder();
-                job.Format = "mp4";
+                ToMp4();
                 assigned(start.Started);
                 var mp4 = await worker.EncodeAndUploadAsync(job, mp4File, token, assigned, ct, reserved).ConfigureAwait(false);
                 return mp4 is { } done ? new HlsOutcome(done.Uploaded, done.Encoded.SizeBytes, false) : null;
@@ -242,11 +242,25 @@ public sealed partial class VodShareWorker
             }
         }
 
+        /// <summary>The job continues as one MP4, which is always H.264.</summary>
+        private void ToMp4()
+        {
+            lock (worker._gate)
+            {
+                job.Format = "mp4";
+                if (job.Codec == VodShareCodec.Hevc)
+                {
+                    job.Codec = VodShareCodec.H264;
+                    job.CodecReason = "format";
+                }
+            }
+        }
+
         private void StartEncode(CancellationToken ct)
         {
             _encodeStop = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var request = new VodHlsEncodeRequest(job.SourcePath, _folder, job.Quality, job.Fps, job.DurationSeconds, _nextRun,
-                _nextSeq, _diskEnd, _upload?.Info.MaxRuns ?? 8);
+                _nextSeq, _diskEnd, _upload?.Info.MaxRuns ?? 8, job.Codec);
             _final = null;
             _addingDone = false;
             _encode = worker._encoder.EncodeHlsAsync(request, _items.Writer, null, _encodeStop.Token);
@@ -317,7 +331,7 @@ public sealed partial class VodShareWorker
             worker._cleanup.Remove(info.Id);
             lock (worker._gate) worker._storedAt[info.Id] = Stopwatch.GetTimestamp();
             worker._store.Put(new VodShareEntry(job.GameId, info.Id, info.Url, VodShareEncoderArgs.Wire(job.Quality), job.IncludeNotes,
-                _upload.State.AckedBytes, worker.Now(), info.ShareExpiresAt, false));
+                _upload.State.AckedBytes, worker.Now(), info.ShareExpiresAt, false, VodShareEncoderArgs.Wire(job.Codec)));
             Log.LogInformation("HLS share {Id} for game {GameId} is watchable", info.Id, job.GameId);
         }
 

@@ -26,12 +26,14 @@ internal static class VodShareQualityPolicy
     }
 
     /// <summary>Estimated share copy size in bytes (<see cref="VodShareEncoderArgs.EstimateBytes"/>).</summary>
-    public static long Estimate(VodShareQuality quality, int fps, double durationSeconds) =>
-        VodShareEncoderArgs.EstimateBytes(quality, fps, durationSeconds);
+    public static long Estimate(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264) =>
+        VodShareEncoderArgs.EstimateBytes(quality, fps, durationSeconds, codec);
 
     /// <summary>The bytes a pool check plans for: <c>ceil(Estimate * 1.03)</c>.</summary>
-    public static long PoolEstimate(VodShareQuality quality, int fps, double durationSeconds) =>
-        (long)Math.Ceiling(Estimate(quality, fps, durationSeconds) * PoolMargin);
+    public static long PoolEstimate(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264) =>
+        (long)Math.Ceiling(Estimate(quality, fps, durationSeconds, codec) * PoolMargin);
 
     /// <summary>
     /// <c>too_long</c> past 2 hours; 1080p falls back to 720p when a long game would push its
@@ -40,27 +42,28 @@ internal static class VodShareQualityPolicy
     /// does not fit the pool is <c>pool_full</c> with the time it would fit. A null pool skips
     /// the pool checks.
     /// </summary>
-    public static Decision Decide(VodShareQuality requested, int fps, double durationSeconds, VodSharePool? pool, long now)
+    public static Decision Decide(VodShareQuality requested, int fps, double durationSeconds, VodSharePool? pool, long now,
+        VodShareCodec codec = VodShareCodec.H264)
     {
         if (!double.IsFinite(durationSeconds) || durationSeconds <= 0 || VodShareEncoderArgs.IsTooLong(durationSeconds))
             return new Decision(requested, null, "too_long", null);
 
         var quality = requested;
         string? reason = null;
-        if (quality == VodShareQuality.P1080 && VodShareEncoderArgs.TooLongFor1080(fps, durationSeconds))
+        if (quality == VodShareQuality.P1080 && VodShareEncoderArgs.TooLongFor1080(fps, durationSeconds, codec))
         {
             quality = VodShareQuality.P720;
             reason = "size";
         }
         if (pool is not null && quality == VodShareQuality.P1080
-            && PoolEstimate(VodShareQuality.P1080, fps, durationSeconds) > pool.FreeBytes)
+            && PoolEstimate(VodShareQuality.P1080, fps, durationSeconds, codec) > pool.FreeBytes)
         {
             quality = VodShareQuality.P720;
             reason = "pool";
         }
         if (pool is not null && quality == VodShareQuality.P720)
         {
-            var est720 = PoolEstimate(VodShareQuality.P720, fps, durationSeconds);
+            var est720 = PoolEstimate(VodShareQuality.P720, fps, durationSeconds, codec);
             if (est720 > pool.FreeBytes)
                 return new Decision(quality, reason, "pool_full", pool.FitsAt(est720, now));
         }
@@ -68,6 +71,7 @@ internal static class VodShareQualityPolicy
     }
 
     /// <summary>Free disk needed to prepare a copy: <c>est * 1.2 + 256 MiB</c>.</summary>
-    public static long DiskNeeded(VodShareQuality quality, int fps, double durationSeconds) =>
-        (long)Math.Ceiling(Estimate(quality, fps, durationSeconds) * 1.2m) + 268435456L;
+    public static long DiskNeeded(VodShareQuality quality, int fps, double durationSeconds,
+        VodShareCodec codec = VodShareCodec.H264) =>
+        (long)Math.Ceiling(Estimate(quality, fps, durationSeconds, codec) * 1.2m) + 268435456L;
 }

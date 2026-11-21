@@ -292,7 +292,9 @@ idle uploads on the owner's next init and the cron aborts expired ones.
 ## Full-game (VOD) shares
 
 A whole game's recording, re-encoded by the desktop app (H.264, about 35 MB per
-minute at 1080p), shared as `https://revu.lol/v/<id>` for 3 days. VOD rows live
+minute at 1080p; or HEVC at about 0.6 of that when the sharer picks the smaller
+file, as HLS segments only), shared as `https://revu.lol/v/<id>` for 3 days.
+No route reads the codec: `quality` is the resolution and frame rate alone. VOD rows live
 in `clips` with `kind = 'vod'` and R2 key `vods/<id>.mp4`, so the hourly purge,
 owner delete (`DELETE /clips/:id`), account deletion and the storage budget
 handle them like every other stored object. Clip routes never serve or change a

@@ -10,16 +10,17 @@
 import {
   CHECKING, CONFIRM_STOP, CONFIRM_STOP_LIVE, ENDED_EARLY, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT, LINK_EARLY,
   LINK_LIVE, LINK_READY, LINK_REPLACING, PAUSED_GAME, POOL_720_HINT, SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED,
-  formatShareTime, safeShareUrl, vodShareErrorText, vodShareLiveNote, vodSharePhaseLabel, vodSharePlan, vodShareProgressLabel,
-  vodShareTtlText,
+  formatShareTime, safeShareUrl, vodShareCodecNote, vodShareErrorText, vodShareLiveNote, vodSharePhaseLabel, vodSharePlan,
+  vodShareProgressLabel, vodShareTtlText,
 } from './vod-share-copy.mjs';
 
 export {
   SHARE_LINK, CHECKING, CONFIRM_STOP, CONFIRM_STOP_LIVE, ENDED_EARLY, KEEP_REVIEWING, LINK_CHANGED, LINK_CHANGED_SHORT,
   LINK_EARLY, LINK_GONE, LINK_LIVE, LINK_READY, LINK_REPLACING, LINK_WATCH_NOW, LINK_WATCH_SOON, PAUSED_GAME, POOL_720_HINT,
   SIZE_720_NOTE, STOP_FAILED, STOPPED, STOPPED_QUEUED, SWITCHED_720, UPLINK_720_HINT, UPLINK_SLOW, formatShareSize,
-  formatShareTime, safeShareUrl, shareQualityLabel, vodShareErrorText, vodShareLiveNote, vodSharePhaseLabel, vodSharePlan,
-  vodShareProgressLabel, vodShareTtlText,
+  formatShareTime, safeShareUrl, shareQualityLabel, vodShareCodecNote, vodShareErrorText, vodShareLiveNote, vodSharePhaseLabel,
+  vodSharePlan, vodShareProgressLabel, vodShareTtlText, SMALLER_HINT, SMALLER_NO_ENCODER, SMALLER_FELL_BACK_ENCODER,
+  SMALLER_FELL_BACK_FORMAT,
 } from './vod-share-copy.mjs';
 
 const percentOf = value => Math.max(0, Math.min(100, Math.floor(Number(value) || 0)));
@@ -42,6 +43,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
   let status = null, job = null, share = null, denied = false, watching = false, cancelling = false;
   let starting = false, stopping = false, checking = false, sheetOpen = false, confirming = null;
   let quality = '1080p', qualityPicked = false, includeNotes = false, message = null, rowNote = null, canOpen = false;
+  // The file choice (standard H.264 or the smaller HEVC): until the player picks, what the last share on this PC used.
+  let codec = 'h264', codecPicked = false;
   let pollTimer = null, polling = false, pollFailures = 0, rowNoteTimer = null, justDone = false;
   let rowMode = 'hidden', rowSaid = '', progressSaid = '';
   const copyTimers = new Map();
@@ -55,7 +58,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     error: entry?.error, limits: status?.limits, time, can720: entry?.quality === '1080p' && status?.pool?.fits720 !== false,
     linkShown: entry?.linkShown === true, kept: entry?.kept === true }));
   // The start plan: the player's pick, or 'auto' (720p for an account whose last upload was too slow) before any.
-  const planNow = () => vodSharePlan(status, qualityPicked ? quality : 'auto');
+  const planNow = () => vodSharePlan(status, qualityPicked ? quality : 'auto', codecPicked ? codec : 'auto');
   // While a share runs: its progress, that it waits for the player's game, or that the link changed.
   const runningDetail = () => (job.paused ? `${vodShareProgressLabel(job)}. ${PAUSED_GAME}`
     : job.linkChanged ? `${vodShareProgressLabel(job)}. ${LINK_CHANGED_SHORT}` : vodShareProgressLabel(job));
@@ -74,6 +77,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     generation++; gameId = id; status = null; job = null; share = null; watching = false; cancelling = false;
     starting = false; stopping = false; checking = false; confirming = null; message = null; rowNote = null;
     quality = '1080p'; qualityPicked = false; includeNotes = false; lastRead = -Infinity; reading = null; justDone = false;
+    codec = 'h264'; codecPicked = false;
     denied = false;
     stopPolling();
     closeSheet();
@@ -87,7 +91,7 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       quality: source.quality ?? job?.quality ?? null, qualityReason: source.qualityReason ?? job?.qualityReason ?? null,
       url, expiresAt: url ? source.expiresAt ?? job?.expiresAt ?? null : null, linkChanged: flag('linkChanged'),
       format: source.format ?? job?.format ?? 'mp4', watchable: flag('watchable'), uplinkSlow: flag('uplinkSlow'),
-      paused: flag('paused') };
+      paused: flag('paused'), codecReason: source.codecReason ?? job?.codecReason ?? null };
     rowNote = null;
     if (!watching) { watching = true; startPolling(); }
   }
@@ -239,14 +243,17 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     const id = gameId, gen = generation;
     starting = true; message = null; paint();
     let reply = null;
-    try { reply = await invoke('start_vod_share', { payload: { gameId: id, quality: plan.quality, includeNotes } }); }
+    try {
+      reply = await invoke('start_vod_share', { payload: { gameId: id, quality: plan.quality, includeNotes, codec: plan.codec } });
+    }
     catch (_) { reply = null; }
     if (gen !== generation) return;
     starting = false;
     if (reply?.ok === true && reply.alreadyShared && safeShareUrl(reply.share?.url)) share = reply.share;
     else if (reply?.ok === true && reply.accepted) {
       epoch++; cancelling = false;
-      takeJob({ phase: 'queued', percent: 0, quality: reply.quality || plan.quality, qualityReason: reply.qualityReason });
+      takeJob({ phase: 'queued', percent: 0, quality: reply.quality || plan.quality, qualityReason: reply.qualityReason,
+        codecReason: reply.codecReason });
     } else report({ ...(reply?.ok === false ? reply : { errorCode: '', error: reply?.error }), quality: plan.quality });
     paint();
     if (sheetOpen) focusView();
@@ -369,6 +376,12 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       setText(hook(sheet, 'q1080-label'), plan.labels.p1080);
       setText(hook(sheet, 'q720-label'), plan.labels.p720);
       showText(hook(sheet, 'hint'), plan.hint);
+      // The file choice shows only when this share can be the smaller file at all.
+      setHidden(hook(sheet, 'codec-group'), !plan.codecOffered);
+      const standard = hook(sheet, 'c-h264'), smaller = hook(sheet, 'c-hevc');
+      if (standard) { standard.checked = plan.codec === 'h264'; standard.disabled = starting; }
+      if (smaller) { smaller.checked = plan.codec === 'hevc'; smaller.disabled = plan.disableHevc || starting; }
+      showText(hook(sheet, 'codec-hint'), plan.codecHint);
       setText(hook(sheet, 'ttl'), vodShareTtlText(status?.ttlSeconds));
       setHidden(hook(sheet, 'imported'), !plan.imported);
       const notes = hook(sheet, 'notes');
@@ -392,7 +405,8 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
       showText(hook(sheet, 'progress-link-note'), job.format === 'hls' ? vodShareLiveNote(job)
         : live ? (job.linkChanged ? LINK_CHANGED : LINK_EARLY) : job.linkChanged ? LINK_REPLACING : '');
       const reason = job.qualityReason === 'pool' ? POOL_720_HINT : job.qualityReason === 'size' ? SIZE_720_NOTE : '';
-      setText(hook(sheet, 'progress-note'), reason ? `${reason} ${KEEP_REVIEWING}` : KEEP_REVIEWING);
+      const notes = [reason, vodShareCodecNote(job.codecReason), KEEP_REVIEWING].filter(Boolean);
+      setText(hook(sheet, 'progress-note'), notes.join(' '));
     } else {
       const url = link(), field = hook(sheet, 'url');
       if (field && field.value !== url) field.value = url;
@@ -458,6 +472,12 @@ export function createVodShare({ openButton, row, sheet, invoke, platform = null
     hook(sheet, name)?.addEventListener?.('change', event => {
       if (event?.target?.checked === false) return;
       quality = name === 'q720' ? '720p' : '1080p'; qualityPicked = true; message = null; paint();
+    });
+  }
+  for (const name of ['c-h264', 'c-hevc']) {
+    hook(sheet, name)?.addEventListener?.('change', event => {
+      if (event?.target?.checked === false) return;
+      codec = name === 'c-hevc' ? 'hevc' : 'h264'; codecPicked = true; message = null; paint();
     });
   }
   hook(sheet, 'notes')?.addEventListener?.('change', event => { includeNotes = event?.target?.checked === true; });

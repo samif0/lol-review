@@ -24,6 +24,29 @@ public sealed class VodShareQualityPolicyTests
     }
 
     [Fact]
+    public void Hevc_IsEstimatedAtItsOwnRates_AndKeepsATwoHourGameAt1080p()
+    {
+        Assert.Equal(966_438_900, VodShareQualityPolicy.Estimate(VodShareQuality.P1080, 60, 2255.4, VodShareCodec.Hevc));
+        Assert.Equal(594_297_900, VodShareQualityPolicy.Estimate(VodShareQuality.P720, 60, 2255.4, VodShareCodec.Hevc));
+        Assert.Equal((long)Math.Ceiling(966_438_900 * 1.03m),
+            VodShareQualityPolicy.PoolEstimate(VodShareQuality.P1080, 60, 2255.4, VodShareCodec.Hevc));
+
+        // Two hours: H.264 would have to go under its 1080p floor to fit and becomes 720p; HEVC stays 1080p.
+        var h264 = VodShareQualityPolicy.Decide(VodShareQuality.P1080, 60, 7200, Pool(5_684_416_667), Now);
+        var hevc = VodShareQualityPolicy.Decide(VodShareQuality.P1080, 60, 7200, Pool(5_684_416_667), Now, VodShareCodec.Hevc);
+        Assert.Equal((VodShareQuality.P720, "size"), (h264.Quality, h264.Reason));
+        Assert.Equal((VodShareQuality.P1080, (string?)null, (string?)null), (hevc.Quality, hevc.Reason, hevc.ErrorCode));
+
+        // A pool that only fits the smaller copy keeps HEVC at 1080p where H.264 drops to 720p.
+        var tight = Pool(1_100_000_000);
+        var tightH264 = VodShareQualityPolicy.Decide(VodShareQuality.P1080, 60, 2255.4, tight, Now);
+        Assert.Equal((VodShareQuality.P720, "pool"), (tightH264.Quality, tightH264.Reason));
+        Assert.Equal(VodShareQuality.P1080, VodShareQualityPolicy.Decide(VodShareQuality.P1080, 60, 2255.4, tight, Now, VodShareCodec.Hevc).Quality);
+        Assert.True(VodShareQualityPolicy.DiskNeeded(VodShareQuality.P1080, 60, 2255.4, VodShareCodec.Hevc)
+            < VodShareQualityPolicy.DiskNeeded(VodShareQuality.P1080, 60, 2255.4));
+    }
+
+    [Fact]
     public void ANormalGame_Keeps1080p()
     {
         var d = VodShareQualityPolicy.Decide(VodShareQuality.P1080, 60, 2255.4, Pool(5_684_416_667), Now);

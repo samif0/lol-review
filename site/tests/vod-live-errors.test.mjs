@@ -156,6 +156,19 @@ test('offline: the page says so and picks up where it was once back online; Try 
   assert.deepEqual(run.hls().calls, [['attachMedia'], ['loadSource', playlist(3)], ['startLoad', 70]]);
 });
 
+test('a game shared as the smaller file, where the browser cannot decode it, says so once and offers no retry', async () => {
+  for (const details of ['bufferAddCodecError', 'bufferIncompatibleCodecsError']) {
+    const run = await playing({ routes: { [META]: hlsMeta() } });
+    run.hls().fail('mediaError', true, undefined, details);
+    await run.advance(0);
+    assert.equal(run.message(), "This game was shared as a smaller video file that this browser can't play. "
+      + 'Try Chrome, Edge or Safari on a recent device, or ask whoever sent the link to share the standard file.');
+    assert.equal(run.$('vod-retry').hidden, true, 'loading again cannot help');
+    assert.ok(!run.hls() || !run.hls().calls.some(call => call[0] === 'recoverMediaError'), 'no recovery is tried');
+    assert.equal(run.FakeHls.instances.length, 1, 'no second player');
+  }
+});
+
 test('an hls.js without its SRI pin is never loaded: the page fails closed and mints nothing', async () => {
   const run = openPage({ pinned: false, routes: { [META]: hlsMeta() } });
   await run.advance(0);
