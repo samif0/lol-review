@@ -101,13 +101,13 @@
     "url": "https://github.com/Haivision/srt/archive/refs/tags/v1.5.2.zip"
   },
   {
-    "sha256": "fd725c491e4a72d7d2620adc1127355536bf01e1c8ffc874d32be42a822f8117",
+    "sha256": "4c4ca7313bf4770f9af9cb45e8419ca1dab6328ee2e0c8e230d1e6532215c390",
     "archive": "librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz",
     "name": "librist",
     "revision": "809390b3b75a259a704079d0fb4d8f1b5f7fa956",
-    "url": "https://code.videolan.org/rist/librist/-/archive/809390b3b75a259a704079d0fb4d8f1b5f7fa956/librist-809390b3b75a259a704079d0fb4d8f1b5f7fa956.tar.gz",
+    "url": "https://code.videolan.org/api/v4/projects/rist%2Flibrist/repository/archive.tar.gz?sha=809390b3b75a259a704079d0fb4d8f1b5f7fa956",
     "transport": "windows-curl",
-    "transportReason": "The official host rejects Node fetch with HTTP 406. Windows curl retrieves the unchanged, checksum-pinned archive."
+    "transportReason": "The official host rejects Node fetch with HTTP 406. Windows curl retrieves the unchanged, checksum-pinned archive. Since 2026-11-20 the host closes the connection on its /-/archive/ link for a commit, so this is its API link for the same commit: the same 314 files under a different top folder name."
   },
   {
     "sha256": "42d72fbcca46e05a1c05a79f1cda1fedd68ba686b21adf917e05d908153645d9",
